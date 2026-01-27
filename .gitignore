@@ -9,6 +9,9 @@
 # Downloaded mods (can be re-fetched)
 /mods/
 
+# Signing keys (machine-specific, preserves app identity across rebuilds)
+/keys/
+
 # IDE
 .idea/
 .vscode/

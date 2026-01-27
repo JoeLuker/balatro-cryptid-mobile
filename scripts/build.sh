@@ -261,7 +261,7 @@ EOF
 
     log_info "Signing APK..."
     ensure_keystore
-    apksigner sign --ks "$BUILD_DIR/debug.keystore" --ks-pass pass:android \
+    apksigner sign --ks "$KEYSTORE_FILE" --ks-pass pass:android \
         --out "$BUILD_DIR/apk/$PACKAGE_ID.apk" "$BUILD_DIR/apk/aligned.apk"
 
     log_success "APK built: $BUILD_DIR/apk/$PACKAGE_ID.apk"
@@ -287,13 +287,21 @@ apply_crt_fix() {
 }
 
 ensure_keystore() {
-    if [[ ! -f "$BUILD_DIR/debug.keystore" ]]; then
+    local keystore_dir="$PROJECT_DIR/keys"
+    local keystore_file="$keystore_dir/debug.keystore"
+
+    mkdir -p "$keystore_dir"
+
+    if [[ ! -f "$keystore_file" ]]; then
         log_info "Creating debug keystore..."
-        keytool -genkey -v -keystore "$BUILD_DIR/debug.keystore" \
+        keytool -genkey -v -keystore "$keystore_file" \
             -storepass android -alias androiddebugkey -keypass android \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
     fi
+
+    # Export for use in signing
+    KEYSTORE_FILE="$keystore_file"
 }
 
 # Prepare files for phone transfer (only Mods folder - dump files are in APK)
