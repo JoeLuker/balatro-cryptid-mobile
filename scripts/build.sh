@@ -238,6 +238,7 @@ EOF
     # Apply Android mobile UI fix
     log_info "Applying Android settings fix..."
     apply_android_settings_fix "$BUILD_DIR/apktool/assets/globals.lua"
+    apply_android_video_settings_fix "$BUILD_DIR/apktool/assets/functions/UI_definitions.lua"
 
     # Ensure conf.lua doesn't have externalstorage
     log_info "Patching conf.lua..."
@@ -320,6 +321,44 @@ apply_android_settings_fix() {
     }' "$globals_file"
 
     log_success "Android settings fix applied"
+}
+
+# Hide desktop-only video settings on Android
+apply_android_video_settings_fix() {
+    local ui_file="$1"
+
+    if [[ ! -f "$ui_file" ]]; then
+        log_warn "UI_definitions.lua not found, skipping video settings fix"
+        return
+    fi
+
+    # Check if already patched
+    if grep -q "Android video settings hidden" "$ui_file"; then
+        log_info "Video settings already patched for Android"
+        return
+    fi
+
+    log_info "Patching UI_definitions.lua to hide video settings on Android..."
+
+    # Replace the Video tab content to check for Android
+    sed -i "/elseif tab == 'Video' then/,/elseif tab == 'Audio' then/ {
+        /elseif tab == 'Video' then/ {
+            a\\
+    -- Android video settings hidden (monitor/resolution don't apply)\\
+    if love.system.getOS() == 'Android' then\\
+      return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.1, colour = G.C.CLEAR}, nodes={\\
+        {n=G.UIT.R, config={align = \"cm\"}, nodes={\\
+          {n=G.UIT.T, config={text = \"Video settings not available\", scale = 0.5, colour = G.C.UI.TEXT_LIGHT}}\\
+        }},\\
+        {n=G.UIT.R, config={align = \"cm\"}, nodes={\\
+          {n=G.UIT.T, config={text = \"on mobile devices\", scale = 0.4, colour = G.C.UI.TEXT_INACTIVE}}\\
+        }}\\
+      }}\\
+    end
+        }
+    }" "$ui_file"
+
+    log_success "Video settings hidden on Android"
 }
 
 ensure_keystore() {

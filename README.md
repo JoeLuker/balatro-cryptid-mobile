@@ -78,6 +78,70 @@ nix-shell -p apktool android-tools just
 | `just logs` | Watch app logs |
 | `just restart` | Restart the app |
 | `just clean` | Remove build artifacts |
+| `just list-configs` | Show config override files |
+| `just edit-cryptid` | Edit Cryptid config |
+| `just edit-steamodded` | Edit Steamodded config |
+
+## Adding and Managing Mods
+
+### Two Types of Mods
+
+**1. Pure Lua Mods** (e.g., Cryptid, Talisman)
+- Just Lua code that runs on top of the game
+- Can be added by placing them in `mods/` and updating `build.sh`
+- Work immediately after rebuild
+
+**2. Lovely-Patching Mods** (e.g., sticky-fingers)
+- Use `.toml` files to patch game engine code
+- Require regenerating dump files on desktop
+- More complex to add
+
+### Adding a Pure Lua Mod
+
+1. Download/clone the mod to `mods/YourMod/`
+2. Edit `scripts/build.sh` - add the mod name to the `for mod in ...` loops (search for "Steamodded Cryptid")
+3. Run `just build && just deploy`
+
+### Adding a Lovely-Patching Mod
+
+These mods modify the game's core Lua files via lovely's patch system. The patches are applied when generating dump files, not at runtime.
+
+1. **On your desktop Mac/PC:**
+   - Install the mod in Balatro's Mods folder (`~/Library/Application Support/Balatro/Mods/` on Mac)
+   - Run Balatro with lovely injector installed
+   - The patched code is written to `~/Library/Application Support/Balatro/Mods/lovely/dump/`
+
+2. **Copy dump files to this project:**
+   ```bash
+   # From Mac (replace with your path)
+   cp -r ~/Library/Application\ Support/Balatro/Mods/lovely/dump/* src/dump/
+
+   # Or via SSH from othaos
+   scp -r othaos:"~/Library/Application Support/Balatro/Mods/lovely/dump/*" src/dump/
+   ```
+
+3. **Add the mod to the build:**
+   - Place the mod in `mods/YourMod/`
+   - Update `build.sh` to include it
+   - Run `just build && just deploy`
+
+**Important:** Any time you add/remove/update a lovely-patching mod, you must regenerate the dump files on desktop.
+
+### Config Overrides
+
+Mod configs in `mods/` are overwritten when you run `just fetch`. To preserve your settings:
+
+1. Edit files in `config-overrides/` instead:
+   - `config-overrides/Cryptid/config.lua`
+   - `config-overrides/Steamodded/config.lua`
+
+2. These are automatically copied over the downloaded configs after fetch
+
+### Which Type is My Mod?
+
+Check if the mod has a `lovely/` folder with `.toml` files:
+- **Has `.toml` patches** → Lovely-patching mod (needs dump regeneration)
+- **No `.toml` patches** → Pure Lua mod (just add and rebuild)
 
 ## Patches
 
