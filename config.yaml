@@ -1,0 +1,76 @@
+# Balatro Cryptid Mobile - Build Configuration
+# This file declares everything needed to build the modded APK
+
+app:
+  package_id: com.unofficial.balatro.cryptid
+  name: "Balatro Cryptid"
+  version: "1.0.1o-modded"
+  debuggable: true  # Required for pushing mods via run-as
+
+sources:
+  # Original Balatro.love from Steam
+  balatro_love:
+    type: local
+    path: ~/Library/Application Support/Steam/steamapps/common/Balatro/Balatro.app/Contents/Resources/Balatro.love
+    # Alternative: fetch from othaos via SSH
+    ssh_host: othaos
+    ssh_path: ~/Library/Application Support/Steam/steamapps/common/Balatro/Balatro.app/Contents/Resources/Balatro.love
+
+  # Android LÖVE base APK
+  base_apk:
+    type: url
+    url: https://lmm.shorty.systems/base.apk
+    sha256: null  # TODO: add checksum
+
+mods:
+  steamodded:
+    type: github
+    repo: Steamodded/smods
+    tag: latest
+    required: true
+
+  cryptid:
+    type: github
+    repo: MathIsFun0/Cryptid
+    tag: latest
+    required: true
+
+  talisman:
+    type: github
+    repo: MathIsFun0/Talisman
+    tag: latest
+    required: true
+
+  lovely:
+    type: github
+    repo: ethangreen-dev/lovely-injector
+    tag: latest
+    required: true
+
+patches:
+  # Patches applied during build
+  - name: android-nativefs
+    description: "Wraps nativefs to use love.filesystem on Android"
+    file: patches/android-nativefs.lua
+
+  - name: crt-shader-fix
+    description: "Fixes CRT shader floating point overflow on Pixel/Tensor GPUs"
+    file: patches/crt-shader-fix.patch
+
+build:
+  # Build output settings
+  output_dir: build
+  apk_name: balatro-cryptid.apk
+
+  # Tool requirements
+  tools:
+    - apktool
+    - zipalign
+    - apksigner
+    - adb
+
+deploy:
+  # Deployment to phone
+  device: null  # Auto-detect, or specify serial
+  install_method: adb
+  mods_location: internal  # internal (via run-as) or external (SD card)

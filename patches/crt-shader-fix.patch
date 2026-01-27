@@ -1,0 +1,21 @@
+--- a/resources/shaders/CRT.fs
++++ b/resources/shaders/CRT.fs
+@@ -1,5 +1,5 @@
+ // CRT Shader for Balatro
+-// Original noise calculation causes floating point overflow on Tensor GPUs (Pixel phones)
++// Fixed for Pixel/Tensor GPU compatibility
+
+ // Replace the noise calculation section:
+ // BEFORE (causes black oval on Pixel phones):
+@@ -10,3 +10,11 @@
+ //   MY_HIGHP_OR_MEDIUMP float noise_blend = clamp(noise_fac * artifact_amplifier, 0.0, 1.0);
+ //   rgb_result = (1.0 - noise_blend) * rgb_result + dx * noise_blend * vec3(1.0, 1.0, 1.0);
+
++// AFTER (hash-based approach that avoids overflow):
++//   // Use hash-based noise instead of unbounded time multiplication
++//   MY_HIGHP_OR_MEDIUMP float wrapped_time = mod(time, 100.0);
++//   MY_HIGHP_OR_MEDIUMP float hash_input = tc.x * 12.9898 + tc.y * 78.233 + wrapped_time * 43.758;
++//   MY_HIGHP_OR_MEDIUMP float noise_hash = fract(sin(hash_input) * 43758.5453);
++//   MY_HIGHP_OR_MEDIUMP float dx = noise_hash;
++//   MY_HIGHP_OR_MEDIUMP float noise_blend = clamp(noise_fac * artifact_amplifier, 0.0, 1.0);
++//   rgb_result = (1.0 - noise_blend) * rgb_result + dx * noise_blend * vec3(1.0, 1.0, 1.0);
