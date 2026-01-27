@@ -47,6 +47,13 @@ mods:
     tag: latest
     required: true
 
+  sticky-fingers:
+    type: github-source
+    repo: eramdam/sticky-fingers
+    tag: latest
+    required: false
+    description: "Mobile-style touch/drag controls for jokers, boosters, consumables"
+
 patches:
   # Patches applied during build
   - name: android-nativefs

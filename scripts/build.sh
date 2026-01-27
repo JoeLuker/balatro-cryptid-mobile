@@ -82,6 +82,7 @@ fetch_sources() {
     fetch_mod "MathIsFun0/Cryptid" "cryptid" "Cryptid"
     fetch_mod "MathIsFun0/Talisman" "talisman" "Talisman"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
+    fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
 
     # Apply config overrides
     apply_config_overrides
@@ -123,6 +124,21 @@ fetch_mod() {
             mv "$MODS_DIR/${repo##*/}-main" "$MODS_DIR/$extract_name" 2>/dev/null || true
             rm "$zip_file"
         fi
+    fi
+}
+
+# Fetch mod from source (no release zip, just clone the repo)
+fetch_mod_source() {
+    local repo="$1"
+    local extract_name="$2"
+
+    if [[ ! -d "$MODS_DIR/$extract_name" ]]; then
+        log_info "Fetching $extract_name from GitHub source..."
+        local zip_file="$MODS_DIR/$extract_name.zip"
+        curl -L -o "$zip_file" "https://github.com/$repo/archive/refs/heads/main.zip"
+        unzip -q -o "$zip_file" -d "$MODS_DIR/"
+        mv "$MODS_DIR/${repo##*/}-main" "$MODS_DIR/$extract_name"
+        rm "$zip_file"
     fi
 }
 
@@ -198,7 +214,7 @@ build_apk() {
     # Embed Mods folder in APK (so love.filesystem.read can access them)
     log_info "Embedding Mods folder in APK..."
     mkdir -p "$BUILD_DIR/apktool/assets/Mods"
-    for mod in Steamodded Cryptid Talisman lovely; do
+    for mod in Steamodded Cryptid Talisman lovely sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$BUILD_DIR/apktool/assets/Mods/"
             log_info "  Embedded $mod"
@@ -289,7 +305,7 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder
-    for mod in Steamodded Cryptid Talisman lovely; do
+    for mod in Steamodded Cryptid Talisman lovely sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
         fi
