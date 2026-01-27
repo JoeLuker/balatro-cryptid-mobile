@@ -86,3 +86,16 @@ save-logs:
 # Interactive shell in app context
 shell:
     adb shell "run-as com.unofficial.balatro.cryptid sh"
+
+# List config overrides
+list-configs:
+    @echo "Config overrides (edit these, they persist across fetches):"
+    @ls -la config-overrides/*/
+
+# Edit Cryptid config
+edit-cryptid:
+    ${EDITOR:-vim} config-overrides/Cryptid/config.lua
+
+# Edit Steamodded config
+edit-steamodded:
+    ${EDITOR:-vim} config-overrides/Steamodded/config.lua

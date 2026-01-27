@@ -83,7 +83,24 @@ fetch_sources() {
     fetch_mod "MathIsFun0/Talisman" "talisman" "Talisman"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
 
+    # Apply config overrides
+    apply_config_overrides
+
     log_success "Sources fetched"
+}
+
+apply_config_overrides() {
+    local overrides_dir="$PROJECT_DIR/config-overrides"
+    if [[ -d "$overrides_dir" ]]; then
+        log_info "Applying config overrides..."
+        for mod_dir in "$overrides_dir"/*/; do
+            local mod_name=$(basename "$mod_dir")
+            if [[ -d "$MODS_DIR/$mod_name" ]]; then
+                cp -r "$mod_dir"* "$MODS_DIR/$mod_name/"
+                log_info "  Applied overrides for $mod_name"
+            fi
+        done
+    fi
 }
 
 fetch_mod() {
