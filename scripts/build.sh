@@ -235,6 +235,10 @@ EOF
     log_info "Applying CRT shader fix..."
     apply_crt_fix "$BUILD_DIR/apktool/assets/resources/shaders/CRT.fs"
 
+    # Apply Android mobile UI fix
+    log_info "Applying Android settings fix..."
+    apply_android_settings_fix "$BUILD_DIR/apktool/assets/globals.lua"
+
     # Ensure conf.lua doesn't have externalstorage
     log_info "Patching conf.lua..."
     cat > "$BUILD_DIR/apktool/assets/conf.lua" << 'EOF'
@@ -284,6 +288,38 @@ apply_crt_fix() {
     else
         log_info "CRT shader already fixed or pattern not found"
     fi
+}
+
+apply_android_settings_fix() {
+    local globals_file="$1"
+
+    if [[ ! -f "$globals_file" ]]; then
+        log_warn "globals.lua not found, skipping Android settings fix"
+        return
+    fi
+
+    # Check if already patched
+    if grep -q "Android mobile settings" "$globals_file"; then
+        log_info "Android settings already patched"
+        return
+    fi
+
+    log_info "Patching globals.lua for Android mobile UI..."
+
+    # Add Android-specific settings after the Windows block
+    sed -i '/if love.system.getOS() == .Windows. then/,/end/ {
+        /end/ a\
+    -- Android mobile settings (enables mobile UI, disables desktop-only features)\
+    if love.system.getOS() == '"'"'Android'"'"' then\
+        self.F_MOBILE_UI = true\
+        self.F_SAVE_TIMER = 30\
+        self.F_DISCORD = false\
+        self.F_CRASH_REPORTS = false\
+        self.F_RUMBLE = false\
+    end
+    }' "$globals_file"
+
+    log_success "Android settings fix applied"
 }
 
 ensure_keystore() {
