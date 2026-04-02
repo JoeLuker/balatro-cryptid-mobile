@@ -256,6 +256,10 @@ EOF
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
+    # Copy telemetry module into game root
+    cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
+    log_success "Telemetry module embedded"
+
     # Patch conf.lua
     cat > "$game_dir/conf.lua" << 'EOF'
 _RELEASE_MODE = true

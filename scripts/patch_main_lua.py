@@ -121,6 +121,18 @@ end"""
     write_replacement = """pcall(function() if love.system.getOS() ~= 'Android' then nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end end)"""
     content = re.sub(write_pattern, write_replacement, content)
 
+    # 9. Inject telemetry loader at end of file (after all game setup)
+    content += """
+-- Android telemetry: load after all game hooks are set up
+if love.system.getOS() == 'Android' then
+    local tel_ok, tel_err = pcall(function()
+        local chunk = love.filesystem.load('android-telemetry.lua')
+        if chunk then chunk() end
+    end)
+    if not tel_ok then print('[TEL] LOAD_FAILED error=' .. tostring(tel_err)) end
+end
+"""
+
     with open(filepath, 'w') as f:
         f.write(content)
 

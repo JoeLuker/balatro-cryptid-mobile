@@ -83,6 +83,14 @@ save-logs:
     adb logcat -d > build/logcat.txt
     @echo "Logs saved to build/logcat.txt"
 
+# Watch telemetry events (live)
+tel:
+    adb logcat -s SDL/APP:I | grep --line-buffered TEL
+
+# Watch telemetry from a specific device (pass serial)
+tel-device serial:
+    adb -s {{serial}} logcat -s SDL/APP:I | grep --line-buffered TEL
+
 # Interactive shell in app context
 shell:
     adb shell "run-as systems.shorty.lmm sh"
