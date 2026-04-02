@@ -14,6 +14,9 @@ PATCHES_DIR="$PROJECT_DIR/patches"
 
 # Config (could be read from config.yaml with yq)
 PACKAGE_ID="com.unofficial.balatro.cryptid"
+# The base APK's original package - used for adb/run-as since renameManifestPackage
+# doesn't work reliably with apktool 2.12.x
+INSTALLED_PACKAGE_ID="systems.shorty.lmm"
 APP_NAME="Balatro Cryptid"
 DEBUGGABLE="true"
 
@@ -40,7 +43,7 @@ check_tools() {
         find /nix/store -maxdepth 6 -name "$tool" -type f 2>/dev/null | grep -v "\.drv" | head -1
     }
 
-    for tool in apktool zipalign apksigner adb keytool unzip curl; do
+    for tool in apktool zipalign apksigner adb keytool unzip zip curl; do
         if ! command -v "$tool" &>/dev/null; then
             local nix_path=$(find_nix_tool "$tool")
             if [[ -n "$nix_path" ]]; then
@@ -170,7 +173,7 @@ generate_dumps() {
 build_apk() {
     log_info "Building APK..."
 
-    mkdir -p "$BUILD_DIR"/{apk,apktool,phone-transfer}
+    mkdir -p "$BUILD_DIR"/{apk,apktool,phone-transfer,game}
 
     # Decompile base APK
     if [[ ! -d "$BUILD_DIR/apktool/AndroidManifest.xml" ]]; then
@@ -180,69 +183,81 @@ build_apk() {
 
     # Modify AndroidManifest.xml
     log_info "Patching AndroidManifest.xml..."
-    sed -i "s/package=\"[^\"]*\"/package=\"$PACKAGE_ID\"/" "$BUILD_DIR/apktool/AndroidManifest.xml"
+    # Use apktool's renameManifestPackage so resources and activity resolution work correctly
+    # (directly editing package= in the manifest breaks activity class lookup)
+    if ! grep -q "renameManifestPackage" "$BUILD_DIR/apktool/apktool.yml"; then
+        echo "renameManifestPackage: $PACKAGE_ID" >> "$BUILD_DIR/apktool/apktool.yml"
+    else
+        sed -i "s/renameManifestPackage:.*/renameManifestPackage: $PACKAGE_ID/" "$BUILD_DIR/apktool/apktool.yml"
+    fi
+    # Ensure game.love is stored uncompressed so LÖVE can read it as a ZIP-in-ZIP
+    if ! grep -q "game.love" "$BUILD_DIR/apktool/apktool.yml"; then
+        sed -i '/^doNotCompress:/a - assets/game.love' "$BUILD_DIR/apktool/apktool.yml"
+    fi
     sed -i "s/android:label=\"[^\"]*\"/android:label=\"$APP_NAME\"/" "$BUILD_DIR/apktool/AndroidManifest.xml"
 
     if [[ "$DEBUGGABLE" == "true" ]]; then
         sed -i 's/android:allowBackup="true"/android:allowBackup="true" android:debuggable="true"/' "$BUILD_DIR/apktool/AndroidManifest.xml"
     fi
 
-    # Extract Balatro.love into assets
-    log_info "Extracting Balatro.love..."
-    unzip -q -o "$SRC_DIR/Balatro.love" -d "$BUILD_DIR/apktool/assets/"
+    # Build game.love archive (LÖVE Android expects assets/game.love as a ZIP)
+    log_info "Building game.love archive..."
+    local game_dir="$BUILD_DIR/game"
+    rm -rf "$game_dir"
+    mkdir -p "$game_dir"
 
-    # Copy lovely dump files INTO the APK (critical - game loads main.lua from APK, not save dir)
+    # Extract original Balatro.love
+    log_info "  Extracting Balatro.love..."
+    unzip -q -o "$SRC_DIR/Balatro.love" -d "$game_dir/"
+
+    # Copy lovely dump files (patched Lua files)
     if [[ -d "$SRC_DIR/dump" ]]; then
-        log_info "Embedding lovely dump files into APK..."
-        # Copy patched main.lua and other dump files
-        cp -r "$SRC_DIR/dump/"*.lua "$BUILD_DIR/apktool/assets/" 2>/dev/null || true
-        cp -r "$SRC_DIR/dump/"*.txt "$BUILD_DIR/apktool/assets/" 2>/dev/null || true
-        cp -r "$SRC_DIR/dump/engine" "$BUILD_DIR/apktool/assets/" 2>/dev/null || true
-        cp -r "$SRC_DIR/dump/functions" "$BUILD_DIR/apktool/assets/" 2>/dev/null || true
-        cp -r "$SRC_DIR/dump/SMODS" "$BUILD_DIR/apktool/assets/" 2>/dev/null || true
+        log_info "  Embedding lovely dump files..."
+        cp -r "$SRC_DIR/dump/"*.lua "$game_dir/" 2>/dev/null || true
+        cp -r "$SRC_DIR/dump/"*.txt "$game_dir/" 2>/dev/null || true
+        cp -r "$SRC_DIR/dump/engine" "$game_dir/" 2>/dev/null || true
+        cp -r "$SRC_DIR/dump/functions" "$game_dir/" 2>/dev/null || true
+        cp -r "$SRC_DIR/dump/SMODS" "$game_dir/" 2>/dev/null || true
 
         # Copy nativefs folder (original FFI version for non-Android)
-        cp -r "$SRC_DIR/dump/nativefs" "$BUILD_DIR/apktool/assets/" 2>/dev/null || true
+        cp -r "$SRC_DIR/dump/nativefs" "$game_dir/" 2>/dev/null || true
 
         # Replace top-level nativefs.lua with Android-compatible wrapper
-        cp "$PATCHES_DIR/android-nativefs.lua" "$BUILD_DIR/apktool/assets/nativefs.lua"
-        log_success "Dump files embedded in APK"
+        cp "$PATCHES_DIR/android-nativefs.lua" "$game_dir/nativefs.lua"
+        log_success "  Dump files added"
     else
         log_warn "No dump files found in $SRC_DIR/dump - mods won't work!"
     fi
 
-    # Embed Mods folder in APK (so love.filesystem.read can access them)
-    log_info "Embedding Mods folder in APK..."
-    mkdir -p "$BUILD_DIR/apktool/assets/Mods"
+    # Embed Mods folder
+    log_info "  Embedding Mods folder..."
+    mkdir -p "$game_dir/Mods"
     for mod in Steamodded Cryptid Talisman lovely sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
-            cp -r "$MODS_DIR/$mod" "$BUILD_DIR/apktool/assets/Mods/"
-            log_info "  Embedded $mod"
+            cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
+            log_info "    Embedded $mod"
         fi
     done
 
-    # Create lovely.lua config in assets
-    cat > "$BUILD_DIR/apktool/assets/lovely.lua" << EOF
+    # Create lovely.lua config
+    cat > "$game_dir/lovely.lua" << EOF
 return {
   repo = "https://github.com/ethangreen-dev/lovely-injector",
   version = "0.9.0",
   mod_dir = "Mods",
 }
 EOF
-    log_success "Mods embedded in APK"
 
-    # Apply CRT shader fix
-    log_info "Applying CRT shader fix..."
-    apply_crt_fix "$BUILD_DIR/apktool/assets/resources/shaders/CRT.fs"
+    # Apply patches to game files
+    log_info "Applying patches..."
+    apply_crt_fix "$game_dir/resources/shaders/CRT.fs"
+    apply_android_settings_fix "$game_dir/globals.lua"
+    apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
+    # Use Python patcher for main.lua (more reliable than sed for complex patches)
+    python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
-    # Apply Android mobile UI fix
-    log_info "Applying Android settings fix..."
-    apply_android_settings_fix "$BUILD_DIR/apktool/assets/globals.lua"
-    apply_android_video_settings_fix "$BUILD_DIR/apktool/assets/functions/UI_definitions.lua"
-
-    # Ensure conf.lua doesn't have externalstorage
-    log_info "Patching conf.lua..."
-    cat > "$BUILD_DIR/apktool/assets/conf.lua" << 'EOF'
+    # Patch conf.lua
+    cat > "$game_dir/conf.lua" << 'EOF'
 _RELEASE_MODE = true
 _DEMO = false
 
@@ -256,9 +271,20 @@ function love.conf(t)
 end
 EOF
 
+    # Create game.love ZIP archive
+    log_info "Creating game.love archive..."
+    mkdir -p "$BUILD_DIR/apktool/assets"
+    local game_love
+    game_love="$(cd "$BUILD_DIR/apktool/assets" && pwd)/game.love"
+    rm -f "$game_love"
+    # Use subshell to avoid changing directory in main shell
+    (cd "$game_dir" && zip -q -r "$game_love" .)
+    log_success "game.love created ($(du -h "$game_love" | cut -f1))"
+
     # Rebuild APK
     log_info "Rebuilding APK..."
-    apktool b -f "$BUILD_DIR/apktool" -o "$BUILD_DIR/apk/unsigned.apk"
+    # Use single-threaded mode to avoid race conditions with smali files
+    apktool b -j 1 -f "$BUILD_DIR/apktool" -o "$BUILD_DIR/apk/unsigned.apk"
 
     # Align and sign
     log_info "Aligning APK..."
@@ -361,6 +387,81 @@ apply_android_video_settings_fix() {
     log_success "Video settings hidden on Android"
 }
 
+# Fix SMODS path discovery for Android
+# On Android, NFS.getDirectoryItems doesn't work properly with APK assets
+# We hardcode the path since we know where Steamodded is embedded
+apply_android_smods_path_fix() {
+    local main_file="$1"
+
+    if [[ ! -f "$main_file" ]]; then
+        log_warn "main.lua not found, skipping SMODS path fix"
+        return
+    fi
+
+    # Check if already patched
+    if grep -q "Android SMODS path fix" "$main_file"; then
+        log_info "SMODS path already patched for Android"
+        return
+    fi
+
+    log_info "Patching main.lua for Android SMODS path..."
+
+    # Add Android package.preload and path fix BEFORE the SMODS = {} line
+    # Use package.preload to map SMODS.version and SMODS.release to Steamodded root
+    # The requires use 'SMODS.version' but files are at Mods/Steamodded/version.lua
+    sed -i "/^SMODS = {}/i\\
+-- Android SMODS path fix: preload SMODS modules and add Mods directories to require path\\
+if love.system.getOS() == 'Android' then\\
+    -- Preload SMODS.version and SMODS.release to map to Steamodded root files\\
+    package.preload['SMODS.version'] = function() return love.filesystem.load('Mods/Steamodded/version.lua')() end\\
+    package.preload['SMODS.release'] = function() return love.filesystem.load('Mods/Steamodded/release.lua')() end\\
+    -- Add paths for mod requires including Steamodded libs (json, nativefs, https)\\
+    -- LÖVE uses love.filesystem require path, not Lua package.path\\
+    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'\\
+    love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)\\
+end\\
+" "$main_file"
+
+    # Replace the find_self call with Android-aware version
+    sed -i "s|SMODS.path = find_self(SMODS.MODS_DIR, 'core.lua', '--- STEAMODDED CORE')|-- Android SMODS.path hardcode since NFS doesn't work with APK assets\\
+if love.system.getOS() == 'Android' then\\
+    SMODS.path = 'Mods/Steamodded/'\\
+else\\
+    SMODS.path = find_self(SMODS.MODS_DIR, 'core.lua', '--- STEAMODDED CORE')\\
+end|" "$main_file"
+
+    # Also fix Talisman path discovery - on Android, hardcode everything
+    sed -i "s|local info = nativefs.getDirectoryItemsInfo(lovely.mod_dir)|-- Android Talisman path fix\\
+local info\\
+if love.system.getOS() == 'Android' then\\
+    info = {}\\
+    for _, name in ipairs({'Cryptid', 'Steamodded', 'Talisman', 'lovely', 'sticky-fingers'}) do\\
+        table.insert(info, {name = name, type = 'directory'})\\
+    end\\
+else\\
+    info = nativefs.getDirectoryItemsInfo(lovely.mod_dir)\\
+end|" "$main_file"
+
+    # Fix Talisman's nativefs.getInfo for directory check - on Android, always return true for Talisman
+    sed -i 's|nativefs.getInfo(lovely.mod_dir .. "/" .. v.name .. "/talisman.lua")|( love.system.getOS() == "Android" and v.name == "Talisman" or nativefs.getInfo(lovely.mod_dir .. "/" .. v.name .. "/talisman.lua") )|g' "$main_file"
+
+    # Fix "if not nativefs.getInfo(talisman_path)" - skip check on Android
+    sed -i 's|if not nativefs.getInfo(talisman_path) then|if love.system.getOS() ~= "Android" and not nativefs.getInfo(talisman_path) then|' "$main_file"
+
+    # Fix specific nativefs.read call for config
+    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|local config_read_result = (love.system.getOS() == "Android") and love.filesystem.read(talisman_path.."/config.lua") or nativefs.read(talisman_path.."/config.lua")|' "$main_file"
+
+    # Skip nativefs.write on Android - config saving won't work but loading does
+    sed -i 's/nativefs\.write(talisman_path \.\. "\/config\.lua", STR_PACK(Talisman\.config_file))/pcall(function() if love.system.getOS() ~= "Android" then nativefs.write(talisman_path .. "\/config.lua", STR_PACK(Talisman.config_file)) end end)/g' "$main_file"
+
+    # Fix nativefs.load calls for Big number library
+    sed -i 's|Big, err = nativefs.load(talisman_path.."/big-num/"..Talisman.config_file.break_infinity..".lua")|Big, err = (love.system.getOS() == "Android") and love.filesystem.load(talisman_path.."/big-num/"..Talisman.config_file.break_infinity..".lua") or nativefs.load(talisman_path.."/big-num/"..Talisman.config_file.break_infinity..".lua")|' "$main_file"
+
+    sed -i 's|Notations = nativefs.load(talisman_path.."/big-num/notations.lua")()|Notations = ((love.system.getOS() == "Android") and love.filesystem.load(talisman_path.."/big-num/notations.lua") or nativefs.load(talisman_path.."/big-num/notations.lua"))()|' "$main_file"
+
+    log_success "SMODS path fix applied for Android"
+}
+
 ensure_keystore() {
     local keystore_dir="$PROJECT_DIR/keys"
     local keystore_file="$keystore_dir/debug.keystore"
@@ -393,6 +494,16 @@ prepare_transfer() {
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
         fi
     done
+
+    # Create SMODS folder with version/release files for require'SMODS.version' to work
+    # The lovely injector on desktop does this automatically, but we need it explicit for Android
+    mkdir -p "$transfer_dir/Mods/SMODS"
+    if [[ -f "$MODS_DIR/Steamodded/version.lua" ]]; then
+        cp "$MODS_DIR/Steamodded/version.lua" "$transfer_dir/Mods/SMODS/"
+    fi
+    if [[ -f "$MODS_DIR/Steamodded/release.lua" ]]; then
+        cp "$MODS_DIR/Steamodded/release.lua" "$transfer_dir/Mods/SMODS/"
+    fi
 
     # Create lovely.lua config (goes in save root, tells game where mods are)
     cat > "$transfer_dir/lovely.lua" << EOF
@@ -436,17 +547,17 @@ deploy() {
     adb push "$transfer_dir" "$temp_dir"
 
     # Copy to app's internal storage
-    adb shell "run-as $PACKAGE_ID mkdir -p files/save"
-    adb shell "run-as $PACKAGE_ID cp -r $temp_dir/* files/save/"
+    adb shell "run-as $INSTALLED_PACKAGE_ID mkdir -p files/save"
+    adb shell "run-as $INSTALLED_PACKAGE_ID cp -r $temp_dir/* files/save/"
 
     # Verify
     log_info "Verifying deployment..."
-    local file_count=$(adb shell "run-as $PACKAGE_ID ls files/save/ | wc -l")
+    local file_count=$(adb shell "run-as $INSTALLED_PACKAGE_ID ls files/save/ | wc -l")
     log_success "Deployed $file_count items to device"
 
     # Launch app
     log_info "Launching app..."
-    adb shell am start -n "$PACKAGE_ID/org.love2d.android.GameActivity"
+    adb shell am start -n "$INSTALLED_PACKAGE_ID/org.love2d.android.GameActivity"
 }
 
 # Watch logs

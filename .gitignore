@@ -21,3 +21,6 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Ghost session data (local only)
+.ai-sessions/

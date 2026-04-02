@@ -45,7 +45,7 @@ quick:
 push-mods:
     #!/usr/bin/env bash
     set -euo pipefail
-    PACKAGE_ID="com.unofficial.balatro.cryptid"
+    PACKAGE_ID="systems.shorty.lmm"
     TRANSFER_DIR="build/phone-transfer"
     TEMP_DIR="/data/local/tmp/balatro_mods"
 
@@ -61,22 +61,22 @@ push-mods:
 
 # Force stop the app
 stop:
-    adb shell am force-stop com.unofficial.balatro.cryptid
+    adb shell am force-stop systems.shorty.lmm
 
 # Start the app
 start:
-    adb shell am start -n "com.unofficial.balatro.cryptid/org.love2d.android.GameActivity"
+    adb shell am start -n "systems.shorty.lmm/org.love2d.android.GameActivity"
 
 # Restart the app
 restart: stop start
 
 # Show what's in the app's save directory
 ls-save:
-    adb shell "run-as com.unofficial.balatro.cryptid ls -la files/save/"
+    adb shell "run-as systems.shorty.lmm ls -la files/save/"
 
 # Show what mods are installed
 ls-mods:
-    adb shell "run-as com.unofficial.balatro.cryptid ls -la files/save/Mods/"
+    adb shell "run-as systems.shorty.lmm ls -la files/save/Mods/"
 
 # Pull logs to local file
 save-logs:
@@ -85,7 +85,7 @@ save-logs:
 
 # Interactive shell in app context
 shell:
-    adb shell "run-as com.unofficial.balatro.cryptid sh"
+    adb shell "run-as systems.shorty.lmm sh"
 
 # List config overrides
 list-configs:
