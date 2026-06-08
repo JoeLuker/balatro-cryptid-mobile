@@ -86,6 +86,7 @@ fetch_sources() {
     fetch_mod "MathIsFun0/Talisman" "talisman" "Talisman"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
     fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
+    fetch_mod_source "InertSteak/Pokermon" "Pokermon"
 
     # Apply config overrides
     apply_config_overrides
@@ -240,13 +241,16 @@ build_apk() {
     # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Talisman sticky-fingers; do
+    for mod in Steamodded Cryptid Talisman sticky-fingers Pokermon; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
             rm -rf "$game_dir/Mods/$mod/lovely"
             log_info "    Embedded $mod"
         fi
     done
+
+    # Fix Pokermon's raw-require install check (breaks on Android's case-sensitive FS)
+    apply_pokermon_require_fix "$game_dir/Mods/Pokermon/pokermon.lua"
 
     # Create lovely.lua config
     cat > "$game_dir/lovely.lua" << EOF
@@ -336,6 +340,33 @@ apply_sticky_fingers_guard() {
     local n
     n=$(grep -c "STICKY_GUARD" "$f")
     log_success "Sticky Fingers guard applied ($n wrappers protected)"
+}
+
+# Pokermon's main file does an install sanity check via `require "pokermon.setup"`.
+# Raw Lua require resolves the lowercase path `pokermon/setup.lua`, which matches the
+# `Pokermon/` mod folder only on case-insensitive desktop filesystems. On Android's
+# case-sensitive FS the require fails and pokermon.lua aborts with "did not load
+# correctly". setup.lua is just a dummy file; every real Pokermon file already loads
+# via SMODS.load_file, so rewrite the check to use the same loader.
+apply_pokermon_require_fix() {
+    local f="$1"
+
+    if [[ ! -f "$f" ]]; then
+        log_warn "Pokermon pokermon.lua not found, skipping require fix"
+        return 0
+    fi
+    if grep -q "POKE_REQUIRE_FIX" "$f"; then
+        log_info "Pokermon require fix already applied"
+        return 0
+    fi
+
+    sed -i 's|pcall(require, "pokermon.setup")|pcall(function() return assert(SMODS.load_file("setup.lua"))() end) -- POKE_REQUIRE_FIX|' "$f"
+
+    if grep -q "POKE_REQUIRE_FIX" "$f"; then
+        log_success "Pokermon require fix applied"
+    else
+        log_warn "Pokermon require fix did not match — check pokermon.lua"
+    fi
 }
 
 apply_crt_fix() {
@@ -529,12 +560,13 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
-    for mod in Steamodded Cryptid Talisman sticky-fingers; do
+    for mod in Steamodded Cryptid Talisman sticky-fingers Pokermon; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
             rm -rf "$transfer_dir/Mods/$mod/lovely"
         fi
     done
+    apply_pokermon_require_fix "$transfer_dir/Mods/Pokermon/pokermon.lua"
 
     # Create SMODS folder with version/release files for require'SMODS.version' to work
     # The lovely injector on desktop does this automatically, but we need it explicit for Android

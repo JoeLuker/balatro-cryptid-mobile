@@ -54,6 +54,13 @@ mods:
     required: false
     description: "Mobile-style touch/drag controls for jokers, boosters, consumables"
 
+  pokermon:
+    type: github-source
+    repo: InertSteak/Pokermon
+    tag: main
+    required: false
+    description: "Full-content mod where every joker is a Pokemon. main (3.7.0-0421b) needs Steamodded >= BETA-1016c. Defines G.FUNCS.can_reserve_card used by Sticky Fingers."
+
 patches:
   # Patches applied during build
   - name: android-nativefs
