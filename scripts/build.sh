@@ -233,12 +233,17 @@ build_apk() {
         log_warn "No dump files found in $SRC_DIR/dump - mods won't work!"
     fi
 
-    # Embed Mods folder
+    # Embed Mods folder.
+    # NOTE: lovely-injector does not run on Android (no native lib) — the lovely
+    # dump in functions/ and engine/ is what actually patches the game. So the
+    # mods' own lovely/ payload folders are dead weight, and the standalone
+    # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Talisman lovely sticky-fingers; do
+    for mod in Steamodded Cryptid Talisman sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
+            rm -rf "$game_dir/Mods/$mod/lovely"
             log_info "    Embedded $mod"
         fi
     done
@@ -523,10 +528,11 @@ prepare_transfer() {
     rm -rf "$transfer_dir"
     mkdir -p "$transfer_dir/Mods"
 
-    # Copy mods to transfer folder
-    for mod in Steamodded Cryptid Talisman lovely sticky-fingers; do
+    # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
+    for mod in Steamodded Cryptid Talisman sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
+            rm -rf "$transfer_dir/Mods/$mod/lovely"
         fi
     done
 
