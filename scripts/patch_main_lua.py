@@ -32,6 +32,19 @@ end
 SMODS = {}"""
     content = content.replace(smods_init, path_fix, 1)
 
+    # 1b. On Android, override SMODS.MODS_DIR to relative path after set_mods_dir()
+    # set_mods_dir() resolves to absolute paths which love.filesystem can't use
+    # IMPORTANT: Match the standalone function CALL (after the function definition ends),
+    # not the function definition line. The call is "set_mods_dir()" on its own line
+    # after the "end" that closes the function body.
+    set_mods_dir_pattern = r"^(set_mods_dir\(\))$"
+    set_mods_dir_replacement = r"""\1
+-- Android: force relative MODS_DIR since love.filesystem needs paths relative to game.love
+if love.system.getOS() == 'Android' then
+    SMODS.MODS_DIR = 'Mods'
+end"""
+    content = re.sub(set_mods_dir_pattern, set_mods_dir_replacement, content, count=1, flags=re.MULTILINE)
+
     # 2. Fix SMODS.path = find_self(...)
     find_self_pattern = r"SMODS\.path = find_self\(SMODS\.MODS_DIR, 'core\.lua', '--- STEAMODDED CORE'\)"
     find_self_replacement = """-- Android SMODS.path hardcode since NFS doesn't work with APK assets
