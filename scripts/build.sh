@@ -225,6 +225,10 @@ build_apk() {
         # Replace top-level nativefs.lua with Android-compatible wrapper
         cp "$PATCHES_DIR/android-nativefs.lua" "$game_dir/nativefs.lua"
         log_success "  Dump files added"
+
+        # Guard Sticky Fingers' cross-mod helpers against missing optional integrations.
+        # The runtime code is the lovely dump (functions/), not the mod's lovely/ payload.
+        apply_sticky_fingers_guard "$game_dir/functions/misc_functions.lua"
     else
         log_warn "No dump files found in $SRC_DIR/dump - mods won't work!"
     fi
@@ -300,6 +304,33 @@ EOF
         --out "$BUILD_DIR/apk/$PACKAGE_ID.apk" "$BUILD_DIR/apk/aligned.apk"
 
     log_success "APK built: $BUILD_DIR/apk/$PACKAGE_ID.apk"
+}
+
+# Sticky Fingers wires touch drag-targets to optional integrations (Pokermon's
+# reserve_card, Reverie's crazy cards, etc.) by calling G.FUNCS.can_<x> through
+# sticky_can_<x> wrappers. Those wrappers don't check the function exists, so
+# with Cryptid-but-not-Pokermon a Code card in a pack calls a nil
+# G.FUNCS.can_reserve_card and crashes (only on mobile, where drag-targets
+# render). Guard every wrapper's call so a missing integration returns false
+# instead of crashing. Upstream bug: eramdam/sticky-fingers misc_functions.lua.
+apply_sticky_fingers_guard() {
+    local f="$1"
+
+    if [[ ! -f "$f" ]]; then
+        log_warn "Sticky Fingers misc_functions.lua not found, skipping guard"
+        return 0
+    fi
+    if grep -q "STICKY_GUARD" "$f"; then
+        log_info "Sticky Fingers guard already applied"
+        return 0
+    fi
+
+    # Before each `G.FUNCS.can_x(temp_config)`, insert a nil-guard returning false.
+    sed -i -E 's|^([[:space:]]*)(G\.FUNCS\.can_[a-zA-Z_]+)\(temp_config\)$|\1if not \2 then return false end -- STICKY_GUARD\n\1\2(temp_config)|' "$f"
+
+    local n
+    n=$(grep -c "STICKY_GUARD" "$f")
+    log_success "Sticky Fingers guard applied ($n wrappers protected)"
 }
 
 apply_crt_fix() {
