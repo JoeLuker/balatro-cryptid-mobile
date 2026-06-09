@@ -51,9 +51,11 @@ balatro-cryptid-mobile/
 - `adb` - Android Debug Bridge
 - `just` - Command runner (optional, can use build.sh directly)
 
-On NixOS:
+On NixOS, the repo ships a `shell.nix` that pins the whole toolchain
+(including the Android build-tools that provide `zipalign`/`apksigner`):
 ```bash
-nix-shell -p apktool android-tools just
+nix-shell                       # drops you into a shell with everything on PATH
+nix-shell --run 'just build'    # or run a single command in the env
 ```
 
 ## How It Works
