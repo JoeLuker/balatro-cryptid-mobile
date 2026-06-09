@@ -375,11 +375,11 @@ apply_mobile_graphics_defaults() {
     log_success "Mobile graphics defaults applied (texture_scaling=1, crt/bloom/shadows off)"
 }
 
-# Cryptid's glitched.fs seeds its RGB-shift noise with `tan(2.*time)`. tan's
-# asymptotes produce inf/NaN on the Mali GPU; that NaN flows through rand() into
-# the texture coordinates, so Texel() returns pure black and the glitched card
-# renders fully black for those frames. Guard the value — NaN/inf comparisons are
-# false in GLSL, so out-of-range results fall back to 0 while normal frames keep tan.
+# Cryptid's glitched.fs (in-game glitched cards) seeds its RGB-shift noise with
+# `tan(2.*time)`, whose asymptotes produce inf/NaN on Mali -> NaN texture coords ->
+# black card. Same fp16 issue as glitched_b: run the time-derived/noise math in
+# highp (rand, t, iTime) so it matches desktop fp32, and keep the tan NaN guard.
+# Texture path left at default precision (highp there is what Mali rejects).
 apply_glitch_shader_fix() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -390,11 +390,14 @@ apply_glitch_shader_fix() {
         log_info "Glitch shader fix already applied"
         return 0
     fi
+    sed -i 's|^float rand(vec2 co){|highp float rand(highp vec2 co){|' "$f"
+    sed -i 's|\tfloat t = time \* 10.0 + 2003.;|\thighp float t = time * 10.0 + 2003.;|' "$f"
+    sed -i 's|    float iTime = tan(2. \* time);|    highp float iTime = tan(2. * time);|' "$f"
     sed -i 's|float iTime = tan(2. \* time);|float iTime = tan(2. * time);\n    iTime = (abs(iTime) < 1000.0) ? iTime : 0.0; // Mali NaN\/inf guard: tan singularities render cards black|' "$f"
-    if grep -q "Mali NaN" "$f"; then
-        log_success "Glitch shader fix applied"
+    if grep -q "Mali NaN" "$f" && grep -q "highp float rand" "$f"; then
+        log_success "Glitch shader fix applied (highp math + tan guard)"
     else
-        log_warn "Glitch shader fix did not match — check glitched.fs"
+        log_warn "Glitch shader fix did not fully match — check glitched.fs"
     fi
 }
 
