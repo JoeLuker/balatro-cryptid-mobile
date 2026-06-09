@@ -860,7 +860,194 @@ the near-zero startup period where the time value interacts badly with the shade
 
 ## 8. Round flow & the scoring pipeline
 
-*(pending workflow merge)*
+Scoring in this build is a Lua coroutine that runs across multiple frames (≈30 ms
+per yield on Android). The base game's `G.FUNCS.evaluate_play` is overwritten six
+times before the final version runs; each layer captures the previous definition in
+a local closure. Talisman replaces vanilla `number` arithmetic with
+`OmegaNum`-backed big-number objects and inserts the coroutine harness. Steamodded
+provides an extensible `Scoring_Parameter` registry (chips/mult and their x-
+multipliers) with a five-layer `calculate_individual_effect` chain. Cryptid adds
+one more wrapper to that chain and hooks `calculate_round_score` to insert
+Ascension scaling.
+
+### Key functions
+
+| Function | File:line | Purpose |
+|---|---|---|
+| `G.FUNCS.evaluate_play` (active) | `main.lua:2094` | Coroutine wrapper: stamps `G.SCORING_START`, yields every 30 ms, drives `oldplay` (main.lua:2059 body) |
+| `G.FUNCS.evaluate_play` (inner body) | `main.lua:2059` | Calls `evaluate_play_intro → evaluate_play_main → evaluate_play_debuff → evaluate_play_final_scoring → evaluate_play_after` unconditionally |
+| `evaluate_play_intro` | `state_events.lua:715` | Resolves poker hand (`get_poker_hand_info`), sets hand text, fires context `{type="before"}` — **does not** fire `context.before` |
+| `evaluate_play_main` | `state_events.lua:782` | Seeds `hand_chips`/`mult` (lines 783-784), fires `context.before` (line 797), re-seeds (lines 803-804), iterates scoring hand calling `SMODS.score_card` per card |
+| `evaluate_play_debuff` | `state_events.lua:947` | Handles debuffed-card animation |
+| `evaluate_play_final_scoring` | `state_events.lua:972` | Applies edition multipliers, fires context `{type="final_scoring_no_retrigger"}`, calls `evaluate_play_after` only when Talisman is **not** loaded (line 1019) |
+| `evaluate_play_after` | `state_events.lua:1024` | Resets Scoring_Parameters via `G.E_MANAGER` immediate event (lines 1026-1034); always called from `main.lua:2072` when Talisman is loaded |
+| `SMODS.score_card` | `utils.lua:1930` | Per-card scoring: calls `calculate_edition`, `calculate_main_scoring`, `calculate_repetitions`/`retriggers` |
+| `SMODS.calculate_individual_effect` (base) | `utils.lua:1234` | Iterates `G.SMODS_SCORING_PARAMS`, dispatches to the active `Scoring_Parameter` instance |
+| `SMODS.calculate_effect` | `utils.lua:1415` | Drives `trigger_effects`, calls `calculate_individual_effect` |
+| `SMODS.calculate_round_score` | `utils.lua:2838` | Reads final chips/mult from Scoring_Parameters, applies to `G.GAME.current_round` |
+| `SMODS.Scoring_Parameter:modify` | `game_object.lua:3582` | Applies a delta to a scoring accumulator |
+| `Cryptid.ascend` | `ascended.lua:164` | Applies Ascension scaling (two modes) |
+| `G.FUNCS.get_poker_hand_info` | `state_events.lua:684` | Identifies the played hand type |
+
+### Key structures
+
+| Structure | Description |
+|---|---|
+| `G.SMODS_SCORING_PARAMS` | Registry of `SMODS.Scoring_Parameter` instances; chips instance (`game_object.lua:3638`) and mult instance (`game_object.lua:3689`) are the core accumulators |
+| `SMODS.Scoring_Parameter` (chips) | Keys: `chips`, `h_chips`, `chip_mod`, `x_chips`, `xchips`, `Xchip_mod` |
+| `SMODS.Scoring_Parameter` (mult) | Keys: `mult`, `h_mult`, `mult_mod`, `x_mult`, `Xmult`, `xmult`, `x_mult_mod`, `Xmult_mod` |
+| `G.SCORING_COROUTINE` | The active coroutine; guards in `state_events.lua` at lines 423, 585, 663, 674 skip conflicting operations while it runs |
+| `G.SCORING_START` | Timestamp set at coroutine launch (`main.lua:2096`); used by the 0.3 s overlay check |
+| `G.LAST_SCORING_YIELD` | Updated on each yield to pace the love.update driver |
+| `G.CARD_CALC_COUNTS` | Reset at coroutine launch (`main.lua:2098`); tracks per-card calculation counts for animation |
+| `TIME_BETWEEN_SCORING_FRAMES` | `0.03` (30 ms); defined in `talisman.lua:776` |
+
+### Control flow
+
+1. User plays cards. `G.FUNCS.evaluate_play` (the active wrapper at `main.lua:2094`)
+   stamps `G.SCORING_START`, resets `G.CARD_CALC_COUNTS`, creates a coroutine around
+   `oldplay` (= `main.lua:2059` body), and stores it in `G.SCORING_COROUTINE`.
+
+2. `love.update` resumes the coroutine each frame (`main.lua:2111-2134`). The Card
+   `calculate_joker` yield wrapper (`main.lua:2204`, which overwrites `talisman.lua:785`
+   at runtime) yields after each joker calculation when `30 ms` have elapsed since
+   `G.LAST_SCORING_YIELD`.
+
+3. Inside the coroutine the inner body (`main.lua:2059`) calls all five phases in
+   order: `evaluate_play_intro → evaluate_play_main → evaluate_play_debuff →
+   evaluate_play_final_scoring → evaluate_play_after`.
+
+   **`evaluate_play_after` is always called from this inner body (`main.lua:2072`)**
+   when Talisman is loaded; it is not on a separate "coroutine cleanup path".
+
+4. `evaluate_play_intro` (`state_events.lua:715`) identifies the hand via
+   `get_poker_hand_info` and sets display text. It does **not** fire
+   `context.before`.
+
+5. `evaluate_play_main` (`state_events.lua:782`) seeds `hand_chips` and `mult`
+   **twice**: first at lines 783-784 (before `context.before`), then again at
+   lines 803-804 (after `context.before` fires at line 797). The second seed is
+   the effective starting value for card iteration.
+
+6. For each card in the scoring hand, `SMODS.score_card` calls
+   `SMODS.calculate_main_scoring` (iterating `cardarea.cards`, not `scoring_hand`
+   directly), which calls `SMODS.calculate_effect`, which calls
+   `SMODS.calculate_individual_effect` through a five-layer wrapper chain (see
+   Gotchas).
+
+7. x_chips and x_mult are applied as deltas, not direct multiplications:
+   - x_chips: `hand_chips * (amount - 1)` added via `Scoring_Parameter:modify`
+     (`game_object.lua:3665`)
+   - x_mult: `mult * (amount - 1)` added via `Scoring_Parameter:modify`
+     (`game_object.lua:3717`)
+
+8. `evaluate_play_final_scoring` fires `context.final_scoring_no_retrigger` and
+   calls `evaluate_play_after` only when Talisman is **not** loaded (`state_events.lua:1019`).
+
+9. `evaluate_play_after` (`state_events.lua:1024`) defers Scoring_Parameter reset
+   through a `G.E_MANAGER` immediate event (lines 1026-1034).
+
+10. `SMODS.calculate_round_score` (with Cryptid override at `overrides.lua:2275-2276`)
+    reads the final accumulators and applies Ascension scaling via `Cryptid.ascend`
+    (`ascended.lua:164`) in two modes:
+    - **not_modest** (default, exponential): `num * (1.25 + sunnumber.not_modest) ^ cry_asc_num`
+    - **modest** (linear): `num * (1 + (0.25 + sunnumber.modest) * cry_asc_num)`
+
+### Interactions
+
+- Talisman replaces all numeric types with `OmegaNum` via `to_big` (first defined
+  `main.lua:1942`, then overwritten by `talisman.lua:524`; the talisman.lua version
+  is active).
+- Talisman's `SMODS.calculate_individual_effect` wrapper (`talisman.lua:984`)
+  converts vanilla number results to big numbers.
+- Talisman's `SMODS.calculate_effect` wrapper (`talisman.lua:1186`) sets
+  `effect.juice_card = nil` but does not suppress all animations.
+- The `mod_mult` trophy-cap wrapper in Cryptid (`overrides.lua:1398-1399`) applies
+  a ceiling to mult accumulation.
+- Talisman provides extended Card methods (`get_chip_e_bonus`, etc., lines
+  860-910) used during `evaluate_play_main` card iteration.
+
+### Gotchas
+
+- **`G.FUNCS.evaluate_play` is defined six times, not three.** The chain, in
+  definition order (each capturing the previous in a closure):
+  1. `talisman.lua:641` — inner evaluate_play body (also calls `evaluate_play_after`
+     unconditionally at line 654)
+  2. `talisman.lua:676` — Talisman coroutine wrapper (no `G.SCORING_START` stamp;
+     that is added by the build wrapper below)
+  3. `talisman.lua:822` — `calculating_score` guard wrapper
+  4. `main.lua:2059` — inner body redefinition (calls all five phases including
+     `evaluate_play_after` at line 2072)
+  5. `main.lua:2094` — coroutine + `G.SCORING_START`/`G.LAST_SCORING_YIELD`/
+     `G.CARD_CALC_COUNTS` wrapper (captures main.lua:2059 as `oldplay`)
+  6. `main.lua:2240` — active `calculating_score` guard wrapper
+
+  The **active** `G.FUNCS.evaluate_play` at runtime is definition #6
+  (`main.lua:2240`), which calls #5, which runs #4 inside the coroutine.
+
+- **`evaluate_play_after` is called from inside the coroutine body, not on a
+  separate cleanup path.** `main.lua:2072` calls it unconditionally at the end of
+  the inner body that runs inside the coroutine. There is no post-coroutine
+  teardown that calls it separately.
+
+- **`context.before` fires in `evaluate_play_main`, not `evaluate_play_intro`.**
+  It is dispatched at `state_events.lua:797`, inside `evaluate_play_main`.
+  `evaluate_play_intro` fires a `{type="before"}` context (unrelated to the
+  `context.before` dispatch), not `context.before` itself.
+
+- **`hand_chips` and `mult` are seeded twice in `evaluate_play_main`.** First
+  seed at lines 783-784 (before `context.before`), second seed at 803-804 (after
+  `context.before`). Mods that modify the starting values must fire during or
+  after `context.before` to affect the second (effective) seed.
+
+- **Five layers wrap `SMODS.calculate_individual_effect`**, in load order:
+  1. `utils.lua:1234` — Steamodded base
+  2. `exotic.lua:350-351` — Cryptid exotic items wrapper #1
+  3. `exotic.lua:1693-1694` — Cryptid exotic items wrapper #2
+  4. `overrides.lua:2183-2184` — Cryptid overrides wrapper
+  5. `talisman.lua:984` — Talisman big-number conversion wrapper
+
+- **`Cryptid.ascend` has two distinct scaling modes.** `not_modest` (default)
+  is exponential; `modest` is linear. The base factor and exponent/multiplier are
+  further modified by `sunnumber.not_modest` / `sunnumber.modest` respectively.
+
+- **`SMODS.calculate_main_scoring` iterates `cardarea.cards`, not `scoring_hand`
+  directly** (`utils.lua:1971`). Cards present in the area but not in the scoring
+  hand are filtered inside the loop.
+
+- **The active `Card:calculate_joker` yield wrapper is `main.lua:2204`**, which
+  overwrites `talisman.lua:785` at runtime (both define it; last-write wins in
+  Lua). Debugging yield behavior requires looking at `main.lua:2204`, not the
+  talisman source.
+
+### Mobile notes
+
+- The 30 ms yield threshold (`TIME_BETWEEN_SCORING_FRAMES = 0.03`) exists
+  specifically for Android frame pacing; desktop builds typically complete scoring
+  in a single frame.
+- `G.SCORING_COROUTINE` guards at `state_events.lua` lines 423, 585, 663, 674
+  prevent re-entrant scoring operations while the coroutine is active.
+- The 0.3 s overlay check (`main.lua:2134`) shows a "calculating..." overlay if
+  scoring takes more than 0.3 s, which can happen with heavy Ascension stacks.
+
+### Patch touchpoints
+
+| Patch | File | What it does |
+|---|---|---|
+| Talisman big-number injection | `talisman.lua:524` | Redefines `to_big`; active version overwrites `main.lua:1942` |
+| Build coroutine augmentation | `main.lua:2094-2103` | Adds `G.SCORING_START`, `G.LAST_SCORING_YIELD`, `G.CARD_CALC_COUNTS` to Talisman's coroutine wrapper |
+| Cryptid Ascension hook | `overrides.lua:2275-2276` | Wraps `SMODS.calculate_round_score` to call `Cryptid.ascend` |
+| Cryptid trophy-cap | `overrides.lua:1398-1399` | Caps mult via `mod_mult` wrapper |
+| Reserve shim | `patches/reserve-shim/` | Provides `G.FUNCS.can_reserve_card` / `reserve_card` (needed by Sticky Fingers joker; extracted from Pokermon) |
+
+### Unknowns
+
+- The exact interaction order between the five `calculate_individual_effect`
+  wrappers when multiple Cryptid exotic jokers are simultaneously active has
+  not been audited.
+- Whether `sunnumber.not_modest` / `sunnumber.modest` are ever non-zero in a
+  standard Cryptid run (i.e., whether the base factors `1.25` / `0.25` are the
+  only values in practice).
 
 ## 9. Rendering & shaders
 
