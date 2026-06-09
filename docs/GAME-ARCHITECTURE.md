@@ -1174,7 +1174,7 @@ Ascension scaling.
 | `G.SCORING_COROUTINE` | The active coroutine; guards in `state_events.lua` at lines 423, 585, 663, 674 skip conflicting operations while it runs |
 | `G.SCORING_START` | **No longer exists.** Was written by the removed main.lua coroutine wrapper; the talisman.lua copy never wrote it. All references gone. |
 | `G.LAST_SCORING_YIELD` | Set at coroutine launch (`talisman.lua:678`); refreshed before each frame resume (`talisman.lua:764`); read by the yield check in `Card:calculate_joker` (`talisman.lua:796`) |
-| `G.CARD_CALC_COUNTS` | Reset at coroutine launch (`main.lua:2098`); tracks per-card calculation counts for animation |
+| `G.CARD_CALC_COUNTS` | Reset at coroutine launch (`talisman.lua:679`); tracks per-card calculation counts for animation |
 | `TIME_BETWEEN_SCORING_FRAMES` | `0.03` (30 ms); defined in `talisman.lua:776` |
 
 ### Control flow
