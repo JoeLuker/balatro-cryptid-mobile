@@ -1635,6 +1635,19 @@ deploy() {
     fi
 
     local device=$(adb devices | grep "device$" | head -1 | cut -f1)
+
+    # HARD GATE: deploying force-restarts the app on Joe's PHONE. That is never
+    # an automated step — it interrupts whatever he is doing and must only
+    # happen when he has explicitly said to deploy, every single time.
+    # Emulator targets (emulator-*) are exempt; physical devices require the
+    # operator to acknowledge by setting BALATRO_DEPLOY_PHONE=1 for this run.
+    if [[ "$device" != emulator-* && "${BALATRO_DEPLOY_PHONE:-}" != "1" ]]; then
+        log_error "Refusing to deploy to physical device $device."
+        log_info  "Deploys restart the app on Joe's phone. Only deploy when he has"
+        log_info  "explicitly asked for it in the current conversation, then run:"
+        log_info  "    BALATRO_DEPLOY_PHONE=1 ./scripts/build.sh deploy"
+        exit 1
+    fi
     log_info "Deploying to device: $device"
 
     # Install APK
