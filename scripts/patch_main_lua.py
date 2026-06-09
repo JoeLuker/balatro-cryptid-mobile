@@ -11,11 +11,11 @@ def patch_main_lua(filepath):
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Check if already fully patched (both the Android path fix and the
-    # duplicate-coroutine-block removal must be present).
+    # Check if already fully patched (all three sentinel strings must be present).
     already_android = '-- Android SMODS path fix' in content
     already_dedup = 'Duplicate Talisman coroutine harness' in content
-    if already_android and already_dedup:
+    already_focus = '-- Android flush-on-background' in content
+    if already_android and already_dedup and already_focus:
         print("Already patched")
         return
 
@@ -184,6 +184,39 @@ end"""
         content = dedup_result
     else:
         print("NOTE: F_NO_COROUTINE duplicate block not found in main.lua — already removed or structure changed")
+
+    # 11. Inject love.focus callback for Android flush-on-background.
+    #
+    # On Android, the OS may kill the process immediately after backgrounding
+    # without any further love.update calls.  G.F_SAVE_TIMER is 30s, so up to
+    # 30 seconds of staged-but-unflushed save data can be lost.
+    #
+    # love.focus(focused) fires during the event-pump phase of the run loop,
+    # BEFORE love.update is called on that same frame.  Setting force=true here
+    # causes Game:update's FILE_HANDLER flush block to dispatch the channel push
+    # on the very next (and possibly last) update call.
+    #
+    # Guard: only acts on focus loss (not gain), only on Android, and only when
+    # G and G.FILE_HANDLER exist (not during boot before save manager starts).
+    if '-- Android flush-on-background' not in content:
+        focus_callback = """
+-- Android flush-on-background: force-dispatch any staged saves when the app
+-- loses focus so data survives an immediate OS process kill.
+function love.focus(focused)
+    if focused then return end
+    if love.system.getOS() ~= 'Android' then return end
+    if G and G.FILE_HANDLER and G.FILE_HANDLER.update_queued then
+        G.FILE_HANDLER.force = true
+    end
+end
+"""
+        # Insert immediately after the love.quit function body.
+        # The anchor is the closing line of love.quit followed by a blank line.
+        quit_anchor = "function love.quit()\n\t--Steam integration\n\tif G.SOUND_MANAGER then G.SOUND_MANAGER.channel:push({type = 'stop'}) end\n\tif G.STEAM then G.STEAM:shutdown() end\nend"
+        if quit_anchor in content:
+            content = content.replace(quit_anchor, quit_anchor + focus_callback, 1)
+        else:
+            print("WARNING: love.quit anchor not found — love.focus callback NOT injected")
 
     # 9. Inject telemetry loader at end of file (after all game setup)
     if '-- Android telemetry: load after all game hooks are set up' not in content:
