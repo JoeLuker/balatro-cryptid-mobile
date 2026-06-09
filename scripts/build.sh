@@ -398,12 +398,16 @@ apply_glitch_shader_fix() {
     fi
 }
 
-# glitched_b.fs (Cryptid's other glitch shader — used by e.g. the menu joker) is
-# numerically fragile: unbounded `time`, division by ~0, and pow() overflow can
-# each produce NaN/inf on the Mali GPU, rendering the card pure black. Guard the
-# final colour so a blown-up frame falls back to the plain texel instead of black.
-# (Note: this shader declares a local `float mod`, which shadows the built-in
-# mod() — so don't call mod() inside effect().)
+# glitched_b.fs (Cryptid's other glitch shader — used by e.g. the menu joker)
+# renders pure black on the Mali GPU. Its chaotic noise math (pow^3/^5, division
+# by ~0) overflows fp16 mediump (max ~65504) into inf/NaN, which propagates to
+# the texture lookup. Desktop runs it in fp32 and is fine. Fix: make ONLY the
+# math chain highp (the helpers mod2/bitxor and the accumulators) — leaving the
+# texture/Texel path at default precision, since making the texture path highp is
+# what Mali rejects ("overloaded functions must have the same precision"). Keep an
+# output NaN guard as a belt-and-suspenders fallback to the plain texel.
+# (Note: this shader declares a local `float mod` that shadows built-in mod() —
+# do not call mod() inside effect().) Validated to compile via glslang.
 apply_glitched_b_fix() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -414,11 +418,20 @@ apply_glitched_b_fix() {
         log_info "glitched_b fix already applied"
         return 0
     fi
+    # fp32 on the overflow-prone math chain (texture path stays default precision)
+    sed -i 's|^float bitxor(float val1, float val2)|highp float bitxor(highp float val1, highp float val2)|' "$f"
+    sed -i 's|float mod2(float val1, float mod1)|highp float mod2(highp float val1, highp float mod1)|' "$f"
+    sed -i 's|\tfloat t = glitched_b.y\*2.221 + time;|\thighp float t = glitched_b.y*2.221 + time;|' "$f"
+    sed -i 's|\tfloat randnum = mod2|\thighp float randnum = mod2|' "$f"
+    sed -i 's|    float cx = uv_scaled_centered.x \* 1.;|    highp float cx = uv_scaled_centered.x * 1.;|' "$f"
+    sed -i 's|    float cy = uv_scaled_centered.y \* 1.;|    highp float cy = uv_scaled_centered.y * 1.;|' "$f"
+    sed -i 's|    float mbx;|    highp float mbx;|; s|    float mby;|    highp float mby;|; s|    float offx;|    highp float offx;|; s|    float offy;|    highp float offy;|; s|    float rmasksum = -1.;|    highp float rmasksum = -1.;|; s|    float rectmask = 1.;|    highp float rectmask = 1.;|' "$f"
+    # belt-and-suspenders: fall back to the plain texel if anything still blows up
     sed -i 's|tex.rgb = textp.rgb;|tex.rgb = textp.rgb;\n    if (!all(lessThan(abs(tex.rgb), vec3(1000000.0)))) { tex.rgb = Texel(texture, texture_coords).rgb; } // Mali NaN\/inf guard: glitch math -> black card|' "$f"
-    if grep -q "Mali NaN" "$f"; then
-        log_success "glitched_b fix applied"
+    if grep -q "Mali NaN" "$f" && grep -q "highp float randnum" "$f"; then
+        log_success "glitched_b fix applied (highp math + NaN guard)"
     else
-        log_warn "glitched_b fix did not match — check glitched_b.fs"
+        log_warn "glitched_b fix did not fully match — check glitched_b.fs"
     fi
 }
 
