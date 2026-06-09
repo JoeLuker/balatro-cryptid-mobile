@@ -66,6 +66,27 @@ nix-shell --run 'just build'    # or run a single command in the env
 4. **Build**: APK repackaged with game assets + patched shaders
 5. **Deploy**: APK installed, mod files pushed to app's internal storage
 
+## Local testing (no phone required)
+
+Three layers, fastest first — run them in order before any device deploy:
+
+1. **Gesture suite** (`just test-controller`, <1s): drives the real built
+   `engine/controller.lua` (all touch patches included) with scripted
+   tap/hold/drag/slide timelines under pure LuaJIT.
+2. **Desktop smoke** (`just smoke`, ~1 min): boots `build/game` on desktop
+   LÖVE under Xvfb with `love.system.getOS()` spoofed to `'Android'` so the
+   shipped code paths run verbatim; asserts boot-to-menu and saves a
+   screenshot to `build/smoke/smoke.png`.
+3. **Emulator** (`just emu-test`, ~5–10 min): installs the actual signed APK
+   in a headless Android emulator (KVM, ARM→x86 translation), mirrors the
+   deploy, and polls screenshots until a menu-like frame (PASS) or the LÖVE
+   crash-screen signature (FAIL). Artifacts in `build/emulator/`.
+
+What still needs the phone: Mali-GPU shader behaviour (fp16/mediump quirks),
+real touch feel, and performance numbers.
+
+See `docs/GAME-ARCHITECTURE.md` for a full map of the game code and patches.
+
 ## Commands
 
 | Command | Description |
