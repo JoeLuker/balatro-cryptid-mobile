@@ -67,8 +67,21 @@ stop:
 start:
     adb shell am start -n "systems.shorty.lmm/org.love2d.android.GameActivity"
 
-# Restart the app
-restart: stop start
+# Restart the app — force-stop, wait for the process to actually die, then start.
+# (Plain stop+start races: LÖVE aborts with "filesystem already initialized" if a
+#  second instance starts before the first finishes tearing down. Closing the app
+#  from the phone's recents does NOT kill it, so changes won't load — use this.)
+restart:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PKG="systems.shorty.lmm"
+    adb shell am force-stop "$PKG"
+    for i in $(seq 1 20); do
+        adb shell pidof "$PKG" >/dev/null 2>&1 || break
+        sleep 0.3
+    done
+    adb shell am start -n "$PKG/org.love2d.android.GameActivity"
+    echo "Restarted $PKG"
 
 # Show what's in the app's save directory
 ls-save:

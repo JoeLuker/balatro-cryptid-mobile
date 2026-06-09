@@ -602,8 +602,15 @@ deploy() {
     local file_count=$(adb shell "run-as $INSTALLED_PACKAGE_ID ls files/save/ | wc -l")
     log_success "Deployed $file_count items to device"
 
-    # Launch app
+    # Launch app — force-stop and wait for the old instance to die first, so the
+    # new build is what loads and we don't hit LÖVE's "filesystem already
+    # initialized" abort from a second instance racing the first.
     log_info "Launching app..."
+    adb shell am force-stop "$INSTALLED_PACKAGE_ID"
+    for _ in $(seq 1 20); do
+        adb shell pidof "$INSTALLED_PACKAGE_ID" >/dev/null 2>&1 || break
+        sleep 0.3
+    done
     adb shell am start -n "$INSTALLED_PACKAGE_ID/org.love2d.android.GameActivity"
 }
 
