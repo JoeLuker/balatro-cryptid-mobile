@@ -1042,6 +1042,25 @@ type-specific lookup. Removal from all registries is handled by the respective
   controller's reference, preventing a use-after-free but potentially missing a
   stop-hover call for the popup if `stop_hover` wasn't called before removal.
 
+- **`G.I.CARD` is a plain sequential array**, not an ID-keyed table. Registration
+  uses `table.insert(G.I.CARD, self)`; removal uses an `ipairs` scan +
+  `table.remove`. There is no O(1) lookup by `self.ID` — code that tries
+  `G.I.CARD[self.ID]` will hit the wrong card or nil.
+
+- **`Card:update` flip detection has a vacuous `or true`** (card.lua:4649, 4657).
+  Both the `f2b` and `b2f` blocks guard the sprite-swap with
+  `if self.sprite_facing == 'front'/'back' or true then` — the `or true` makes
+  the sprite-facing check always pass. Only the inner `VT.w <= 0` gate is real.
+  This is a debug remnant; the flip state machine fires every frame while
+  `self.flipping` is set, regardless of which way the card faces.
+
+- **`set_edition` negative path increments `card_limit` only when both
+  `self.edition == nil` AND `self.added_to_deck` are true** (card.lua:549–557).
+  The nil-edition check distinguishes "card was already vanilla" from "card just
+  had its edition removed", but a freshly constructed negative joker that has not
+  yet been added to deck skips the increment entirely. The nil-sentinel alone is
+  not sufficient to predict the card_limit outcome.
+
 - **`Card.CT = self.VT`** means collision detection tracks the card's visible
   (eased) position, not its logical target position. Fast-moving cards may have
   collisions lag slightly behind `T`.
