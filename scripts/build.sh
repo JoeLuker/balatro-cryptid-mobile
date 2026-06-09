@@ -253,6 +253,9 @@ build_apk() {
     cp -r "$PATCHES_DIR/reserve-shim" "$game_dir/Mods/"
     log_info "    Embedded reserve-shim"
 
+    # Fix Cryptid's glitched.fs tan() -> NaN -> pure-black card on the Mali GPU
+    apply_glitch_shader_fix "$game_dir/Mods/Cryptid/assets/shaders/glitched.fs"
+
     # Create lovely.lua config
     cat > "$game_dir/lovely.lua" << EOF
 return {
@@ -266,7 +269,9 @@ EOF
     log_info "Applying patches..."
     apply_crt_fix "$game_dir/resources/shaders/CRT.fs"
     apply_android_settings_fix "$game_dir/globals.lua"
-    apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
+    apply_mobile_graphics_defaults "$game_dir/globals.lua"
+    # Video tab is left intact so graphics quality (texture scaling / CRT / bloom /
+    # shadows) is tunable on device — the old patch hid the whole tab.
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
@@ -343,6 +348,53 @@ apply_sticky_fingers_guard() {
     log_success "Sticky Fingers guard applied ($n wrappers protected)"
 }
 
+# Lower default graphics settings for mobile. The Tensor/Mali GPU thermally
+# throttles under desktop-grade settings (2x supersampling + full-screen CRT
+# shader + bloom + shadows) — it shows up as the game slowing down after a few
+# minutes of play (confirmed: thermal status SEVERE, ~59C). These are DEFAULTS;
+# the Video settings tab is left intact so they can be raised on device.
+apply_mobile_graphics_defaults() {
+    local globals_file="$1"
+    if [[ ! -f "$globals_file" ]]; then
+        log_warn "globals.lua not found, skipping graphics defaults"
+        return 0
+    fi
+    if grep -q "texture_scaling = 1," "$globals_file"; then
+        log_info "Mobile graphics defaults already applied"
+        return 0
+    fi
+    sed -i \
+        -e "s/texture_scaling = 2,/texture_scaling = 1,/" \
+        -e "s/shadows = 'On',/shadows = 'Off',/" \
+        -e "s/crt = 70,/crt = 0,/" \
+        -e "s/bloom = 1\$/bloom = 0/" \
+        "$globals_file"
+    log_success "Mobile graphics defaults applied (texture_scaling=1, crt/bloom/shadows off)"
+}
+
+# Cryptid's glitched.fs seeds its RGB-shift noise with `tan(2.*time)`. tan's
+# asymptotes produce inf/NaN on the Mali GPU; that NaN flows through rand() into
+# the texture coordinates, so Texel() returns pure black and the glitched card
+# renders fully black for those frames. Guard the value — NaN/inf comparisons are
+# false in GLSL, so out-of-range results fall back to 0 while normal frames keep tan.
+apply_glitch_shader_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "glitched.fs not found, skipping glitch shader fix"
+        return 0
+    fi
+    if grep -q "Mali NaN" "$f"; then
+        log_info "Glitch shader fix already applied"
+        return 0
+    fi
+    sed -i 's|float iTime = tan(2. \* time);|float iTime = tan(2. * time);\n    iTime = (abs(iTime) < 1000.0) ? iTime : 0.0; // Mali NaN\/inf guard: tan singularities render cards black|' "$f"
+    if grep -q "Mali NaN" "$f"; then
+        log_success "Glitch shader fix applied"
+    else
+        log_warn "Glitch shader fix did not match — check glitched.fs"
+    fi
+}
+
 apply_crt_fix() {
     local shader_file="$1"
 
@@ -395,43 +447,6 @@ apply_android_settings_fix() {
 }
 
 # Hide desktop-only video settings on Android
-apply_android_video_settings_fix() {
-    local ui_file="$1"
-
-    if [[ ! -f "$ui_file" ]]; then
-        log_warn "UI_definitions.lua not found, skipping video settings fix"
-        return
-    fi
-
-    # Check if already patched
-    if grep -q "Android video settings hidden" "$ui_file"; then
-        log_info "Video settings already patched for Android"
-        return
-    fi
-
-    log_info "Patching UI_definitions.lua to hide video settings on Android..."
-
-    # Replace the Video tab content to check for Android
-    sed -i "/elseif tab == 'Video' then/,/elseif tab == 'Audio' then/ {
-        /elseif tab == 'Video' then/ {
-            a\\
-    -- Android video settings hidden (monitor/resolution don't apply)\\
-    if love.system.getOS() == 'Android' then\\
-      return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.1, colour = G.C.CLEAR}, nodes={\\
-        {n=G.UIT.R, config={align = \"cm\"}, nodes={\\
-          {n=G.UIT.T, config={text = \"Video settings not available\", scale = 0.5, colour = G.C.UI.TEXT_LIGHT}}\\
-        }},\\
-        {n=G.UIT.R, config={align = \"cm\"}, nodes={\\
-          {n=G.UIT.T, config={text = \"on mobile devices\", scale = 0.4, colour = G.C.UI.TEXT_INACTIVE}}\\
-        }}\\
-      }}\\
-    end
-        }
-    }" "$ui_file"
-
-    log_success "Video settings hidden on Android"
-}
-
 # Fix SMODS path discovery for Android
 # On Android, NFS.getDirectoryItems doesn't work properly with APK assets
 # We hardcode the path since we know where Steamodded is embedded
