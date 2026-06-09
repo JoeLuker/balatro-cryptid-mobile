@@ -89,7 +89,7 @@ Markers are grep-able in `build/game/`. Current appliers in `build_apk` order:
 | `apply_fps_toggle` | `game.lua`, `UI_definitions.lua` | `G.SETTINGS.show_fps` + Settings→Game toggle |
 | `apply_debug_overlay` | `game.lua`, `misc_functions.lua`, `UI_definitions.lua` | retarget `F_ENABLE_PERF_OVERLAY`/verbose gates to `G.SETTINGS.perf_mode` + toggle |
 | `patch_main_lua.py` | `main.lua` | python patcher (complex main-loop edits) |
-| `apply_talisman_dim_fix` | `main.lua` | `G.SCORING_START` — only open Talisman's scoring dim overlay after 0.3s, killing the 1-frame flash on fast hands |
+| `apply_talisman_dim_fix` | `Mods/Talisman/talisman.lua` (both shipped copies: game.love-embedded + phone-transfer) | `TALISMAN_DIM_GATE`: stamps `G.SCORING_START` at coroutine creation and gates the scoring dim overlay on >0.3s elapsed, killing the 1-frame flash on fast hands. (Re-homed from main.lua after patcher step 10 began removing main.lua's duplicate harness.) |
 | `apply_tap_description_persist` | `engine/controller.lua` | 5 markers: `TAP_DESC_PERSIST` (popup survives finger lift), `TAP_DESC_HOLDGATE` (hand cards: description only after ≥0.2s hold), `TAP_DESC_TOGGLE` (tap behaviour by area), `TAP_DESC_RELAX` (drop `hover.is` when finger leaves → kills tilt-warp), `TAP_DESC_HOLD_NODRAG` (stationary hold ≠ reorder drag) |
 | `apply_drag_select` | `controller.lua`, `globals.lua`, `UI_definitions.lua` | `DRAG_SELECT_*`: slide from empty space across hand to multi-select; `G.SETTINGS.enable_drag_select` toggle |
 | `apply_sticky_fingers_guard` | `functions/misc_functions.lua` | `STICKY_GUARD`: nil-guard all 7 `sticky_can_*` wrappers (Pokermon-less builds crashed on Code cards) |
@@ -110,8 +110,10 @@ frame loop with dt smoothing and FPS cap, and drives `Game:update`/`draw`
 every frame. On Android it replaces FFI-based nativefs with a
 `love.filesystem` shim and loads the telemetry hook after all other hooks.
 The Talisman mod layer replaces `love.update` to drive a scoring coroutine
-across frames, using `G.SCORING_START` as a gate before showing the
-"calculating…" overlay.
+across frames — the live harness is `talisman.lua:672-820` (SMODS-loaded;
+main.lua's baked duplicate is removed at build time by `patch_main_lua.py`
+step 10). Our `TALISMAN_DIM_GATE` patch adds the `G.SCORING_START` 0.3s gate
+before the "calculating…" overlay shows.
 
 ### Key functions
 
@@ -124,10 +126,10 @@ across frames, using `G.SCORING_START` as a gate before showing the
 | `love.load` | `main.lua:980` | Entry point after SMODS/Talisman/Cryptid module loading. Calls `G:start_up()`, attempts luasteam init on desktop (skipped on Android), hides mouse cursor. |
 | `Game:start_up` | `game.lua:13` | Wrapped by Talisman (`main.lua:2368`) to install `safe_str_unpack`. Original: loads `settings.jkr`, inits window, starts SOUND\_MANAGER thread (channel `'sound_request'`), starts SAVE\_MANAGER thread (channel `'save_request'`), starts HTTP\_MANAGER thread (channels `'http_request'`/`'http_response'`), loads shaders. |
 | `love.update` (vanilla wrapper) | `main.lua:1025` | Thin wrapper: calls `timer_checkpoint(nil,'update',true)` then `G:update(dt)`. This is the target overridden by Talisman's `love.update` below. |
-| `love.update` (Talisman override) | `main.lua:2111` | Calls original `love.update` (which calls `G:update`), then drives the scoring coroutine each frame: if `G.SCORING_COROUTINE` exists, resumes it; if dead or aborted, clears it and calls `exit_overlay_menu`; if running > 0.3 s after `G.SCORING_START`, opens a "calculating…" overlay with abort button. |
+| `love.update` (Talisman override) | `talisman.lua:692` | Calls original `love.update` (which calls `G:update`), then drives the scoring coroutine each frame: if `G.SCORING_COROUTINE` exists, resumes it; if dead or aborted, clears it and calls `exit_overlay_menu`; otherwise opens/updates the "calculating…" overlay with abort button (gated >0.3s after `G.SCORING_START` by our `TALISMAN_DIM_GATE` patch). The dump main.lua's verbatim copy of this wrapper is removed by `patch_main_lua.py` step 10. |
 | `Game:update` | `game.lua:2616` | Core per-frame update. Runs `nuGC`, advances `TIMERS.REAL`/`UPTIME`/`BACKGROUND`, computes `SPEEDFACTOR` from `GAMESPEED`, `ACC`, pause and screenwipe state, advances `TIMERS.TOTAL` by `dt*SPEEDFACTOR`, runs `E_MANAGER`, dispatches to state-specific update sub-functions, moves/animates all nodes, updates `CONTROLLER`, polls `FILE_HANDLER` for deferred saves. |
 | `love.draw` | `main.lua:1031` | Calls `timer_checkpoint` then `G:draw()`. `G:draw()` renders the canvas; at end draws FPS overlay if `G.SETTINGS.show_fps` and perf flamegraph if `G.SETTINGS.perf_mode`. |
-| `G.FUNCS.evaluate_play` (Talisman coroutine entry) | `main.lua:2094` | Creates `G.SCORING_COROUTINE` from the original `evaluate_play`, records `G.SCORING_START = love.timer.getTime()`, resets `G.CARD_CALC_COUNTS`, then performs first resume. Subsequent resumes happen in `love.update` each frame. |
+| `G.FUNCS.evaluate_play` (Talisman coroutine entry) | `talisman.lua:676` | Creates `G.SCORING_COROUTINE` from the original `evaluate_play`, records `G.SCORING_START = love.timer.getTime()` (our `TALISMAN_DIM_GATE` stamp), resets `G.CARD_CALC_COUNTS`, then performs first resume. Subsequent resumes happen in `love.update` each frame. |
 | `Card:calculate_joker` (Talisman yield point) | `talisman.lua:785` | Wraps vanilla `calculate_joker`: if more than `TIME_BETWEEN_SCORING_FRAMES` (0.03 s) has elapsed since `G.LAST_SCORING_YIELD` and inside a coroutine, yields back to the frame loop. This is the only `coroutine.yield()` site. |
 | `timer_checkpoint` | `functions/misc_functions.lua:65` | No-op unless `G.SETTINGS.perf_mode` is true. Records wall-clock delta between checkpoints for the draw/update profiler flamegraph. |
 | `boot_timer` | `functions/misc_functions.lua:107` | Renders a loading progress bar directly to the window during `G:start_up` sequence. Used at shaders/savemanager/window init milestones. |
@@ -172,12 +174,14 @@ Per-save-cycle flags: `progress`, `settings`, `run`, `metrics`, `force`,
 `update_queued`, `last_sent_time`. Checked in `Game:update` to decide when to
 push to SAVE\_MANAGER channel.
 
-**`G.SCORING_COROUTINE` / `G.SCORING_START`** — `main.lua:2095-2096`
+**`G.SCORING_COROUTINE` / `G.SCORING_START`** — `talisman.lua:677` / our patch
 
 `G.SCORING_COROUTINE` holds the active scoring coroutine (nil when idle).
-`G.SCORING_START` is set to `love.timer.getTime()` when scoring begins; the
-Talisman update hook checks `(getTime()-G.SCORING_START) > 0.3` to gate
-showing the "calculating…" overlay (only when `G.OVERLAY_MENU` is also nil).
+`G.SCORING_START` is set to `love.timer.getTime()` when scoring begins (our
+`TALISMAN_DIM_GATE` stamp, applied by `apply_talisman_dim_fix` to both shipped
+talisman.lua copies); the patched overlay check at `talisman.lua:715` requires
+`(getTime()-(G.SCORING_START or getTime())) > 0.3` to show the "calculating…"
+overlay (only when `G.OVERLAY_MENU` is also nil).
 
 **`G.SETTINGS.show_fps` / `G.SETTINGS.perf_mode`** — `game.lua:3177`/`3179`
 
@@ -240,9 +244,10 @@ app resume on Android) from causing simulation jumps. Initial value 1/100.
      tracking.
    - Lines 2076–2088: `Game:update` wrapped to flush `G.latest_uht` and handle
      `dollar_update`.
-   - Lines 2090–2247: Talisman coroutine scoring system installed:
-     `G.FUNCS.evaluate_play` re-wrapped to create coroutine + set
-     `G.SCORING_START`, `love.update` re-wrapped to resume coroutine each frame.
+   - Lines 2090–2247 (dump): verbatim duplicate of talisman.lua's coroutine
+     scoring harness — **removed at build time** by `patch_main_lua.py` step 10
+     (it caused double coroutine launch + double per-frame resume). The live
+     harness loads with the Talisman mod (`talisman.lua:672-820`).
    - Lines 2349–2372: `G:start_up` wrapped to install `safe_str_unpack`.
    - Lines 2630–2637: Android telemetry loaded last via
      `pcall(love.filesystem.load('android-telemetry.lua'))` — only runs on
@@ -326,10 +331,11 @@ app resume on Android) from causing simulation jumps. Initial value 1/100.
   still be up to 0.1 s. `G.TIMERS.REAL` will accumulate these;
   `TIMERS.TOTAL` accumulates `dt*SPEEDFACTOR` so animation speed is affected.
 
-- **`G.SCORING_START` gate**: the overlay appears only when
-  `getTime() - G.SCORING_START > 0.3` AND `G.OVERLAY_MENU` is nil. If the
-  menu is already open for any other reason the overlay is suppressed silently
-  and the coroutine still runs.
+- **`G.SCORING_START` gate** (our `TALISMAN_DIM_GATE` patch in talisman.lua):
+  the overlay appears only when `getTime() - (G.SCORING_START or getTime()) >
+  0.3` AND `G.OVERLAY_MENU` is nil. If the menu is already open for any other
+  reason the overlay is suppressed silently and the coroutine still runs; a nil
+  `SCORING_START` evaluates to elapsed 0 and never shows the overlay.
 
 - **Talisman's `love.update` is the outermost update wrapper** — it wraps the
   vanilla `love.update` (`main.lua:1025`) which itself calls `G:update`. The
@@ -431,7 +437,7 @@ app resume on Android) from causing simulation jumps. Initial value 1/100.
 | `DRAG_SELECT_DEFAULT` | `globals.lua:152` | `G.SETTINGS.enable_drag_select = true` as default |
 | `G.SETTINGS.show_fps` | `game.lua:3177` | FPS counter drawn post-canvas; settings toggle at `UI_definitions.lua:2479` |
 | `G.SETTINGS.perf_mode` | `game.lua:3179` | Flamegraph overlay; settings toggle at `UI_definitions.lua:2480`; `timer_checkpoint` early-returns when off |
-| `G.SCORING_START` (Talisman dim gate) | `main.lua:2096` (set), `main.lua:2134` (checked) | Timestamps coroutine creation; overlay deferred 0.3 s to avoid flash on fast scores |
+| `G.SCORING_START` (Talisman dim gate) | `talisman.lua` set at coroutine creation (after :677), checked at the :715 overlay gate — marker `TALISMAN_DIM_GATE`, both shipped copies | Timestamps coroutine creation; overlay deferred 0.3 s to avoid flash on fast scores |
 
 ### Unknowns
 
@@ -1172,7 +1178,7 @@ Ascension scaling.
 | `SMODS.Scoring_Parameter` (chips) | Keys: `chips`, `h_chips`, `chip_mod`, `x_chips`, `xchips`, `Xchip_mod` |
 | `SMODS.Scoring_Parameter` (mult) | Keys: `mult`, `h_mult`, `mult_mod`, `x_mult`, `Xmult`, `xmult`, `x_mult_mod`, `Xmult_mod` |
 | `G.SCORING_COROUTINE` | The active coroutine; guards in `state_events.lua` at lines 423, 585, 663, 674 skip conflicting operations while it runs |
-| `G.SCORING_START` | **No longer exists.** Was written by the removed main.lua coroutine wrapper; the talisman.lua copy never wrote it. All references gone. |
+| `G.SCORING_START` | Written again as of `TALISMAN_DIM_GATE`: `apply_talisman_dim_fix` stamps it at coroutine creation in talisman.lua and the patched `:715` overlay check reads it (0.3s dim gate). Never reset to nil — overwritten at each scoring start, which keeps the gate per-hand correct. |
 | `G.LAST_SCORING_YIELD` | Set at coroutine launch (`talisman.lua:678`); refreshed before each frame resume (`talisman.lua:764`); read by the yield check in `Card:calculate_joker` (`talisman.lua:796`) |
 | `G.CARD_CALC_COUNTS` | Reset at coroutine launch (`talisman.lua:679`); tracks per-card calculation counts for animation |
 | `TIME_BETWEEN_SCORING_FRAMES` | `0.03` (30 ms); defined in `talisman.lua:776` |
@@ -1326,17 +1332,20 @@ Ascension scaling.
   in a single frame.
 - `G.SCORING_COROUTINE` guards at `state_events.lua` lines 423, 585, 663, 674
   prevent re-entrant scoring operations while the coroutine is active.
-- The 0.3 s overlay check **no longer exists**. It was in the duplicate main.lua
-  `love.update` wrapper (at what was `main.lua:2134`) that `patch_main_lua.py`
-  removes. `G.SCORING_START` (which it read) is also gone — the only write site
-  was in the removed duplicate coroutine wrapper.
+- The 0.3 s overlay gate is **re-homed, not gone**: after `patch_main_lua.py`
+  removed main.lua's duplicate wrapper (which carried the original gate),
+  `apply_talisman_dim_fix` now applies the same stamp+gate directly to
+  `talisman.lua` (both shipped copies, marker `TALISMAN_DIM_GATE`). Without it
+  the overlay opens on the first yielded frame of *any* hand — the 1-frame dim
+  flash bug.
 
 ### Patch touchpoints
 
 | Patch | File | What it does |
 |---|---|---|
 | Talisman big-number injection | `talisman.lua:524` | Redefines `to_big`; active version overwrites `main.lua:1942` |
-| Build coroutine augmentation | `main.lua` (~2025) | Minimal `G.FUNCS.evaluate_play` wrapper that stamps `G.SCORING_START = love.timer.getTime()` then calls through to talisman's version. `G.SCORING_START` is load-bearing for talisman's 0.3-second scoring-progress overlay (`talisman.lua:734`). All other coroutine machinery (coroutine.create/resume, love.update driver, Card:calculate_joker yield, CARD_CALC_COUNTS, LAST_SCORING_YIELD) lives solely in talisman.lua:673-820. Verbatim copies of the full talisman.lua:569-979 block were removed to fix double-wrapping bugs: `love.update` re-wrap (double coroutine.resume, double G.CURRENT_CALC_TIME); `Card:calculate_joker` re-wrap (double G.CARD_CALC_COUNTS increment); `card_eval_status_text`/`juice_card`/`Card:juice_up` re-wraps (double animations); `G.FUNCS.evaluate_round` re-wrap (double round-eval, duplicate summary rows); `Card:use_consumable`, `G.FUNCS.evaluate_play` calculating_score guard, `tal_uht`, `Game:start_run`, `Card:start_materialize/start_dissolve/set_seal` re-wraps (harmless but redundant). `SMODS.calculate_individual_effect` re-wrap retained (Cryptid-specific e_chips/hyper_chips handling not in talisman; early-return guard prevents double-firing). |
+| Talisman dedup (`patch_main_lua.py` step 10) | `main.lua` | Removes main.lua's verbatim baked copy of the talisman.lua:569-979 harness block. The copies caused double-wrapping bugs: `love.update` re-wrap (double coroutine.resume, double G.CURRENT_CALC_TIME); `Card:calculate_joker` re-wrap (double G.CARD_CALC_COUNTS increment); `card_eval_status_text`/`juice_card`/`Card:juice_up` re-wraps (double animations); `G.FUNCS.evaluate_round` re-wrap (double round-eval, duplicate summary rows); `Card:use_consumable`, `G.FUNCS.evaluate_play` calculating_score guard, `tal_uht`, `Game:start_run`, `Card:start_materialize/start_dissolve/set_seal` re-wraps (harmless but redundant). `SMODS.calculate_individual_effect` re-wrap retained (Cryptid-specific e_chips/hyper_chips handling not in talisman; early-return guard prevents double-firing). After dedup, ALL coroutine machinery lives solely in talisman.lua:672-820. |
+| Talisman dim gate (`apply_talisman_dim_fix`, marker `TALISMAN_DIM_GATE`) | `Mods/Talisman/talisman.lua` (game.love-embedded + phone-transfer copies) | Stamps `G.SCORING_START = love.timer.getTime()` at coroutine creation (after `:677`) and gates the `:715` overlay check on `elapsed > 0.3s`, so the scoring dim/Abort overlay only appears for genuinely long scoring instead of flashing for 1 frame on every hand. |
 | Cryptid Ascension hook | `overrides.lua:2275-2276` | Wraps `SMODS.calculate_round_score` to call `Cryptid.ascend` |
 | Cryptid trophy-cap | `overrides.lua:1398-1399` | Caps mult via `mod_mult` wrapper |
 | Reserve shim | `patches/reserve-shim/` | Provides `G.FUNCS.can_reserve_card` / `reserve_card` (needed by Sticky Fingers joker; extracted from Pokermon) |
