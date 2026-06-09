@@ -1,0 +1,107 @@
+{
+  "area:android-build": [
+    "2026-06-08-44ada020"
+  ],
+  "area:modding": [
+    "2026-06-08-44ada020"
+  ],
+  "type:bug-fix": [
+    "2026-06-08-44ada020"
+  ],
+  "balatro": [
+    "2026-06-08-44ada020",
+    "2026-06-09-d573b6f7"
+  ],
+  "cryptid": [
+    "2026-06-08-44ada020",
+    "2026-06-09-d573b6f7"
+  ],
+  "talisman": [
+    "2026-06-08-44ada020"
+  ],
+  "sticky-fingers": [
+    "2026-06-08-44ada020"
+  ],
+  "pokermon": [
+    "2026-06-08-44ada020"
+  ],
+  "lua": [
+    "2026-06-08-44ada020"
+  ],
+  "shader": [
+    "2026-06-08-44ada020"
+  ],
+  "frame-flicker": [
+    "2026-06-08-44ada020"
+  ],
+  "adb": [
+    "2026-06-08-44ada020"
+  ],
+  "mobile-ux": [
+    "2026-06-08-44ada020"
+  ],
+  "area:build": [
+    "2026-06-09-19325acc"
+  ],
+  "area:docs": [
+    "2026-06-09-19325acc",
+    "2026-06-09-d573b6f7",
+    "2026-06-09-cc25d292",
+    "2026-06-09-51b7136d"
+  ],
+  "type:housekeeping": [
+    "2026-06-09-19325acc"
+  ],
+  "area:game-core": [
+    "2026-06-09-d573b6f7"
+  ],
+  "type:audit": [
+    "2026-06-09-d573b6f7"
+  ],
+  "area:scoring": [
+    "2026-06-09-cc25d292"
+  ],
+  "type:verification": [
+    "2026-06-09-cc25d292"
+  ],
+  "status:orphaned": [
+    "2026-06-09-cc25d292"
+  ],
+  "type:orphaned-session": [
+    "2026-06-09-21c0e1e9",
+    "2026-06-09-51b7136d"
+  ],
+  "status:empty": [
+    "2026-06-09-21c0e1e9"
+  ],
+  "area:documentation": [
+    "2026-06-09-747a3eef"
+  ],
+  "area:game-architecture": [
+    "2026-06-09-747a3eef"
+  ],
+  "type:docs": [
+    "2026-06-09-747a3eef"
+  ],
+  "game:balatro": [
+    "2026-06-09-747a3eef"
+  ],
+  "game:cryptid": [
+    "2026-06-09-747a3eef"
+  ],
+  "area:build-pipeline": [
+    "2026-06-09-ed87d42e"
+  ],
+  "area:lua-patching": [
+    "2026-06-09-ed87d42e"
+  ],
+  "component:main-lua": [
+    "2026-06-09-ed87d42e"
+  ],
+  "type:documentation": [
+    "2026-06-09-ed87d42e"
+  ],
+  "project:balatro-cryptid-mobile": [
+    "2026-06-09-ed87d42e"
+  ]
+}
