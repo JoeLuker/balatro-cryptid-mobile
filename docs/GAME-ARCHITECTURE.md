@@ -995,20 +995,44 @@ Card instances register in `G.I.CARD` when `getmetatable(self) == Card`.
 |---|---|
 | `cards` | Array of Card objects in draw/layout order |
 | `highlighted` | Array of currently highlighted cards |
-| `config.type` | Area identity: `'hand'`, `'jokers'`, `'consumeable'`, `'deck'`, `'discard'`, `'play'`, `'shop'`, etc. |
-| `config.card_limit` | Virtual accessor via `__index`; computed from `card_limits.total_slots - extra_slots_used` |
+| `config.type` | Area identity: `'hand'`, `'joker'`, `'consumeable'`, `'deck'`, `'discard'`, `'play'`, `'shop'`, etc. |
+| `config.card_limit` | Virtual read via `__index`; returns `card_limits.total_slots - card_limits.extra_slots_used`. Write via `__newindex` updates `card_limits.mod`. |
 | `config.card_limits` | Underlying table: `{base, mod, extra_slots, extra_slots_used, total_slots}` |
+| `config.highlighted_limit` | Max simultaneous highlights (stored under this name; the constructor *param* is `highlight_limit`) |
+| `card_w` | Per-area card width (default `G.CARD_W`); used by `align_cards` layout |
+
+**Key methods** (all in cardarea.lua):
+
+| Method | Line | Summary |
+|---|---|---|
+| `CardArea:init` | 7 | Moveable.init + state flags off + config metatable + cards/highlighted/children tables. Registers in `G.I.CARDAREA` via `table.insert`. |
+| `CardArea:emplace` | 50 | Pushes to `self.cards[]` (front or back depending on `location`/type), handles flip state, calls `set_card_area`, `set_ranks`, `align_cards`. Has deck/joker side-effect checks. No `add_to_deck` call. |
+| `CardArea:remove_card` | 85 | Reverse-iterates `self.cards[]`, calls `card:remove_from_area()`, `table.remove`, then `remove_from_highlighted(card, true)`, then `set_ranks()`. Does **not** call `align_cards` — realignment happens each frame via `move()`. Returns the removed card. |
+| `CardArea:change_size` | 113 | Adjusts `card_limits.mod`. The old event-based branch is dead (guarded by `if true then … return end`). |
+| `CardArea:can_highlight` | 136 | Returns true for hand/joker/consumeable/shop types; controller path narrows to hand only. |
+| `CardArea:add_to_highlighted` | 154 | Behaviour differs by type: shop/joker/consumeable **evict** `highlighted[1]` when at limit, then add; hand/other silently skip (no return value). Calls `card:highlight(true)`. |
+| `CardArea:remove_from_highlighted` | 232 | Reverse-iterates `highlighted[]`, splices out, calls `card:highlight(false)`. Respects `forced_selection` guard on hand. |
+| `CardArea:set_ranks` | 259 | Assigns sequential `card.rank = k` to all cards; sets drag/collide state flags by area type. |
+| `CardArea:move` | 278 | Per-frame: hand Y-slide logic, then `Moveable.move`, then `align_cards()`. **This is where realignment after remove happens.** |
+| `CardArea:align_cards` | 463 | Computes `T.x/T.y/T.r` for each card by type (deck/discard/hand/play/shop/joker/consumeable). Also calls `table.sort` on `self.cards` for drag-reorder on joker/shop/consumeable/play areas. |
+| `CardArea:sort` | 633 | Sorts by `get_nominal()` (desc/asc), suit nominal, or `.order` field. **Does not use `sort_id`.** Does not call `align_cards` — the next `move()` frame handles that. |
+| `CardArea:shuffle` | 628 | `pseudoshuffle` + `set_ranks()`. |
+| `CardArea:draw_card_from` | 648 | Removes top card from another CardArea and emplaces it into self. Capacity-checked. |
+| `CardArea:save` | 675 | Returns `{cards={...}, config=self.config}` — serialises both the cards array and the config table. |
+| `CardArea:load` | 688 | Clears cards/children, restores config metatable, then for each saved card: sets global `loading=true`, constructs `Card(...)`, sets `loading=nil`, calls `card:load(cardTable)`, pushes to `self.cards[]`, restores `highlighted[]` if flagged, calls `card:set_card_area(self)`. Ends with `set_ranks` + `align_cards` + `hard_set_cards`. |
+| `CardArea:remove` | 728 | `remove_all(cards)`, `remove_all(children)`, splices self from `G.I.CARDAREA`. |
 
 CardArea disables its own `drag`, `hover`, and `click` states by default (it is a
-container, not an interactive object). `G.deck` re-enables them in
+container, not an interactive object). `G.deck` re-enables them each frame in
 `CardArea:update(dt)`.
 
 **`CardArea:draw()`** draws `children.area_uibox` (the card-count overlay) and
-then delegates individual card drawing to the frame's draw pass — cards are drawn
-via their own `Card:draw` calls triggered by the draw hash, not by CardArea
-iterating them.
+then iterates `self.cards` directly to call `card:draw(layer)` — the draw pass
+is inside CardArea:draw, not delegated to a separate draw hash. (Deck area draws
+every Nth card for the thin-stack visual.)
 
-CardArea instances register in `G.I.CARDAREA` when `getmetatable(self) == CardArea`.
+CardArea instances register in `G.I.CARDAREA` (sequential array, same structure as
+`G.I.CARD`) when `getmetatable(self) == CardArea`.
 
 ### Instance registries
 
@@ -1075,6 +1099,38 @@ type-specific lookup. Removal from all registries is handled by the respective
   (OmegaNum) exists and the state is `MENU`, it calls `to_number()` on all four
   VT/T width/height values. This is a safety cast to prevent big-number types
   from leaking into layout arithmetic.
+
+- **`CardArea:remove_card` does not call `align_cards()`** (cardarea.lua:85).
+  It only calls `set_ranks()`. Realignment happens passively each frame via
+  `CardArea:move() → align_cards()`. Code that removes a card and then
+  immediately reads card positions will see stale `T.x/T.y`.
+
+- **`CardArea:add_to_highlighted` never returns false** (cardarea.lua:154).
+  The old early-return guard is commented out (line 155). Current behaviour:
+  shop/joker/consumeable areas **evict** `highlighted[1]` when the limit is hit
+  and add the new card anyway; hand/other areas silently discard the highlight
+  request with no return value. Callers cannot rely on a return value to detect
+  rejection.
+
+- **`CardArea:load` bypasses emplace** (cardarea.lua:712–721). It pushes
+  directly to `self.cards[]` and calls `card:set_card_area(self)` separately.
+  emplace's flip logic, joker-tally check, and deck unlock check are all
+  skipped. The `loading` flag is a global (`loading = true` / `loading = nil`
+  around the `Card()` constructor call), not a constructor parameter.
+
+- **`CardArea:sort` does not use `sort_id`** (cardarea.lua:633). It sorts by
+  `get_nominal()` (rank value), suit nominal, or `.order` field. `sort_id` only
+  appears inside `align_cards` as a drag-pin tiebreaker weight, not as a sort key.
+
+- **`change_size`'s event-based branch is dead code** (cardarea.lua:114).
+  The function opens with `if true then … return end`, making the entire
+  remainder of the function (the `G.E_MANAGER:add_event` path with draw-to-hand
+  side-effects) permanently unreachable.
+
+- **`config.highlighted_limit` vs `config.highlight_limit`**: the constructor
+  accepts a `highlight_limit` param but stores it as `config.highlighted_limit`
+  (with a `d`). All internal reads use the stored name. Reading
+  `config.highlight_limit` returns nil.
 
 ## 8. Round flow & the scoring pipeline
 
