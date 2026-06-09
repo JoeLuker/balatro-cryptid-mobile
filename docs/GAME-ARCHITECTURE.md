@@ -532,6 +532,19 @@ multi-step work within a single state. It does not automatically advance STATE.
 `G.TAROT_INTERRUPT` (`globals.lua:329`) is a nil/value flag used to break out of certain
 pack-opening flows.
 
+**Concrete transition sites — common confusion points:**
+
+- **Booster open → `SMODS_BOOSTER_OPENED` (999):** set by `Card:open()` at `card.lua:2104`, not
+  `Card:use_consumeable`. `Card:open` is a separate method (defined at `card.lua:2089`);
+  `Card:use_consumeable` starts at `card.lua:1376` and handles tarots/planets/spectrals/vouchers
+  but does not set this state. `SMODS.OPENED_BOOSTER = self` is also written at `card.lua:2105`.
+
+- **Tarot/spectral use → restore `prev_state`:** `G.STATE = prev_state` at
+  `button_callbacks.lua:2327` is inside `G.FUNCS.use_card` (defined at line 2189), inside a
+  queued Event after card dissolution. `G.FUNCS.end_consumeable` is a different function defined
+  at `button_callbacks.lua:2789`; it handles booster pack exit and does not contain this
+  `prev_state` restore.
+
 ### SETTINGS (`globals.lua:151-206`)
 
 Selected fields relevant to frame behavior:
