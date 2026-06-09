@@ -1271,7 +1271,151 @@ Ascension scaling.
 
 ## 10. UI system: layout engine, screens, callbacks
 
-*(pending workflow merge)*
+The UI is a retained-mode tree of `UIElement` nodes managed by `UIBox` root
+containers. Screen layout is declarative: callers build a Lua table of nested
+`{n=G.UIT.X, config={...}, nodes={...}}` entries and pass it to `UIBox{definition=...}`.
+The engine walks that table at construction time, creates one `UIElement` per
+entry, computes sizes and positions, and thereafter updates the tree every frame
+via `UIElement:update`.
+
+### Classes
+
+**`UIBox`** (`Moveable:extend()`, `engine/ui.lua:4`) — the root container. Owns
+the `UIRoot` `UIElement` and anchors the whole tree to the game world. It is a
+Moveable with `wh_bond='Weak'` and `scale_bond='Weak'`, so its VT eases toward
+T independently of its parent.
+
+**`UIElement`** (`Moveable:extend()`, `engine/ui.lua:354`) — a single node in
+the layout tree. Every `{n=..., config=...}` entry in a definition table becomes
+one `UIElement`. UIElements are Minor Moveables welded to the UIBox (not to their
+parent UIElement), with offsets computed by the layout pass.
+
+### UIT node types (`G.UIT`, defined in `globals.lua:489`)
+
+| Type | Value | Purpose |
+|---|---|---|
+| `G.UIT.T` | 1 | Text leaf. Measures itself from the font; renders a `love.graphics.Text` drawable |
+| `G.UIT.B` | 2 | Box leaf. Fixed-size rectangle, can be rounded (`r=`) and coloured |
+| `G.UIT.C` | 3 | Column container. Stacks children vertically |
+| `G.UIT.R` | 4 | Row container. Stacks children horizontally |
+| `G.UIT.O` | 5 | Object leaf. Embeds any `Node` subclass; the embedded object gets a Minor role on the UIElement |
+| `G.UIT.ROOT` | 7 | Root container (one per UIBox; always the `UIRoot`) |
+| `G.UIT.S` | 8 | Slider |
+| `G.UIT.I` | 9 | Text input box |
+
+Containers (`C`, `R`, `ROOT`) recurse into `nodes={...}`. Leaves (`T`, `B`, `O`)
+are terminal.
+
+### Construction sequence (inside `UIBox:init`)
+
+1. `set_parent_child(definition, nil)` — walks the definition table recursively,
+   calling `UIElement(parent, self, node.n, node.config)` for each entry. Sets
+   `self.UIRoot` to the root element. Propagates `button`, `group`, and `mid`
+   config keys downward.
+
+2. `calculate_xywh(UIRoot, self.T)` — bottom-up size pass. Leaf nodes measure
+   themselves (text from font metrics, boxes from `config.w`/`config.h`, objects
+   from `config.object.T.w/h`). Container nodes sum their children plus padding.
+   Result: every node has a correct `T.x/y/w/h`.
+
+3. `UIRoot:set_wh()` — propagates any container size fixups.
+
+4. `UIRoot:set_alignments()` — top-down alignment pass. Applies `align` strings
+   (`c`=center-vertical, `m`=center-horizontal, `b`=bottom, `r`=right) to offset
+   children within their containers.
+
+5. `align_to_major()` + hard-set `VT` — positions the UIBox in the world
+   relative to its `config.major` anchor.
+
+6. `UIRoot:initialize_VT(true)` — sets all UIElement VTs to match their T
+   (instant, no easing on first frame).
+
+### Per-frame update
+
+`UIElement:update(dt)` runs every frame for every UIElement (called from the
+`G.MOVEABLES` move pass via `Moveable:update`):
+
+- **`func` callbacks**: if `config.func` is set, `G.FUNCS[config.func](self)` is
+  called every frame. These are visibility/enable gate functions (e.g.
+  `can_buy`, `HUD_blind_visible`). A `FUNC_TRACKER` table counts calls per func
+  per frame to catch runaway polling.
+- **Text update**: `T` nodes with `config.ref_table`/`config.ref_value` poll for
+  changes and update the `Text` drawable; triggers `UIBox:recalculate()` if the
+  string length changes.
+- **Object update**: `O` nodes with `config.ref_table`/`config.ref_value` swap
+  the embedded object if the referenced value changes, then recalculate.
+
+`UIBox:recalculate()` re-runs `calculate_xywh` + `set_wh` + `set_alignments` on
+the live tree to re-flow the layout without rebuilding UIElements.
+
+### Click callbacks
+
+When a `UIElement` with `config.button` is clicked, `UIElement:click()` calls
+`G.FUNCS[config.button](self)` (`ui.lua:1008`). All interactive callbacks are
+plain Lua functions stored in `G.FUNCS`. The element itself is passed as the
+argument `e`; callers reach game state through `G.*` globals, not through `e`.
+
+A 0.1 s debounce (`last_clicked`) prevents double-fire. `config.one_press` sets
+`disable_button = true` after the first click to prevent re-use.
+
+`config.choice` + `config.group` implement radio-button groups: on click, all
+siblings sharing `config.group` have their `chosen` cleared, and this element's
+`chosen` is set.
+
+### Named screens and UIBox registry
+
+All UIBoxes are inserted into `G.I.UIBOX` unless `config.instance_type` redirects
+them to another registry (e.g. `POPUP`). Commonly accessed UIBoxes are stored on
+`G` directly:
+
+| Global | Created in | Definition function |
+|---|---|---|
+| `G.HUD` | `Game:start_run` | `create_UIBox_HUD()` |
+| `G.HUD_blind` | `Game:start_run` | `create_UIBox_HUD_blind()` |
+| `G.MAIN_MENU_UI` | `Game:start_up` | menu definition |
+| `G.OVERLAY_MENU` | Various state entries | varies per state |
+| `G.shop` | shop state | shop definition |
+| `G.blind_select` | blind-select state | `create_UIBox_blind_select()` |
+| `G.round_eval` | round-eval state | `create_UIBox_round_evaluation()` |
+| `G.booster_pack` | pack-open states | various pack definitions |
+
+`G.HUD:get_UIE_by_ID('id')` is the standard way to reach a specific element after
+construction (e.g. `G.HUD:get_UIE_by_ID('hand_chips')` for the chip display).
+
+### Hover and stop_hover on UIElement
+
+`UIElement:hover()` and `UIElement:stop_hover()` delegate to `Node`'s
+implementations (create/remove `children.h_popup`). The popup is a UIBox
+constructed from `config.h_popup` with its `instance_type = 'POPUP'`, so it
+registers in `G.I.POPUP` rather than `G.I.UIBOX`.
+
+UIElement collision is guarded: `collides_with_point` returns false if
+`self.UIBox.states.collide.can` is false (line 988), so disabling collision on
+the UIBox disables all its children at once.
+
+### Gotchas
+
+- **`func` callbacks run every frame for every UIElement that has one.** There is
+  no dirty-flag mechanism. Expensive operations in `G.FUNCS.*` gate functions
+  directly slow the UI pass. `G.ARGS.FUNC_TRACKER` records call counts but
+  doesn't throttle them.
+
+- **`UIBox:recalculate()` is relatively cheap** (re-runs the layout math on the
+  existing UIElement tree) but does not handle changes in tree structure. Adding
+  or removing nodes requires removing the UIBox and constructing a new one.
+
+- **`O` nodes embed a Node by reference.** The embedded object's `T` is used for
+  sizing at construction time. If the object's size changes after construction,
+  the UIBox will not automatically resize unless `recalculate()` is triggered.
+
+- **Text drawables (`love.graphics.newText`) are cached per UIElement** and
+  mutated in-place via `setText` when `ref_value` changes. Creating them is
+  expensive; the cache avoids per-frame allocation.
+
+- **UIBox draw is guarded by `FRAME.DRAW`** (`ui.lua:290`), so each UIBox draws
+  at most once per frame even if `draw()` is called multiple times (e.g. from
+  both the normal draw pass and a child's draw cascade). Exception: when
+  `G.OVERLAY_TUTORIAL` is set, the guard is bypassed.
 
 ## 11. Input: controller & the touch layer
 
