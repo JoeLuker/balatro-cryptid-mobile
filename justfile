@@ -41,6 +41,20 @@ quick:
     ./scripts/build.sh build
     ./scripts/build.sh deploy
 
+# Local controller gesture tests — runs the REAL built controller.lua with
+# scripted touch gestures (tap/hold/drag/slide) in <1s. No phone, no display.
+test-controller:
+    luajit test/controller/run.lua
+
+# Local boot smoke test — boots build/game on THIS machine (Android code paths
+# spoofed, software GL under Xvfb), asserts it reaches the main menu, saves a
+# screenshot to build/smoke/smoke.png. No phone needed. ~1 min.
+smoke:
+    test/smoke.sh
+
+# All local tests (run before deploying to the phone)
+test: test-controller smoke
+
 # Push only mod files (no APK reinstall)
 push-mods:
     #!/usr/bin/env bash

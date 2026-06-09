@@ -44,6 +44,13 @@ pkgs.mkShell {
     pkgs.zip
     pkgs.curl
     pkgs.just
+    # Local test harness (test/): run the built game on this machine instead of
+    # deploying to the phone for every iteration. LÖVE desktop + Xvfb (software
+    # GL) for boot/UI/screenshot smoke tests; luajit for the controller gesture
+    # tests. Mali-GPU-specific shader behaviour still needs the device.
+    pkgs.love
+    pkgs.xvfb-run
+    pkgs.luajit
   ];
 
   shellHook = ''
