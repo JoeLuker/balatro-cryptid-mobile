@@ -170,8 +170,8 @@ end"""
         '-- Duplicating it here caused double coroutine launch, double love.update\n'
         '-- resume (~2x CPU per scoring frame), and double CARD_CALC_COUNTS increment\n'
         '-- (totalCalcs 2x real, jokersYetToScore goes negative prematurely).\n'
-        '-- Note: G.SCORING_START is not written here because nothing reads it --\n'
-        '-- talisman\'s love.update overlay check (talisman.lua:715) has no time gate.'
+        '-- Note: the 0.3s dim gate (G.SCORING_START) lives in talisman.lua now --\n'
+        '-- build.sh apply_talisman_dim_fix patches the overlay check there.'
     )
     dedup_result = re.sub(
         dup_block_pattern,

@@ -279,7 +279,7 @@ EOF
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
-    apply_talisman_dim_fix "$game_dir/main.lua"
+    apply_talisman_dim_fix "$game_dir/Mods/Talisman/talisman.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
@@ -502,22 +502,29 @@ apply_debug_overlay() {
 # flicker on every hand. Gate the dim on elapsed scoring time so it only appears
 # for genuinely-long scoring (>0.3s, where Abort is actually useful). The scoring
 # coroutine still resumes every update regardless, so scoring is unaffected.
+#
+# Target: Mods/Talisman/talisman.lua — the single live harness now that
+# patch_main_lua.py step 10 removes main.lua's baked duplicate of it. Applied to
+# BOTH the game.love-embedded copy and the phone-transfer copy: the loader
+# enumerates mods from the embedded archive (verified: stale save-dir mods don't
+# load), but LÖVE save-dir reads can shadow same-path files, so we patch both
+# shipped copies rather than bet on the read path.
 apply_talisman_dim_fix() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
-        log_warn "main.lua not found, skipping Talisman dim fix"
+        log_warn "talisman.lua not found at $f, skipping Talisman dim fix"
         return 0
     fi
     if grep -q "G.SCORING_START" "$f"; then
-        log_info "Talisman dim fix already applied"
+        log_info "Talisman dim fix already applied ($f)"
         return 0
     fi
-    sed -i 's|G.SCORING_COROUTINE = coroutine.create(oldplay)|G.SCORING_COROUTINE = coroutine.create(oldplay)\n      G.SCORING_START = love.timer.getTime()|' "$f"
-    sed -i 's|              if not G.OVERLAY_MENU then|              if not G.OVERLAY_MENU and love.timer.getTime() - (G.SCORING_START or love.timer.getTime()) > 0.3 then|' "$f"
+    sed -i 's|G.SCORING_COROUTINE = coroutine.create(oldplay)|G.SCORING_COROUTINE = coroutine.create(oldplay)\n      G.SCORING_START = love.timer.getTime() -- TALISMAN_DIM_GATE|' "$f"
+    sed -i 's|              if not G.OVERLAY_MENU then|              if not G.OVERLAY_MENU and love.timer.getTime() - (G.SCORING_START or love.timer.getTime()) > 0.3 then -- TALISMAN_DIM_GATE|' "$f"
     if grep -q "G.SCORING_START or love.timer.getTime()) > 0.3" "$f"; then
-        log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands)"
+        log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands): $f"
     else
-        log_warn "Talisman dim fix did not fully apply — check main.lua"
+        log_warn "Talisman dim fix did not fully apply — check $f"
     fi
 }
 
@@ -868,6 +875,9 @@ prepare_transfer() {
         fi
     done
     cp -r "$PATCHES_DIR/reserve-shim" "$transfer_dir/Mods/"
+
+    # Same dim-gate as the embedded copy — save-dir reads can shadow the archive
+    apply_talisman_dim_fix "$transfer_dir/Mods/Talisman/talisman.lua"
 
     # Create SMODS folder with version/release files for require'SMODS.version' to work
     # The lovely injector on desktop does this automatically, but we need it explicit for Android
