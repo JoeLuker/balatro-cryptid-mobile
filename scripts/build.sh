@@ -534,11 +534,14 @@ apply_tap_description_persist() {
         log_info "Tap-description persist already applied"
         return 0
     fi
+    # persist: don't clear the hover on touch release
     sed -i 's|elseif (self.cursor_hover.target == nil or (self.HID.touch and not self.is_cursor_down)) and self.hovering.target then|elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST|' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f"; then
-        log_success "Tap-description persist applied (card desc stays after release on touch)"
+    # toggle: tapping the same card again dismisses its description (self.shown_desc tracks it)
+    sed -i 's|                    self.touch_control.s_tap.handled = false|                    self.touch_control.s_tap.handled = false\n                    if self.cursor_down.target == self.shown_desc then\n                        if self.hovering.target then self.hovering.target.states.hover.is = false end\n                        self.hovering.target = nil; self.shown_desc = nil\n                    else self.shown_desc = self.cursor_down.target end -- TAP_DESC_TOGGLE|' "$f"
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f"; then
+        log_success "Tap-description persist + toggle applied"
     else
-        log_warn "Tap-description persist did not match — check controller.lua"
+        log_warn "Tap-description fix did not fully match — check controller.lua"
     fi
 }
 
