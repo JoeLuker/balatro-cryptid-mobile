@@ -11,8 +11,11 @@ def patch_main_lua(filepath):
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Check if already patched
-    if '-- Android SMODS path fix' in content:
+    # Check if already fully patched (both the Android path fix and the
+    # duplicate-coroutine-block removal must be present).
+    already_android = '-- Android SMODS path fix' in content
+    already_dedup = 'Duplicate Talisman coroutine harness' in content
+    if already_android and already_dedup:
         print("Already patched")
         return
 
@@ -134,8 +137,58 @@ end"""
     write_replacement = """pcall(function() if love.system.getOS() ~= 'Android' then nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end end)"""
     content = re.sub(write_pattern, write_replacement, content)
 
+    # 10. Remove duplicate Talisman F_NO_COROUTINE block from main.lua.
+    #
+    # Talisman ships its own complete coroutine harness in talisman.lua (the
+    # F_NO_COROUTINE block: evaluate_play coroutine wrapper, tal_abort, love.update
+    # driver, TIME_BETWEEN_SCORING_FRAMES, Card:calculate_joker, Card:use_consumable,
+    # and the calculating_score guard on evaluate_play).  main.lua contains a verbatim
+    # copy of this block.  The copy causes:
+    #   - Double coroutine launch: talisman.lua:676 creates + first-resumes the
+    #     coroutine, then main.lua:2094 OVERWRITES G.SCORING_COROUTINE with a new
+    #     coroutine and first-resumes that one.  The talisman coroutine is abandoned.
+    #   - Double love.update resume: both talisman's and main.lua's love.update
+    #     wrappers fire each frame, each calling coroutine.resume on the live
+    #     G.SCORING_COROUTINE — ~60 ms Lua execution instead of ~30 ms per frame.
+    #   - Double CARD_CALC_COUNTS increment: Card:calculate_joker fires twice per
+    #     joker call, making totalCalcs 2× real and jokersYetToScore go negative.
+    #
+    # The unique anchor for the main.lua copy is G.SCORING_START (absent from
+    # talisman.lua's copy).  We match from the opening flag line through the
+    # trailing commented-out eval_card block and replace with a comment.
+    dup_block_pattern = (
+        r'Talisman\.F_NO_COROUTINE = false --easy disabling for bugfixing.*?'
+        r'end\n--\[\[local ec = eval_card\n.*?end--\]\]'
+    )
+    # Only remove the copy that contains G.SCORING_START (the main.lua duplicate).
+    # We do this by splitting on the anchor, removing the second occurrence.
+    anchor = 'G.SCORING_START = love.timer.getTime()'
+    if anchor in content:
+        replacement_comment = (
+            '-- Duplicate Talisman coroutine harness (evaluate_play wrapper, tal_abort,\n'
+            '-- love.update driver, Card:calculate_joker, etc.) removed by patch_main_lua.py.\n'
+            '-- The canonical definitions live in Mods/Talisman/talisman.lua and must not\n'
+            '-- be duplicated here: double-wrapping causes double coroutine launch, double\n'
+            '-- love.update resume (~2× CPU per scoring frame), and double CARD_CALC_COUNTS\n'
+            '-- increment (totalCalcs 2× real, jokersYetToScore goes negative prematurely).'
+        )
+        dedup_result = re.sub(
+            dup_block_pattern,
+            replacement_comment,
+            content,
+            count=1,
+            flags=re.DOTALL,
+        )
+        if dedup_result != content:
+            content = dedup_result
+        else:
+            print("WARNING: duplicate F_NO_COROUTINE block regex did not match — skipping removal")
+    else:
+        print("NOTE: G.SCORING_START anchor not found — duplicate block may already be removed")
+
     # 9. Inject telemetry loader at end of file (after all game setup)
-    content += """
+    if '-- Android telemetry: load after all game hooks are set up' not in content:
+        content += """
 -- Android telemetry: load after all game hooks are set up
 if love.system.getOS() == 'Android' then
     local tel_ok, tel_err = pcall(function()
