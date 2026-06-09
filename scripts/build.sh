@@ -279,6 +279,8 @@ EOF
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
+    apply_talisman_dim_fix "$game_dir/main.lua"
+    apply_tap_description_persist "$game_dir/engine/controller.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -488,6 +490,55 @@ apply_debug_overlay() {
         log_success "Debug overlay added (Settings > Game > Debug Overlay)"
     else
         log_warn "Debug overlay did not fully apply — check anchors"
+    fi
+}
+
+# Talisman runs hand-scoring in a coroutine and opens a dimmed "Abort" overlay
+# while it runs — but it opens the dim the instant scoring starts, so a fast hand
+# (instant scoring, any chip scale) flashes the dim on for ~1 frame: the dark
+# flicker on every hand. Gate the dim on elapsed scoring time so it only appears
+# for genuinely-long scoring (>0.3s, where Abort is actually useful). The scoring
+# coroutine still resumes every update regardless, so scoring is unaffected.
+apply_talisman_dim_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "main.lua not found, skipping Talisman dim fix"
+        return 0
+    fi
+    if grep -q "G.SCORING_START" "$f"; then
+        log_info "Talisman dim fix already applied"
+        return 0
+    fi
+    sed -i 's|G.SCORING_COROUTINE = coroutine.create(oldplay)|G.SCORING_COROUTINE = coroutine.create(oldplay)\n      G.SCORING_START = love.timer.getTime()|' "$f"
+    sed -i 's|              if not G.OVERLAY_MENU then|              if not G.OVERLAY_MENU and love.timer.getTime() - (G.SCORING_START or love.timer.getTime()) > 0.3 then|' "$f"
+    if grep -q "G.SCORING_START or love.timer.getTime()) > 0.3" "$f"; then
+        log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands)"
+    else
+        log_warn "Talisman dim fix did not fully apply — check main.lua"
+    fi
+}
+
+# On touch, the card description popup (the "hover") only shows while a finger is
+# held down — the controller force-clears it the instant you release
+# (self.HID.touch and not self.is_cursor_down). The touch cursor stays over the
+# card after release, so dropping that release-clear clause makes the description
+# persist after you let go (and it updates when you tap another card). Desktop is
+# unaffected — that clause was only ever true in touch mode.
+apply_tap_description_persist() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "controller.lua not found, skipping tap-description persist"
+        return 0
+    fi
+    if grep -q "TAP_DESC_PERSIST" "$f"; then
+        log_info "Tap-description persist already applied"
+        return 0
+    fi
+    sed -i 's|elseif (self.cursor_hover.target == nil or (self.HID.touch and not self.is_cursor_down)) and self.hovering.target then|elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST|' "$f"
+    if grep -q "TAP_DESC_PERSIST" "$f"; then
+        log_success "Tap-description persist applied (card desc stays after release on touch)"
+    else
+        log_warn "Tap-description persist did not match — check controller.lua"
     fi
 }
 
