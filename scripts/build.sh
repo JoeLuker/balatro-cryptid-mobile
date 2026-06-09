@@ -280,12 +280,14 @@ EOF
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     apply_talisman_dim_fix "$game_dir/Mods/Talisman/talisman.lua"
+    apply_shader_eof_newlines "$game_dir"
     apply_cryptid_dead_copy_fix "$game_dir/Mods/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$game_dir/Mods/Cryptid/lib/calculate.lua" "$game_dir/Mods/Cryptid/lib/overrides.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
+    apply_card_to_big_elim "$game_dir/card.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -550,6 +552,24 @@ apply_debug_overlay() {
     fi
 }
 
+# Ensure every shipped shader file ends with a trailing newline. Cryptid's
+# blur.fs ends in '#endif' with no final newline; Mali and llvmpipe tolerate
+# it, but stricter GLSL translators (Android-emulator/ANGLE) reject the file
+# with "unexpected end of file found in directive" and the game crash-loops
+# at shader load. A directive at EOF without a newline is invalid GLSL —
+# normalize all .fs/.vs we ship rather than special-casing one file.
+apply_shader_eof_newlines() {
+    local root="$1"
+    local fixed=0
+    while IFS= read -r -d '' f; do
+        if [[ -s "$f" && -n "$(tail -c1 "$f")" ]]; then
+            echo >> "$f"
+            fixed=$((fixed+1))
+        fi
+    done < <(find "$root" -name '*.fs' -print0 -o -name '*.vs' -print0 2>/dev/null)
+    log_success "Shader EOF newlines normalized under $root ($fixed fixed)"
+}
+
 # Talisman runs hand-scoring in a coroutine and opens a dimmed "Abort" overlay
 # while it runs — but it opens the dim the instant scoring starts, so a fast hand
 # (instant scoring, any chip scale) flashes the dim on for ~1 frame: the dark
@@ -728,6 +748,54 @@ apply_shadow_height_fix() {
         log_success "Shadow height hover fix applied (hover.is -> 0.2, proportional to drag 0.35)"
     else
         log_warn "Shadow height hover fix did not match — check card.lua shadow_height line"
+    fi
+}
+
+# Eliminate redundant OmegaNum allocations at the 22 to_big call sites in card.lua.
+# Every operand at these sites is a plain Lua number (joker ability fields like
+# x_mult, mult, t_mult, t_chips, dollars — all initialized as plain numbers and
+# never assigned an OmegaNum value). Replacing to_big(a) OP to_big(b) with a OP b
+# directly avoids two OmegaNum table allocations per comparison.
+# Line 3593 divides G.GAME.chips (plain number) by blind.chips (plain number).
+# Line 3328 (Ramen) subtracts plain-number fields before comparing.
+# Audit: all 22 sites verified safe — no OmegaNum accumulator operands in card.lua.
+apply_card_to_big_elim() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "card.lua not found, skipping to_big elimination"
+        return 0
+    fi
+    if grep -q "CARD_TO_BIG_ELIM" "$f"; then
+        log_info "card.lua to_big elimination already applied"
+        return 0
+    fi
+    # Line 2101: extra < 1 guard
+    sed -i 's|if to_big(self\.ability\.extra) < to_big(1) then self\.ability\.extra = 1 end|if self.ability.extra < 1 then self.ability.extra = 1 end -- CARD_TO_BIG_ELIM|' "$f"
+    # Line 3328: Ramen x_mult - extra <= 1
+    sed -i 's|if to_big(self\.ability\.x_mult) - to_big(self\.ability\.extra) <= to_big(1) then|if self.ability.x_mult - self.ability.extra <= 1 then|' "$f"
+    # Line 3593: Mr. Bones chips/blind ratio
+    sed -i 's|to_big(G\.GAME\.chips)/G\.GAME\.blind\.chips >= to_big(0\.25)|G.GAME.chips / G.GAME.blind.chips >= 0.25|' "$f"
+    # Lines 3462, 3571, 4120, 4202: x_mult > 1
+    sed -i 's|to_big(self\.ability\.x_mult) > to_big(1)|self.ability.x_mult > 1|g' "$f"
+    # Lines 4209, 4215: t_mult / t_chips > 0
+    sed -i 's|to_big(self\.ability\.t_mult) > to_big(0)|self.ability.t_mult > 0|g' "$f"
+    sed -i 's|to_big(self\.ability\.t_chips) > to_big(0)|self.ability.t_chips > 0|g' "$f"
+    # Lines 4285, 4497, 4509, 4515, 4521, 4527, 4533, 4557: mult > 0
+    sed -i 's|to_big(self\.ability\.mult) > to_big(0)|self.ability.mult > 0|g' "$f"
+    # Line 4292: dollars <= extra
+    sed -i 's|to_big(G\.GAME\.dollars) <= to_big(self\.ability\.extra)|G.GAME.dollars <= self.ability.extra|' "$f"
+    # Line 4403: extra.chips > 0
+    sed -i 's|to_big(self\.ability\.extra\.chips) > to_big(0)|self.ability.extra.chips > 0|g' "$f"
+    # Line 4459: dollars + buffer > 0
+    sed -i 's|to_big(G\.GAME\.dollars + (G\.GAME\.dollar_buffer or 0)) > to_big(0)|G.GAME.dollars + (G.GAME.dollar_buffer or 0) > 0|' "$f"
+    # Line 4569: Bootstraps floor division >= 1
+    sed -i 's|to_big(math\.floor((G\.GAME\.dollars + (G\.GAME\.dollar_buffer or 0))/self\.ability\.extra\.dollars)) >= to_big(1)|math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars) >= 1|' "$f"
+    # Line 4575: caino_xmult > 1
+    sed -i 's|to_big(self\.ability\.caino_xmult) > to_big(1)|self.ability.caino_xmult > 1|' "$f"
+    if grep -q "CARD_TO_BIG_ELIM" "$f"; then
+        log_success "card.lua to_big elimination applied (22 OmegaNum alloc pairs → plain Lua comparisons)"
+    else
+        log_warn "card.lua to_big elimination did not apply the marker — check card.lua"
     fi
 }
 
@@ -932,6 +1000,7 @@ prepare_transfer() {
 
     # Same dim-gate as the embedded copy — save-dir reads can shadow the archive
     apply_talisman_dim_fix "$transfer_dir/Mods/Talisman/talisman.lua"
+    apply_shader_eof_newlines "$transfer_dir"
 
     # Create SMODS folder with version/release files for require'SMODS.version' to work
     # The lovely injector on desktop does this automatically, but we need it explicit for Android
