@@ -281,6 +281,7 @@ EOF
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     apply_talisman_dim_fix "$game_dir/main.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
+    apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -548,6 +549,46 @@ apply_tap_description_persist() {
         log_success "Tap-description persist + toggle applied"
     else
         log_warn "Tap-description fix did not fully match — check controller.lua"
+    fi
+}
+
+# Slide-to-select: drag a finger from empty space across the hand to highlight
+# several cards in one gesture (adapted from BalatroMobileLikeDragging's
+# dragSelectActive mechanism). Designed to coexist with Sticky Fingers — it
+# activates ONLY when a touch starts on empty space (no card under the finger)
+# with nothing being dragged, so single-tap select and card-reorder drag are
+# untouched. Gated on G.SETTINGS.enable_drag_select (Settings > Game), default on.
+apply_drag_select() {
+    local ctrl="$1"
+    local globals="$2"
+    local ui_file="$3"
+    if [[ ! -f "$ctrl" ]]; then
+        log_warn "controller.lua not found, skipping drag-select"
+        return 0
+    fi
+    if grep -q "DRAG_SELECT_LOOP" "$ctrl"; then
+        log_info "Drag-select already applied"
+        return 0
+    fi
+    # 1) default the setting on (seed into the SETTINGS table in globals.lua)
+    sed -i 's|    self.SETTINGS = {|    self.SETTINGS = {\n        enable_drag_select = true, -- DRAG_SELECT_DEFAULT|' "$globals"
+    # 2) init the drag-select state alongside cursor_down
+    sed -i 's|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}\nself.dragSelectActive = {active = false, mode = nil} -- DRAG_SELECT_INIT|' "$ctrl"
+    # 3) activate on a touch that starts on empty space with nothing being dragged
+    sed -i 's|^        self.cursor_down.handled = true$|        if self.HID.touch and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE\n        self.cursor_down.handled = true|' "$ctrl"
+    # 4) reset on touch release
+    sed -i 's|    if not self.cursor_up.handled then |    if not self.cursor_up.handled then \n        self.dragSelectActive.active = false; self.dragSelectActive.mode = nil -- DRAG_SELECT_RESET|' "$ctrl"
+    # 5) per-frame while active: highlight/unhighlight the closest hand card under
+    #    the finger. The first card touched sets the mode (select vs deselect) so a
+    #    sweep stays consistent; the hand's 5-card limit is enforced by
+    #    add_to_highlighted (over-limit cards just no-op).
+    sed -i 's|    --Cursor is currently hovering over something|    if self.HID.touch and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        if closest and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
+    # 6) toggle in Settings > Game (after the Debug Overlay toggle)
+    sed -i "s|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
+    if grep -q "DRAG_SELECT_LOOP" "$ctrl" && grep -q "DRAG_SELECT_ACTIVATE" "$ctrl" && grep -q "enable_drag_select" "$ui_file"; then
+        log_success "Drag-select (slide to select) applied"
+    else
+        log_warn "Drag-select did not fully match — check controller.lua/globals.lua/UI_definitions.lua"
     fi
 }
 
