@@ -546,12 +546,16 @@ apply_tap_description_persist() {
     # dismisses it). Jokers/consumables/shop = tap toggles the persistent desc.
     sed -i 's|                    self.touch_control.s_tap.handled = false|                    self.touch_control.s_tap.handled = false\n                    if self.cursor_down.target.area == G.hand then\n                        if self.hovering.target then self.hovering.target.states.hover.is = false end\n                        self.hovering.target = nil; self.shown_desc = nil\n                    elseif self.cursor_down.target == self.shown_desc then\n                        if self.hovering.target then self.hovering.target.states.hover.is = false end\n                        self.hovering.target = nil; self.shown_desc = nil\n                    else self.shown_desc = self.cursor_down.target end -- TAP_DESC_TOGGLE|' "$f"
     # no-warp: a persisted hover target (description shown after the finger left
-    # the card) was still getting its hover offset re-pointed at the roaming
-    # cursor every frame. hover_offset = cursorpoint - card.T feeds the card's 3D
-    # tilt (card.lua: tilt_var.amt grows with |hover_offset|), so the old card
-    # visibly stretched toward wherever the finger moved. Only update the offset
-    # while the cursor is actually over the hovering target; otherwise freeze it.
-    sed -i "s|        self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')|        if self.cursor_hover.target == self.hovering.target then self.hovering.target:set_offset(self.cursor_hover.T, 'Hover') end -- TAP_DESC_NOWARP|g" "$f"
+    # the card) kept states.hover.is = true, and the card draw aims its 3D mesh
+    # tilt (sprite.lua 'mouse_screen_pos' = tilt_var.mx/my) at the LIVE cursor
+    # whenever hover.is is true (card.lua:4921 / SMODS card_draw.lua:88). So the
+    # old card skewed toward wherever the finger went next — the warp/stretch.
+    # Fix at the source: when the finger is no longer physically on the hovering
+    # target (touch released, or moved to another card), drop its hover.is so the
+    # tilt falls to the ambient branch (orbits its own centre, no warp). The
+    # description popup is tied to hovering.target — NOT hover.is — so it stays;
+    # hover.is's only other card effects are a benign +5% zoom and collision buffer.
+    sed -i 's|    --The object being hovered over|    if self.HID.touch and self.hovering.target and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target) then self.hovering.target.states.hover.is = false end -- TAP_DESC_RELAX\n    --The object being hovered over|' "$f"
     # hold-persist: hand cards are draggable (reorder), so a stationary hold was
     # treated as a degenerate drag — on release the drag-release path calls
     # stop_hover() and nils hovering.target, destroying the description the hold
@@ -559,7 +563,7 @@ apply_tap_description_persist() {
     # click threshold is not a reorder; skip the drag-release path so its
     # description persists. Real drags (travel >= MIN_CLICK_DIST) still reorder.
     sed -i 's|            elseif self.dragging.prev_target then |            elseif self.dragging.prev_target and not (self.HID.touch and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_NODRAG |' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_NOWARP" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f"; then
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f"; then
         log_success "Tap-description persist + toggle + no-warp + hold-persist applied"
     else
         log_warn "Tap-description fix did not fully match — check controller.lua"
