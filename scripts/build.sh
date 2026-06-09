@@ -253,8 +253,9 @@ build_apk() {
     cp -r "$PATCHES_DIR/reserve-shim" "$game_dir/Mods/"
     log_info "    Embedded reserve-shim"
 
-    # Fix Cryptid's glitched.fs tan() -> NaN -> pure-black card on the Mali GPU
+    # Fix Cryptid's glitch shaders rendering pure-black cards on the Mali GPU
     apply_glitch_shader_fix "$game_dir/Mods/Cryptid/assets/shaders/glitched.fs"
+    apply_glitched_b_fix "$game_dir/Mods/Cryptid/assets/shaders/glitched_b.fs"
 
     # Create lovely.lua config
     cat > "$game_dir/lovely.lua" << EOF
@@ -270,8 +271,10 @@ EOF
     apply_crt_fix "$game_dir/resources/shaders/CRT.fs"
     apply_android_settings_fix "$game_dir/globals.lua"
     apply_mobile_graphics_defaults "$game_dir/globals.lua"
-    # Video tab is left intact so graphics quality (texture scaling / CRT / bloom /
-    # shadows) is tunable on device — the old patch hid the whole tab.
+    # Hide only the Video tab (monitor/resolution/vsync — desktop-only, does nothing
+    # on mobile). The Graphics tab (texture scaling / CRT / bloom / shadows) stays
+    # visible so quality is tunable on device.
+    apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
@@ -395,6 +398,30 @@ apply_glitch_shader_fix() {
     fi
 }
 
+# glitched_b.fs (Cryptid's other glitch shader — used by e.g. the menu joker) is
+# numerically fragile: unbounded `time`, division by ~0, and pow() overflow can
+# each produce NaN/inf on the Mali GPU, rendering the card pure black. Guard the
+# final colour so a blown-up frame falls back to the plain texel instead of black.
+# (Note: this shader declares a local `float mod`, which shadows the built-in
+# mod() — so don't call mod() inside effect().)
+apply_glitched_b_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "glitched_b.fs not found, skipping fix"
+        return 0
+    fi
+    if grep -q "Mali NaN" "$f"; then
+        log_info "glitched_b fix already applied"
+        return 0
+    fi
+    sed -i 's|tex.rgb = textp.rgb;|tex.rgb = textp.rgb;\n    if (!all(lessThan(abs(tex.rgb), vec3(1000000.0)))) { tex.rgb = Texel(texture, texture_coords).rgb; } // Mali NaN\/inf guard: glitch math -> black card|' "$f"
+    if grep -q "Mali NaN" "$f"; then
+        log_success "glitched_b fix applied"
+    else
+        log_warn "glitched_b fix did not match — check glitched_b.fs"
+    fi
+}
+
 apply_crt_fix() {
     local shader_file="$1"
 
@@ -447,6 +474,43 @@ apply_android_settings_fix() {
 }
 
 # Hide desktop-only video settings on Android
+# Hide the Video settings tab on Android (monitor/resolution/vsync are desktop-only
+# and do nothing on a phone). The separate Graphics tab is left visible.
+apply_android_video_settings_fix() {
+    local ui_file="$1"
+
+    if [[ ! -f "$ui_file" ]]; then
+        log_warn "UI_definitions.lua not found, skipping video settings fix"
+        return
+    fi
+
+    if grep -q "Android video settings hidden" "$ui_file"; then
+        log_info "Video settings already patched for Android"
+        return
+    fi
+
+    log_info "Patching UI_definitions.lua to hide video settings on Android..."
+
+    sed -i "/elseif tab == 'Video' then/,/elseif tab == 'Audio' then/ {
+        /elseif tab == 'Video' then/ {
+            a\\
+    -- Android video settings hidden (monitor/resolution don't apply)\\
+    if love.system.getOS() == 'Android' then\\
+      return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.1, colour = G.C.CLEAR}, nodes={\\
+        {n=G.UIT.R, config={align = \"cm\"}, nodes={\\
+          {n=G.UIT.T, config={text = \"Video settings not available\", scale = 0.5, colour = G.C.UI.TEXT_LIGHT}}\\
+        }},\\
+        {n=G.UIT.R, config={align = \"cm\"}, nodes={\\
+          {n=G.UIT.T, config={text = \"on mobile devices\", scale = 0.4, colour = G.C.UI.TEXT_INACTIVE}}\\
+        }}\\
+      }}\\
+    end
+        }
+    }" "$ui_file"
+
+    log_success "Video settings hidden on Android"
+}
+
 # Fix SMODS path discovery for Android
 # On Android, NFS.getDirectoryItems doesn't work properly with APK assets
 # We hardcode the path since we know where Steamodded is embedded
