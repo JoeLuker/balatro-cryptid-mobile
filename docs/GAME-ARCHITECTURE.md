@@ -1171,7 +1171,7 @@ Ascension scaling.
 | `SMODS.Scoring_Parameter` (chips) | Keys: `chips`, `h_chips`, `chip_mod`, `x_chips`, `xchips`, `Xchip_mod` |
 | `SMODS.Scoring_Parameter` (mult) | Keys: `mult`, `h_mult`, `mult_mod`, `x_mult`, `Xmult`, `xmult`, `x_mult_mod`, `Xmult_mod` |
 | `G.SCORING_COROUTINE` | The active coroutine; guards in `state_events.lua` at lines 423, 585, 663, 674 skip conflicting operations while it runs |
-| `G.SCORING_START` | Timestamp set at coroutine launch (`main.lua:2096`); used by the 0.3 s overlay check |
+| `G.SCORING_START` | Timestamp set at coroutine launch (`main.lua:2096`); **written but never read** — the 0.3 s overlay check it was intended for was removed when the outer `main.lua` wrapper was deleted |
 | `G.LAST_SCORING_YIELD` | Updated on each yield to pace the love.update driver |
 | `G.CARD_CALC_COUNTS` | Reset at coroutine launch (`main.lua:2098`); tracks per-card calculation counts for animation |
 | `TIME_BETWEEN_SCORING_FRAMES` | `0.03` (30 ms); defined in `talisman.lua:776` |
@@ -1254,10 +1254,10 @@ Ascension scaling.
      `evaluate_play_after` at line 2072)
   5. `main.lua:2094` — coroutine + `G.SCORING_START`/`G.LAST_SCORING_YIELD`/
      `G.CARD_CALC_COUNTS` wrapper (captures main.lua:2059 as `oldplay`)
-  6. `main.lua:2240` — active `calculating_score` guard wrapper
+  6. `main.lua:2164` — active `calculating_score` guard wrapper
 
   The **active** `G.FUNCS.evaluate_play` at runtime is definition #6
-  (`main.lua:2240`), which calls #5, which runs #4 inside the coroutine.
+  (`main.lua:2164`), which calls #5, which runs #4 inside the coroutine.
 
 - **`evaluate_play_after` is called from inside the coroutine body, not on a
   separate cleanup path.** `main.lua:2072` calls it unconditionally at the end of
@@ -1315,8 +1315,10 @@ Ascension scaling.
   in a single frame.
 - `G.SCORING_COROUTINE` guards at `state_events.lua` lines 423, 585, 663, 674
   prevent re-entrant scoring operations while the coroutine is active.
-- The 0.3 s overlay check (`main.lua:2134`) shows a "calculating..." overlay if
-  scoring takes more than 0.3 s, which can happen with heavy Ascension stacks.
+- The 0.3 s overlay check (`main.lua:2134`) **no longer exists** — it was removed
+  along with the outer `main.lua` wrapper (see double-resume gotcha above). The
+  `G.SCORING_START` timestamp it read is still written at coroutine launch but
+  is now dead.
 
 ### Patch touchpoints
 
@@ -1339,7 +1341,6 @@ Ascension scaling.
 
 ## 9. Rendering & shaders
 
-*(pending workflow merge — Mali constraints below are session-verified)*
 
 ### Mali-G710 (Tensor G2) shader constraints — session-verified
 
@@ -1668,26 +1669,276 @@ eliminating the warp that occurred when `states.hover.is` remained true and
 
 ## 12. Persistence: saves, settings, profiles
 
-*(pending workflow merge — known: `settings.jkr` is compressed (not grep-able);
-deleting it regenerates defaults from `globals.lua` and does NOT touch run/
-profile saves.)*
+Three orthogonal save scopes, all handled by a dedicated background thread.
+
+### Save thread (`engine/save_manager.lua`)
+
+Spawned at boot (`game.lua:115`) as a LÖVE thread on channel `save_request`.
+Runs a `while true / CHANNEL:demand()` loop — blocks until a request arrives,
+writes synchronously, then loops. All I/O is off the game thread.
+
+The game loop flushes at most once per `G.F_SAVE_TIMER` seconds (`globals.lua:42`;
+30s on Android, 5s on macOS/Windows). Earlier flush is triggered by stage
+change, pause toggle, or `G.FILE_HANDLER.force`. `G.FILE_HANDLER` is a flag
+table: `.run`, `.progress`, `.settings`, `.metrics`, `.update_queued`. Setting
+any flag + `update_queued = true` queues a flush; `game.lua:2892–2936` drains
+in priority order (metrics → progress/settings → run) then clears all flags.
+
+### Serialisation (`engine/string_packer.lua`)
+
+- **`STR_PACK(data)`** — recursive table→Lua-string serialiser. Output is
+  directly `loadstring`-able (`return { [key]=value, ... }`). OmegaNum/BigNumber
+  tables (`v.m`+`v.e` or `v.array`+`v.sign`) serialise as `to_big(...)` calls;
+  live `Object` instances become `"MANUAL_REPLACE"` (excluded intentionally).
+- **`STR_UNPACK(str)`** — `assert(loadstring(str))()`. No sandboxing.
+- **`compress_and_save(_file, _data)`** — `STR_PACK` → `love.data.compress
+  ('deflate', level=1)` → `love.filesystem.write`.
+- **`get_compressed(_file)`** — reads file; if first 6 bytes != `return`,
+  decompresses via `love.data.decompress('deflate')`; returns raw Lua string.
+
+All `.jkr` files are binary on disk — not grep-able.
+
+### Save scopes
+
+| File | Content | Written by |
+|---|---|---|
+| `<profile>/save.jkr` | Full run state: all CardAreas, tags, G.GAME, STATE, BLIND, BACK, VERSION | `save_run()` → `tal_compress_and_save` (Talisman adds bignum guard header) |
+| `<profile>/profile.jkr` | Career stats, high scores, unlocks/discoveries/alerts | `save_progress` / `save_settings` request |
+| `settings.jkr` | `G.SETTINGS` table (language, graphics, GAMESPEED, etc.) | same requests as profile |
+| `<profile>/meta.jkr` | `{unlocked, discovered, alerted}` key tables | appended incrementally on new unlock/discovery |
+
+Profile directory = `G.SETTINGS.profile` string (e.g. `"cry_profile_1"`,
+set by Cryptid's prefix logic at `game.lua:164`).
+
+### `save_run()` (`misc_functions.lua:1632`)
+
+Collects all `CardArea` instances from `G` by duck-typing `v:is(CardArea)`,
+all `Tag` instances from `G.GAME.tags`, calls `recursive_table_cull` to strip
+live objects. Sets `G.FILE_HANDLER.run = true` + `update_queued = true`.
+Returns early during pack-open states. Does NOT write immediately.
+
+Talisman's `tal_compress_and_save` prepends:
+`"if not OmegaMeta then <minimal fallback> end <real save>"` so a save loaded
+without Talisman won't crash.
+
+### `remove_save()` (`misc_functions.lua:1670`)
+
+`love.filesystem.remove(<profile>/save.jkr)` + `G.FILE_HANDLER.run = nil`.
+Called on loss (`update_game_over`) and win (`win_game`).
+
+### Gotchas
+
+- `G.F_NO_SAVING = true` suppresses all saves (sandbox/Cryptid debug).
+- The save thread calls `jit.off()` on ARM64 macOS inside the thread, not the
+  main thread.
+- `save_run` guards against pack-open states but NOT against
+  `G.SCORING_COROUTINE` — saves can fire mid-scoring. The saved `G.STATE` is
+  `HAND_PLAYED`; a resumed run re-enters `update_hand_played` cleanly.
+- Deleting `settings.jkr` regenerates defaults from `globals.lua` and does NOT
+  touch run or profile saves.
+
+---
 
 ## 13. RNG & determinism
 
-*(pending workflow merge)*
+All gameplay randomness flows through a single deterministic chain seeded at
+run start — never `math.random()` directly.
+
+### Seed initialisation (`game.lua:2268`)
+
+```lua
+G.GAME.pseudorandom.seed =
+    args.seed          -- explicit seed (seeded/challenge run)
+    or "TUTORIAL"      -- if tutorial not yet complete
+    or generate_starting_seed()   -- normal: cursor-position entropy
+```
+
+Two derived values computed immediately after:
+
+```lua
+-- Bootstrap any per-key state still == 0:
+G.GAME.pseudorandom[k] = pseudohash(k .. G.GAME.pseudorandom.seed)
+-- Global additive offset used in every pseudoseed call:
+G.GAME.pseudorandom.hashed_seed = pseudohash(G.GAME.pseudorandom.seed)
+```
+
+### `pseudohash(str)` (`misc_functions.lua:314`)
+
+Deterministic string → float in `[0, 1)`. Iterates characters right-to-left:
+`num = ((1.1239285023 / num) * byte * π + π * i) % 1`. Pure function; no
+mutable state.
+
+### `pseudoseed(key, predict_seed)` (`misc_functions.lua:333`)
+
+1. If `predict_seed` given: one-shot from `pseudohash(key..predict_seed)`,
+   no state mutation (lookahead/preview use).
+2. If `G.SETTINGS.paused` (and key != `'to_do'`): return `math.random()` —
+   paused interactions use system RNG, don't consume run seed.
+3. Otherwise: lazily init `G.GAME.pseudorandom[key]` via `pseudohash`, then
+   advance: `state[key] = abs((2.134453429141 + state[key]*1.72431234) % 1)`.
+   Return `(state[key] + hashed_seed) / 2`.
+
+Each key has its own independent counter; keys never interfere.
+
+### `pseudorandom(seed, min, max)` (`misc_functions.lua:351`)
+
+Converts key-string to float via `pseudoseed`, calls `math.randomseed(float)`
++ `math.random([min, max])`. Each call re-seeds Lua's global RNG. Call sites
+that need reproducibility always pass a named key.
+
+### `pseudoshuffle(list, seed)` (`misc_functions.lua:208`)
+
+Fisher-Yates after `math.randomseed(pseudoseed(seed))`. Pre-sorts by `sort_id`
+if present for stable starting order.
+
+### `generate_starting_seed()` (`misc_functions.lua:222`)
+
+Mixes cursor `T.x`, `T.y`, hover time with fixed multipliers → 8-char
+alphanumeric. On gold-stake runs with both legendary categories present, loops
+until the seed gives a non-golden legendary as first shop legendary.
+
+### Gotchas
+
+- The seed is a **string**; per-key states are floats. Saving/loading restores
+  all of `G.GAME.pseudorandom` so the sequence resumes exactly.
+- The literal key `'seed'` always returns `math.random()`, bypassing the
+  deterministic chain. Used for non-gameplay randomness (visual shuffles).
+- Talisman's bignum tables are deterministic score transforms — they don't
+  touch the RNG chain.
+
+---
 
 ## 14. Content objects: Blinds, Tags, Backs, Challenges
 
-*(pending workflow merge)*
+Runtime wrappers around static prototypes in `G.P_BLINDS`, `G.P_TAGS`,
+`G.P_CENTERS`, `G.CHALLENGES`.
+
+### Blind (`blind.lua`)
+
+Single live instance at `G.GAME.blind`. Re-initialised each round by
+`Blind:set_blind`. Plain `Object:extend()` — not a `CardArea`.
+
+| Method | Line | Role |
+|---|---|---|
+| `Blind:set_blind(blind, reset, silent)` | 85 | Loads prototype; sets chips/name/dollars/boss; fires SMODS `set_blind` |
+| `Blind:defeat(silent)` | 291 | Animates defeat; sets `blind_states[current]='Defeated'` |
+| `Blind:debuff_hand(cards, hands, text)` | — | Returns true if hand type is forbidden (drives `evaluate_play` branch) |
+| `Blind:modify_hand(cards, hands, text)` | — | Mutates mult/chips for boss effects (called in `evaluate_play_main`) |
+| `Blind:press_play()` | 505 | Hook on play-button press; some bosses trigger here |
+| `Blind:save()` | — | Minimal table for serialisation |
+
+`G.GAME.blind.in_blind` — "inside a round" flag: true after `set_blind`, false
+at start of `end_round`.
+
+### Tag (`tag.lua`)
+
+Reward objects at `G.GAME.tags` (array). Each wraps a `G.P_TAGS[key]` prototype.
+
+- `Tag:init` (line 7): copies config, sets `self.tally` from `G.GAME.tag_tally`
+  (monotonically incrementing), calls `set_ability`.
+- `Tag:apply_to_run(_context)` (line 135): called from `update_draw_to_hand`
+  (`round_start_bonus`), `update_blind_select` (`new_blind_choice`), `select_blind`
+  (immediate tags). Removes itself on consumption.
+- `Tag:save()` (line 518): `{key, config, tally, ability}`.
+
+### Back (`back.lua`)
+
+Single live instance at `G.GAME.selected_back`. Wraps chosen deck prototype from
+`G.P_CENTERS` (`b_red`, `b_blue`, etc.).
+
+- `Back:init` (line 7): copies atlas, name, pos, effect config.
+- `Back:apply_to_run()` (line 208): called once in `Game:start_run`; applies
+  passive deck modifiers to starting state. Does NOT fire SMODS context.
+- `Back:trigger_effect(context)`: scoring-pipeline hook for per-hand deck effects.
+- `Back:save()`: `{center_key}`.
+
+### Challenges (`challenges.lua`)
+
+`G.CHALLENGES` is a plain array of static config tables (not class instances):
+`{name, id, jokers, consumeables, vouchers, deck, restrictions, rules}`. Read-only
+data consumed by `Game:start_run`. Extended by SMODS via `SMODS.Challenge`.
+
+---
 
 ## 15. The mods layer
 
-*(pending workflow merge — session-verified: Talisman switches scores to
-OmegaNum heap tables above ~1e300 (`E_SWITCH_POINT`) and runs scoring in
-`G.SCORING_COROUTINE` with a dim+Abort overlay; Cryptid's Code cards call
-`G.FUNCS.can_reserve_card`/`reserve_card` which only Pokermon defines — our
-reserve-shim provides them; sticky-fingers' touch layer lives in the dump
-(`s_tap`/`l_press`), its 7 `sticky_can_*` wrappers in `misc_functions.lua`.)*
+Four mods ship in this build. Load order matters — each can patch functions
+defined by earlier mods.
+
+### Load order
+
+1. **SMODS (Steamodded)** — first. Provides `SMODS.calculate_context`,
+   `SMODS.Joker`, the `SMODS.Mods` registry, the `Lovely` patch stub.
+2. **Cryptid** — second. Extends content (jokers, blinds, decks, Code cards)
+   and monkey-patches scoring for Cryptid-specific hooks.
+3. **Talisman** — third. Wraps `G.FUNCS.evaluate_play` (and
+   `Card:calculate_joker`) into a Lua coroutine; replaces score display with
+   bignum-aware rendering; adds `Talisman.dollars`.
+4. **Sticky Fingers** — last. Adds drag-to-use gestures (`s_tap`, `l_press`
+   handlers in the dump); capability predicates are the 7 `sticky_can_*`
+   wrappers in `misc_functions.lua:2714–2756`.
+
+### SMODS
+
+- `SMODS.calculate_context(ctx)` — fan-out to every registered effect handler
+  for the given context key (`before`, `after`, `end_of_round`, `joker_main`,
+  `debuffed_hand`, etc.).
+- `SMODS.calculate_main_scoring(context)` — iterates card areas, scores each
+  card.
+- `SMODS.Scoring_Parameters` — named scoring scalars with defaults; reset in
+  `evaluate_play_after`.
+- `SMODS.Mods['<key>'].can_load` — true if mod loaded. Talisman-active guard:
+  `if not (SMODS.Mods['Talisman'] or {}).can_load`.
+
+### Talisman
+
+- Default: `break_infinity = "omeganum"` (`talisman.lua:43`). Loaded from
+  `talisman_path/big-num/omeganum.lua`. `bignumber` backend deprecated (config
+  migration forces omeganum).
+- `G.E_SWITCH_POINT` (default 1e11, notation-dependent): below this scores
+  render as plain integers; at or above, OmegaNum notation.
+- **Scoring coroutine**: `G.FUNCS.evaluate_play` wrapped at `main.lua:2094` to
+  spawn `G.SCORING_COROUTINE`. Yields every 30ms (`TIME_BETWEEN_SCORING_FRAMES`,
+  `main.lua:2195`) inside `Card:calculate_joker`. `Game:update` resumes each
+  frame. Four spin-guards in `state_events.lua` (lines 423, 585, 663, 674)
+  block downstream events until coroutine finishes.
+- **Abort** (`G.FUNCS.tal_abort`, `main.lua:2105`): sets `tal_aborted = true`;
+  `Game:update` skips resume, clears `SCORING_COROUTINE`, and if
+  `scoring_state == 'main'` calls `evaluate_play_final_scoring` directly using
+  the coroutine's Lua upvalue globals.
+- **Dollars sync**: `evaluate_round` sets both `Talisman.dollars` and
+  `G.GAME.current_round.dollars` to the same total (`state_events.lua:1221`).
+  `cash_out` reads `G.GAME.current_round.dollars` (`button_callbacks.lua:3192`).
+- `Talisman.config_file.disable_anims` — suppresses `Card:start_materialize`,
+  `Card:start_dissolve`, `Card:set_seal` during scoring. Key mobile perf knob.
+
+### Cryptid
+
+- `Cryptid.ascend(value)` — modifies base mult/chips at top of
+  `evaluate_play_main` for Cryptid's extended hand types.
+- `calculate_banana`, `calculate_perishable`, `calculate_abstract_break` —
+  called from `end_round` after main scoring.
+- `Cryptid.apply_ante_tax()` — called at ante-up in `end_round`.
+- Code cards call `G.FUNCS.can_reserve_card` / `G.FUNCS.reserve_card` (normally
+  Pokermon, absent here). `patches/reserve-shim/` provides stubs so Sticky
+  Fingers' drag-to-use works without Pokermon.
+- `G.GAME.USING_RUN` — Cryptid 'run' mode flag; full semantics untraced.
+
+### Sticky Fingers capability predicates (`misc_functions.lua:2714`)
+
+| Function | Purpose |
+|---|---|
+| `sticky_can_use_blind_card` | Use a card on the blind |
+| `sticky_can_reserve_card` | Drag to joker slot (Pokermon) |
+| `sticky_can_select_card` | Select a hand card |
+| `sticky_can_buy` | Buy a shop item |
+| `sticky_can_buy_and_use` | Buy + immediately use |
+| `sticky_can_select_crazy_card` | Select in crazy-hand mode |
+| `sticky_can_take_card` | Take a card from a pack |
+
+Called from `G.FUNCS.can_*` wrappers the UI queries before showing button
+states. Our `STICKY_GUARD` patch markers in `misc_functions.lua` protect these
+from being called during scoring.
 
 <!-- WORKFLOW SECTIONS END -->
 
@@ -1712,4 +1963,119 @@ reserve-shim provides them; sticky-fingers' touch layer lives in the dump
 
 ## 17. Gotchas index
 
-*(pending workflow merge — cross-subsystem gotchas collected from the audit)*
+Cross-subsystem traps collected across the full architecture audit and debug
+sessions. Grouped by the mistake category.
+
+### State machine / event queue
+
+- **Never set `G.STATE` without also setting `G.STATE_COMPLETE = false`.**
+  Each `update_*` handler's one-shot block only fires when `STATE_COMPLETE ==
+  false`; it immediately sets it to `true`. If you write `G.STATE` and forget
+  the reset, the handler never runs — the game silently hangs in the new state.
+
+- **`G.SCORING_COROUTINE` spin-guards must return `false`, not `nil`.**
+  Event `func` returning `false` means "not done, retry next frame". Returning
+  `nil` (implicit in Lua) is treated as truthy and marks the event complete.
+  All four guards in `state_events.lua` (423, 585, 663, 674) correctly return
+  `false`.
+
+- **`end_round` is called from three places, not one.**
+  `update_new_round` (game.lua:3496), `update_selecting_hand` when both hand
+  and deck are empty (game.lua:3266), and `draw_from_deck_to_hand` short-
+  circuits to `GAME_OVER` directly when `card_limit <= 0` — bypassing
+  `end_round` entirely. Patching "end of round" logic in only one site will
+  miss the other two.
+
+- **`update_hand_played` uses `to_big` comparison, not plain `>=`.**
+  `to_big(G.GAME.chips) >= to_big(G.GAME.blind.chips)` (game.lua:3440). Any
+  patch that rewrites this check using plain Lua comparison will break on large
+  chip counts (OmegaNum tables are not comparable with `>=`).
+
+### Lovely / dump architecture
+
+- **Lovely patches never run on Android.** The dump is pre-patched on macOS.
+  Editing a mod's `lovely/*.toml` or `lovely/` lua file does nothing on device.
+  Always edit `build/game/` dump files directly, then re-run `build.sh build`.
+
+- **All patches re-apply from scratch on every build.** `build.sh` wipes
+  `build/game/` and re-extracts from `Balatro.love` before applying patches.
+  Any manual edit to `build/game/` is lost on next build. Changes must live in
+  `src/dump/` (dump overlays) or in the build script's sed/patch section.
+
+- **Crash tracebacks cite dump line numbers.** These are `build/game/` lines,
+  which shift when the dump changes. After updating a mod and regenerating the
+  dump, old saved line numbers in Ghost/docs are stale.
+
+### Serialisation / persistence
+
+- **`.jkr` files are deflate-compressed binary — not grep-able.** Don't try to
+  `adb pull` and `cat` them. Use `STR_UNPACK(get_compressed(...))` from within
+  the game, or decompress with `python3 -c "import zlib,sys; sys.stdout.buffer
+  .write(zlib.decompress(sys.stdin.buffer.read(), -15))"`.
+
+- **`STR_PACK` silently drops live `Object` instances** (replaces with
+  `"MANUAL_REPLACE"`). If a save round-trip is losing data, check whether
+  you're accidentally including a live object in the serialised table.
+
+- **Talisman wraps save files with a bignum guard header.** A save written with
+  OmegaNum can't be loaded without Talisman — the guard evaluates to the bare
+  fallback table. This is intentional, not a bug.
+
+### Scoring pipeline / coroutine
+
+- **`evaluate_play_after` has two callers and one guard.** Talisman calls it at
+  `main.lua:2072`; `evaluate_play_final_scoring` calls it at line 1020 when
+  Talisman is NOT loaded. The guard `if not (SMODS.Mods['Talisman'] or {})
+  .can_load` prevents double-calling. In this build Talisman IS loaded, so the
+  `final_scoring` path never calls `after` directly.
+
+- **`G.SCORING_START` is never reset to nil** — it just gets overwritten on the
+  next hand. Do not use it as a "scoring is active" boolean; use
+  `G.SCORING_COROUTINE ~= nil` instead.
+
+- **The per-joker `other_joker` loop is O(jokers²).** For every card in every
+  joker area it evaluates every other joker. With a large joker count this is
+  where the coroutine yield budget matters most on mobile.
+
+### Touch / input
+
+- **`card.states.hover.is` and `hovering.target` are two independent flags**
+  that happen to be set together on desktop but not on touch. `hover.is` drives
+  the 3D card tilt (must be cleared when finger leaves); `hovering.target`
+  drives the description popup (must persist after finger lifts). Conflating
+  them caused the card-warp bug fixed in commit `afde8cc`.
+
+- **`G.DRAW_HASH` is rebuilt every frame** — collision is only possible against
+  nodes drawn in the *previous* frame. A node that skips a draw pass (e.g. set
+  invisible mid-frame) won't be hittable until the next frame.
+
+- **Drag-select only activates on finger-down with zero collision.** If a hand
+  card is already under the finger at `touch_pressed`, normal press/drag logic
+  takes over and `dragSelectActive` is never set. The feature only engages when
+  touching empty table space.
+
+### RNG
+
+- **The literal key `'seed'` bypasses the deterministic chain** and returns
+  `math.random()`. If you add a new `pseudorandom('seed', ...)` call, you're
+  using system RNG, not the run seed. Use any other key string.
+
+- **`pseudorandom` re-seeds Lua's global RNG.** Any `math.random()` call
+  between two `pseudorandom` calls uses the state left by the last
+  `pseudorandom`. This is the intended design but can produce surprising results
+  if you insert a `math.random()` call without realising it consumes the seeded
+  state.
+
+### Performance (Android / Mali-G710)
+
+- **The Talisman dim+overlay UIBox is rebuilt every frame it's shown** — not
+  just once. The profiled frame-hitch was this construction cost, not scoring
+  computation. If the overlay appears, it makes itself slower.
+
+- **`collectgarbage('collect')` fires mid-frame** when `SCORING_COROUTINE` is
+  active and heap > 1GB (`main.lua:2114`). This is intentional to prevent OOM
+  on Android. Do not remove it; do not add a second GC call nearby.
+
+- **SurfaceView screencaps black** on Android. `adb shell screencap -p
+  /sdcard/x.png` captures the compositor, not the SurfaceView. Use
+  `adb shell screenrecord` for real pixels.
