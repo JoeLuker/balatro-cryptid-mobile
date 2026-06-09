@@ -281,6 +281,7 @@ EOF
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     apply_talisman_dim_fix "$game_dir/main.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
+    apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
 
@@ -517,6 +518,36 @@ apply_talisman_dim_fix() {
         log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands)"
     else
         log_warn "Talisman dim fix did not fully apply — check main.lua"
+    fi
+}
+
+# The lovely patch for cursor_down.uptime (sticky-fingers controller.toml) injected
+# the assignment *after* the L_cursor_queue flush line, i.e. outside L_cursor_press.
+# That means if L_cursor_press returned early (locked during a screen wipe or menu
+# transition) cursor_down.uptime was still stamped, making cursor_down.duration wrong
+# on the next real press (duration = UPTIME - stale_uptime => falsely short).
+# Fix: move the assignment inside L_cursor_press, immediately after cursor_down.time,
+# so it only stamps when the press actually lands.
+apply_cursor_down_uptime_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "controller.lua not found, skipping cursor_down.uptime fix"
+        return 0
+    fi
+    # Idempotency: if the assignment is already inside L_cursor_press (alongside
+    # cursor_down.time = G.TIMERS.TOTAL) the marker tag below will be present.
+    if grep -q "CURSOR_DOWN_UPTIME_FIX" "$f"; then
+        log_info "cursor_down.uptime fix already applied"
+        return 0
+    fi
+    # Remove the bare out-of-band line the lovely patch injected at the call site.
+    sed -i '/^self\.cursor_down\.uptime = G\.TIMERS\.UPTIME$/d' "$f"
+    # Insert the assignment inside L_cursor_press, right after cursor_down.time.
+    sed -i 's|    self\.cursor_down\.time = G\.TIMERS\.TOTAL$|    self.cursor_down.time = G.TIMERS.TOTAL\n    self.cursor_down.uptime = G.TIMERS.UPTIME -- CURSOR_DOWN_UPTIME_FIX|' "$f"
+    if grep -q "CURSOR_DOWN_UPTIME_FIX" "$f"; then
+        log_success "cursor_down.uptime fix applied (uptime now set inside L_cursor_press)"
+    else
+        log_warn "cursor_down.uptime fix did not match — check controller.lua"
     fi
 }
 
