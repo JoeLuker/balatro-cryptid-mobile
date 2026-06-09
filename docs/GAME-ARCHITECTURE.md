@@ -1275,11 +1275,163 @@ Ascension scaling.
 
 ## 11. Input: controller & the touch layer
 
-*(pending workflow merge — session model: frame order is collision →
-`set_cursor_hover` → queued press → cursor_down/up handling → hover block →
-dispatch to click/drag/hover targets. Popup lifetime hangs off
-`hovering.target`; mesh tilt hangs off `states.hover.is`; the warp bug lived in
-that distinction.)*
+`G.CONTROLLER` is a `Controller = Object:extend()` instance (`engine/controller.lua`).
+It is updated once per frame from `Game:update` (outside the frame-budget gate —
+it always runs). It handles mouse, touch, keyboard, and gamepad under a unified
+cursor model; the game code only ever sees `hovering.target`, `clicked.target`,
+etc., not raw input events.
+
+### HID flag system
+
+Every input event sets `G.CONTROLLER.HID.*` flags via `set_HID_flags(type)`:
+
+| Flag | Set when |
+|---|---|
+| `HID.mouse` | `love.mousepressed/moved` with non-touch source |
+| `HID.touch` | `love.mousepressed` with `touch=true`; `love.mousemoved` within 200 ms of a touch (`last_touch_time`) |
+| `HID.controller` | gamepad axis or dpad button input |
+| `HID.pointer` | any of mouse / touch / axis_cursor |
+
+On Android, LÖVE maps finger events to `love.mousepressed/mousereleased/mousemoved`
+with `istouch=true`. There are no separate `love.touchpressed` handlers in the
+game logic. `HID.touch` flips whenever `mousemoved` fires within 200 ms of a
+touch timestamp (`last_touch_time`), so the flag stays `true` for the duration
+of a drag.
+
+### Input event flow (per frame, inside Controller:update)
+
+The numbered steps below map to code in `controller.lua:191–496`:
+
+1. **Lock evaluation** — `self.locked` aggregates all `self.locks.*` booleans.
+   `locks.wipe` is set during screen transitions; `locks.frame` is set by
+   `locks.frame_set` and cleared after 0.1 s via an E_MANAGER event.
+
+2. **Axis update** — `update_axis(dt)` reads gamepad thumbsticks and synthesises
+   directional button presses into `pressed_buttons`.
+
+3. **Key/button dispatch** — pressed, held, and released keys/buttons are
+   dispatched to `key_press_update`, `key_hold_update`, `key_release_update` (and
+   button equivalents). Lists are cleared after dispatch.
+
+4. **Collision pass** — `get_cursor_collision(G.CURSOR.T)` clears `collision_list`,
+   then iterates `G.DRAW_HASH` in reverse-draw order. Each node that passes
+   `collides_with_point` and has `states.collide.can` is added to
+   `collision_list` and its `states.collide.is` is set true. The draw hash is
+   therefore the visibility-sorted collision list — only drawn nodes are
+   hittable.
+
+5. **Focus update** — `update_focus()` (gamepad only): finds the nearest focusable
+   node and snaps the cursor to it.
+
+6. **Hover target** — `set_cursor_hover()` walks `collision_list` top-to-bottom
+   and picks the first node with `states.hover.can` (and not dragging, unless
+   `HID.touch`). Result stored in `cursor_hover.target`.
+
+7. **Queued press** — if `L_cursor_queue` is set (populated by
+   `queue_L_cursor_press` from `love.mousepressed`), `L_cursor_press` runs now.
+   This one-frame delay ensures the collision pass above has already run for the
+   current cursor position.
+
+8. **`cursor_down` handling** — when `cursor_down.handled` is false (set by
+   `L_cursor_press`): enables drag on the target, sets `dragging.target`.
+   On touch with no collision and `enable_drag_select`, activates
+   `dragSelectActive` (slide-to-select mode).
+
+9. **`cursor_up` handling** — when `cursor_up.handled` is false (set by
+   `L_cursor_release`): stops drag, then decides between click (travel <
+   `G.MIN_CLICK_DIST` and within `click_timeout`) or release_on (dropped on
+   another node). On touch, also evaluates `s_tap` (short tap with distance <
+   `MIN_CLICK_DIST` and duration < 0.2 s) and the `TAP_DESC_HOLD_NODRAG` guard
+   (long hold with travel < `MIN_CLICK_DIST` is not treated as a drag release).
+
+10. **Drag-select loop** — on touch with `dragSelectActive.active`, the closest
+    hand card to the cursor is highlighted or dehighlighted each frame
+    (TAP_DESC_HOLD_NODRAG / DRAG_SELECT_LOOP).
+
+11. **Hover block (TAP_DESC_HOLDGATE)** — on touch, `hovering.target` is only
+    set while `is_cursor_down` is true and cursor duration ≥ 0.2 s (suppresses
+    hover popup from accidental short-touch on hand cards). On mouse, hover
+    applies unconditionally when `cursor_hover.target` exists.
+
+12. **TAP_DESC_RELAX** — on touch, immediately after the hover block: if
+    `hovering.target` is set but the finger is no longer over that card (i.e.
+    `is_cursor_down` is false or `cursor_hover.target` differs), `states.hover.is`
+    is cleared on the old target. This allows the description popup
+    (`hovering.target`) to persist without keeping the 3D tilt shader active on
+    the old card.
+
+13. **Dispatch** — in order:
+    - `clicked.target:click()` if `clicked.handled` is false
+    - `process_registry()` (button registry clicks)
+    - drag creation (`create_drag_target_from_card` after 0.1 s hold)
+    - `dragging.target:drag()` if dragging
+    - `released_on.target:release(dragging.prev_target)` if released on another node
+    - `hovering.target:hover()` (creates `h_popup`) if newly hovered; on touch this
+      is deferred by `G.MIN_HOVER_TIME` (0.1 s) via an E_MANAGER event
+    - `hovering.prev_target:stop_hover()` if hover changed
+
+### Key targets
+
+| Field | Type | Lifetime |
+|---|---|---|
+| `hovering.target` | Node | Lives until `cursor_hover.target == nil` clears it (TAP_DESC_PERSIST), or until hover changes, or TAP_DESC_RELAX clears `states.hover.is` |
+| `clicked.target` | Node | Set on press-release within distance/time threshold; cleared after `click()` dispatched |
+| `dragging.target` | Node | Set on `cursor_down` with `states.drag.can`; cleared on `cursor_up` |
+| `released_on.target` | Node | Set when drag is released onto a different node |
+| `touch_control.s_tap` | `{target, time, handled}` | Set on short touch-tap; `handled` is flipped false but is never consumed outside controller (the flag is informational for any code that polls it) |
+
+### The hover/tilt split (TAP_DESC bug root cause)
+
+Two independent flags control two independent systems:
+- `hovering.target` — drives the description popup (`h_popup`); lives on
+  `G.CONTROLLER`
+- `card.states.hover.is` — drives the 3D mesh tilt anchor (`tilt_var.mx/my` in
+  `Card:draw` / SMODS DrawStep `'card_tilt'`); lives on the Card itself
+
+On desktop, both flags are set and cleared together. On touch, TAP_DESC_RELAX
+(controller.lua:448) clears `states.hover.is` once the finger is off the card
+while leaving `hovering.target` pointing to the card. This is the fix: the popup
+persists, but the tilt falls through to the ambient branch (sinusoidal idle),
+eliminating the warp that occurred when `states.hover.is` remained true and
+`tilt_var.mx/my` tracked the moving finger.
+
+### Locks
+
+| Lock key | Set by | Effect |
+|---|---|---|
+| `locks.wipe` | `G.screenwipe` being truthy | Full input block |
+| `locks.frame` | `locks.frame_set` (cleared after 0.1 s event) | Blocks queued presses and hover |
+| `locks.frame_set` | Various state transitions | Triggers `locks.frame` with deferred clear |
+
+### Gotchas
+
+- **`L_cursor_press` is queued, not immediate.** `love.mousepressed` calls
+  `queue_L_cursor_press`, which sets `L_cursor_queue`. The actual press fires
+  next frame inside `Controller:update`, after the collision pass for that
+  frame has run. This means a press always lands on the collision list from
+  the same frame, never the previous one.
+
+- **`touch_control.s_tap.handled` is set false but never consumed** in the
+  base-game code. It is available for any code that polls
+  `G.CONTROLLER.touch_control.s_tap`, but the base click dispatch uses
+  `clicked.target:click()` — the `s_tap` field is not part of the primary
+  dispatch path.
+
+- **`G.DRAW_HASH` is rebuilt every frame** via `reset_drawhash()` (called from
+  the game's draw pass in `misc_functions.lua:697`) and `add_to_drawhash(obj)`
+  (called from `Node:draw`). Collision is only possible on nodes that were drawn
+  in the previous frame.
+
+- **On touch, `cursor_hover.target` is resolved from `collision_list` during
+  `set_cursor_hover`, but `L_cursor_press` sets `cursor_down.target` from
+  `cursor_hover.target` (line 1179)**, not from `hovering.target`. This means
+  the press target is the topmost hoverable node at press time, regardless of
+  whether a description popup is showing.
+
+- **The `dragSelectActive` slide-to-select feature** (TAP_DESC_HOLD_NODRAG) only
+  activates when the finger goes down with zero collision (`#collision_list == 0`)
+  and `G.SETTINGS.enable_drag_select` is true. If a hand card is already under
+  the finger, normal press/drag logic applies.
 
 ## 12. Persistence: saves, settings, profiles
 
