@@ -275,6 +275,7 @@ EOF
     # on mobile). The Graphics tab (texture scaling / CRT / bloom / shadows) stays
     # visible so quality is tunable on device.
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
+    apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
@@ -435,6 +436,29 @@ apply_glitched_b_fix() {
         log_success "glitched_b fix applied (highp math + NaN guard)"
     else
         log_warn "glitched_b fix did not fully match — check glitched_b.fs"
+    fi
+}
+
+# Add an in-game FPS counter toggle. The base game only draws FPS behind a debug
+# flag that never runs in release builds. This adds a simple counter gated on
+# G.SETTINGS.show_fps, plus a "Show FPS" toggle in Settings > Game.
+apply_fps_toggle() {
+    local game_lua="$1"
+    local ui_file="$2"
+    if [[ ! -f "$game_lua" || ! -f "$ui_file" ]]; then
+        log_warn "game.lua / UI_definitions.lua not found, skipping FPS toggle"
+        return 0
+    fi
+    if grep -q "show_fps" "$game_lua"; then
+        log_info "FPS toggle already applied"
+        return 0
+    fi
+    sed -i "s|    timer_checkpoint('canvas', 'draw')|    timer_checkpoint('canvas', 'draw')\n    if G.SETTINGS.show_fps then love.graphics.push('all'); love.graphics.origin(); love.graphics.setColor(0,1,0,1); love.graphics.print('FPS: '..love.timer.getFPS(), 15, 15, 0, 3, 3); love.graphics.pop() end|" "$game_lua"
+    sed -i "s|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),\n      create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|" "$ui_file"
+    if grep -q "show_fps" "$game_lua" && grep -q "show_fps" "$ui_file"; then
+        log_success "FPS toggle added (Settings > Game > Show FPS)"
+    else
+        log_warn "FPS toggle did not fully apply — check anchors"
     fi
 }
 
