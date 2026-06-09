@@ -294,6 +294,11 @@ EOF
     apply_talisman_gc_dead_block "$game_dir/Mods/Talisman/talisman.lua"
     apply_talisman_calc_counter "$game_dir/Mods/Talisman/talisman.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
+    apply_cryptid_to_big_elim \
+        "$game_dir/Mods/Cryptid/items/epic.lua" \
+        "$game_dir/Mods/Cryptid/items/exotic.lua" \
+        "$game_dir/Mods/Cryptid/items/m.lua"
+    apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -1152,6 +1157,243 @@ PYEOF
         log_success "Scoring loop cache applied (get_card_areas cached + other_key hoisted)"
     else
         log_warn "Scoring loop cache did not fully apply — check state_events.lua anchors"
+    fi
+}
+
+# Eliminate paired to_big(x) OP to_big(literal) comparisons in Cryptid item files.
+# These fire on every calculate_joker call for every joker that owns one of these
+# items. The OmegaNum allocation on both sides is wasted when both operands are
+# plain Lua numbers (joker config values stay in double range until chip totals
+# exceed ~1e308). The inner ability.extra fields are always plain numbers: they
+# are initialized from the joker center config and only updated via lenient_bignum
+# which returns plain numbers for sub-1e300 values.
+#
+# Skipped (operands may be OmegaNum at runtime):
+#   exotic.lua:470  to_big(context.cry_ease_dollars) — dollar total, can be big
+#   exotic.lua:474  to_big(...money_remaining) >= to_big(...money_req) — accumulated
+#   epic.lua:270    to_big(args.chips) >= to_big(1e100) — running chip total
+#   m.lua:1897-1899 to_big(aaa) >= to_big(1234567654321) — aaa is a chip accumulator
+#
+# Applied: all remaining paired comparisons where both sides are ability.extra.*,
+# ability.immutable.*, or small numeric literals.
+apply_cryptid_to_big_elim() {
+    local epic="$1"
+    local exotic="$2"
+    local m="$3"
+    local missing=0
+    for f in "$epic" "$exotic" "$m"; do
+        if [[ ! -f "$f" ]]; then
+            log_warn "Cryptid item file not found: $f, skipping to_big elimination"
+            missing=1
+        fi
+    done
+    [[ $missing -eq 1 ]] && return 0
+    if grep -q "CRYPTID_TO_BIG_ELIM" "$epic"; then
+        log_info "Cryptid to_big elimination already applied"
+        return 0
+    fi
+    python3 - "$epic" "$exotic" "$m" <<'PYEOF'
+import sys, re
+
+# Regex: to_big(EXPR) OP to_big(EXPR2) where both EXPRs contain no function calls
+# that could return OmegaNum (i.e., no bare variable that is a chip accumulator).
+# We match the exact patterns present and substitute conservatively.
+SAFE_SUBSTS = [
+    # epic.lua
+    (r'to_big\(card\.ability\.extra\.stat2\) > to_big\(1\)',
+     'card.ability.extra.stat2 > 1'),
+    (r'to_big\(card\.ability\.extra\.money\) > to_big\(0\)',
+     'card.ability.extra.money > 0'),
+    (r'to_big\(card\.ability\.extra\.chips\) > to_big\(0\)',
+     'card.ability.extra.chips > 0'),
+    (r'to_big\(card\.ability\.extra\.x_mult\) > to_big\(1\)',
+     'card.ability.extra.x_mult > 1'),
+    (r'to_big\(card\.ability\.extra\[mod_key\]\) > to_big\(1\)',
+     'card.ability.extra[mod_key] > 1'),
+    (r'to_big\(card\.ability\.extra\.rounds_remaining\) > to_big\(0\)',
+     'card.ability.extra.rounds_remaining > 0'),
+    (r'to_big\(bonus\) > to_big\(0\)',
+     'bonus > 0'),
+    (r'to_big\(card\.ability\.extra\.steelenhc\) ~= to_big\(1\)',
+     'card.ability.extra.steelenhc ~= 1'),
+    # exotic.lua
+    (r'to_big\(card\.ability\.extra\.Emult\) > to_big\(1\)',
+     'card.ability.extra.Emult > 1'),
+    (r'to_big\(card\.ability\.extra\.chips\) > to_big\(0\)',
+     'card.ability.extra.chips > 0'),
+    (r'to_big\(card\.ability\.immutable\.check2\) <= to_big\(card\.ability\.extra\.check\)',
+     'card.ability.immutable.check2 <= card.ability.extra.check'),
+    (r'to_big\(card\.ability\.extra\.Xmult\) > to_big\(1\)',
+     'card.ability.extra.Xmult > 1'),
+    # m.lua
+    (r'to_big\(card\.ability\.extra\.mult\) > to_big\(0\)',
+     'card.ability.extra.mult > 0'),
+    (r'to_big\(card\.ability\.extra\.rounds_remaining\) > to_big\(0\)',
+     'card.ability.extra.rounds_remaining > 0'),
+    (r'to_big\(card\.ability\.extra\.sell\) \+ 1 >= to_big\(card\.ability\.extra\.sell_req\)',
+     'card.ability.extra.sell + 1 >= card.ability.extra.sell_req'),
+    (r'to_big\(card\.ability\.extra\.retriggers\) < to_big\(1\)',
+     'card.ability.extra.retriggers < 1'),
+    (r'to_big\(card\.ability\.extra\.money\) > to_big\(0\)',
+     'card.ability.extra.money > 0'),
+    (r'to_big\(card\.ability\.immutable\.slots\) >= to_big\(card\.ability\.immutable\.max_slots\)',
+     'card.ability.immutable.slots >= card.ability.immutable.max_slots'),
+    (r'to_big\(card\.ability\.extra\.jollies\) < to_big\(1\)',
+     'card.ability.extra.jollies < 1'),
+    (r'to_big\(card\.ability\.extra\.unc\) < to_big\(1\)',
+     'card.ability.extra.unc < 1'),
+    (r'to_big\(jollycount\) > to_big\(card\.ability\.immutable\.max_jollies\)',
+     'jollycount > card.ability.immutable.max_jollies'),
+    (r'to_big\(summon\) < to_big\(1\)',
+     'summon < 1'),
+    (r'to_big\(card\.ability\.extra\.add\) < to_big\(1\)',
+     'card.ability.extra.add < 1'),
+    (r'to_big\(card\.ability\.extra\.amount\) < to_big\(card\.ability\.immutable\.max_amount\)',
+     'card.ability.extra.amount < card.ability.immutable.max_amount'),
+    (r'to_big\(card\.ability\.extra\.amount\) > to_big\(card\.ability\.immutable\.max_amount\)',
+     'card.ability.extra.amount > card.ability.immutable.max_amount'),
+    (r'to_big\(card\.ability\.extra\.amount\) > to_big\(0\)',
+     'card.ability.extra.amount > 0'),
+    (r'to_big\(card\.ability\.extra\.monster\) > to_big\(1\)',
+     'card.ability.extra.monster > 1'),
+]
+
+total = 0
+for path in sys.argv[1:]:
+    text = open(path).read()
+    orig = text
+    for pattern, replacement in SAFE_SUBSTS:
+        text, n = re.subn(pattern, replacement, text)
+        total += n
+    if text != orig:
+        open(path, 'w').write(text)
+
+# Add marker to epic.lua so idempotency check works
+epic_path = sys.argv[1]
+epic_text = open(epic_path).read()
+if 'CRYPTID_TO_BIG_ELIM' not in epic_text:
+    # Append marker as a comment at end of file
+    open(epic_path, 'a').write('\n-- CRYPTID_TO_BIG_ELIM\n')
+
+print(f"Cryptid to_big elimination: {total} substitutions across 3 item files")
+PYEOF
+    if grep -q "CRYPTID_TO_BIG_ELIM" "$epic"; then
+        log_success "Cryptid to_big elimination applied (paired OmegaNum comparisons → plain Lua)"
+    else
+        log_warn "Cryptid to_big elimination did not apply marker — check epic.lua"
+    fi
+}
+
+# Hoist the eval_card context table outside the inner other_joker loop in
+# state_events.lua. The inner loop constructs a new 6-field table literal on
+# every eval_card call. Since full_hand / scoring_hand / scoring_name /
+# poker_hands are constant across all inner iterations, we can allocate one
+# table before the loop and only swap in the per-iteration dynamic fields
+# (other_key slot and other_main) between calls.
+#
+# Safety: eval_card is synchronous and does not retain the context reference
+# after returning. SMODS.push_to_context_stack stores the reference during the
+# call but pops it before return — so the table is not on the stack when we
+# mutate it for the next iteration. The dynamic fields (pre_jokers,
+# post_jokers, main_eval) written by wrappers are cleaned up within the same
+# stack frame. The retrigger call at line 863 sets retrigger_joker=true; we
+# clear it after that inner call.
+apply_ctx_table_hoist() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "state_events.lua not found, skipping context table hoist"
+        return 0
+    fi
+    if grep -q "CTX_TABLE_HOISTED" "$f"; then
+        log_info "Context table hoist already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+# Replace the inner other_joker loop body with a hoisted context table.
+# The old pattern constructs {full_hand=..., scoring_hand=..., ...} on
+# every eval_card call. The new pattern builds it once before the loop.
+old = (
+    "            -- Calculate context.other_joker effects -- OTHER_KEY_HOISTED\n"
+    "            local other_key = 'other_unknown'\n"
+    "            if _card.ability.set == 'Joker' then other_key = 'other_joker' end\n"
+    "            if _card.ability.consumeable then other_key = 'other_consumeable' end\n"
+    "            if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end\n"
+    "            for _, _area in ipairs(_joker_areas) do\n"
+    "                for _, _joker in ipairs(_area.cards) do\n"
+    "                    -- TARGET: add context.other_something identifier to your cards\n"
+    "                    local joker_eval,post = eval_card(_joker, {full_hand = G.play.cards, scoring_hand = scoring_hand, scoring_name = text, poker_hands = poker_hands, [other_key] = _card, other_main = _card })\n"
+    "                    if next(joker_eval) then\n"
+    "                        if joker_eval.edition then joker_eval.edition = {} end\n"
+    "                        joker_eval.jokers.juice_card = _joker\n"
+    "                        table.insert(effects, joker_eval)\n"
+    "                        for _, v in ipairs(post) do effects[#effects+1] = v end\n"
+    "                        if joker_eval.retriggers then\n"
+    "                            for rt = 1, #joker_eval.retriggers do\n"
+    "                                local rt_eval, rt_post = eval_card(_joker, {full_hand = G.play.cards, scoring_hand = scoring_hand, scoring_name = text, poker_hands = poker_hands, [other_key] = _card, retrigger_joker = true})\n"
+    "                                if next(rt_eval) then\n"
+    "                                    table.insert(effects, {retriggers = joker_eval.retriggers[rt]})\n"
+    "                                    table.insert(effects, rt_eval)\n"
+    "                                    for _, v in ipairs(rt_post) do effects[#effects+1] = v end\n"
+    "                                end\n"
+    "                            end\n"
+    "                        end\n"
+    "                    end\n"
+    "                end\n"
+    "            end\n"
+)
+new = (
+    "            -- Calculate context.other_joker effects -- OTHER_KEY_HOISTED CTX_TABLE_HOISTED\n"
+    "            local other_key = 'other_unknown'\n"
+    "            if _card.ability.set == 'Joker' then other_key = 'other_joker' end\n"
+    "            if _card.ability.consumeable then other_key = 'other_consumeable' end\n"
+    "            if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end\n"
+    "            local _other_ctx = {full_hand = G.play.cards, scoring_hand = scoring_hand, scoring_name = text, poker_hands = poker_hands}\n"
+    "            _other_ctx[other_key] = _card\n"
+    "            _other_ctx.other_main = _card\n"
+    "            for _, _area in ipairs(_joker_areas) do\n"
+    "                for _, _joker in ipairs(_area.cards) do\n"
+    "                    -- TARGET: add context.other_something identifier to your cards\n"
+    "                    local joker_eval,post = eval_card(_joker, _other_ctx)\n"
+    "                    if next(joker_eval) then\n"
+    "                        if joker_eval.edition then joker_eval.edition = {} end\n"
+    "                        joker_eval.jokers.juice_card = _joker\n"
+    "                        table.insert(effects, joker_eval)\n"
+    "                        for _, v in ipairs(post) do effects[#effects+1] = v end\n"
+    "                        if joker_eval.retriggers then\n"
+    "                            _other_ctx.retrigger_joker = true\n"
+    "                            _other_ctx[other_key] = nil\n"
+    "                            _other_ctx.other_main = nil\n"
+    "                            for rt = 1, #joker_eval.retriggers do\n"
+    "                                local rt_eval, rt_post = eval_card(_joker, _other_ctx)\n"
+    "                                if next(rt_eval) then\n"
+    "                                    table.insert(effects, {retriggers = joker_eval.retriggers[rt]})\n"
+    "                                    table.insert(effects, rt_eval)\n"
+    "                                    for _, v in ipairs(rt_post) do effects[#effects+1] = v end\n"
+    "                                end\n"
+    "                            end\n"
+    "                            _other_ctx.retrigger_joker = nil\n"
+    "                            _other_ctx[other_key] = _card\n"
+    "                            _other_ctx.other_main = _card\n"
+    "                        end\n"
+    "                    end\n"
+    "                end\n"
+    "            end\n"
+)
+if old not in text:
+    print("ERROR: other_joker inner loop anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old, new, 1)
+open(path, 'w').write(text)
+print("Context table hoist applied")
+PYEOF
+    if grep -q "CTX_TABLE_HOISTED" "$f"; then
+        log_success "Context table hoist applied (other_joker inner loop reuses one table)"
+    else
+        log_warn "Context table hoist did not apply — check state_events.lua anchor"
     fi
 }
 
