@@ -1565,8 +1565,11 @@ The numbered steps below map to code in `controller.lua:191–496`:
    therefore the visibility-sorted collision list — only drawn nodes are
    hittable.
 
-5. **Focus update** — `update_focus()` (gamepad only): finds the nearest focusable
-   node and snaps the cursor to it.
+5. **Focus update** — `update_focus()` (gamepad only; early-returns immediately
+   when `HID.controller` is false): manages `self.focused.target` for dpad/axis
+   navigation. On Android touch, `HID.controller` is never set, so this function
+   is a no-op for the entire session unless a physical gamepad is connected.
+   Does not touch `hovering.target`.
 
 6. **Hover target** — `set_cursor_hover()` walks `collision_list` top-to-bottom
    and picks the first node with `states.hover.can` (and not dragging, unless
