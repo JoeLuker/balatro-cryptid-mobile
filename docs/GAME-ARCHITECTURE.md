@@ -856,7 +856,206 @@ the near-zero startup period where the time value interacts badly with the shade
 
 ## 7. Object model: Object → Node → Moveable → Card/CardArea
 
-*(pending workflow merge)*
+The entire visible game is built from four concrete base classes arranged in a
+single inheritance chain. All classes use the SNKRX-derived prototype system
+(`object.lua`): `Object:extend()` copies only `__`-prefixed metamethods into the
+subclass table and sets `cls.super = self`, so upcalls are `ClassName.super.method(self, ...)`.
+Instantiation goes through `Object:__call`, which does `setmetatable({}, self)` then
+calls `obj:init(...)`.
+
+### Inheritance chain
+
+```
+Object          (object.lua)
+  └─ Node       (engine/node.lua)       -- transform, collision, hover/click states, children
+       └─ Moveable (engine/moveable.lua) -- VT easing, Major/Minor role system, juice
+            ├─ Card        (card.lua)         -- playing card / joker / consumable
+            ├─ CardArea    (cardarea.lua)      -- ordered card container
+            ├─ Blind       (blind.lua)         -- boss blind display object
+            ├─ Card_Character (card_character.lua) -- character card
+            ├─ Sprite      (engine/sprite.lua) -- atlas-backed sprite
+            ├─ DynaText    (engine/text.lua)   -- dynamic text
+            ├─ UIBox       (engine/ui.lua)     -- root UI container
+            ├─ UIElement   (engine/ui.lua)     -- leaf UI node
+            └─ Particles   (engine/particles.lua)
+```
+
+Classes outside this chain that use `Object:extend()` directly (no move/draw
+machinery): `Game`, `Back`, `Tag`, `Controller`, `Event`, `EventManager`,
+`SMODS.GameObject`.
+
+### Object (object.lua)
+
+Provides `extend()`, `is()`, and `__call`. No state. Sourced from SNKRX (MIT).
+
+- `extend()` — copies `__`-keys, sets `super`, returns new class table.
+- `is(T)` — walks metatables to check type membership (Lua's equivalent of `instanceof`).
+- `__call(...)` — constructs an instance: `setmetatable({}, self)` + `init(...)`.
+
+### Node (engine/node.lua)
+
+Everything visible (and some invisible things like `G.ROOM`) is a Node.
+
+| Field | Description |
+|---|---|
+| `T` | Logical transform: `{x, y, w, h, r, scale}` in game units |
+| `CT` | Collision transform; defaults to `T`, Card overrides to `VT` (`card.lua:12`) |
+| `states` | `{visible, collide, hover, click, drag, release_on}` each with `.can`/`.is` |
+| `container` | Parent Node for coordinate translation; defaults to `G.ROOM` |
+| `children` | Table of child Nodes; tree is walked by `Node:draw()` and `Node:remove()` |
+| `FRAME` | `{DRAW, MOVE}` frame counters to skip redundant recalculations |
+| `ID` | Unique integer, incremented from `G.ID` at construction |
+| `ARGS` / `RETS` | Reusable scratch tables (avoids garbage in the hot path) |
+| `created_on_pause` | If true, node moves even when `G.SETTINGS.paused` |
+
+Key methods:
+
+- `Node:draw()` — calls `add_to_drawhash(self)`, then recurses into `children`.
+- `Node:collides_with_point(point)` — applies container translation/rotation then
+  axis-aligned rectangle test (or rotated rectangle when `T.r` is significant).
+- `Node:hover()` / `Node:stop_hover()` — creates/removes `children.h_popup` UIBox.
+  `stop_hover` respects Cryptid's `force_popup`/`force_tooltips` flag.
+- `Node:remove()` — pulls self from `G.I.NODE`, `G.STAGE_OBJECTS`, all
+  `G.CONTROLLER.*` targets, sets `self.REMOVED = true`, then recurses into children.
+
+Concrete Nodes register in `G.I.NODE` only when `getmetatable(self) == Node`
+(bare Node instances, not subclass instances).
+
+### Moveable (engine/moveable.lua)
+
+Adds a **Visible Transform** (`VT`) that eases toward the logical `T` each frame,
+plus a Major/Minor role system for attaching objects to each other.
+
+| Field | Description |
+|---|---|
+| `VT` | Visible transform: `{x, y, w, h, r, scale}`; eases to `T` via `move_xy`/`move_r`/`move_scale`/`move_wh` |
+| `velocity` | `{x, y, r, scale, mag}` — intermediate velocity for easing |
+| `role` | `{role_type, major, offset, xy_bond, wh_bond, r_bond, scale_bond}` |
+| `pinch` | `{x, y}` — when true, VT dimension eases toward 0 (used for card flip) |
+| `juice` | Animation burst: scale + rotation oscillation for 0.4 s; set via `juice_up()` |
+| `offset` | Additional positional offset (separate from role.offset) |
+| `STATIONARY` | Set true when VT has converged to T; used to skip unnecessary draw work |
+
+**Role system.** Every Moveable has a `role_type`:
+- `Major` — calculates its own VT movement each frame via `move_xy`, `move_r`, etc.
+- `Minor` — welded to a `major` Moveable; calls `move_with_major(dt)` which copies
+  or derives VT from the major's VT plus a role offset. Bond types control per-axis
+  inheritance: `Strong` copies, `Weak` calculates independently.
+- `Glued` — directly shares the major's `T` table pointer (e.g. Card sprite
+  children use `draw_major` via `Sprite:set_role({role_type='Glued', ...})`).
+
+`Moveable:move(dt)` guards on `FRAME.MOVE >= G.FRAMES.MOVE` to run at most once
+per frame per object.
+
+All Moveables are inserted into `G.MOVEABLES` (iterated in the move pass) and
+into `G.I.MOVEABLE` only for bare `Moveable` instances.
+
+### Card (card.lua)
+
+`Card = Moveable:extend()`. Represents every card type: playing cards (`ability.set
+= 'Default'` or `'Enhanced'`), jokers (`'Joker'`), consumables (tarot/planet/
+spectral), vouchers, boosters, and editions.
+
+Key additions over Moveable:
+
+| Field | Description |
+|---|---|
+| `config.card` | Playing-card suit/rank data (`G.P_CARDS` entry) |
+| `config.center` | Ability/identity data (`G.P_CENTERS` entry) |
+| `ability` | Active state table; `ability.set` is the card type discriminant |
+| `tilt_var` | `{mx, my, dx, dy, amt}` — 3D mesh tilt parameters fed to the sprite shader |
+| `area` | The `CardArea` this card currently belongs to (nil when unattached) |
+| `facing` / `sprite_facing` | `'front'` or `'back'`; `sprite_facing` lags behind `facing` during flip animation |
+| `children.front` | Sprite for the playing-card face (nil for non-playing-cards) |
+| `children.back` | Sprite for the card back |
+| `children.center` | Sprite for the joker/consumable/voucher art |
+| `sort_id` | Monotonically increasing; used for stable sort ordering |
+
+**`CT = self.VT` (card.lua:12)** — Card overrides the collision transform to
+track the visible position, not the logical position, so collision detection uses
+where the card appears on screen.
+
+**`Card:draw(layer)`** draws in layers (`'shadow'`, `'card'`, `'both'`).
+Steamodded wraps `Card:draw` and runs `SMODS.DrawSteps` in sorted order
+(`card_draw.lua`). Each DrawStep has an `order` and optional `conditions`.
+The tilt shader parameters (`tilt_var.mx`/`my`) are computed in DrawStep
+`'card_tilt'` (`card_draw.lua:76`) when `states.hover.is` is true — this is the
+anchor for the 3D warp (relevant to the TAP_DESC_RELAX touch fix).
+
+**`Card:remove()`** calls `self.area:remove_card(self)` if attached, then
+`remove_from_deck`, then removes from `G.I.CARD` and calls `Node.remove`.
+
+Card instances register in `G.I.CARD` when `getmetatable(self) == Card`.
+
+### CardArea (cardarea.lua)
+
+`CardArea = Moveable:extend()`. Ordered container for Card objects.
+
+| Field | Description |
+|---|---|
+| `cards` | Array of Card objects in draw/layout order |
+| `highlighted` | Array of currently highlighted cards |
+| `config.type` | Area identity: `'hand'`, `'jokers'`, `'consumeable'`, `'deck'`, `'discard'`, `'play'`, `'shop'`, etc. |
+| `config.card_limit` | Virtual accessor via `__index`; computed from `card_limits.total_slots - extra_slots_used` |
+| `config.card_limits` | Underlying table: `{base, mod, extra_slots, extra_slots_used, total_slots}` |
+
+CardArea disables its own `drag`, `hover`, and `click` states by default (it is a
+container, not an interactive object). `G.deck` re-enables them in
+`CardArea:update(dt)`.
+
+**`CardArea:draw()`** draws `children.area_uibox` (the card-count overlay) and
+then delegates individual card drawing to the frame's draw pass — cards are drawn
+via their own `Card:draw` calls triggered by the draw hash, not by CardArea
+iterating them.
+
+CardArea instances register in `G.I.CARDAREA` when `getmetatable(self) == CardArea`.
+
+### Instance registries
+
+| Registry | Contains | Populated by |
+|---|---|---|
+| `G.I.NODE` | Bare `Node` instances only | `Node:init` |
+| `G.I.MOVEABLE` | Bare `Moveable` instances only | `Moveable:init` |
+| `G.I.CARD` | All `Card` instances | `Card:init` |
+| `G.I.CARDAREA` | All `CardArea` instances | `CardArea:init` |
+| `G.MOVEABLES` | All `Moveable` subclass instances (everything with VT) | `Moveable:init` |
+
+Note: `G.MOVEABLES` is iterated in `love.update` for the move pass (all Moveables
+including Cards, CardAreas, Sprites, etc.). `G.I.*` registries are for
+type-specific lookup. Removal from all registries is handled by the respective
+`remove()` chain.
+
+### Gotchas
+
+- **`Object:extend()` copies only `__`-prefixed keys** into the subclass. Regular
+  methods are inherited through the metatable chain, not copied. Adding a method to
+  a superclass after subclasses are created affects all subclasses that haven't
+  shadowed that method.
+
+- **`getmetatable(self) == ClassName` guards on `init` and `remove`** mean that
+  only direct instances (not subclass instances) register in the bare-class
+  registries (`G.I.NODE`, `G.I.MOVEABLE`). A `Card` instance does not appear in
+  `G.I.MOVEABLE`; it appears in `G.I.CARD` and `G.MOVEABLES`.
+
+- **`Node:remove()` clears all `G.CONTROLLER.*` targets.** This means removing
+  any Node while it is focused/hovered/dragged/clicked silently nils the
+  controller's reference, preventing a use-after-free but potentially missing a
+  stop-hover call for the popup if `stop_hover` wasn't called before removal.
+
+- **`Card.CT = self.VT`** means collision detection tracks the card's visible
+  (eased) position, not its logical target position. Fast-moving cards may have
+  collisions lag slightly behind `T`.
+
+- **`Moveable:move(dt)` is guarded by `FRAME.MOVE`** to prevent double-move in
+  one frame. However the `--WHY ON EARTH DOES THIS LINE MAKE IT RUN 2X AS FAST?`
+  comment at `moveable.lua:286` documents a profiling artefact: uncommenting
+  `love.timer.getTime()` near that guard causes movement to run at 2× speed.
+  The cause is not documented; the line remains commented out.
+
+- **`move_wh` has a Talisman-inserted guard** (`moveable.lua:435`): when `Big`
+  (OmegaNum) exists and the state is `MENU`, it calls `to_number()` on all four
+  VT/T width/height values. This is a safety cast to prevent big-number types
+  from leaking into layout arithmetic.
 
 ## 8. Round flow & the scoring pipeline
 
