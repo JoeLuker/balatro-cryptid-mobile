@@ -280,6 +280,8 @@ EOF
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     apply_talisman_dim_fix "$game_dir/Mods/Talisman/talisman.lua"
+    apply_cryptid_dead_copy_fix "$game_dir/Mods/Cryptid/lib/calculate.lua"
+    apply_cryptid_flip_side_cache "$game_dir/Mods/Cryptid/lib/calculate.lua" "$game_dir/Mods/Cryptid/lib/overrides.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
@@ -442,6 +444,58 @@ apply_glitched_b_fix() {
         log_success "glitched_b fix applied (highp math + NaN guard)"
     else
         log_warn "glitched_b fix did not fully match — check glitched_b.fs"
+    fi
+}
+
+# Hot-path fix 1: delete the dead copy_table(ability) + in_context_scaling locals
+# in Cryptid's Card:calculate_joker wrapper (calculate.lua:137-138 before this patch).
+# orig_ability is assigned and never read; in_context_scaling is set and never read.
+# Each invocation wasted a full deep-copy of the joker ability table.
+apply_cryptid_dead_copy_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Cryptid calculate.lua not found, skipping dead copy_table fix"
+        return 0
+    fi
+    if grep -q "CRY_DEAD_COPY_FIXED" "$f"; then
+        log_info "Cryptid dead copy_table fix already applied"
+        return 0
+    fi
+    # Delete the two dead locals; the line after them (local callback) remains.
+    sed -i '/^\tlocal orig_ability = copy_table(active_side\.ability)$/d' "$f"
+    sed -i 's|^\tlocal in_context_scaling = false$|\t-- CRY_DEAD_COPY_FIXED|' "$f"
+    # Delete the dead write to in_context_scaling (inner assignment only; outer if is left inert).
+    sed -i '/^\t\t\tin_context_scaling = true$/d' "$f"
+    if grep -q "CRY_DEAD_COPY_FIXED" "$f"; then
+        log_success "Cryptid dead copy_table fix applied (removed dead orig_ability deep-copy + in_context_scaling)"
+    else
+        log_warn "Cryptid dead copy_table fix did not apply — check calculate.lua"
+    fi
+}
+
+# Hot-path fix 2: cache find_joker('cry-Flip Side') once per scoring pass instead
+# of scanning joker+consumeable arrays on every calculate_joker invocation.
+# Sets G._cry_flip_side_active at scoring entry (overrides.lua) and clears it on
+# exit; calculate.lua checks the flag instead of calling find_joker each time.
+apply_cryptid_flip_side_cache() {
+    local calc="$1"
+    local over="$2"
+    if [[ ! -f "$calc" ]] || [[ ! -f "$over" ]]; then
+        log_warn "Cryptid calculate.lua or overrides.lua not found, skipping flip-side cache"
+        return 0
+    fi
+    if grep -q "CRY_FLIP_SIDE_CACHED" "$calc"; then
+        log_info "Cryptid flip-side cache already applied"
+        return 0
+    fi
+    # Replace per-call find_joker scan with cached flag check in calculate.lua.
+    sed -i 's|^\t\tnext(find_joker("cry-Flip Side"))$|\t\tG._cry_flip_side_active -- CRY_FLIP_SIDE_CACHED|' "$calc"
+    # Set/clear the cache around the scoring pass in overrides.lua.
+    sed -i 's|^\tgfep(e)$|\tG._cry_flip_side_active = next(find_joker("cry-Flip Side"))\n\tgfep(e)\n\tG._cry_flip_side_active = nil|' "$over"
+    if grep -q "CRY_FLIP_SIDE_CACHED" "$calc" && grep -q "_cry_flip_side_active" "$over"; then
+        log_success "Cryptid flip-side cache applied (find_joker scan → per-pass flag)"
+    else
+        log_warn "Cryptid flip-side cache did not fully apply — check calculate.lua and overrides.lua"
     fi
 }
 
