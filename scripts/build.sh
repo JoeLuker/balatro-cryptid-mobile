@@ -276,6 +276,7 @@ EOF
     # visible so quality is tunable on device.
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
     apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
+    apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
@@ -459,6 +460,34 @@ apply_fps_toggle() {
         log_success "FPS toggle added (Settings > Game > Show FPS)"
     else
         log_warn "FPS toggle did not fully apply — check anchors"
+    fi
+}
+
+# Enable the game's built-in per-frame perf overlay (the timer_checkpoint
+# breakdown: per-subsystem ms + trend bars + GC) behind a "Debug Overlay" toggle.
+# The base game gates collection on F_ENABLE_PERF_OVERLAY and the draw on debug
+# flags that are off in release — retarget both to G.SETTINGS.perf_mode, and force
+# screen-space coords (origin) so it isn't mispositioned by the active transform.
+apply_debug_overlay() {
+    local game_lua="$1"
+    local misc="$2"
+    local ui_file="$3"
+    if [[ ! -f "$game_lua" || ! -f "$misc" || ! -f "$ui_file" ]]; then
+        log_warn "files for debug overlay not found, skipping"
+        return 0
+    fi
+    if grep -q "Debug Overlay" "$ui_file"; then
+        log_info "Debug overlay already applied"
+        return 0
+    fi
+    sed -i 's|if not G.F_ENABLE_PERF_OVERLAY then return end|if not G.SETTINGS.perf_mode then return end|' "$misc"
+    sed -i 's|if not _RELEASE_MODE and G.DEBUG and not G.video_control and G.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
+    sed -i 's|        love.graphics.setColor(0, 1, 1,1)|        love.graphics.origin()\n        love.graphics.setColor(0, 1, 1,1)|' "$game_lua"
+    sed -i "s|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),\n      create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|" "$ui_file"
+    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua" && grep -q "Debug Overlay" "$ui_file"; then
+        log_success "Debug overlay added (Settings > Game > Debug Overlay)"
+    else
+        log_warn "Debug overlay did not fully apply — check anchors"
     fi
 }
 
