@@ -450,6 +450,22 @@ app resume on Android) from causing simulation jumps. Initial value 1/100.
 - How `SMODS loader.lua` enumerates and loads Cryptid/Talisman/sticky-fingers
   mod Lua files — that is in `SMODS src/loader.lua` which was not read in full.
 
+### Sound pipeline (deep audit)
+
+All LÖVE audio lives on the SOUND_MANAGER thread (`engine/sound_manager.lua`);
+the main thread stages message tables and pushes them on the `sound_request`
+channel (`play_sound` in misc_functions.lua; per-frame `modulate_sound(dt)`
+called from `game.lua:2626`). Volume math:
+`current * original * (volume/100) * (sfx|music_volume/100)`.
+
+Gotchas: `G.ARGS.play_sound` is one reused table — two stages in the same tick
+overwrite (channel push copies, but don't interleave); the boot
+"wait-for-sounds" loop is dead (`while ... and false`, `game.lua:92`);
+`RESTART_MUSIC` hardcodes pitch 0.7/vol 0.6; upstream bugs: `RESET_STATES` is
+an unreachable dead function (dispatch inlines it), the `sound_source`
+registration block references an unset local. `F_SOUND_THREAD` stays true on
+Android; no platform-specific audio code exists.
+
 ## 5. The G object & state machine
 
 ### G is the Game singleton
@@ -631,6 +647,35 @@ colorblind setting.
 Layout node types: T=1 (text), B=2 (box), C=3 (column), R=4 (row), O=5 (object/Node), ROOT=7,
 S=8 (slider), I=9 (input). Note the gap: 6 is not used. `padding=0` is a default stored here
 for historical reasons.
+
+### Resolved by the deep audit (formerly unknowns)
+
+- Boot starts at `G.STATE = SPLASH` (`globals.lua:328`); the enum lives at
+  `globals.lua:295-317` with the two SMODS entries (998/999) listed FIRST.
+- **TUTORIAL (12) and DEMO_CTA (16) have no update handler anywhere** — the
+  dispatch block (`game.lua:2748-2815`) skips them and the game idles in those
+  states. The tutorial overlay system (`state_events.lua:1224
+  tutorial_controller`) never sets `STATE=TUTORIAL`; it overlays on normal
+  states. DEMO_CTA is entered via `Game:demo_cta` (`game.lua:1779`) and acts as
+  a flag (title positioning checks it).
+- **SMODS_REDEEM_VOUCHER (998) is a transient marker, never dispatched**: set
+  by `Card:redeem` (`card.lua:2264`), read by Steamodded's `from_shop` context
+  checks (utils.lua), and under Cryptid `USING_RUN` snapped back to SHOP next
+  frame by the guard at `game.lua:2731-2733` (which forces SHOP every frame
+  unless in a pack state).
+- **SMODS_BOOSTER_OPENED (999)**: `card.lua:2104` sets it +
+  `SMODS.OPENED_BOOSTER`; `game.lua:2785-87` calls
+  `center:update_pack(dt)` (`game_object.lua:1454`) each frame;
+  `STATE_COMPLETE` gates the one-shot UIBox build.
+- **`G.CONTROLLER.locks.load`**: set at `game.lua:2317` right after save
+  parse; released by a queued event with `delay=3.5, timer='TOTAL'`
+  (`game.lua:2325`) — i.e. **wall-time based, not load-completion based**.
+- `Game:prep_stage` clears ALL controller locks (`game.lua:1285-86`) before
+  setting STAGE/STATE.
+- Transition examples (all direct assignment inside events):
+  SELECTING_HAND→DRAW_TO_HAND `game.lua:2750` (same-frame double-dispatch),
+  PLAY_TAROT→prev_state `button_callbacks.lua:2327`, ROUND_EVAL→SHOP
+  `button_callbacks.lua:3185`.
 
 ---
 
@@ -1374,6 +1419,62 @@ Ascension scaling.
 
 ## 9. Rendering & shaders
 
+### The canvas pipeline
+
+One real render target: **`G.CANVAS`** (created in `love.resize`,
+`main.lua:1233/1295`; `G.CANV_SCALE` is always 1 on Android). `G.AA_CANVAS`
+(Windows HiDPI supersampling) is **permanently nil on every platform** — its
+creation block is guarded by `love.system.getOS() == 'Windows' and false` — so
+`setCanvas(G.AA_CANVAS)` in the composite step is effectively `setCanvas(nil)`
+= the screen.
+
+**`Game:draw` (`game.lua:2943`) composite order:** setCanvas(G.CANVAS) → clear
+→ `SPLASH_BACK` → `G.I.NODE`/`MOVEABLE`/`UIBOX`/`CARDAREA`/`CARD` (z-ordered,
+with overlay/focused-card special-casing) → `OVERLAY_TUTORIAL` →
+`OVERLAY_MENU` → ALERTs/dragging/focused cards → POPUPs → achievement note →
+`G.screenwipe` UIBox → CURSOR → pop. Then the **CRT pass**: send uniforms
+(`game.lua:3156-3168`), `setShader(CRT)`, draw `G.CANVAS` to the screen,
+unbind (`:3169-3170`). Finally our show_fps/perf_mode overlays draw straight to
+the back-buffer.
+
+**Shader registry:** `Game:init` (`game.lua:130-142`) scans
+`resources/shaders/*.fs` and compiles **all 19 at boot** — no lazy loading; a
+single bad shader is a boot crash-loop (see the blur.fs story below).
+
+**CRT pass gotchas:**
+- `G.SETTINGS.GRAPHICS.crt` is **mutated in place** every frame — `*0.3` at
+  `game.lua:3155`, restored `/0.3` at `:3170`. Anything reading it between
+  those lines sees 30% of the real value.
+- The CRT shader dispatches **every frame even at crt=0** (uniforms make it a
+  passthrough blit, but the full-screen pass cost is still paid — relevant to
+  the perf hunt).
+- `glitched_intensity` is a bare Lua global written by Cryptid's Code/ACE
+  runner (`Mods/Cryptid/items/code.lua:367/798/840`) and read nil-safely by the
+  CRT uniform send (`game.lua:3154`-ish).
+
+**Screenwipe/transition system:** `G.FUNCS.wipe_on`
+(`button_callbacks.lua:~3318`, re-entrancy-guarded on `G.screenwipe`) creates a
+full-screen UIBox + particles, sets `locks.wipe` (via
+`engine/controller.lua:195` checking `G.screenwipe`), and run/menu transitions
+queue their state changes between `wipe_on()` and `wipe_off()`
+(`:3384` — staged fade/dissolve, UIBox removed at 1.1s).
+`G.screenwipe_amt` eases toward 0.4 while a wipe or `G.screenglitch` is active
+(`game.lua:3154`).
+
+### Per-shader risk inventory (audit findings)
+
+- `hologram.fs`: **81-tap glow loop** (9×9) per pixel — the heaviest card
+  shader; the primary per-card GPU cost on Mali when hologram editions are
+  visible.
+- `vortex.fs`: `atan(uv.y, uv.x)` with no guard at uv=(0,0) — undefined on
+  some GLES implementations.
+- `gold_seal.fs`: the only shader **without** the highp/mediump guard block.
+- `background.fs`: unbounded `time` in a sin/cos loop — degrades on fp16 over
+  very long sessions. `flame.fs` wraps its time (`mod(4.*time,10000.)`) — safe.
+  `splash.fs`/`flash.fs` use unbounded `time` (flash guards its sqrt).
+- Our CRT fix lives at `CRT.fs:97-101` (wrapped time + fract-sin hash).
+- Build-time shader normalizations: EOF newlines on all shipped `.fs` (28
+  fixed), `blur.fs` reordered helpers-before-effect (see §3).
 
 ### Mali-G710 (Tensor G2) shader constraints — session-verified
 
@@ -1540,6 +1641,23 @@ the UIBox disables all its children at once.
   both the normal draw pass and a child's draw cascade). Exception: when
   `G.OVERLAY_TUTORIAL` is set, the guard is bypassed.
 
+### Description/tooltip pipeline addenda (deep audit)
+
+- `init_localization` is **triple-wrapped** (Talisman `talisman.lua:27`,
+  Cryptid `overrides.lua:1321`, main.lua:1441) around the loader call site —
+  a wrapper that forgets to chain breaks pre-parsing for everything after it.
+- `desc_scale` is multiplied **×1.5 under `G.F_MOBILE_UI`**
+  (`misc_functions.lua:2021`, `utils.lua:2493`) — the only mobile-specific text
+  path; card NAME DynaText is not enlarged.
+- **`Card:hover()` recomputes the full description UI tree every time**
+  (`ability_UIBox_table` → `generate_card_ui`, no caching). Our tap-description
+  feature triggers this per hold — a perf-relevant fact for the hunt.
+- `Card:hover` fires on touch even mid-drag (`card.lua:4857` gate `not drag.is
+  or HID.touch`) — this is the gate our tap-description patches build on.
+- Cryptid wraps tooltip resolution (`misc_functions.lua:2077` checks
+  `Cryptid.get_center()` before `G.P_CENTERS`); SMODS `localize_box` does not —
+  Cryptid-only centers can resolve differently between the two paths.
+
 ## 11. Input: controller & the touch layer
 
 `G.CONTROLLER` is a `Controller = Object:extend()` instance (`engine/controller.lua`).
@@ -1703,6 +1821,34 @@ eliminating the warp that occurred when `states.hover.is` remained true and
   and `G.SETTINGS.enable_drag_select` is true. If a hand card is already under
   the finger, normal press/drag logic applies.
 
+### Resolved by the deep audit (formerly unknowns — fixup verified "reliable")
+
+- **`touch_control.l_press.target` is NEVER written anywhere in the build** —
+  the s_tap suppression guard (`controller.lua:364`) is a permanent no-op.
+  Long-press-blocks-tap is a dead stub; any future long-press feature must
+  implement the setter.
+- `create_drag_target_from_card` is **vanilla**, defined at
+  `functions/misc_functions.lua:2316` (controller.lua:431 is just the call
+  site). The built copy has Cryptid drop zones (P_save/P_switch) and the
+  sticky-fingers STICKY_GUARD helpers baked into the same body. It lazily
+  builds `G.DRAG_TARGETS`.
+- `G.MIN_CLICK_DIST = 0.9` (tile units) and `G.MIN_HOVER_TIME = 0.1` live at
+  `globals.lua:356-357`.
+- **`cursor_down.uptime` ordering is safe**: stamped in `L_cursor_press:1174`
+  (CURSOR_DOWN_UPTIME_FIX) before `is_cursor_down=true`; the only reader
+  (`update:484`, duration accumulation) runs solely while `is_cursor_down`.
+  `cursor_down.distance` is max-accumulated (`update:483`), not stamped.
+- **TAP_DESC_RELAX placement verified safe**: it clears `states.hover.is` but
+  not `hovering.target`, and runs before the hover dispatch block (449-481),
+  which still fires `hover()`/`stop_hover()` correctly against the persisted
+  target. On touch, `hover()` is deferred `G.MIN_HOVER_TIME` via an
+  ID-matched event.
+- **COYOTE_FOCUS** (gamepad fast-select) starves `get_cursor_collision` via
+  early-return (1086) and forces `cursor_hover.target=G.ROOM` (1121); cleared
+  in the dragging-snap block (292). Gamepad-only — irrelevant to touch
+  patches. `update_focus` (1243) early-returns for non-controller HID and
+  never touches `hovering.target`.
+
 ## 12. Persistence: saves, settings, profiles
 
 Three orthogonal save scopes, all handled by a dedicated background thread.
@@ -1844,6 +1990,25 @@ until the seed gives a non-golden legendary as first shop legendary.
 
 ---
 
+### RNG deep-audit addenda
+
+- `pseudoseed('seed')` (the literal key) is a deliberate escape — always raw
+  `math.random()`, intentionally non-deterministic.
+- After game-over (`G.SETTINGS.paused`), all pseudoseed calls except `'to_do'`
+  return bare `math.random()` — streams stop advancing but global PRNG state
+  still mutates.
+- The stream LCG rounds through `string.format('%.13f')` — **host float
+  precision is load-bearing**; numeric changes shift every stream.
+- **A patch that calls `pseudoseed()` during run-load (before stream
+  restoration) consumes a stream step and desyncs save replay.** Check this on
+  any patch that touches load paths.
+- Bare `math.random()` sites in game.lua are cosmetic-only and harmless:
+  `pseudorandom()` reseeds before every draw.
+- `get_first_legendary` uses the two-arg predict form — evaluates without
+  advancing the stream.
+- `generate_starting_seed` entropy includes cursor position — on touch with no
+  finger down that's 0/0, compressing unseeded-run seed space slightly.
+
 ## 14. Content objects: Blinds, Tags, Backs, Challenges
 
 Runtime wrappers around static prototypes in `G.P_BLINDS`, `G.P_TAGS`,
@@ -1895,6 +2060,25 @@ Single live instance at `G.GAME.selected_back`. Wraps chosen deck prototype from
 data consumed by `Game:start_run`. Extended by SMODS via `SMODS.Challenge`.
 
 ---
+
+### Blind/Tag/Back hook-surface addenda (deep audit)
+
+- `Blind:modify_hand` forwards only 5 args to SMODS overrides — the
+  `scoring_hand` 6th param is **dropped** (`blind.lua:555`).
+- `Blind:save` matches `config_blind` by NAME against `G.P_BLINDS`
+  (`blind.lua:802-805`) — duplicate blind names break save/load; runtime state
+  must live in `self.effect` (config.blind is reconstructed from prototype on
+  load).
+- `Blind:debuff_card`: `obj.recalc_debuff` wins over `obj.debuff_card` if both
+  defined (`blind.lua:696/704`).
+- `Tag` loaded from save sets `from_load=true` but **does not call
+  `set_ability`** — side effects there won't fire on load. `Tag:apply_to_run`
+  checks `self.triggered` before SMODS hooks — once triggered, even
+  `prevent_tag_trigger` can't fire.
+- `Back:trigger_effect` legacy path still works (warns); `Back:apply_to_run`
+  processes config fields in a fixed, order-sensitive sequence.
+- Touch: `Blind:hover`/Tag hover closures check `G.CONTROLLER.using_touch`;
+  `tag_cry_cat` is the only draggable/clickable tag (touch-target relevant).
 
 ## 15. The mods layer
 
@@ -1975,6 +2159,39 @@ defined by earlier mods.
 Called from `G.FUNCS.can_*` wrappers the UI queries before showing button
 states. Our `STICKY_GUARD` patch markers in `misc_functions.lua` protect these
 from being called during scoring.
+
+### The SMODS loader & load order (deep audit)
+
+`initSteamodded` (`Mods/Steamodded/src/loader.lua:653`) runs during boot:
+`initGlobals` → `loadAPIs` (defines all `SMODS.GameObject` classes — must
+precede mod code) → `loadMods` → `injectItems`.
+
+**Discovery** (`processDirectory`, `loader.lua:185`): scans `Mods/` to depth 3
+via NFS (= `love.filesystem` on Android). At depth ≥2 it accepts `.json`
+manifests or `.lua` files whose first line is `--- STEAMODDED HEADER` (that's
+how Talisman registers — legacy header, default priority 0). Steamodded's own
+dir is skipped (`SMODS.path` guard). New mods dropped into `Mods/` are
+auto-discovered — the hardcoded directory list in our Android patch feeds only
+Talisman's path detection, not SMODS discovery.
+
+**Load order — the wrapper-nesting rule:** mods load in **ascending priority,
+alphabetical id within a priority**, and since the last assignment to a global
+function wraps outermost: **higher priority ⇒ outermost wrapper**. Our build's
+order: Talisman (0) → reserve-shim (50) → Cryptid (114) → **sticky-fingers
+(100000, outermost)**. When debugging "who wrapped this function," start from
+sticky-fingers and peel inward.
+
+**Per-mod load window** (`loader.lua:559-573`): `SMODS.current_mod = mod` →
+`SMODS.load_mod_config` (merges save-dir `config/<id>.jkr` over the mod's
+`config.lua`; missing config ⇒ `{}` silently) → execute `main_file` →
+`current_mod = nil`. Mod configs ARE writable on Android (NFS.write → save
+dir) — it's only Talisman's separate `talisman_path/config.lua` write that our
+patch no-ops.
+
+**Gotchas:** dependency version constraints silently skip on malformed
+version strings; `lovely.toml` presence just sets an informational flag (the
+payloads are dead on Android); Steamodded itself never passes through the load
+loop (config loaded separately at `ui.lua:1174`).
 
 <!-- WORKFLOW SECTIONS END -->
 
