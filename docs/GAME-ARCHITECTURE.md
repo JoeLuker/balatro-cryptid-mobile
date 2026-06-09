@@ -1126,10 +1126,12 @@ Ascension scaling.
    stamps `G.SCORING_START`, resets `G.CARD_CALC_COUNTS`, creates a coroutine around
    `oldplay` (= `main.lua:2059` body), and stores it in `G.SCORING_COROUTINE`.
 
-2. `love.update` resumes the coroutine each frame (`main.lua:2111-2134`). The Card
-   `calculate_joker` yield wrapper (`main.lua:2204`, which overwrites `talisman.lua:785`
-   at runtime) yields after each joker calculation when `30 ms` have elapsed since
-   `G.LAST_SCORING_YIELD`.
+2. `love.update` resumes the coroutine each frame. The actual `coroutine.resume`
+   call is at `talisman.lua:766` (inside talisman's `love.update` wrapper); the
+   outer `main.lua:2111` wrapper is dead code for this purpose — see Gotchas. The
+   Card `calculate_joker` yield wrapper (`main.lua:2204`, which overwrites
+   `talisman.lua:785` at runtime) yields after each joker calculation when `30 ms`
+   have elapsed since `G.LAST_SCORING_YIELD`.
 
 3. Inside the coroutine the inner body (`main.lua:2059`) calls all five phases in
    order: `evaluate_play_intro → evaluate_play_main → evaluate_play_debuff →
@@ -1237,6 +1239,30 @@ Ascension scaling.
   overwrites `talisman.lua:785` at runtime (both define it; last-write wins in
   Lua). Debugging yield behavior requires looking at `main.lua:2204`, not the
   talisman source.
+
+- **`love.update` is also double-wrapped, and the outer (main.lua) wrapper is
+  entirely dead code at runtime.** `talisman.lua:690` wraps the vanilla
+  `love.update` first. `main.lua:2109` then wraps *that* as its `oldupd`. Each
+  frame, main.lua's wrapper calls `oldupd` (talisman's wrapper), which resumes
+  the coroutine and, if it dies, sets `G.SCORING_COROUTINE = nil`. By the time
+  main.lua's `if G.SCORING_COROUTINE` check runs, talisman's wrapper has already
+  either resumed (live) or cleared (dead) the handle:
+  - **Dead / aborted:** talisman already nil'd `G.SCORING_COROUTINE`, so
+    main.lua's block is skipped entirely.
+  - **Live:** talisman's wrapper already stamped `G.LAST_SCORING_YIELD` and
+    resumed the coroutine; main.lua's `else` branch runs but only rebuilds
+    `G.SCORING_TEXT` and calls `G.FUNCS.overlay_menu` redundantly — talisman's
+    wrapper already did both. No second `coroutine.resume` call exists in
+    main.lua's update block; the resume is only at `talisman.lua:766`.
+  
+  The one functional difference between the two blocks is the overlay condition:
+  talisman (`talisman.lua:715`) shows it unconditionally whenever the coroutine is
+  live and `G.OVERLAY_MENU` is nil; main.lua (`main.lua:2134`) gates on
+  `G.SCORING_START > 0.3 s` before opening. In practice talisman's path opens the
+  overlay first, making main.lua's gate unreachable.
+  
+  **Do not add scoring logic to main.lua's `love.update` block** — it will not
+  run. All coroutine driving logic belongs in talisman's block (`talisman.lua:692`).
 
 ### Mobile notes
 
