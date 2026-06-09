@@ -1148,7 +1148,8 @@ Ascension scaling.
 
 | Function | File:line | Purpose |
 |---|---|---|
-| `G.FUNCS.evaluate_play` (active) | `main.lua:2094` | Coroutine wrapper: stamps `G.SCORING_START`, yields every 30 ms, drives `oldplay` (main.lua:2059 body) |
+| `G.FUNCS.evaluate_play` (active) | `talisman.lua:822` | `Talisman.calculating_score` guard wrapper — outermost definition at runtime |
+| `G.FUNCS.evaluate_play` (coroutine wrapper) | `talisman.lua:676` | Creates `G.SCORING_COROUTINE`, sets `G.LAST_SCORING_YIELD`, resets `G.CARD_CALC_COUNTS`, first-resumes the coroutine |
 | `G.FUNCS.evaluate_play` (inner body) | `main.lua:2059` | Calls `evaluate_play_intro → evaluate_play_main → evaluate_play_debuff → evaluate_play_final_scoring → evaluate_play_after` unconditionally |
 | `evaluate_play_intro` | `state_events.lua:715` | Resolves poker hand (`get_poker_hand_info`), sets hand text, fires context `{type="before"}` — **does not** fire `context.before` |
 | `evaluate_play_main` | `state_events.lua:782` | Seeds `hand_chips`/`mult` (lines 783-784), fires `context.before` (line 797), re-seeds (lines 803-804), iterates scoring hand calling `SMODS.score_card` per card |
@@ -1159,7 +1160,7 @@ Ascension scaling.
 | `SMODS.calculate_individual_effect` (base) | `utils.lua:1234` | Iterates `G.SMODS_SCORING_PARAMS`, dispatches to the active `Scoring_Parameter` instance |
 | `SMODS.calculate_effect` | `utils.lua:1415` | Drives `trigger_effects`, calls `calculate_individual_effect` |
 | `SMODS.calculate_round_score` | `utils.lua:2838` | Reads final chips/mult from Scoring_Parameters, applies to `G.GAME.current_round` |
-| `SMODS.Scoring_Parameter:modify` | `game_object.lua:3582` | Applies a delta to a scoring accumulator |
+| `SMODS.Scoring_Parameter:modify` | `Mods/Steamodded/src/game_object.lua:3582` | Applies a delta to a scoring accumulator |
 | `Cryptid.ascend` | `ascended.lua:164` | Applies Ascension scaling (two modes) |
 | `G.FUNCS.get_poker_hand_info` | `state_events.lua:684` | Identifies the played hand type |
 
@@ -1171,21 +1172,23 @@ Ascension scaling.
 | `SMODS.Scoring_Parameter` (chips) | Keys: `chips`, `h_chips`, `chip_mod`, `x_chips`, `xchips`, `Xchip_mod` |
 | `SMODS.Scoring_Parameter` (mult) | Keys: `mult`, `h_mult`, `mult_mod`, `x_mult`, `Xmult`, `xmult`, `x_mult_mod`, `Xmult_mod` |
 | `G.SCORING_COROUTINE` | The active coroutine; guards in `state_events.lua` at lines 423, 585, 663, 674 skip conflicting operations while it runs |
-| `G.SCORING_START` | Timestamp set at coroutine launch (`main.lua:2096`); **written but never read** — the 0.3 s overlay check it was intended for was removed when the outer `main.lua` wrapper was deleted |
-| `G.LAST_SCORING_YIELD` | Updated on each yield to pace the love.update driver |
+| `G.SCORING_START` | **No longer exists.** Was written by the removed main.lua coroutine wrapper; the talisman.lua copy never wrote it. All references gone. |
+| `G.LAST_SCORING_YIELD` | Set at coroutine launch (`talisman.lua:678`); refreshed before each frame resume (`talisman.lua:764`); read by the yield check in `Card:calculate_joker` (`talisman.lua:796`) |
 | `G.CARD_CALC_COUNTS` | Reset at coroutine launch (`main.lua:2098`); tracks per-card calculation counts for animation |
 | `TIME_BETWEEN_SCORING_FRAMES` | `0.03` (30 ms); defined in `talisman.lua:776` |
 
 ### Control flow
 
-1. User plays cards. `G.FUNCS.evaluate_play` (the active wrapper at `main.lua:2094`)
-   stamps `G.SCORING_START`, resets `G.CARD_CALC_COUNTS`, creates a coroutine around
-   `oldplay` (= `main.lua:2059` body), and stores it in `G.SCORING_COROUTINE`.
+1. User plays cards. `G.FUNCS.evaluate_play` (the active wrapper at `talisman.lua:822`,
+   the `Talisman.calculating_score` guard) calls the coroutine wrapper at `talisman.lua:676`,
+   which creates `G.SCORING_COROUTINE` around `oldplay` (= `main.lua:2059` body),
+   sets `G.LAST_SCORING_YIELD`, resets `G.CARD_CALC_COUNTS`, and does the first resume.
 
 2. `love.update` resumes the coroutine each frame. The `coroutine.resume` call
-   is at `talisman.lua:766` (inside talisman's `love.update` wrapper). The Card
-   `calculate_joker` yield wrapper (`talisman.lua:785`) yields after each joker
-   calculation when `30 ms` have elapsed since `G.LAST_SCORING_YIELD`.
+   is at `talisman.lua:766` (inside talisman's `love.update` wrapper, after updating
+   `G.LAST_SCORING_YIELD` at line 764). The Card `calculate_joker` yield wrapper
+   (`talisman.lua:785`) yields **before** calling the original joker handler when
+   `30 ms` have elapsed since `G.LAST_SCORING_YIELD`.
 
 3. Inside the coroutine the inner body (`main.lua:2059`) calls all five phases in
    order: `evaluate_play_intro → evaluate_play_main → evaluate_play_debuff →
@@ -1211,9 +1214,9 @@ Ascension scaling.
 
 7. x_chips and x_mult are applied as deltas, not direct multiplications:
    - x_chips: `hand_chips * (amount - 1)` added via `Scoring_Parameter:modify`
-     (`game_object.lua:3665`)
+     (`Mods/Steamodded/src/game_object.lua:3665`)
    - x_mult: `mult * (amount - 1)` added via `Scoring_Parameter:modify`
-     (`game_object.lua:3717`)
+     (`Mods/Steamodded/src/game_object.lua:3717`)
 
 8. `evaluate_play_final_scoring` fires `context.final_scoring_no_retrigger` and
    calls `evaluate_play_after` only when Talisman is **not** loaded (`state_events.lua:1019`).
@@ -1243,21 +1246,25 @@ Ascension scaling.
 
 ### Gotchas
 
-- **`G.FUNCS.evaluate_play` is defined six times, not three.** The chain, in
+- **`G.FUNCS.evaluate_play` is defined four times.** The chain, in
   definition order (each capturing the previous in a closure):
-  1. `talisman.lua:641` — inner evaluate_play body (also calls `evaluate_play_after`
-     unconditionally at line 654)
-  2. `talisman.lua:676` — Talisman coroutine wrapper (no `G.SCORING_START` stamp;
-     that is added by the build wrapper below)
-  3. `talisman.lua:822` — `calculating_score` guard wrapper
-  4. `main.lua:2059` — inner body redefinition (calls all five phases including
-     `evaluate_play_after` at line 2072)
-  5. `main.lua:2094` — coroutine + `G.SCORING_START`/`G.LAST_SCORING_YIELD`/
-     `G.CARD_CALC_COUNTS` wrapper (captures main.lua:2059 as `oldplay`)
-  6. `main.lua:2164` — active `calculating_score` guard wrapper
+  1. `talisman.lua:641` — inner evaluate_play body (calls all phases including
+     `evaluate_play_after` unconditionally at line 654)
+  2. `talisman.lua:676` — Talisman coroutine wrapper (creates `G.SCORING_COROUTINE`,
+     sets `G.LAST_SCORING_YIELD`, resets `G.CARD_CALC_COUNTS`, first-resumes)
+  3. `main.lua:2059` — inner body redefinition (calls all five phases including
+     `evaluate_play_after` at line 2072); this is what runs inside the coroutine
+  4. `talisman.lua:822` — active `Talisman.calculating_score` guard wrapper
 
-  The **active** `G.FUNCS.evaluate_play` at runtime is definition #6
-  (`main.lua:2164`), which calls #5, which runs #4 inside the coroutine.
+  The **active** `G.FUNCS.evaluate_play` at runtime is definition #4
+  (`talisman.lua:822`), which calls #2's coroutine wrapper, which runs #3
+  inside the coroutine. Definition #1 is the original inner body that #2
+  captured before #3 overwrote it; #3 is what actually executes.
+
+  Note: `main.lua` previously duplicated definitions #2 and #4 (plus a second
+  `love.update` wrapper), causing double coroutine launch, double resume, and
+  double `CARD_CALC_COUNTS` increment. These duplicates were removed by
+  `patch_main_lua.py` step 10.
 
 - **`evaluate_play_after` is called from inside the coroutine body, not on a
   separate cleanup path.** `main.lua:2072` calls it unconditionally at the end of
@@ -1298,15 +1305,19 @@ Ascension scaling.
   is now `talisman.lua:785`.
 
 - **`love.update` was double-wrapped; the outer main.lua wrapper caused a double
-  coroutine resume and double `G.CURRENT_CALC_TIME` accumulation — now removed.**
+  coroutine resume and double `G.CURRENT_CALC_TIME` accumulation — removed by
+  `patch_main_lua.py` step 10.**
   `talisman.lua:690` wraps vanilla `love.update` and handles all three coroutine
   states (dead, aborted, live) including the `coroutine.resume` at `talisman.lua:766`
   and the scoring overlay. The former `main.lua:2109` wrapper called `oldupd`
   (talisman's wrapper) first, then ran an identical `G.SCORING_COROUTINE` block —
   resulting in two `coroutine.resume` calls per frame (~60 ms Lua execution instead
   of ~30 ms) and `G.CURRENT_CALC_TIME` incrementing twice per frame (doubling the
-  displayed elapsed time). The outer wrapper has been replaced with a comment.
-  All coroutine driving logic lives in talisman's block (`talisman.lua:692`).
+  displayed elapsed time). `patch_main_lua.py` step 10 removes the entire duplicate
+  `F_NO_COROUTINE` block from main.lua (evaluate_play coroutine wrapper, tal_abort,
+  love.update driver, Card:calculate_joker, Card:use_consumable, and the
+  calculating_score guard) on every build. All coroutine driving logic lives
+  exclusively in `talisman.lua` (`talisman.lua:692`).
 
 ### Mobile notes
 
@@ -1315,17 +1326,17 @@ Ascension scaling.
   in a single frame.
 - `G.SCORING_COROUTINE` guards at `state_events.lua` lines 423, 585, 663, 674
   prevent re-entrant scoring operations while the coroutine is active.
-- The 0.3 s overlay check (`main.lua:2134`) **no longer exists** — it was removed
-  along with the outer `main.lua` wrapper (see double-resume gotcha above). The
-  `G.SCORING_START` timestamp it read is still written at coroutine launch but
-  is now dead.
+- The 0.3 s overlay check **no longer exists**. It was in the duplicate main.lua
+  `love.update` wrapper (at what was `main.lua:2134`) that `patch_main_lua.py`
+  removes. `G.SCORING_START` (which it read) is also gone — the only write site
+  was in the removed duplicate coroutine wrapper.
 
 ### Patch touchpoints
 
 | Patch | File | What it does |
 |---|---|---|
 | Talisman big-number injection | `talisman.lua:524` | Redefines `to_big`; active version overwrites `main.lua:1942` |
-| Build coroutine augmentation | `main.lua:2094-2103` | Adds `G.SCORING_START`, `G.LAST_SCORING_YIELD`, `G.CARD_CALC_COUNTS` to Talisman's coroutine wrapper. The following verbatim copies of talisman.lua:569-979 were also removed to fix double-wrapping bugs: `love.update` re-wrap (double resume, double `G.CURRENT_CALC_TIME`); `Card:calculate_joker` re-wrap (double `G.CARD_CALC_COUNTS` increment); `card_eval_status_text` / `juice_card` / `Card:juice_up` re-wraps (double animations); `G.FUNCS.evaluate_round` re-wrap (double round-eval, duplicate summary rows); `Card:use_consumable` / `G.FUNCS.evaluate_play` guard / `tal_uht` / `Game:start_run` re-wraps (harmless but redundant). `SMODS.calculate_individual_effect` re-wrap retained (harmless due to early-return guard; documented layer in the five-wrapper chain). |
+| Build coroutine augmentation | `main.lua` (~2025) | Minimal `G.FUNCS.evaluate_play` wrapper that stamps `G.SCORING_START = love.timer.getTime()` then calls through to talisman's version. `G.SCORING_START` is load-bearing for talisman's 0.3-second scoring-progress overlay (`talisman.lua:734`). All other coroutine machinery (coroutine.create/resume, love.update driver, Card:calculate_joker yield, CARD_CALC_COUNTS, LAST_SCORING_YIELD) lives solely in talisman.lua:673-820. Verbatim copies of the full talisman.lua:569-979 block were removed to fix double-wrapping bugs: `love.update` re-wrap (double coroutine.resume, double G.CURRENT_CALC_TIME); `Card:calculate_joker` re-wrap (double G.CARD_CALC_COUNTS increment); `card_eval_status_text`/`juice_card`/`Card:juice_up` re-wraps (double animations); `G.FUNCS.evaluate_round` re-wrap (double round-eval, duplicate summary rows); `Card:use_consumable`, `G.FUNCS.evaluate_play` calculating_score guard, `tal_uht`, `Game:start_run`, `Card:start_materialize/start_dissolve/set_seal` re-wraps (harmless but redundant). `SMODS.calculate_individual_effect` re-wrap retained (Cryptid-specific e_chips/hyper_chips handling not in talisman; early-return guard prevents double-firing). |
 | Cryptid Ascension hook | `overrides.lua:2275-2276` | Wraps `SMODS.calculate_round_score` to call `Cryptid.ascend` |
 | Cryptid trophy-cap | `overrides.lua:1398-1399` | Caps mult via `mod_mult` wrapper |
 | Reserve shim | `patches/reserve-shim/` | Provides `G.FUNCS.can_reserve_card` / `reserve_card` (needed by Sticky Fingers joker; extracted from Pokermon) |
