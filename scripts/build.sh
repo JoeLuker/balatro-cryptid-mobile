@@ -282,6 +282,7 @@ EOF
     apply_talisman_dim_fix "$game_dir/main.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
+    apply_shadow_height_fix "$game_dir/card.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -607,6 +608,30 @@ apply_drag_select() {
         log_success "Drag-select (slide to select) applied"
     else
         log_warn "Drag-select did not fully match — check controller.lua/globals.lua/UI_definitions.lua"
+    fi
+}
+
+# Card shadow height: when a card is hovered the card lifts visually (+5% scale
+# via move_scale hover.is branch) but shadow_height stays at the idle 0.1,
+# leaving the shadow floor-parked under the risen card. drag.is gets 0.35;
+# hover.is gets nothing. Since drag and hover are mutually exclusive on the same
+# card (controller.lua:381,399), and hover lifts half as much as drag (+0.05 vs
+# +0.10 scale), the proportional shadow_height for hover is 0.2 (half of 0.35).
+apply_shadow_height_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "card.lua not found, skipping shadow_height fix"
+        return 0
+    fi
+    if grep -q "HOVER_SHADOW_HEIGHT" "$f"; then
+        log_info "Shadow height hover fix already applied"
+        return 0
+    fi
+    sed -i 's|and 0.35) or (self.area and self.area.config.type == .title_2.) and 0.04 or 0.1)|and 0.35) or self.states.hover.is and 0.2 or (self.area and self.area.config.type == '"'"'title_2'"'"') and 0.04 or 0.1) -- HOVER_SHADOW_HEIGHT|' "$f"
+    if grep -q "HOVER_SHADOW_HEIGHT" "$f"; then
+        log_success "Shadow height hover fix applied (hover.is -> 0.2, proportional to drag 0.35)"
+    else
+        log_warn "Shadow height hover fix did not match — check card.lua shadow_height line"
     fi
 }
 
