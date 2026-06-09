@@ -293,6 +293,7 @@ EOF
     apply_card_to_big_elim "$game_dir/card.lua"
     apply_talisman_gc_dead_block "$game_dir/Mods/Talisman/talisman.lua"
     apply_talisman_calc_counter "$game_dir/Mods/Talisman/talisman.lua"
+    apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -1038,6 +1039,119 @@ apply_talisman_calc_counter() {
         log_success "Talisman calc counter applied (incremental counter + string.format time display)"
     else
         log_warn "Talisman calc counter did not apply — check talisman.lua"
+    fi
+}
+
+# Hot-path fix 5+8: cache get_card_areas('jokers') per scoring pass and hoist
+# other_key computation outside the inner joker loop in evaluate_play_main.
+#
+# Fix 5 (SCORING_AREAS_CACHED): get_card_areas('jokers') builds a fresh
+# {G.jokers, G.consumeables, G.vouchers} table every call. It is called once
+# for the outer joker loop (line 821) and again on every outer-card iteration
+# for the inner other_joker loop (line 847). Caching it once per scoring pass
+# eliminates O(joker_count) redundant table allocations.
+#
+# Fix 8 (OTHER_KEY_HOISTED): other_key is determined entirely by _card.ability
+# (the outer loop variable). It was re-computed from scratch on every inner
+# _joker iteration — 3 conditional branches * joker_count times per outer card.
+# Hoisting it before the inner loop reduces it to 3 branches per outer card.
+# Same hoist applied to the individual loop, which repeated the same pattern.
+apply_scoring_loop_cache() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "state_events.lua not found, skipping scoring loop cache"
+        return 0
+    fi
+    if grep -q "SCORING_AREAS_CACHED" "$f"; then
+        log_info "Scoring loop cache already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+# Fix 5a: insert _joker_areas cache before outer loop; change outer loop to use it
+old1 = (
+    "        percent = percent + percent_delta\n"
+    "        for _, area in ipairs(SMODS.get_card_areas('jokers')) do for _, _card in ipairs(area.cards) do\n"
+)
+new1 = (
+    "        percent = percent + percent_delta\n"
+    "        local _joker_areas = SMODS.get_card_areas('jokers') -- SCORING_AREAS_CACHED\n"
+    "        for _, area in ipairs(_joker_areas) do for _, _card in ipairs(area.cards) do\n"
+)
+if old1 not in text:
+    print("ERROR: outer loop anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old1, new1, 1)
+
+# Fix 5b: inner other_joker loop uses cached _joker_areas
+old2 = (
+    "            -- Calculate context.other_joker effects\n"
+    "            for _, _area in ipairs(SMODS.get_card_areas('jokers')) do\n"
+)
+new2 = (
+    "            -- Calculate context.other_joker effects\n"
+    "            for _, _area in ipairs(_joker_areas) do\n"
+)
+if old2 not in text:
+    print("ERROR: inner other_joker loop anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old2, new2, 1)
+
+# Fix 8a: hoist other_key before inner joker loop (remove from per-_joker body)
+old3 = (
+    "            -- Calculate context.other_joker effects\n"
+    "            for _, _area in ipairs(_joker_areas) do\n"
+    "                for _, _joker in ipairs(_area.cards) do\n"
+    "                    local other_key = 'other_unknown'\n"
+    "                    if _card.ability.set == 'Joker' then other_key = 'other_joker' end\n"
+    "                    if _card.ability.consumeable then other_key = 'other_consumeable' end\n"
+    "                    if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end\n"
+    "                    -- TARGET: add context.other_something identifier to your cards\n"
+)
+new3 = (
+    "            -- Calculate context.other_joker effects -- OTHER_KEY_HOISTED\n"
+    "            local other_key = 'other_unknown'\n"
+    "            if _card.ability.set == 'Joker' then other_key = 'other_joker' end\n"
+    "            if _card.ability.consumeable then other_key = 'other_consumeable' end\n"
+    "            if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end\n"
+    "            for _, _area in ipairs(_joker_areas) do\n"
+    "                for _, _joker in ipairs(_area.cards) do\n"
+    "                    -- TARGET: add context.other_something identifier to your cards\n"
+)
+if old3 not in text:
+    print("ERROR: other_key-in-inner-loop anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old3, new3, 1)
+
+# Fix 8b: hoist other_key before individual loop (same other_key, no re-compute needed)
+old4 = (
+    "            for _, _area in ipairs(SMODS.get_card_areas('individual')) do\n"
+    "                local other_key = 'other_unknown'\n"
+    "                if _card.ability.set == 'Joker' then other_key = 'other_joker' end\n"
+    "                if _card.ability.consumeable then other_key = 'other_consumeable' end\n"
+    "                if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end\n"
+    "                -- TARGET: add context.other_something identifier to your cards\n"
+)
+new4 = (
+    "            -- other_key already computed above (hoisted from inner loop)\n"
+    "            for _, _area in ipairs(SMODS.get_card_areas('individual')) do\n"
+    "                -- TARGET: add context.other_something identifier to your cards\n"
+)
+if old4 not in text:
+    print("ERROR: individual loop other_key anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old4, new4, 1)
+
+open(path, 'w').write(text)
+print("Scoring loop cache applied")
+PYEOF
+    if grep -q "SCORING_AREAS_CACHED" "$f" && grep -q "OTHER_KEY_HOISTED" "$f"; then
+        log_success "Scoring loop cache applied (get_card_areas cached + other_key hoisted)"
+    else
+        log_warn "Scoring loop cache did not fully apply — check state_events.lua anchors"
     fi
 }
 
