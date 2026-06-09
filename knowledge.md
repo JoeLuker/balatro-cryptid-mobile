@@ -166,3 +166,7 @@ the build ships TWO copies of every mod — embedded in game.love (patched by bu
 ### Local test harness (test/)
 'just test-controller' runs 10 gesture tests against the REAL built engine/controller.lua in <1s via pure luajit + stubs (tap/hold/drag/slide; all TAP_DESC_*/DRAG_SELECT_* patches). 'just smoke' boots build/game on this machine under Xvfb with love.system.getOS() spoofed to 'Android' so shipped code paths run verbatim; asserts boot-to-menu + screenshot at build/smoke/smoke.png. Use these BEFORE deploying to the phone. Phone still required for: Mali shader behaviour, touch feel, perf numbers. Fake cards must set click_timeout=0.3 to match Card:init.
 <!-- session:2026-06-09-b370c95b | commit:e5c767772e87596f5db49061f1279843c8de0ec9 | date:2026-06-09 -->
+
+### Emulator GLES translator is stricter than Mali/Mesa
+rejects (1) shader files whose last line is a directive without trailing newline (28 shipped .fs had this), (2) prototype-first shader structure (blur.fs: effect() before helper definitions -> 'function definition not found' in vertex stage). Both fixed as build appliers (apply_shader_eof_newlines, apply_blur_shader_reorder). Also: LÖVE's crash screen logs NOTHING to logcat and keeps the process alive — detect via screenshot polling: static+flat = crash, animated+colour-diverse = menu. LuaJIT under ARM->x86 ndk_translation cannot JIT: emulator boot takes minutes vs desktop 14s.
+<!-- session:2026-06-09-7507a29a | commit:54f3b4c8d557967eba10312e71574a15475c7b11 | date:2026-06-09 -->
