@@ -1,0 +1,10 @@
+{
+    "id": "reserve_shim",
+    "name": "Reserve Shim",
+    "author": ["Extracted from Pokermon by InertSteak"],
+    "description": "Provides G.FUNCS.can_reserve_card / reserve_card so Sticky Fingers' Pull drag-target works on consumable cards (e.g. Cryptid Code cards) without the full Pokermon mod.",
+    "prefix": "rsvshim",
+    "main_file": "reserve-shim.lua",
+    "priority": 50,
+    "version": "1.0.0"
+}
