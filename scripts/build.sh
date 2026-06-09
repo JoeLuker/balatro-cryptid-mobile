@@ -540,9 +540,13 @@ apply_cursor_down_uptime_fix() {
         log_info "cursor_down.uptime fix already applied"
         return 0
     fi
-    # Remove the bare out-of-band line the lovely patch injected at the call site.
-    sed -i '/^self\.cursor_down\.uptime = G\.TIMERS\.UPTIME$/d' "$f"
-    # Insert the assignment inside L_cursor_press, right after cursor_down.time.
+    # Remove any existing cursor_down.uptime line (with or without leading whitespace)
+    # so the insert below produces exactly one correctly-marked copy inside L_cursor_press.
+    # Handles two source variants: lovely placed it outside the function (bare, no indent),
+    # or already inside the function (4-space indent). Both are deleted; the insert re-adds
+    # exactly one copy with the CURSOR_DOWN_UPTIME_FIX marker.
+    sed -i '/^\s*self\.cursor_down\.uptime = G\.TIMERS\.UPTIME[[:space:]]*$/d' "$f"
+    # Insert inside L_cursor_press, right after cursor_down.time.
     sed -i 's|    self\.cursor_down\.time = G\.TIMERS\.TOTAL$|    self.cursor_down.time = G.TIMERS.TOTAL\n    self.cursor_down.uptime = G.TIMERS.UPTIME -- CURSOR_DOWN_UPTIME_FIX|' "$f"
     if grep -q "CURSOR_DOWN_UPTIME_FIX" "$f"; then
         log_success "cursor_down.uptime fix applied (uptime now set inside L_cursor_press)"
