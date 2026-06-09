@@ -536,6 +536,10 @@ apply_tap_description_persist() {
     fi
     # persist: don't clear the hover on touch release
     sed -i 's|elseif (self.cursor_hover.target == nil or (self.HID.touch and not self.is_cursor_down)) and self.hovering.target then|elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST|' "$f"
+    # hold-gate: on touch, a hand/playing card only shows its description after a
+    # deliberate hold (>0.2s, past the tap/select boundary) — a quick tap selects
+    # without ever flashing the description. Jokers/etc. still show immediately.
+    sed -i 's|if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) then|if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) and not (self.HID.touch and self.cursor_hover.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2) then -- TAP_DESC_HOLDGATE|' "$f"
     # tap behaviour by card type: hand/playing cards quick-tap = select only (no
     # description; description is hold-only via the persist above, and any tap
     # dismisses it). Jokers/consumables/shop = tap toggles the persistent desc.
