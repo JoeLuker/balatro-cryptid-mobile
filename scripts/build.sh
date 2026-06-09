@@ -277,6 +277,7 @@ EOF
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
     apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
+    apply_event_perf_fix "$game_dir/engine/event.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
 
@@ -488,6 +489,30 @@ apply_debug_overlay() {
         log_success "Debug overlay added (Settings > Game > Debug Overlay)"
     else
         log_warn "Debug overlay did not fully apply — check anchors"
+    fi
+}
+
+# Steamodded's ease-event handler asserts the ease type with an eagerly-built
+# error message calling debug.getinfo() (very slow) — and Lua evaluates assert
+# message args even when the assert passes. Ease events drive nearly all
+# animation, so this runs debug.getinfo every frame for every active ease, for
+# nothing. This shows up as the "e manager" spike in the perf overlay. Make the
+# message lazy: only build it when the ease type is actually invalid.
+apply_event_perf_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "event.lua not found, skipping event perf fix"
+        return 0
+    fi
+    if grep -q "if not SMODS.ease_types\[self.ease.type\] then" "$f"; then
+        log_info "Event perf fix already applied"
+        return 0
+    fi
+    sed -i 's|assert(SMODS.ease_types\[self.ease.type\], "Event created with invalid ease type: "..self.ease.type..(self.func and SMODS.log_crash_info(debug.getinfo(self.func), true)))|if not SMODS.ease_types[self.ease.type] then assert(false, "Event created with invalid ease type: "..self.ease.type..(self.func and SMODS.log_crash_info(debug.getinfo(self.func), true))) end|' "$f"
+    if grep -q "if not SMODS.ease_types" "$f"; then
+        log_success "Event perf fix applied (lazy ease-type assert — no per-frame debug.getinfo)"
+    else
+        log_warn "Event perf fix did not match — check event.lua"
     fi
 }
 
