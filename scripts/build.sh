@@ -281,6 +281,7 @@ EOF
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     apply_talisman_dim_fix "$game_dir/Mods/Talisman/talisman.lua"
     apply_shader_eof_newlines "$game_dir"
+    apply_blur_shader_reorder "$game_dir/Mods/Cryptid/assets/shaders/blur.fs"
     apply_cryptid_dead_copy_fix "$game_dir/Mods/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$game_dir/Mods/Cryptid/lib/calculate.lua" "$game_dir/Mods/Cryptid/lib/overrides.lua"
     apply_cryptid_events_guard "$game_dir/Mods/Cryptid/lib/calculate.lua"
@@ -708,6 +709,50 @@ apply_shader_eof_newlines() {
         fi
     done < <(find "$root" -name '*.fs' -print0 -o -name '*.vs' -print0 2>/dev/null)
     log_success "Shader EOF newlines normalized under $root ($fixed fixed)"
+}
+
+# Cryptid's blur.fs is the only shipped shader structured as prototypes +
+# effect() + helper definitions (every other shader, vanilla and Cryptid,
+# defines helpers BEFORE use with no prototypes). The Android emulator's GLES
+# translator miscompiles the prototype pattern in the vertex stage ("'hue(...)'
+# function definition not found" at the call inside RGB) and the game
+# crash-loops at shader load. Mali and Mesa tolerate it. Reorder the file to
+# the convention the other 12 hue-shaders follow — helpers first, prototypes
+# dropped — a pure, content-preserving restructure. Marker: BLUR_PROTO_REORDER.
+apply_blur_shader_reorder() {
+    local f="$1"
+    [[ -f "$f" ]] || { log_warn "blur.fs not found at $f"; return 0; }
+    if grep -q "BLUR_PROTO_REORDER" "$f"; then
+        log_info "blur.fs reorder already applied ($f)"
+        return 0
+    fi
+    python3 - "$f" <<'PYBLUR'
+import sys
+p = sys.argv[1]
+lines = open(p).read().split('\n')
+protos = {'vec4 RGB(vec4 c);', 'vec4 HSL(vec4 c);',
+          'vec4 dissolve_mask(vec4 final_pixel, vec2 texture_coords, vec2 uv);'}
+lines = [l for l in lines if l.strip() not in protos]
+def find(pred):
+    for i, l in enumerate(lines):
+        if pred(l): return i
+    raise SystemExit('anchor missing in ' + p)
+i_eff = find(lambda l: l.startswith('vec4 effect('))
+while i_eff > 0 and lines[i_eff-1].lstrip().startswith('//'):
+    i_eff -= 1
+i_hue = find(lambda l: l.startswith('number hue(number s'))
+i_tail = find(lambda l: l.strip() == 'extern PRECISION vec2 mouse_screen_pos;')
+assert i_eff < i_hue < i_tail, 'unexpected blur.fs layout'
+out = lines[:i_eff] + lines[i_hue:i_tail] + lines[i_eff:i_hue] + lines[i_tail:]
+out.append('// BLUR_PROTO_REORDER: helpers before effect(), prototypes removed (build.sh)')
+open(p, 'w').write('\n'.join(out) + '\n')
+PYBLUR
+    if grep -q "BLUR_PROTO_REORDER" "$f" && \
+       [[ $(grep -n "number hue(number s" "$f" | cut -d: -f1) -lt $(grep -n "^vec4 effect(" "$f" | cut -d: -f1) ]]; then
+        log_success "blur.fs reordered for strict GLSL translators ($f)"
+    else
+        log_warn "blur.fs reorder did not verify — check $f"
+    fi
 }
 
 # Talisman runs hand-scoring in a coroutine and opens a dimmed "Abort" overlay
@@ -1198,6 +1243,7 @@ prepare_transfer() {
     # Same dim-gate as the embedded copy — save-dir reads can shadow the archive
     apply_talisman_dim_fix "$transfer_dir/Mods/Talisman/talisman.lua"
     apply_shader_eof_newlines "$transfer_dir"
+    apply_blur_shader_reorder "$transfer_dir/Mods/Cryptid/assets/shaders/blur.fs"
 
     # Create SMODS folder with version/release files for require'SMODS.version' to work
     # The lovely injector on desktop does this automatically, but we need it explicit for Android
