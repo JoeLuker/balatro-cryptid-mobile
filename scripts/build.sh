@@ -283,11 +283,14 @@ EOF
     apply_shader_eof_newlines "$game_dir"
     apply_cryptid_dead_copy_fix "$game_dir/Mods/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$game_dir/Mods/Cryptid/lib/calculate.lua" "$game_dir/Mods/Cryptid/lib/overrides.lua"
+    apply_shake_trig_guard "$game_dir/functions/common_events.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
     apply_card_to_big_elim "$game_dir/card.lua"
+    apply_talisman_gc_dead_block "$game_dir/Mods/Talisman/talisman.lua"
+    apply_talisman_calc_counter "$game_dir/Mods/Talisman/talisman.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -498,6 +501,59 @@ apply_cryptid_flip_side_cache() {
         log_success "Cryptid flip-side cache applied (find_joker scan → per-pass flag)"
     else
         log_warn "Cryptid flip-side cache did not fully apply — check calculate.lua and overrides.lua"
+    fi
+}
+
+# Hot-path fix 3: guard the 6 math.sin calls in update_canvas_juice behind a
+# shake_amt > 0 check.  When screenshake is at its default level (<=30) shake_amt
+# evaluates to 0 every frame and all six trig results are immediately multiplied
+# away.  On a non-shaking frame this saves 6 ARM math.sin calls (~60-90ns) and
+# collapses the three ROOM transform assignments to their trivial zero forms.
+# On a shaking frame (shake_amt > 0) the code runs identically to the original.
+apply_shake_trig_guard() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "common_events.lua not found, skipping shake trig guard"
+        return 0
+    fi
+    if grep -q "SHAKE_TRIG_GUARDED" "$f"; then
+        log_info "Shake trig guard already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+
+old = (
+    "    G.ROOM.T.r = (0.001*math.sin(0.3*G.TIMERS.REAL)+ 0.002*(G.ROOM.jiggle)*math.sin(39.913*G.TIMERS.REAL))*shake_amt\n"
+    "    G.ROOM.T.x = G.ROOM_ORIG.x + (shake_amt)*(0.015*math.sin(0.913*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(19.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.x - 0.5*(G.ROOM.T.w + G.ROOM_ORIG.x))*0.01)\n"
+    "    G.ROOM.T.y = G.ROOM_ORIG.y + (shake_amt)*(0.015*math.sin(0.952*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(21.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.y - 0.5*(G.ROOM.T.h + G.ROOM_ORIG.y))*0.01)"
+)
+new = (
+    "    -- SHAKE_TRIG_GUARDED: skip 6 math.sin calls when shake_amt==0 (default state)\n"
+    "    if shake_amt > 0 then\n"
+    "        G.ROOM.T.r = (0.001*math.sin(0.3*G.TIMERS.REAL)+ 0.002*(G.ROOM.jiggle)*math.sin(39.913*G.TIMERS.REAL))*shake_amt\n"
+    "        G.ROOM.T.x = G.ROOM_ORIG.x + (shake_amt)*(0.015*math.sin(0.913*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(19.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.x - 0.5*(G.ROOM.T.w + G.ROOM_ORIG.x))*0.01)\n"
+    "        G.ROOM.T.y = G.ROOM_ORIG.y + (shake_amt)*(0.015*math.sin(0.952*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(21.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.y - 0.5*(G.ROOM.T.h + G.ROOM_ORIG.y))*0.01)\n"
+    "    else\n"
+    "        G.ROOM.T.r = 0\n"
+    "        G.ROOM.T.x = G.ROOM_ORIG.x\n"
+    "        G.ROOM.T.y = G.ROOM_ORIG.y\n"
+    "    end"
+)
+
+if old not in text:
+    print("ERROR: shake trig anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("Shake trig guard applied")
+PYEOF
+    if grep -q "SHAKE_TRIG_GUARDED" "$f"; then
+        log_success "Shake trig guard applied (6 math.sin calls skipped when shake_amt==0)"
+    else
+        log_warn "Shake trig guard did not apply — check common_events.lua anchors"
     fi
 }
 
@@ -796,6 +852,63 @@ apply_card_to_big_elim() {
         log_success "card.lua to_big elimination applied (22 OmegaNum alloc pairs → plain Lua comparisons)"
     else
         log_warn "card.lua to_big elimination did not apply the marker — check card.lua"
+    fi
+}
+
+# Delete the dead collectgarbage("count") > 1GB guard in Talisman's love.update
+# scoring loop. The threshold (1024*1024 KB = 1 GB) is never reachable on mobile.
+# The block is dead code that also contradicts nuGC: nuGC calls
+# collectgarbage("stop") after its budget, and this block would immediately restart
+# a full collection if the threshold were ever hit. Remove both lines.
+apply_talisman_gc_dead_block() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "talisman.lua not found, skipping GC dead block removal"
+        return 0
+    fi
+    if grep -q "TAL_GC_DEAD_REMOVED" "$f"; then
+        log_info "Talisman GC dead block already removed"
+        return 0
+    fi
+    sed -i '/^        if collectgarbage("count") > 1024\*1024 then$/,/^        end$/{/^        if collectgarbage("count") > 1024\*1024 then$/d; /^          collectgarbage("collect")$/d; s/^        end$/        -- TAL_GC_DEAD_REMOVED/}' "$f"
+    if grep -q "TAL_GC_DEAD_REMOVED" "$f"; then
+        log_success "Talisman GC dead block removed (unreachable 1 GB threshold + contradicts nuGC)"
+    else
+        log_warn "Talisman GC dead block removal did not match — check talisman.lua love.update"
+    fi
+}
+
+# Replace per-frame pairs(CARD_CALC_COUNTS) re-sum with an incremental counter
+# (G.CURRENT_TOTAL_CALCS) maintained at the two insertion sites in the
+# calculate_joker wrapper. Also replace number_format(G.CURRENT_CALC_TIME) in
+# the overlay text with string.format("%.1f", ...) — the elapsed time is always
+# a small float and does not need OmegaNum formatting.
+apply_talisman_calc_counter() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "talisman.lua not found, skipping calc counter patch"
+        return 0
+    fi
+    if grep -q "TAL_CALC_COUNTER" "$f"; then
+        log_info "Talisman calc counter already applied"
+        return 0
+    fi
+    # Reset counter alongside CARD_CALC_COUNTS at scoring start.
+    sed -i 's|      G\.CARD_CALC_COUNTS = {} -- keys = cards, values = table containing numbers|      G.CARD_CALC_COUNTS = {} -- keys = cards, values = table containing numbers\n      G.CURRENT_TOTAL_CALCS = 0 -- TAL_CALC_COUNTER: incremental, avoids per-frame pairs() re-sum|' "$f"
+    # Increment counter at the primary insertion site (new entry path).
+    sed -i 's|      G\.CARD_CALC_COUNTS\[self\] = {1, 1}|      G.CARD_CALC_COUNTS[self] = {1, 1}\n      G.CURRENT_TOTAL_CALCS = (G.CURRENT_TOTAL_CALCS or 0) + 1|' "$f"
+    # Increment counter at the existing-entry path.
+    sed -i 's|      G\.CARD_CALC_COUNTS\[self\]\[1\] = G\.CARD_CALC_COUNTS\[self\]\[1\] + 1|      G.CARD_CALC_COUNTS[self][1] = G.CARD_CALC_COUNTS[self][1] + 1\n      G.CURRENT_TOTAL_CALCS = (G.CURRENT_TOTAL_CALCS or 0) + 1|' "$f"
+    # Replace per-frame re-sum loop in overlay block with the counter.
+    sed -i '/^                    local totalCalcs = 0$/,/^                    end$/{s/^                    local totalCalcs = 0$/                    local totalCalcs = G.CURRENT_TOTAL_CALCS or 0 -- TAL_CALC_COUNTER/; /^                    for i, v in pairs(G\.CARD_CALC_COUNTS) do$/d; /^                      totalCalcs = totalCalcs + v\[1\]$/d; s/^                    end$//}' "$f"
+    # Replace per-frame re-sum loop at coroutine-end (different indentation).
+    sed -i '/^              local totalCalcs = 0$/,/^              end$/{s/^              local totalCalcs = 0$/              local totalCalcs = G.CURRENT_TOTAL_CALCS or 0 -- TAL_CALC_COUNTER/; /^              for i, v in pairs(G\.CARD_CALC_COUNTS) do$/d; /^                totalCalcs = totalCalcs + v\[1\]$/d; s/^              end$//}' "$f"
+    # Replace number_format(G.CURRENT_CALC_TIME) with plain string.format — bypasses to_big/OmegaNum.
+    sed -i 's|tostring(number_format(G\.CURRENT_CALC_TIME))|string.format("%.1f", G.CURRENT_CALC_TIME or 0)|g' "$f"
+    if grep -q "TAL_CALC_COUNTER" "$f"; then
+        log_success "Talisman calc counter applied (incremental counter + string.format time display)"
+    else
+        log_warn "Talisman calc counter did not apply — check talisman.lua"
     fi
 }
 
