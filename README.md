@@ -77,6 +77,10 @@ nix-shell --run 'just build'    # or run a single command in the env
 | `just all` | Full pipeline (fetch + build + deploy) |
 | `just quick` | Rebuild and deploy (skip fetch) |
 | `just push-mods` | Push mod files only (no APK install) |
+| `just test-controller` | Local touch-gesture regression suite (<1s, no phone) |
+| `just smoke` | Boot the built game locally under Xvfb, assert menu + screenshot (~1 min) |
+| `just emu-test` | Boot the built APK in a headless Android emulator (~5-10 min) |
+| `just test` | Gesture suite + smoke (run before any deploy) |
 | `just logs` | Watch app logs |
 | `just restart` | Restart the app |
 | `just clean` | Remove build artifacts |

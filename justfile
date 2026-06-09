@@ -52,6 +52,13 @@ test-controller:
 smoke:
     test/smoke.sh
 
+# Headless Android-emulator test of the BUILT APK (KVM + ARM translation):
+# installs build/apk/*.apk, mirrors the phone deploy, polls screenshots until
+# a menu-like frame (PASS) or crash-screen signature (FAIL). ~5-10 min.
+# All adb calls are serial-scoped — never touches a connected phone.
+emu-test:
+    nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
+
 # All local tests (run before deploying to the phone)
 test: test-controller smoke
 

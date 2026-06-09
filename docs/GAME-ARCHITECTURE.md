@@ -1933,12 +1933,12 @@ defined by earlier mods.
   migration forces omeganum).
 - `G.E_SWITCH_POINT` (default 1e11, notation-dependent): below this scores
   render as plain integers; at or above, OmegaNum notation.
-- **Scoring coroutine**: `G.FUNCS.evaluate_play` wrapped at `main.lua:2094` to
+- **Scoring coroutine**: `G.FUNCS.evaluate_play` wrapped at `talisman.lua:676` to
   spawn `G.SCORING_COROUTINE`. Yields every 30ms (`TIME_BETWEEN_SCORING_FRAMES`,
-  `main.lua:2195`) inside `Card:calculate_joker`. `Game:update` resumes each
+  `talisman.lua:770`) inside `Card:calculate_joker`. `Game:update` resumes each
   frame. Four spin-guards in `state_events.lua` (lines 423, 585, 663, 674)
   block downstream events until coroutine finishes.
-- **Abort** (`G.FUNCS.tal_abort`, `main.lua:2105`): sets `tal_aborted = true`;
+- **Abort** (`G.FUNCS.tal_abort`, `talisman.lua:688`): sets `tal_aborted = true`;
   `Game:update` skips resume, clears `SCORING_COROUTINE`, and if
   `scoring_state == 'main'` calls `evaluate_play_final_scoring` directly using
   the coroutine's Lua upvalue globals.
