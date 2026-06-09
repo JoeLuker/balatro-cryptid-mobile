@@ -1321,7 +1321,7 @@ Ascension scaling.
 | Patch | File | What it does |
 |---|---|---|
 | Talisman big-number injection | `talisman.lua:524` | Redefines `to_big`; active version overwrites `main.lua:1942` |
-| Build coroutine augmentation | `main.lua:2094-2103` | Adds `G.SCORING_START`, `G.LAST_SCORING_YIELD`, `G.CARD_CALC_COUNTS` to Talisman's coroutine wrapper |
+| Build coroutine augmentation | `main.lua:2094-2103` | Adds `G.SCORING_START`, `G.LAST_SCORING_YIELD`, `G.CARD_CALC_COUNTS` to Talisman's coroutine wrapper; redundant `love.update` re-wrap removed (was causing double resume + double `G.CURRENT_CALC_TIME` per frame) |
 | Cryptid Ascension hook | `overrides.lua:2275-2276` | Wraps `SMODS.calculate_round_score` to call `Cryptid.ascend` |
 | Cryptid trophy-cap | `overrides.lua:1398-1399` | Caps mult via `mod_mult` wrapper |
 | Reserve shim | `patches/reserve-shim/` | Provides `G.FUNCS.can_reserve_card` / `reserve_card` (needed by Sticky Fingers joker; extracted from Pokermon) |
