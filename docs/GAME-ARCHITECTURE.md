@@ -128,7 +128,7 @@ across frames, using `G.SCORING_START` as a gate before showing the
 | `Game:update` | `game.lua:2616` | Core per-frame update. Runs `nuGC`, advances `TIMERS.REAL`/`UPTIME`/`BACKGROUND`, computes `SPEEDFACTOR` from `GAMESPEED`, `ACC`, pause and screenwipe state, advances `TIMERS.TOTAL` by `dt*SPEEDFACTOR`, runs `E_MANAGER`, dispatches to state-specific update sub-functions, moves/animates all nodes, updates `CONTROLLER`, polls `FILE_HANDLER` for deferred saves. |
 | `love.draw` | `main.lua:1031` | Calls `timer_checkpoint` then `G:draw()`. `G:draw()` renders the canvas; at end draws FPS overlay if `G.SETTINGS.show_fps` and perf flamegraph if `G.SETTINGS.perf_mode`. |
 | `G.FUNCS.evaluate_play` (Talisman coroutine entry) | `main.lua:2094` | Creates `G.SCORING_COROUTINE` from the original `evaluate_play`, records `G.SCORING_START = love.timer.getTime()`, resets `G.CARD_CALC_COUNTS`, then performs first resume. Subsequent resumes happen in `love.update` each frame. |
-| `Card:calculate_joker` (Talisman yield point) | `main.lua:2204` | Wraps vanilla `calculate_joker`: if more than `TIME_BETWEEN_SCORING_FRAMES` (0.03 s) has elapsed since `G.LAST_SCORING_YIELD` and inside a coroutine, yields back to the frame loop. This is the only `coroutine.yield()` site. |
+| `Card:calculate_joker` (Talisman yield point) | `talisman.lua:785` | Wraps vanilla `calculate_joker`: if more than `TIME_BETWEEN_SCORING_FRAMES` (0.03 s) has elapsed since `G.LAST_SCORING_YIELD` and inside a coroutine, yields back to the frame loop. This is the only `coroutine.yield()` site. |
 | `timer_checkpoint` | `functions/misc_functions.lua:65` | No-op unless `G.SETTINGS.perf_mode` is true. Records wall-clock delta between checkpoints for the draw/update profiler flamegraph. |
 | `boot_timer` | `functions/misc_functions.lua:107` | Renders a loading progress bar directly to the window during `G:start_up` sequence. Used at shaders/savemanager/window init milestones. |
 | `nuGC` | `functions/misc_functions.lua:718` | Budget incremental GC: runs `collectgarbage('step',1)` up to `max_steps` or `time_budget` (default 0.3 ms), with a safety full-collect if heap > 300 MB. Called at the top of `Game:update` every frame; `disable_otherwise=true` stops automatic GC between calls. |
@@ -1184,9 +1184,8 @@ Ascension scaling.
 
 2. `love.update` resumes the coroutine each frame. The `coroutine.resume` call
    is at `talisman.lua:766` (inside talisman's `love.update` wrapper). The Card
-   `calculate_joker` yield wrapper (`main.lua:2204`, which overwrites
-   `talisman.lua:785` at runtime) yields after each joker calculation when `30 ms`
-   have elapsed since `G.LAST_SCORING_YIELD`.
+   `calculate_joker` yield wrapper (`talisman.lua:785`) yields after each joker
+   calculation when `30 ms` have elapsed since `G.LAST_SCORING_YIELD`.
 
 3. Inside the coroutine the inner body (`main.lua:2059`) calls all five phases in
    order: `evaluate_play_intro → evaluate_play_main → evaluate_play_debuff →
@@ -1290,10 +1289,13 @@ Ascension scaling.
   directly** (`utils.lua:1971`). Cards present in the area but not in the scoring
   hand are filtered inside the loop.
 
-- **The active `Card:calculate_joker` yield wrapper is `main.lua:2204`**, which
-  overwrites `talisman.lua:785` at runtime (both define it; last-write wins in
-  Lua). Debugging yield behavior requires looking at `main.lua:2204`, not the
-  talisman source.
+- **`Card:calculate_joker`, `Card:use_consumable`, and the `calculating_score`
+  guard for `G.FUNCS.evaluate_play` were triple-defined (talisman.lua then
+  main.lua); the main.lua re-definitions have been removed.** The main.lua copies
+  were verbatim copies that double-wrapped: `Card:calculate_joker` double-incremented
+  `G.CARD_CALC_COUNTS` per joker call (making `totalCalcs` 2x real and
+  `jokersYetToScore` go negative prematurely). The active `Card:calculate_joker`
+  is now `talisman.lua:785`.
 
 - **`love.update` was double-wrapped; the outer main.lua wrapper caused a double
   coroutine resume and double `G.CURRENT_CALC_TIME` accumulation — now removed.**
@@ -1321,7 +1323,7 @@ Ascension scaling.
 | Patch | File | What it does |
 |---|---|---|
 | Talisman big-number injection | `talisman.lua:524` | Redefines `to_big`; active version overwrites `main.lua:1942` |
-| Build coroutine augmentation | `main.lua:2094-2103` | Adds `G.SCORING_START`, `G.LAST_SCORING_YIELD`, `G.CARD_CALC_COUNTS` to Talisman's coroutine wrapper; redundant `love.update` re-wrap removed (was causing double resume + double `G.CURRENT_CALC_TIME` per frame) |
+| Build coroutine augmentation | `main.lua:2094-2103` | Adds `G.SCORING_START`, `G.LAST_SCORING_YIELD`, `G.CARD_CALC_COUNTS` to Talisman's coroutine wrapper; redundant `love.update` re-wrap removed (was causing double resume + double `G.CURRENT_CALC_TIME` per frame); redundant `Card:calculate_joker` / `Card:use_consumable` / `calculating_score` guard re-wraps removed (`Card:calculate_joker` was double-incrementing `G.CARD_CALC_COUNTS`) |
 | Cryptid Ascension hook | `overrides.lua:2275-2276` | Wraps `SMODS.calculate_round_score` to call `Cryptid.ascend` |
 | Cryptid trophy-cap | `overrides.lua:1398-1399` | Caps mult via `mod_mult` wrapper |
 | Reserve shim | `patches/reserve-shim/` | Provides `G.FUNCS.can_reserve_card` / `reserve_card` (needed by Sticky Fingers joker; extracted from Pokermon) |
