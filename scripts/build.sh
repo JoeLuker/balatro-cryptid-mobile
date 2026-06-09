@@ -283,6 +283,7 @@ EOF
     apply_shader_eof_newlines "$game_dir"
     apply_cryptid_dead_copy_fix "$game_dir/Mods/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$game_dir/Mods/Cryptid/lib/calculate.lua" "$game_dir/Mods/Cryptid/lib/overrides.lua"
+    apply_cryptid_events_guard "$game_dir/Mods/Cryptid/lib/calculate.lua"
     apply_shake_trig_guard "$game_dir/functions/common_events.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
@@ -501,6 +502,89 @@ apply_cryptid_flip_side_cache() {
         log_success "Cryptid flip-side cache applied (find_joker scan → per-pass flag)"
     else
         log_warn "Cryptid flip-side cache did not fully apply — check calculate.lua and overrides.lua"
+    fi
+}
+
+# Hot-path fix 4: guard both SMODS.Events iteration loops in SMODS.calculate_context
+# behind next(G.GAME.events). The table normally has 11 entries (choco0-choco10),
+# all inactive during standard scoring. Without the guard every calculate_context
+# call iterates all 11 entries twice (pre + post), even when none are active.
+# The guard short-circuits both loops in O(1) for the common case.
+apply_cryptid_events_guard() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Cryptid calculate.lua not found, skipping events guard"
+        return 0
+    fi
+    if grep -q "CRY_EVENTS_GUARDED" "$f"; then
+        log_info "Cryptid events guard already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+TAB = "\t"
+
+pre_loop = (
+    TAB + "for k, v in pairs(SMODS.Events) do\n"
+    + TAB*2 + "if G.GAME.events and G.GAME.events[k] then\n"
+    + TAB*3 + "context.pre_jokers = true\n"
+    + TAB*3 + "v:calculate(context)\n"
+    + TAB*3 + "context.pre_jokers = nil\n"
+    + TAB*2 + "end\n"
+    + TAB + "end\n"
+)
+pre_guarded = (
+    TAB + "if G.GAME.events and next(G.GAME.events) then -- CRY_EVENTS_GUARDED\n"
+    + TAB*2 + "for k, v in pairs(SMODS.Events) do\n"
+    + TAB*3 + "if G.GAME.events[k] then\n"
+    + TAB*4 + "context.pre_jokers = true\n"
+    + TAB*4 + "v:calculate(context)\n"
+    + TAB*4 + "context.pre_jokers = nil\n"
+    + TAB*3 + "end\n"
+    + TAB*2 + "end\n"
+    + TAB + "end\n"
+)
+
+post_loop = (
+    TAB + "for k, v in pairs(SMODS.Events) do\n"
+    + TAB*2 + "if G.GAME.events and G.GAME.events[k] then\n"
+    + TAB*3 + "context.post_jokers = true\n"
+    + TAB*3 + "v:calculate(context)\n"
+    + TAB*3 + "context.post_jokers = nil\n"
+    + TAB*2 + "end\n"
+    + TAB + "end\n"
+)
+post_guarded = (
+    TAB + "if G.GAME.events and next(G.GAME.events) then\n"
+    + TAB*2 + "for k, v in pairs(SMODS.Events) do\n"
+    + TAB*3 + "if G.GAME.events[k] then\n"
+    + TAB*4 + "context.post_jokers = true\n"
+    + TAB*4 + "v:calculate(context)\n"
+    + TAB*4 + "context.post_jokers = nil\n"
+    + TAB*3 + "end\n"
+    + TAB*2 + "end\n"
+    + TAB + "end\n"
+)
+
+if pre_loop not in text:
+    print("ERROR: pre_jokers loop anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+if post_loop not in text:
+    print("ERROR: post_jokers loop anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+
+text = text.replace(pre_loop, pre_guarded, 1)
+text = text.replace(post_loop, post_guarded, 1)
+open(path, 'w').write(text)
+print("Cryptid events guard applied")
+PYEOF
+    if grep -q "CRY_EVENTS_GUARDED" "$f"; then
+        log_success "Cryptid events guard applied (SMODS.Events loops skip-guarded via next(G.GAME.events))"
+    else
+        log_warn "Cryptid events guard did not apply — check calculate.lua anchors"
     fi
 }
 
