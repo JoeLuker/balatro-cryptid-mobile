@@ -446,11 +446,413 @@ app resume on Android) from causing simulation jumps. Initial value 1/100.
 
 ## 5. The G object & state machine
 
-*(pending workflow merge)*
+### G is the Game singleton
+
+`Game = Object:extend()` (`game.lua:4`). The constructor (`Game:init`, `game.lua:7`) does
+exactly two things:
+
+```lua
+G = self          -- game.lua:8
+self:set_globals()
+```
+
+`G` is a module-level global assigned once at construction. There is no separate registry or
+dependency-injection layer — every subsystem reaches into `G` directly. The construction is
+triggered at the bottom of `globals.lua:535`:
+
+```lua
+G = Game()
+```
+
+`Game:init` calls `set_globals()` (defined in `globals.lua`), which populates every field on
+`G` (= `self`). By the time `globals.lua:535` returns, G is fully initialized. `Game:start_up`
+(`game.lua:13`) is called later from `love.load` and does the second-phase work (loads
+settings.jkr, creates managers, loads shaders).
+
+### Feature flags
+
+All F_ flags are set first in `set_globals` (`globals.lua:15-44`) with desktop defaults, then
+overridden by platform blocks:
+
+| Platform | Notable overrides |
+|---|---|
+| Windows | F_DISCORD=true, F_SAVE_TIMER=5 |
+| **Android** (`globals.lua:54`) | F_MOBILE_UI=true, F_DISCORD=false, F_CRASH_REPORTS=false, F_RUMBLE=false |
+| OS X | F_DISCORD=true, F_SAVE_TIMER=5 |
+| Nintendo Switch | F_HIDE_BG=true, F_QUIT_BUTTON=false, F_VIDEO_SETTINGS=false, F_RUMBLE=0.7 |
+
+On this build F_MOBILE_UI is always true (Android path). F_SAVE_TIMER defaults 30 on Android
+(vs. 5 on desktop) — this is the save-coalescing interval in seconds polled inside `Game:update`.
+
+### STATES enum (`globals.lua:295-317`)
+
+19 vanilla numeric states plus two SMODS extension slots:
+
+```
+SELECTING_HAND=1   HAND_PLAYED=2    DRAW_TO_HAND=3   GAME_OVER=4
+SHOP=5             PLAY_TAROT=6     BLIND_SELECT=7   ROUND_EVAL=8
+TAROT_PACK=9       PLANET_PACK=10   MENU=11          TUTORIAL=12
+SPLASH=13          SANDBOX=14       SPECTRAL_PACK=15 DEMO_CTA=16
+STANDARD_PACK=17   BUFFOON_PACK=18  NEW_ROUND=19
+SMODS_REDEEM_VOUCHER=998   SMODS_BOOSTER_OPENED=999
+```
+
+SPLASH=13 carries a code comment: `--DO NOT CHANGE, this has a dependency in the SOUND_MANAGER`
+(`globals.lua:310`). Changing it would silently break sound initialization.
+
+Initial state: `G.STATE = G.STATES.SPLASH` (`globals.lua:328`).
+
+### STAGES enum (`globals.lua:319-323`)
+
+```
+MAIN_MENU=1    RUN=2    SANDBOX=3
+```
+
+Initial stage: `G.STAGE = G.STAGES.MAIN_MENU` (`globals.lua:327`).
+
+`G.STAGE_OBJECTS` is a table of three arrays (one per stage index) tracking which game objects
+belong to the current stage (`globals.lua:324-326`).
+
+### State transition semantics
+
+`G.STATE` and `G.STATE_COMPLETE` are plain globals mutated in-place. There is no transition
+guard or validated FSM — any code anywhere can write `G.STATE = G.STATES.SHOP`. The dispatch
+loop in `Game:update` uses separate `if` statements (not `elseif`), so if a state handler writes
+`G.STATE` mid-frame, the new state's handler can also fire in the same frame (see §6).
+
+`G.STATE_COMPLETE` (`globals.lua:330`) is a boolean gate used by some state handlers to sequence
+multi-step work within a single state. It does not automatically advance STATE.
+
+`G.TAROT_INTERRUPT` (`globals.lua:329`) is a nil/value flag used to break out of certain
+pack-opening flows.
+
+### SETTINGS (`globals.lua:151-206`)
+
+Selected fields relevant to frame behavior:
+
+| Field | Default | Effect |
+|---|---|---|
+| `GAMESPEED` | 1 | Multiplier for SPEEDFACTOR in RUN stage |
+| `paused` | false | When true: dt→0 inside fbf gate, SPEEDFACTOR→1 |
+| `enable_drag_select` | true | Slide-to-select touch feature gate |
+| `GRAPHICS.crt` | 0 | CRT shader intensity (0=off) |
+| `GRAPHICS.bloom` | 0 | Bloom intensity |
+| `GRAPHICS.shadows` | 'Off' | Shadow rendering |
+| `GRAPHICS.texture_scaling` | 1 | Atlas scale (1 or 2) |
+
+### Timers (`globals.lua:136-142`)
+
+Five timers, all initialized to 0:
+
+| Timer | Advances when | Purpose |
+|---|---|---|
+| `TIMERS.REAL` | Always, by raw dt | Wall-clock; drives REAL_SHADER; shader time base |
+| `TIMERS.REAL_SHADER` | Always | = REAL normally; set to constant 300 every frame when reduced_motion is on |
+| `TIMERS.UPTIME` | Always, by raw dt | Session uptime (same as REAL in practice) |
+| `TIMERS.TOTAL` | Inside fbf gate, by `dt * SPEEDFACTOR` | Game-speed-scaled time; drives Events and ease animations |
+| `TIMERS.BACKGROUND` | Always, scaled by spin amount | Background animation rotation speed |
+
+Events default to `TIMERS.TOTAL`; if `created_on_pause` is true (or `pause_force` is set),
+they use `TIMERS.REAL` so they advance even when the game is paused (`event.lua:24-25`).
+
+### SPEEDFACTOR (`game.lua:2663-2664`)
+
+```lua
+self.SPEEDFACTOR = (G.STAGE == G.STAGES.RUN
+    and not G.SETTINGS.paused
+    and not G.screenwipe) and self.SETTINGS.GAMESPEED or 1
+self.SPEEDFACTOR = self.SPEEDFACTOR + math.max(0, math.abs(G.ACC) - 2)
+```
+
+SPEEDFACTOR equals GAMESPEED only when **all three** conditions hold: stage is RUN, game not
+paused, no screenwipe active. Outside RUN (menus, sandbox) it is always 1. The second line adds
+the ACC bonus — ACC accretes during HAND_PLAYED and NEW_ROUND states, creating a speed-up
+effect as animations resolve.
+
+### EventManager queues (`event.lua:109-115`)
+
+Five named queues processed independently each tick:
+
+```
+unlock    base    tutorial    achievement    other
+```
+
+Each queue is a FIFO array. `blocking=true` on an event stops later events in the **same queue**
+from being processed until it completes; `blockable=false` lets an event skip past a blocker in
+its queue. Cross-queue blocking does not exist — all five queues advance in parallel each tick.
+
+Event trigger types: `immediate` (fires once, done), `after` (fires after `delay` seconds on its
+timer), `ease` (interpolates a field over `delay` seconds), `condition` (polls until a condition
+is true), `before` (fires func each tick until delay elapsed, then removes).
+
+EventManager processes at most once per `queue_dt = 1/60` seconds (`event.lua:117, 175`) —
+i.e., at most 60 event-ticks per second regardless of frame rate. If the game runs at 120 FPS,
+every other frame skips event processing entirely.
+
+### Instance registries (`globals.lua:337-351`)
+
+`G.I` holds named arrays of live objects by type:
+
+```lua
+G.I = { NODE={}, MOVEABLE={}, SPRITE={}, UIBOX={}, POPUP={}, CARD={}, CARDAREA={}, ALERT={} }
+```
+
+`G.MOVEABLES` and `G.ANIMATIONS` are flat arrays iterated every frame. `G.DRAW_HASH` is a
+spatial hash used to cull draw calls.
+
+### Color palette (`globals.lua:366-482`)
+
+`G.C` is a table of named RGBA arrays (from `HEX()` or literals). The two edition colors
+(`G.C.EDITION` and `G.C.DARK_EDITION`) are animated in-place each frame in `Game:update`.
+`G.C.SUITS` colors are replaced at startup from `G.C.SO_1` or `SO_2` depending on the
+colorblind setting.
+
+### UIT enum (`globals.lua:489-499`)
+
+Layout node types: T=1 (text), B=2 (box), C=3 (column), R=4 (row), O=5 (object/Node), ROOT=7,
+S=8 (slider), I=9 (input). Note the gap: 6 is not used. `padding=0` is a default stored here
+for historical reasons.
+
+---
 
 ## 6. Frame anatomy
 
-*(pending workflow merge)*
+Every frame is driven by LÖVE's event pump calling `love.update(dt)` then `love.draw()`. The
+Talisman mod installs its own `love.update` wrapper (see §4 / `main.lua:2111`) before the
+vanilla path runs; the anatomy below describes the vanilla `Game:update` / `Game:draw` flow
+that executes inside that wrapper.
+
+### Update pass (`game.lua:2616–2942`)
+
+**Step 1 — nuGC** (`game.lua:2617`)
+
+```lua
+nuGC(nil, nil, true)
+```
+
+Forces a Lua GC step at the top of every frame. `nuGC` is in
+`functions/misc_functions.lua:718`.
+
+**Step 2 — Frame counter and housekeeping** (`game.lua:2619–2637`)
+
+`G.FRAMES.MOVE` increments. Tutorial controller runs if tutorial not complete. `modulate_sound`
+adjusts audio. `SMODS.enh_cache:clear()` resets the enhancement cache. Canvas juice updates.
+Then the four always-advancing timers update:
+
+```lua
+self.TIMERS.REAL     += dt
+self.TIMERS.REAL_SHADER = reduced_motion and 300 or self.TIMERS.REAL
+self.TIMERS.UPTIME   += dt
+self.TIMERS.BACKGROUND += dt * spin_amount
+self.real_dt = dt
+```
+
+**Step 3 — fbf gate** (`game.lua:2640`)
+
+```lua
+if not G.fbf or G.new_frame then
+    G.new_frame = false
+    -- ... bulk of update ...
+end
+```
+
+When `G.fbf` is nil/false (normal), this block always executes. When frame-by-frame debug mode
+is active (`G.fbf = true`), the block only executes when `G.new_frame` is set (typically by a
+keypress). `G.new_frame` is cleared immediately on entry so it fires for exactly one frame.
+
+Everything from here through MOVEABLES:update is inside this gate.
+
+**Step 4 — Pause gate** (`game.lua:2652`)
+
+```lua
+if G.SETTINGS.paused then dt = 0 end
+```
+
+Zeroing the local `dt` propagates to TIMERS.TOTAL (step 6) and all dt-parameterized state
+handlers called in step 8. It does NOT affect `self.real_dt`, which is already captured.
+
+**Step 5 — ACC accumulator** (`game.lua:2654–2664`)
+
+ACC resets to 0 whenever STATE changes. During HAND_PLAYED and NEW_ROUND it accretes at
+`0.2 * dt * GAMESPEED`, capped at 16. SPEEDFACTOR is then set (using the three-condition check
+detailed in §5), and ACC above 2 adds directly to SPEEDFACTOR, creating a runaway speed-up as
+long scoring animations pile up.
+
+**Step 6 — TIMERS.TOTAL** (`game.lua:2666`)
+
+```lua
+self.TIMERS.TOTAL += dt * self.SPEEDFACTOR
+```
+
+TOTAL is the time base for all Events and ease animations. Because `dt` was zeroed in step 4
+when paused, TOTAL freezes while paused (unless an event was created with `pause_force=true`,
+in which case it uses TIMERS.REAL and advances anyway).
+
+**Step 7 — Edition color animation** (`game.lua:2668–2674`)
+
+`G.C.DARK_EDITION` and `G.C.EDITION` RGB components are written as sin(REAL * constant)
+expressions every frame. This is the pulsing holographic color effect.
+
+**Step 8 — E_MANAGER:update** (`game.lua:2690`)
+
+```lua
+self.E_MANAGER:update(self.real_dt)
+```
+
+Processes all five event queues. The EventManager has its own internal `queue_dt = 1/60` rate
+limiter (`event.lua:117`): it only advances if at least 1/60 s has elapsed since the last
+event tick, so at >60 FPS some frames skip event processing.
+
+**Step 9 — State dispatch** (`game.lua:2746–2813`)
+
+All 19 vanilla states plus SMODS_BOOSTER_OPENED are checked with **separate `if` statements**,
+not `elseif`. The critical consequence: if a state handler sets `G.STATE` to a new value before
+the dispatch loop reaches that new state's `if` check, the new handler also fires in the same
+frame. This is intentional — `SELECTING_HAND` auto-transitions to `DRAW_TO_HAND` mid-loop when
+the hand is empty (`game.lua:2747–2749`).
+
+```lua
+-- Example of same-frame double-dispatch
+if self.STATE == self.STATES.SELECTING_HAND then
+    if (not G.hand.cards[1]) and G.deck.cards[1] ... then
+        G.STATE = G.STATES.DRAW_TO_HAND   -- transition here
+        G.STATE_COMPLETE = false
+    ...
+end
+if self.STATE == self.STATES.DRAW_TO_HAND then  -- fires in same frame
+    self:update_draw_to_hand(dt)
+end
+```
+
+Unhandled states (SPLASH, TUTORIAL, MENU in specific conditions, etc.) fall through all checks
+silently — no `else` error branch.
+
+**Step 10 — ANIMATIONS** (`game.lua:2816–2820`)
+
+```lua
+remove_nils(self.ANIMATIONS)
+for k, v in pairs(self.ANIMATIONS) do
+    v:animate(self.real_dt * self.SPEEDFACTOR)
+end
+```
+
+Animated objects (sprite sheet tickers, etc.) advance by `real_dt * SPEEDFACTOR`. Pausing sets
+SPEEDFACTOR to 1 (not 0), so animations continue at 1× during pause.
+
+**Step 11 — exp_times pre-computation** (`game.lua:2824–2826`)
+
+Three exponential-decay constants are pre-computed once per frame and stored in `G.exp_times`:
+
+```lua
+G.exp_times.xy    = math.exp(-50 * real_dt)
+G.exp_times.scale = math.exp(-60 * real_dt)
+G.exp_times.r     = math.exp(-190 * real_dt)
+```
+
+These are the lerp decay factors used by every Moveable's spring physics. Pre-computing once
+avoids redundant `exp()` calls across potentially hundreds of objects.
+
+**Step 12 — MOVEABLES:move** (`game.lua:2828–2834`)
+
+```lua
+local move_dt = math.min(1/20, self.real_dt)
+for k, v in pairs(self.MOVEABLES) do
+    if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end
+end
+```
+
+`move_dt` is capped at 1/20 s (50 ms) — prevents position teleporting during long frames.
+The `FRAME.MOVE < G.FRAMES.MOVE` guard ensures each object moves exactly once per frame even
+if it was added to MOVEABLES during the same iteration.
+
+**Step 13 — MOVEABLES:update** (`game.lua:2837–2840`)
+
+```lua
+for k, v in pairs(self.MOVEABLES) do
+    v:update(dt * self.SPEEDFACTOR, self.real_dt)
+    v.states.collide.is = false
+end
+```
+
+`update` receives the speed-scaled dt as first arg and raw real_dt as second. Collision state
+is cleared here unconditionally each frame; CONTROLLER:update in the next step re-sets it for
+objects under the cursor.
+
+**Step 14 — CONTROLLER:update** (`game.lua:2844`)
+
+```lua
+self.CONTROLLER:update(self.real_dt)
+```
+
+Outside the fbf gate. Runs every frame regardless of pause or fbf state. Processes input,
+updates `CONTROLLER.hovering`, `CONTROLLER.focused`, `CONTROLLER.dragging`, handles
+touch-to-mouse translation, fires button callbacks. Takes `real_dt` (not scaled).
+
+**Step 15 — FILE_HANDLER poll** (`game.lua:2892–2940`)
+
+Coalesced save dispatch. Pushes to `G.SAVE_MANAGER.channel` when `FILE_HANDLER.update_queued`
+is set AND either: forced, stage changed, pause state changed (during a run), or
+`F_SAVE_TIMER` seconds elapsed since last save. The save manager thread runs independently
+and handles the actual disk write.
+
+---
+
+### Draw pass (`game.lua:2940–3220`)
+
+`G.FRAMES.DRAW` increments first. `reset_drawhash()` clears spatial-hash cull state.
+
+**Canvas architecture:** Two canvases. `G.CANVAS` is the game canvas (drawn at `G.CANV_SCALE`).
+`G.AA_CANVAS` is the post-process canvas (CRT/bloom blit target). Both are set up in
+`Game:start_up`.
+
+**Draw order (objects rendered onto G.CANVAS):**
+
+1. **Background clear** — `love.graphics.clear(0,0,0,1)`, then `G.SPLASH_BACK:draw()` if present.
+2. **NODE** (`G.I.NODE`) — root-only, no parent filter (SPLASH screen logos etc.).
+3. **MOVEABLE** (`G.I.MOVEABLE`) — root-only.
+4. **UIBOX (background pass)** (`G.I.UIBOX`) — all UIBoxes except: `attention_text=true`,
+   parented, OVERLAY_MENU, screenwipe, OVERLAY_TUTORIAL, debug_tools, achievement_notification,
+   online_leaderboard. This excludes boss-warning text and similar overlays.
+5. **CARDAREA** (`G.I.CARDAREA`) — root-only. Draws hand area, deck area, shop areas, etc.
+   (CARDAREA draws its contained CARDs).
+6. **SPLASH_FRONT** — drawn after CardAreas if present.
+7. **OVERLAY_TUTORIAL** — tutorial highlight overlay + its highlight rectangles.
+8. **OVERLAY_MENU** — pause menu / settings overlay (if not being dragged).
+9. **debug_tools** — (if present and not dragged).
+10. **ALERT** (`G.I.ALERT`) — toast notifications.
+11. **Dragged card** — `CONTROLLER.dragging.target` drawn last among non-cursor objects so it
+    floats above everything.
+12. **Focused card** — `CONTROLLER.focused.target` if it's a Card and not the hand's card OR is
+    the dragging target (draws the card being held above the hand).
+13. **POPUP** (`G.I.POPUP`) — description popups, tooltips.
+14. **achievement_notification** — achievement banner.
+15. **screenwipe** — transition wipe overlay.
+16. **CURSOR** — always drawn last in game-space.
+
+**Post-process blit** (`game.lua:3140–3173`):
+
+`G.CANVAS` is drawn into `G.AA_CANVAS` with the `CRT` shader active (distortion, bloom, scan
+lines, glitch intensity). `G.AA_CANVAS` is then drawn to the real framebuffer at `1/CANV_SCALE`
+— this is the final screen-scale step.
+
+**CRT shader time input** (`game.lua:3151`): `400 + G.TIMERS.REAL` — offset by 400 to avoid
+the near-zero startup period where the time value interacts badly with the shader math.
+
+**Post-draw overlays** (drawn directly to framebuffer, not via canvases):
+- FPS display: `love.graphics.print` if `G.SETTINGS.show_fps` (`game.lua:3177`).
+- Performance overlay: timer-checkpoint trend charts if `G.SETTINGS.perf_mode` (`game.lua:3179`).
+
+---
+
+### Timer summary
+
+| Timer | Gate | Scaled by | Freezes when |
+|---|---|---|---|
+| REAL | always | 1× | never |
+| REAL_SHADER | always | 1× (or pinned to 300) | never |
+| UPTIME | always | 1× | never |
+| TOTAL | fbf gate | SPEEDFACTOR | paused OR not RUN |
+| BACKGROUND | always | spin_amount | spin=0 |
 
 ## 7. Object model: Object → Node → Moveable → Card/CardArea
 
