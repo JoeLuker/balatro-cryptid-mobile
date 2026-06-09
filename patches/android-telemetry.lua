@@ -9,6 +9,9 @@ TEL.session_id = string.format("%x", os.time())
 TEL.last_state = nil
 TEL.last_stage = nil
 TEL.run_start_time = nil
+TEL.exp_recompute_count = 0
+TEL.exp_recompute_window_start = 0
+local EXP_REPORT_INTERVAL = 10  -- emit EXP_RECOMPUTE summary every 10 s
 
 local function tel(event, data)
     local parts = {"[TEL]", event}
@@ -36,10 +39,31 @@ end
 
 local STAGE_NAMES = {[1] = "MAIN_MENU", [2] = "RUN", [3] = "SANDBOX"}
 
--- Hook Game:update to track state transitions
+-- Hook Game:update to track state transitions and exp_recompute rate
 local _original_game_update = Game.update
 function Game:update(dt)
+    local exp_dt_before = self._exp_dt
     local result = _original_game_update(self, dt)
+
+    -- Count exp_times recomputes (threshold fired when _exp_dt changed)
+    if self._exp_dt ~= exp_dt_before then
+        TEL.exp_recompute_count = TEL.exp_recompute_count + 1
+    end
+
+    -- Emit summary every EXP_REPORT_INTERVAL seconds of real time
+    local now = self.TIMERS and self.TIMERS.UPTIME or 0
+    if now - TEL.exp_recompute_window_start >= EXP_REPORT_INTERVAL then
+        local elapsed = now - TEL.exp_recompute_window_start
+        -- recompute_rate is recomputes/s; at 60fps with no caching it would
+        -- equal fps. A rate << fps confirms the cache is effective.
+        tel("EXP_RECOMPUTE", {
+            count = TEL.exp_recompute_count,
+            window_s = math.floor(elapsed),
+            rate = string.format("%.1f", TEL.exp_recompute_count / math.max(elapsed, 0.001))
+        })
+        TEL.exp_recompute_count = 0
+        TEL.exp_recompute_window_start = now
+    end
 
     -- Log state changes
     if G.STATE ~= TEL.last_state or G.STAGE ~= TEL.last_stage then
@@ -169,4 +193,4 @@ if _original_game_over then
     end
 end
 
-tel("HOOKS_LOADED", {count = 8})
+tel("HOOKS_LOADED", {count = 9})
