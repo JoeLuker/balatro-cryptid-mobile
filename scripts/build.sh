@@ -453,7 +453,7 @@ apply_fps_toggle() {
         log_info "FPS toggle already applied"
         return 0
     fi
-    sed -i "s|    timer_checkpoint('canvas', 'draw')|    timer_checkpoint('canvas', 'draw')\n    if G.SETTINGS.show_fps then love.graphics.push('all'); love.graphics.origin(); love.graphics.setColor(0,1,0,1); love.graphics.print('FPS: '..love.timer.getFPS(), 15, 15, 0, 3, 3); love.graphics.pop() end|" "$game_lua"
+    sed -i "s|    timer_checkpoint('canvas', 'draw')|    timer_checkpoint('canvas', 'draw')\n    if G.SETTINGS.show_fps then love.graphics.push('all'); love.graphics.origin(); love.graphics.setColor(0,1,0,1); love.graphics.print('FPS: '..love.timer.getFPS(), 15, 15); love.graphics.pop() end|" "$game_lua"
     sed -i "s|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),\n      create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|" "$ui_file"
     if grep -q "show_fps" "$game_lua" && grep -q "show_fps" "$ui_file"; then
         log_success "FPS toggle added (Settings > Game > Show FPS)"
