@@ -257,6 +257,53 @@ function Game:update(dt)
     return result
 end
 
+-- gesture provenance: wrap the mutation sites the gesture system fights over
+-- and tag every call with its CALLER (file:line via debug.getinfo) — the
+-- transition events above say WHAT changed; these say WHO did it.
+local function caller_src()
+    local info = debug.getinfo(3, "Sl")
+    if not info then return "?" end
+    local src = (info.short_src or "?"):match("([^/\\]+)$") or info.short_src
+    return src .. ":" .. tostring(info.currentline)
+end
+local function card_key_of(n)
+    return n and ((n.config and n.config.center and n.config.center.key)
+        or (n.base and n.base.value and tostring(n.base.value)..tostring(n.base.suit or ""))
+        or "node") or "nil"
+end
+if Node and Node.stop_hover then
+    local _sh = Node.stop_hover
+    function Node:stop_hover(...)
+        if self.children and self.children.h_popup then
+            tel("G_STOPHOVER", {card = card_key_of(self), src = caller_src()})
+        end
+        return _sh(self, ...)
+    end
+end
+if CardArea then
+    local _add = CardArea.add_to_highlighted
+    function CardArea:add_to_highlighted(card, silent, ...)
+        if self == G.hand then
+            tel("G_HL", {op = "add", card = card_key_of(card), src = caller_src(), n = #self.highlighted})
+        end
+        return _add(self, card, silent, ...)
+    end
+    local _rem = CardArea.remove_from_highlighted
+    function CardArea:remove_from_highlighted(card, ...)
+        if self == G.hand then
+            tel("G_HL", {op = "rem", card = card_key_of(card), src = caller_src(), n = #self.highlighted})
+        end
+        return _rem(self, card, ...)
+    end
+end
+if Card and Card.click then
+    local _click = Card.click
+    function Card:click(...)
+        tel("G_CLICK", {card = card_key_of(self), src = caller_src(), area = self.area and self.area.config and self.area.config.type or "?"})
+        return _click(self, ...)
+    end
+end
+
 -- Hook Game:start_run to log run starts
 local _original_start_run = Game.start_run
 function Game:start_run(args)
