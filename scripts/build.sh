@@ -1087,7 +1087,8 @@ apply_shadow_height_fix() {
 # directly avoids two OmegaNum table allocations per comparison.
 # Line 3593 divides G.GAME.chips (plain number) by blind.chips (plain number).
 # Line 3328 (Ramen) subtracts plain-number fields before comparing.
-# Audit: all 22 sites verified safe — no OmegaNum accumulator operands in card.lua.
+# Audit correction (2026-06-10): ability fields CAN be OmegaNum after Talisman
+# save round-trips / Cryptid ascension — bare comparisons crash. tb_* helpers used.
 apply_card_to_big_elim() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -1098,33 +1099,74 @@ apply_card_to_big_elim() {
         log_info "card.lua to_big elimination already applied"
         return 0
     fi
-    # Line 2101: extra < 1 guard
-    sed -i 's|if to_big(self\.ability\.extra) < to_big(1) then self\.ability\.extra = 1 end|if self.ability.extra < 1 then self.ability.extra = 1 end -- CARD_TO_BIG_ELIM|' "$f"
-    # Line 3328: Ramen x_mult - extra <= 1
-    sed -i 's|if to_big(self\.ability\.x_mult) - to_big(self\.ability\.extra) <= to_big(1) then|if self.ability.x_mult - self.ability.extra <= 1 then|' "$f"
-    # Line 3593: Mr. Bones chips/blind ratio
-    sed -i 's|to_big(G\.GAME\.chips)/G\.GAME\.blind\.chips >= to_big(0\.25)|G.GAME.chips / G.GAME.blind.chips >= 0.25|' "$f"
-    # Lines 3462, 3571, 4120, 4202: x_mult > 1
-    sed -i 's|to_big(self\.ability\.x_mult) > to_big(1)|self.ability.x_mult > 1|g' "$f"
-    # Lines 4209, 4215: t_mult / t_chips > 0
-    sed -i 's|to_big(self\.ability\.t_mult) > to_big(0)|self.ability.t_mult > 0|g' "$f"
-    sed -i 's|to_big(self\.ability\.t_chips) > to_big(0)|self.ability.t_chips > 0|g' "$f"
-    # Lines 4285, 4497, 4509, 4515, 4521, 4527, 4533, 4557: mult > 0
-    sed -i 's|to_big(self\.ability\.mult) > to_big(0)|self.ability.mult > 0|g' "$f"
-    # Line 4292: dollars <= extra
-    sed -i 's|to_big(G\.GAME\.dollars) <= to_big(self\.ability\.extra)|G.GAME.dollars <= self.ability.extra|' "$f"
-    # Line 4403: extra.chips > 0
-    sed -i 's|to_big(self\.ability\.extra\.chips) > to_big(0)|self.ability.extra.chips > 0|g' "$f"
-    # Line 4459: dollars + buffer > 0
-    sed -i 's|to_big(G\.GAME\.dollars + (G\.GAME\.dollar_buffer or 0)) > to_big(0)|G.GAME.dollars + (G.GAME.dollar_buffer or 0) > 0|' "$f"
-    # Line 4569: Bootstraps floor division >= 1
-    sed -i 's|to_big(math\.floor((G\.GAME\.dollars + (G\.GAME\.dollar_buffer or 0))/self\.ability\.extra\.dollars)) >= to_big(1)|math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars) >= 1|' "$f"
-    # Line 4575: caino_xmult > 1
-    sed -i 's|to_big(self\.ability\.caino_xmult) > to_big(1)|self.ability.caino_xmult > 1|' "$f"
-    if grep -q "CARD_TO_BIG_ELIM" "$f"; then
-        log_success "card.lua to_big elimination applied (22 OmegaNum alloc pairs → plain Lua comparisons)"
+    # Type-safe rework: the ORIGINAL elimination replaced to_big(a) OP
+    # to_big(b) with bare a OP b on the claim that ability fields are always
+    # plain numbers — FALSE: Talisman save round-trips and Cryptid ascension
+    # leave Big tables in ability fields (device crash: 'attempt to compare
+    # number with table', Bootstraps x_mult 1.2 as OmegaNum vs plain 1). The
+    # tb_* helpers keep the optimization's win (plain x plain compares
+    # allocate nothing) and fall back to exact to_big coercion for any Big
+    # operand. Mixed ARITHMETIC (a - b, a / b) stays bare: OmegaNum's
+    # arithmetic metamethods coerce plain operands on either side, unlike
+    # Lua 5.1 comparisons.
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+helpers = """-- CARD_TO_BIG_ELIM: type-safe comparison fast paths, shared globally
+-- (Cryptid item appliers use them too — card.lua loads before mods)
+function tb_lt(a, b) if type(a) == 'number' and type(b) == 'number' then return a < b end return to_big(a) < to_big(b) end
+function tb_le(a, b) if type(a) == 'number' and type(b) == 'number' then return a <= b end return to_big(a) <= to_big(b) end
+function tb_gt(a, b) if type(a) == 'number' and type(b) == 'number' then return a > b end return to_big(a) > to_big(b) end
+function tb_ge(a, b) if type(a) == 'number' and type(b) == 'number' then return a >= b end return to_big(a) >= to_big(b) end
+function tb_ne(a, b) if type(a) == 'number' and type(b) == 'number' then return a ~= b end return to_big(a) ~= to_big(b) end
+
+"""
+
+reps = [
+    ('if to_big(self.ability.extra) < to_big(1) then self.ability.extra = 1 end',
+     'if tb_lt(self.ability.extra, 1) then self.ability.extra = 1 end', None),
+    ('if to_big(self.ability.x_mult) - to_big(self.ability.extra) <= to_big(1) then',
+     'if tb_le(self.ability.x_mult - self.ability.extra, 1) then', None),
+    ('to_big(G.GAME.chips)/G.GAME.blind.chips >= to_big(0.25)',
+     'tb_ge(G.GAME.chips / G.GAME.blind.chips, 0.25)', None),
+    ('to_big(self.ability.x_mult) > to_big(1)',
+     'tb_gt(self.ability.x_mult, 1)', 'g'),
+    ('to_big(self.ability.t_mult) > to_big(0)',
+     'tb_gt(self.ability.t_mult, 0)', 'g'),
+    ('to_big(self.ability.t_chips) > to_big(0)',
+     'tb_gt(self.ability.t_chips, 0)', 'g'),
+    ('to_big(self.ability.mult) > to_big(0)',
+     'tb_gt(self.ability.mult, 0)', 'g'),
+    ('to_big(G.GAME.dollars) <= to_big(self.ability.extra)',
+     'tb_le(G.GAME.dollars, self.ability.extra)', None),
+    ('to_big(self.ability.extra.chips) > to_big(0)',
+     'tb_gt(self.ability.extra.chips, 0)', 'g'),
+    ('to_big(G.GAME.dollars + (G.GAME.dollar_buffer or 0)) > to_big(0)',
+     'tb_gt(G.GAME.dollars + (G.GAME.dollar_buffer or 0), 0)', None),
+    ('to_big(math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars)) >= to_big(1)',
+     'tb_ge(math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars), 1)', None),
+    ('to_big(self.ability.caino_xmult) > to_big(1)',
+     'tb_gt(self.ability.caino_xmult, 1)', None),
+]
+
+total = 0
+for old, new, mode in reps:
+    n = text.count(old)
+    if n == 0:
+        print(f'WARNING: anchor not found: {old[:60]}...', file=sys.stderr)
+        continue
+    text = text.replace(old, new) if mode == 'g' else text.replace(old, new, 1)
+    total += n if mode == 'g' else 1
+
+open(path, 'w').write(helpers + text)
+print(f'card.lua to_big elimination applied type-safe ({total} sites -> tb_* helpers)')
+PYEOF
+    if grep -q "CARD_TO_BIG_ELIM" "$f" && grep -q "tb_gt(self.ability.x_mult, 1)" "$f"; then
+        log_success "card.lua to_big elimination applied (type-safe: plain fast path, Big fallback)"
     else
-        log_warn "card.lua to_big elimination did not apply the marker — check card.lua"
+        log_warn "card.lua to_big elimination did not apply — check card.lua"
     fi
 }
 
@@ -1339,61 +1381,61 @@ import sys, re
 SAFE_SUBSTS = [
     # epic.lua
     (r'to_big\(card\.ability\.extra\.stat2\) > to_big\(1\)',
-     'card.ability.extra.stat2 > 1'),
+     'tb_gt(card.ability.extra.stat2, 1)'),
     (r'to_big\(card\.ability\.extra\.money\) > to_big\(0\)',
-     'card.ability.extra.money > 0'),
+     'tb_gt(card.ability.extra.money, 0)'),
     (r'to_big\(card\.ability\.extra\.chips\) > to_big\(0\)',
-     'card.ability.extra.chips > 0'),
+     'tb_gt(card.ability.extra.chips, 0)'),
     (r'to_big\(card\.ability\.extra\.x_mult\) > to_big\(1\)',
-     'card.ability.extra.x_mult > 1'),
+     'tb_gt(card.ability.extra.x_mult, 1)'),
     (r'to_big\(card\.ability\.extra\[mod_key\]\) > to_big\(1\)',
-     'card.ability.extra[mod_key] > 1'),
+     'tb_gt(card.ability.extra[mod_key], 1)'),
     (r'to_big\(card\.ability\.extra\.rounds_remaining\) > to_big\(0\)',
-     'card.ability.extra.rounds_remaining > 0'),
+     'tb_gt(card.ability.extra.rounds_remaining, 0)'),
     (r'to_big\(bonus\) > to_big\(0\)',
-     'bonus > 0'),
+     'tb_gt(bonus, 0)'),
     (r'to_big\(card\.ability\.extra\.steelenhc\) ~= to_big\(1\)',
-     'card.ability.extra.steelenhc ~= 1'),
+     'tb_ne(card.ability.extra.steelenhc, 1)'),
     # exotic.lua
     (r'to_big\(card\.ability\.extra\.Emult\) > to_big\(1\)',
-     'card.ability.extra.Emult > 1'),
+     'tb_gt(card.ability.extra.Emult, 1)'),
     (r'to_big\(card\.ability\.extra\.chips\) > to_big\(0\)',
-     'card.ability.extra.chips > 0'),
+     'tb_gt(card.ability.extra.chips, 0)'),
     (r'to_big\(card\.ability\.immutable\.check2\) <= to_big\(card\.ability\.extra\.check\)',
-     'card.ability.immutable.check2 <= card.ability.extra.check'),
+     'tb_le(card.ability.immutable.check2, card.ability.extra.check)'),
     (r'to_big\(card\.ability\.extra\.Xmult\) > to_big\(1\)',
-     'card.ability.extra.Xmult > 1'),
+     'tb_gt(card.ability.extra.Xmult, 1)'),
     # m.lua
     (r'to_big\(card\.ability\.extra\.mult\) > to_big\(0\)',
-     'card.ability.extra.mult > 0'),
+     'tb_gt(card.ability.extra.mult, 0)'),
     (r'to_big\(card\.ability\.extra\.rounds_remaining\) > to_big\(0\)',
-     'card.ability.extra.rounds_remaining > 0'),
+     'tb_gt(card.ability.extra.rounds_remaining, 0)'),
     (r'to_big\(card\.ability\.extra\.sell\) \+ 1 >= to_big\(card\.ability\.extra\.sell_req\)',
-     'card.ability.extra.sell + 1 >= card.ability.extra.sell_req'),
+     'tb_ge(card.ability.extra.sell + 1, card.ability.extra.sell_req)'),
     (r'to_big\(card\.ability\.extra\.retriggers\) < to_big\(1\)',
-     'card.ability.extra.retriggers < 1'),
+     'tb_lt(card.ability.extra.retriggers, 1)'),
     (r'to_big\(card\.ability\.extra\.money\) > to_big\(0\)',
-     'card.ability.extra.money > 0'),
+     'tb_gt(card.ability.extra.money, 0)'),
     (r'to_big\(card\.ability\.immutable\.slots\) >= to_big\(card\.ability\.immutable\.max_slots\)',
-     'card.ability.immutable.slots >= card.ability.immutable.max_slots'),
+     'tb_ge(card.ability.immutable.slots, card.ability.immutable.max_slots)'),
     (r'to_big\(card\.ability\.extra\.jollies\) < to_big\(1\)',
-     'card.ability.extra.jollies < 1'),
+     'tb_lt(card.ability.extra.jollies, 1)'),
     (r'to_big\(card\.ability\.extra\.unc\) < to_big\(1\)',
-     'card.ability.extra.unc < 1'),
+     'tb_lt(card.ability.extra.unc, 1)'),
     (r'to_big\(jollycount\) > to_big\(card\.ability\.immutable\.max_jollies\)',
-     'jollycount > card.ability.immutable.max_jollies'),
+     'tb_gt(jollycount, card.ability.immutable.max_jollies)'),
     (r'to_big\(summon\) < to_big\(1\)',
-     'summon < 1'),
+     'tb_lt(summon, 1)'),
     (r'to_big\(card\.ability\.extra\.add\) < to_big\(1\)',
-     'card.ability.extra.add < 1'),
+     'tb_lt(card.ability.extra.add, 1)'),
     (r'to_big\(card\.ability\.extra\.amount\) < to_big\(card\.ability\.immutable\.max_amount\)',
-     'card.ability.extra.amount < card.ability.immutable.max_amount'),
+     'tb_lt(card.ability.extra.amount, card.ability.immutable.max_amount)'),
     (r'to_big\(card\.ability\.extra\.amount\) > to_big\(card\.ability\.immutable\.max_amount\)',
-     'card.ability.extra.amount > card.ability.immutable.max_amount'),
+     'tb_gt(card.ability.extra.amount, card.ability.immutable.max_amount)'),
     (r'to_big\(card\.ability\.extra\.amount\) > to_big\(0\)',
-     'card.ability.extra.amount > 0'),
+     'tb_gt(card.ability.extra.amount, 0)'),
     (r'to_big\(card\.ability\.extra\.monster\) > to_big\(1\)',
-     'card.ability.extra.monster > 1'),
+     'tb_gt(card.ability.extra.monster, 1)'),
 ]
 
 total = 0

@@ -103,7 +103,11 @@ local function measure_hover()
         end
         phase('ability_table', function() card.ability_UIBox_table = card:generate_UIBox_ability_table() end)
         phase('popup_def', function() card.config.h_popup = G.UIDEF.card_h_popup(card); card.config.h_popup_config = card:align_h_popup() end)
-        phase('instantiate', function() Node.hover(card); Node.stop_hover(card) end)
+        -- NOTE: no raw Node.hover/stop_hover probe here. It errored mid-UIBox
+        -- construction (ui.lua 'object' nil) and leaked a half-built popup into
+        -- G.MOVEABLES, crashing the move loop at the next hand-play — the bench
+        -- was sabotaging its own scoring phase. Instantiation cost = total
+        -- hover ms minus the two phases above.
     end
 end
 
@@ -192,6 +196,27 @@ local function alloc_tick()
     local c = collectgarbage('count')
     if last_count and c > last_count then alloc_sum = alloc_sum + (c - last_count) end
     last_count = c
+end
+
+-- diagnostic: identify any moveable reaching move() without a FRAME
+do
+    local _mv = Moveable and Moveable.move
+    if _mv then
+        function Moveable:move(dt)
+            if not self.FRAME then
+                local kind = (self.is and ((UIBox and self:is(UIBox) and 'UIBox') or (Card and self:is(Card) and 'Card') or (DynaText and self:is(DynaText) and 'DynaText') or 'Moveable')) or '?'
+                local count = 0
+                for _, m in ipairs(G.MOVEABLES) do if m == self then count = count + 1 end end
+                print(string.format('BENCH: FRAMELESS kind=%s REMOVED=%s in_moveables=%d uiroot=%s def=%s keys=%s',
+                    kind, tostring(self.REMOVED), count, tostring(self.UIRoot ~= nil),
+                    tostring(self.definition ~= nil),
+                    (function() local ks = {} for k in pairs(self) do ks[#ks+1] = tostring(k) end return table.concat(ks, ',') end)()))
+                self.FRAME = { MOVE = 0, DRAW = 0 }
+                return
+            end
+            return _mv(self, dt)
+        end
+    end
 end
 
 local game_update = love.update

@@ -260,11 +260,15 @@ end
 -- gesture provenance: wrap the mutation sites the gesture system fights over
 -- and tag every call with its CALLER (file:line via debug.getinfo) — the
 -- transition events above say WHAT changed; these say WHO did it.
-local function caller_src()
-    local info = debug.getinfo(3, "Sl")
+local function src_at(level)
+    local info = debug.getinfo(level, "Sl")
     if not info then return "?" end
     local src = (info.short_src or "?"):match("([^/\\]+)$") or info.short_src
     return src .. ":" .. tostring(info.currentline)
+end
+local function caller_src()
+    -- two frames of provenance: immediate caller <- its caller
+    return src_at(4) .. "<-" .. src_at(5)
 end
 local function card_key_of(n)
     return n and ((n.config and n.config.center and n.config.center.key)
@@ -294,6 +298,19 @@ if CardArea then
             tel("G_HL", {op = "rem", card = card_key_of(card), src = caller_src(), n = #self.highlighted})
         end
         return _rem(self, card, ...)
+    end
+end
+if Controller and Controller.queue_L_cursor_press then
+    local _qp = Controller.queue_L_cursor_press
+    function Controller:queue_L_cursor_press(x, y, ...)
+        local mx, my = love.mouse.getPosition()
+        tel("G_PRESS", {
+            qx = string.format("%.0f", x or -1), qy = string.format("%.0f", y or -1),
+            mx = string.format("%.0f", mx or -1), my = string.format("%.0f", my or -1),
+            dpi = string.format("%.2f", (love.window.getDPIScale and love.window.getDPIScale()) or -1),
+            cl = (self.collision_list and #self.collision_list) or -1,
+        })
+        return _qp(self, x, y, ...)
     end
 end
 if Card and Card.click then
