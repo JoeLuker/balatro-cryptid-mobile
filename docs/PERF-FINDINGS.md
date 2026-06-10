@@ -121,14 +121,19 @@ there; use the selection metric or a targeted micro-bench.
      blacklisting makes game-level numbers bimodal (~144 vs ~379 KB/cycle on
      identical builds) — always run the bench 3× and compare medians of like
      batches, and stop the GC when measuring gross allocation.
-10. **DrawStep layer short-circuit** — `card_draw.lua:512-14`: 21
-    `check_conditions` per card per layer; bail on layer mismatch before the
-    conditions pairs-loop. (Skip the bitmask variant — invalidation risk not
-    worth it yet.)
-11. **screen_scale frame-constant precompute + stickers-loop gate** —
-    `sprite.lua:107` (two distinct constants per frame) and
-    `card_draw.lua:320` (8-entry pairs scan per card; gate behind a
-    `_has_any_smods_sticker` flag set in set_ability).
+10. ~~DrawStep layer short-circuit~~ — **REJECTED by measurement 2026-06-10**.
+    Premise stale: live SMODS already checks `self.layers[layer]` FIRST in
+    check_conditions (card_draw.lua:35) before the conditions loop. Measured
+    (bench drawtime phase): Card:draw totals 0.53 ms/frame across ~34 calls —
+    including the actual shader draws — so the dispatch overhead a
+    steps-per-layer precompute could shave is ≤0.1–0.2 ms/frame (~1% of frame
+    budget) on a build already at 97–130 FPS on device. Below action
+    threshold.
+11. ~~screen_scale precompute + stickers-loop gate~~ — **REJECTED /
+    already-done 2026-06-10**. screen_scale precompute landed as
+    `G._DRAW_SCREEN_SCALE` (game.lua Game:draw). The stickers premise is
+    stale: the live SMODS 'stickers' DrawStep (card_draw.lua:284) checks two
+    fields directly — there is no 8-entry pairs scan to gate.
 
 ## Tier 3 — measure before deciding
 

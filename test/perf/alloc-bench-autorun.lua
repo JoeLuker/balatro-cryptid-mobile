@@ -34,6 +34,46 @@ love.errorhandler = function(msg)
     os.exit(70)
 end
 
+-- draw-path timing: wall-time of love.draw and of Card:draw specifically,
+-- sampled over a window of in-run frames (items 10/11 premeasurement — the
+-- listed findings were stale against live SMODS; decide from data)
+local draw_samples = {}
+local card_draw_ms = 0
+local card_draw_calls = 0
+local draw_hooked = false
+local function hook_draw()
+    if draw_hooked then return end
+    draw_hooked = true
+    local orig_draw = love.draw
+    if orig_draw then
+        love.draw = function(...)
+            local t0 = love.timer.getTime()
+            orig_draw(...)
+            draw_samples[#draw_samples + 1] = (love.timer.getTime() - t0) * 1000
+        end
+    end
+    local orig_card_draw = Card.draw
+    function Card:draw(layer)
+        local t0 = love.timer.getTime()
+        orig_card_draw(self, layer)
+        card_draw_ms = card_draw_ms + (love.timer.getTime() - t0) * 1000
+        card_draw_calls = card_draw_calls + 1
+    end
+end
+local function report_draw()
+    if #draw_samples < 50 then
+        print('BENCH: drawtime skipped (' .. #draw_samples .. ' samples)')
+        return
+    end
+    table.sort(draw_samples)
+    local sum = 0
+    for _, v in ipairs(draw_samples) do sum = sum + v end
+    local n = #draw_samples
+    print(string.format('BENCH: drawtime avg=%.3fms p95=%.3fms frames=%d', sum / n, draw_samples[math.floor(n * 0.95)], n))
+    print(string.format('BENCH: card_draw total=%.1fms calls=%d avg_per_frame=%.3fms',
+        card_draw_ms, card_draw_calls, card_draw_ms / n))
+end
+
 local function measure_selection()
     local hand = G.hand
     if not hand or #hand.cards < 5 then
@@ -142,6 +182,7 @@ love.update = function(dt, ...)
     if run_started and not in_run_at and G.STAGE == G.STAGES.RUN and G.STATE ~= G.STATES.SPLASH then
         in_run_at = elapsed
         print('BENCH: RUN-LOADED state=' .. tostring(G.STATE))
+        hook_draw()
     end
 
     if in_run_at and not selection_done and elapsed - in_run_at > 6 and G.STATE == G.STATES.SELECTING_HAND then
@@ -174,6 +215,7 @@ love.update = function(dt, ...)
 
     if not done and (scoring_state == 'measured' or (in_run_at and elapsed - in_run_at > 45)) then
         done = true
+        report_draw()
         print('BENCH: PASS')
         love.event.quit(0)
     end
