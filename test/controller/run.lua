@@ -249,6 +249,22 @@ test('release dispatch tolerates the released-on node dying before dispatch (REL
     w.ctrl.dragging.target = nil
 end)
 
+test('RELEASED_ON_NIL_GUARD calls ATLOG when available, falls back to print otherwise', function()
+    local w = scene()
+    -- stub ATLOG to intercept the call
+    local logged = {}
+    _G.ATLOG = function(event, data) logged[#logged + 1] = { event = event, data = data } end
+    w.ctrl.dragging.target = w.A
+    w.ctrl.released_on.handled = false
+    w.ctrl.released_on.target = nil
+    w.frames(1)
+    _G.ATLOG = nil
+    check(#logged == 1, 'ATLOG must be called exactly once on nil-target dispatch')
+    check(logged[1].event == 'G_REL_SKIP', 'event name must be G_REL_SKIP')
+    check(logged[1].data and logged[1].data.state ~= nil, 'data must carry state field')
+    w.ctrl.dragging.target = nil
+end)
+
 test('press with a late position teleport targets the press coords, not the stale cursor (TOUCH_PRESS_POS_SYNC)', function()
     local w = scene()
     -- tap card A; the synthetic cursor parks there
