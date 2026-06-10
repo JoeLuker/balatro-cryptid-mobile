@@ -198,8 +198,11 @@ patch_mods_dir() {
 # Strip assets unused in an en-us Android build.
 # Saves ~60 MB from game.love by removing non-English fonts and locale files.
 # All removals are safe: game.lua's font loader guards with love.filesystem.getInfo
-# (missing = skipped silently), SMODS locale loading is by exact name (no dir scan),
-# and loadGamepadMappings returns false on missing file without error.
+# (missing = skipped silently) and SMODS locale loading is by exact name (no dir
+# scan). NOTE resources/gamecontrollerdb.txt must NOT be stripped: LÖVE's
+# loadGamepadMappings does not return false on a missing file — it parses the
+# path string itself as mapping data and raises "Invalid gamepad mappings.",
+# crash-looping boot at game.lua:148 (proven by test/telemetry-gate.sh 2026-06-10).
 strip_en_us_assets() {
     local game_dir="$1"
     local saved=0
@@ -251,16 +254,6 @@ strip_en_us_assets() {
             done
         fi
     done
-
-    # Gamepad DB: loadGamepadMappings returns false on missing file — no error.
-    # Touch-only Android never uses gamepad mappings.
-    local db="$game_dir/resources/gamecontrollerdb.txt"
-    if [[ -f "$db" ]]; then
-        local sz
-        sz=$(du -k "$db" | cut -f1)
-        saved=$((saved + sz))
-        rm "$db"
-    fi
 
     log_success "Asset strip complete — freed ~$((saved / 1024)) MB from game.love"
 }
@@ -418,12 +411,8 @@ function love.conf(t)
 end
 EOF
 
-    # Strip assets that are never used in an en-us Android build.
-    # Fonts: game.lua loads all fonts unconditionally via love.filesystem.getInfo guard —
-    # missing files are silently skipped. Only m6x11plus.ttf is needed for en-us.
-    # Locales: SMODS.handle_loc_file loads by exact name (en-us.lua + default.lua);
-    # no directory scan — missing locale files are silently skipped.
-    # gamecontrollerdb.txt: loadGamepadMappings returns false on missing file, no error.
+    # Strip assets that are never used in an en-us Android build (CJK fonts +
+    # non-English locales — see strip_en_us_assets for what must NOT be stripped).
     strip_en_us_assets "$game_dir"
 
     # Create game.love ZIP archive
