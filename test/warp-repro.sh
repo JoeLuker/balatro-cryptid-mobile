@@ -36,7 +36,8 @@ cp -r "$GAME_DIR" "$WORK/game"
     echo "do local ok, err = pcall(require, 'warp-repro-autorun') if not ok then print('WARP: autorun-load-failed: '..tostring(err)) end end"
 } > "$WORK/game/main.lua.injected"
 mv "$WORK/game/main.lua.injected" "$WORK/game/main.lua"
-cp "$SCRIPT_DIR/warp-repro-autorun.lua" "$WORK/game/warp-repro-autorun.lua"
+# optional $2: alternate autorun script (always staged under the same name)
+cp "${2:-$SCRIPT_DIR/warp-repro-autorun.lua}" "$WORK/game/warp-repro-autorun.lua"
 
 # Pre-seed the love save dir with the phone save (identity dir is 'game')
 mkdir -p "$WORK/xdg/love/game"
