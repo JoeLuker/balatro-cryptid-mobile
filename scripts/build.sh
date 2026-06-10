@@ -169,6 +169,30 @@ generate_dumps() {
     log_success "Dump files available"
 }
 
+# Apply all Mods-layer patches to a given Mods root directory.
+# Called by both build_apk (embedded game copy) and prepare_transfer (save-dir
+# shadow copy) so the two trees always stay in sync.  Adding a new Mods patch
+# means adding it here once — not in two places.
+patch_mods_dir() {
+    local mods_dir="$1"   # absolute path to the Mods/ directory to patch
+
+    apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
+    apply_shader_eof_newlines "$(dirname "$mods_dir")"
+    apply_blur_shader_reorder "$mods_dir/Cryptid/assets/shaders/blur.fs"
+    apply_glitch_shader_fix   "$mods_dir/Cryptid/assets/shaders/glitched.fs"
+    apply_glitched_b_fix      "$mods_dir/Cryptid/assets/shaders/glitched_b.fs"
+    apply_cryptid_dead_copy_fix   "$mods_dir/Cryptid/lib/calculate.lua"
+    apply_cryptid_flip_side_cache "$mods_dir/Cryptid/lib/calculate.lua" "$mods_dir/Cryptid/lib/overrides.lua"
+    apply_cryptid_events_guard    "$mods_dir/Cryptid/lib/calculate.lua"
+    apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"
+    apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"
+    apply_cryptid_to_big_elim \
+        "$mods_dir/Cryptid/items/epic.lua" \
+        "$mods_dir/Cryptid/items/exotic.lua" \
+        "$mods_dir/Cryptid/items/m.lua"
+    apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
+}
+
 # Build the APK
 build_apk() {
     log_info "Building APK..."
@@ -253,10 +277,6 @@ build_apk() {
     cp -r "$PATCHES_DIR/reserve-shim" "$game_dir/Mods/"
     log_info "    Embedded reserve-shim"
 
-    # Fix Cryptid's glitch shaders rendering pure-black cards on the Mali GPU
-    apply_glitch_shader_fix "$game_dir/Mods/Cryptid/assets/shaders/glitched.fs"
-    apply_glitched_b_fix "$game_dir/Mods/Cryptid/assets/shaders/glitched_b.fs"
-
     # Create lovely.lua config
     cat > "$game_dir/lovely.lua" << EOF
 return {
@@ -279,28 +299,16 @@ EOF
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
-    apply_talisman_dim_fix "$game_dir/Mods/Talisman/talisman.lua"
-    apply_shader_eof_newlines "$game_dir"
-    apply_blur_shader_reorder "$game_dir/Mods/Cryptid/assets/shaders/blur.fs"
-    apply_cryptid_dead_copy_fix "$game_dir/Mods/Cryptid/lib/calculate.lua"
-    apply_cryptid_flip_side_cache "$game_dir/Mods/Cryptid/lib/calculate.lua" "$game_dir/Mods/Cryptid/lib/overrides.lua"
-    apply_cryptid_events_guard "$game_dir/Mods/Cryptid/lib/calculate.lua"
+    patch_mods_dir "$game_dir/Mods"
     apply_shake_trig_guard "$game_dir/functions/common_events.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
     apply_card_to_big_elim "$game_dir/card.lua"
-    apply_talisman_gc_dead_block "$game_dir/Mods/Talisman/talisman.lua"
-    apply_talisman_calc_counter "$game_dir/Mods/Talisman/talisman.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
-    apply_cryptid_to_big_elim \
-        "$game_dir/Mods/Cryptid/items/epic.lua" \
-        "$game_dir/Mods/Cryptid/items/exotic.lua" \
-        "$game_dir/Mods/Cryptid/items/m.lua"
     apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
     apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
-    apply_hand_level_no_recalc "$game_dir/Mods/Steamodded/src/ui.lua"
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
 
     # Copy telemetry module into game root
@@ -1599,26 +1607,9 @@ prepare_transfer() {
     done
     cp -r "$PATCHES_DIR/reserve-shim" "$transfer_dir/Mods/"
 
-    # Same dim-gate as the embedded copy — save-dir reads can shadow the archive
-    apply_talisman_dim_fix "$transfer_dir/Mods/Talisman/talisman.lua"
-    apply_shader_eof_newlines "$transfer_dir"
-    apply_blur_shader_reorder "$transfer_dir/Mods/Cryptid/assets/shaders/blur.fs"
-
-    # All perf/correctness patches applied to the embedded game copy must also be
-    # applied here: save-dir Mods shadow the APK-embedded ones, so a missing patch
-    # in phone-transfer silently regresses the fix the next time mods are pushed.
-    apply_glitch_shader_fix "$transfer_dir/Mods/Cryptid/assets/shaders/glitched.fs"
-    apply_glitched_b_fix "$transfer_dir/Mods/Cryptid/assets/shaders/glitched_b.fs"
-    apply_cryptid_dead_copy_fix "$transfer_dir/Mods/Cryptid/lib/calculate.lua"
-    apply_cryptid_flip_side_cache "$transfer_dir/Mods/Cryptid/lib/calculate.lua" "$transfer_dir/Mods/Cryptid/lib/overrides.lua"
-    apply_cryptid_events_guard "$transfer_dir/Mods/Cryptid/lib/calculate.lua"
-    apply_talisman_gc_dead_block "$transfer_dir/Mods/Talisman/talisman.lua"
-    apply_talisman_calc_counter "$transfer_dir/Mods/Talisman/talisman.lua"
-    apply_cryptid_to_big_elim \
-        "$transfer_dir/Mods/Cryptid/items/epic.lua" \
-        "$transfer_dir/Mods/Cryptid/items/exotic.lua" \
-        "$transfer_dir/Mods/Cryptid/items/m.lua"
-    apply_hand_level_no_recalc "$transfer_dir/Mods/Steamodded/src/ui.lua"
+    # Apply all Mods-layer patches. patch_mods_dir is the single canonical list —
+    # save-dir Mods shadow the APK-embedded ones, so these must match exactly.
+    patch_mods_dir "$transfer_dir/Mods"
 
     # Create SMODS folder with version/release files for require'SMODS.version' to work
     # The lovely injector on desktop does this automatically, but we need it explicit for Android
