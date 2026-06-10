@@ -143,4 +143,27 @@ test('joker tap toggles a persistent description (non-hand behaviour)', function
     check(w.ctrl.shown_desc == nil, 'second tap dismisses')
 end)
 
+-- HID_ISTOUCH_RELEASE_FIX: HID.touch must be true on the release frame even
+-- if set_HID_flags was last called with 'mouse' (simulating a cross-pump-batch
+-- scenario where the SDL event scheduler delivers touchreleased and
+-- mousereleased in separate pump calls, leaving HID stale between them).
+-- TAP_DESC_RELAX (controller.lua:~447) reads HID.touch on the release frame to
+-- clear hover state; stale-false leaves tooltip/hover stuck after a tap.
+test('HID.touch stays true at release when HID was stale-mouse between batches', function()
+    local w = scene()
+    w.touch_down(2.7, 9)        -- tap A; sets HID.touch=true
+    w.frames(3)
+    -- Simulate SDL batch-split: set HID back to mouse as if a stale dispatch
+    -- arrived between touchreleased and mousereleased pump batches.
+    w.ctrl:set_HID_flags('mouse')
+    check(not w.ctrl.HID.touch, 'precondition: HID is stale-mouse before release')
+    -- love.mousereleased (patched) calls set_HID_flags(istouch and 'touch' or 'mouse')
+    -- before L_cursor_release; mirror that here with istouch=true.
+    w.ctrl:set_HID_flags('touch')  -- HID_ISTOUCH_RELEASE_FIX: what the patched handler does
+    w.ctrl:L_cursor_release(2.7, 9)
+    w.frames(3)
+    -- TAP_DESC_RELAX fires in the first update after cursor_up; hover must be cleared.
+    check(not w.A.states.hover.is, 'TAP_DESC_RELAX must clear hover on touch lift (stale-HID regression)')
+end)
+
 H.finish()

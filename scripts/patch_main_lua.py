@@ -17,7 +17,8 @@ def patch_main_lua(filepath):
     already_focus = '-- Android flush-on-background' in content
     already_istouch = 'HID_ISTOUCH_FIX' in content
     already_istouch_release = 'HID_ISTOUCH_RELEASE_FIX' in content
-    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release:
+    already_istouch_move = 'HID_ISTOUCH_MOVE_FIX' in content
+    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move:
         print("Already patched")
         return
 
@@ -330,7 +331,38 @@ end
         else:
             print("WARNING: love.mousereleased anchor not found — HID istouch release fix NOT applied")
 
-    # 9. Inject telemetry loader at end of file (after all game setup)
+    # 9d. HID touch classification fix — move side.
+    #
+    # love.mousemoved receives istouch as the 5th arg (confirmed from LOVE boot.lua:
+    # mousemoved = function(x,y,dx,dy,t)), but the original implementation ignored it
+    # in favour of a live love.touch.getTouches() query gated by a 0.2s window stored
+    # in last_touch_time.  The window approach works correctly for active drags (finger
+    # still down keeps getTouches() non-empty, refreshing last_touch_time on every
+    # mousemoved), but it is more complex and indirect than necessary: LOVE already
+    # provides the correct istouch flag per-event from the same source as the press and
+    # release fixes above.  Using it directly removes the getTouches() overhead, the
+    # last_touch_time accumulator, and the 0.2s timing dependency.
+    if 'HID_ISTOUCH_MOVE_FIX' not in content:
+        old_mousemoved = (
+            "function love.mousemoved(x, y, dx, dy, istouch)\n"
+            "\tG.CONTROLLER.last_touch_time = G.CONTROLLER.last_touch_time or -1\n"
+            "\tif next(love.touch.getTouches()) ~= nil then\n"
+            "\t\tG.CONTROLLER.last_touch_time = G.TIMERS.UPTIME\n"
+            "\tend\n"
+            "    G.CONTROLLER:set_HID_flags(G.CONTROLLER.last_touch_time > G.TIMERS.UPTIME - 0.2 and 'touch' or 'mouse')\n"
+            "end"
+        )
+        new_mousemoved = (
+            "function love.mousemoved(x, y, dx, dy, istouch)\n"
+            "    G.CONTROLLER:set_HID_flags(istouch and 'touch' or 'mouse') -- HID_ISTOUCH_MOVE_FIX\n"
+            "end"
+        )
+        if old_mousemoved in content:
+            content = content.replace(old_mousemoved, new_mousemoved, 1)
+        else:
+            print("WARNING: love.mousemoved anchor not found — HID istouch move fix NOT applied")
+
+
     if '-- Android telemetry: load after all game hooks are set up' not in content:
         content += """
 -- Android telemetry: load after all game hooks are set up
