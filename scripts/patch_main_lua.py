@@ -16,7 +16,8 @@ def patch_main_lua(filepath):
     already_dedup = 'Duplicate Talisman coroutine harness' in content
     already_focus = '-- Android flush-on-background' in content
     already_istouch = 'HID_ISTOUCH_FIX' in content
-    if already_android and already_dedup and already_focus and already_istouch:
+    already_istouch_release = 'HID_ISTOUCH_RELEASE_FIX' in content
+    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release:
         print("Already patched")
         return
 
@@ -236,6 +237,98 @@ end
             content = content.replace(old_dispatch, new_dispatch, 1)
         else:
             print("WARNING: mousepressed dispatch anchor not found — HID istouch fix NOT applied")
+
+    # 9c. HID touch classification fix — release side.
+    #
+    # love.mousereleased arrives in the same LOVE event-pump batch as touchreleased.
+    # The LOVE boot.lua dispatches mousereleased(x,y,b,t,c) where t=istouch, but the
+    # game's love.mousereleased only accepts three parameters and never calls
+    # set_HID_flags — so HID.touch is stale at the moment L_cursor_release runs and
+    # the controller processes cursor_up.
+    #
+    # Reads of HID.touch on the release frame that corrupt state if stale-false:
+    #   controller.lua TAP_DESC_HOLD_NODRAG (line ~377): guard suppressing
+    #     released_on on short touch-drags — stale-false lets a spurious card drop
+    #     fire on a short touch-drag release.
+    #   controller.lua TAP_DESC_RELAX (line ~447): guard clearing hover on touch
+    #     lift — stale-false leaves tooltip/hover state stuck after a tap.
+    #
+    # Fix mirrors the press-side pattern exactly:
+    #   1. Intercept 'touchreleased' in the event loop to set touch_released=true
+    #      (still dispatches immediately since it's a nil-guarded no-op anyway).
+    #   2. Defer 'mousereleased' like 'mousepressed' is deferred.
+    #   3. After the loop, dispatch deferred mousereleased with (touch_released or _rd).
+    #   4. love.mousereleased accepts istouch as 4th arg and calls set_HID_flags first.
+    #
+    # Anchors against the upstream (pre-patch) dump event loop. Section 9b must run
+    # first to transform the mousepressed dispatch line; this section then layers on
+    # top by replacing the entire locals+loop+dispatch block.
+    if 'HID_ISTOUCH_RELEASE_FIX' not in content:
+        old_event_loop = (
+            "\t\t\tlocal _n,_a,_b,_c,_d,_e,_f,touched\n"
+            "\t\t\tfor name, a,b,c,d,e,f in love.event.poll() do\n"
+            "\t\t\t\tif name == \"quit\" then\n"
+            "\t\t\t\t\tif not love.quit or not love.quit() then\n"
+            "\t\t\t\t\t\treturn a or 0\n"
+            "\t\t\t\t\tend\n"
+            "\t\t\t\tend\n"
+            "\t\t\t\tif name == 'touchpressed' then\n"
+            "\t\t\t\t\ttouched = true\n"
+            "\t\t\t\telseif name == 'mousepressed' then \n"
+            "\t\t\t\t\t_n,_a,_b,_c,_d,_e,_f = name,a,b,c,d,e,f\n"
+            "\t\t\t\telse\n"
+            "\t\t\t\t\tlove.handlers[name](a,b,c,d,e,f)\n"
+            "\t\t\t\tend\n"
+            "\t\t\tend\n"
+            "\t\t\tif _n then \n"
+            "\t\t\t\tlove.handlers['mousepressed'](_a,_b,_c,touched or _d) -- HID_ISTOUCH_FIX\n"
+            "\t\t\tend"
+        )
+        new_event_loop = (
+            "\t\t\tlocal _n,_a,_b,_c,_d,_e,_f,touched\n"
+            "\t\t\tlocal _rn,_ra,_rb,_rc,_rd,touch_released\n"
+            "\t\t\tfor name, a,b,c,d,e,f in love.event.poll() do\n"
+            "\t\t\t\tif name == \"quit\" then\n"
+            "\t\t\t\t\tif not love.quit or not love.quit() then\n"
+            "\t\t\t\t\t\treturn a or 0\n"
+            "\t\t\t\t\tend\n"
+            "\t\t\t\tend\n"
+            "\t\t\t\tif name == 'touchpressed' then\n"
+            "\t\t\t\t\ttouched = true\n"
+            "\t\t\t\telseif name == 'mousepressed' then\n"
+            "\t\t\t\t\t_n,_a,_b,_c,_d,_e,_f = name,a,b,c,d,e,f\n"
+            "\t\t\t\telseif name == 'touchreleased' then\n"
+            "\t\t\t\t\ttouch_released = true\n"
+            "\t\t\t\t\tlove.handlers[name](a,b,c,d,e,f)\n"
+            "\t\t\t\telseif name == 'mousereleased' then\n"
+            "\t\t\t\t\t_rn,_ra,_rb,_rc,_rd = name,a,b,c,d\n"
+            "\t\t\t\telse\n"
+            "\t\t\t\t\tlove.handlers[name](a,b,c,d,e,f)\n"
+            "\t\t\t\tend\n"
+            "\t\t\tend\n"
+            "\t\t\tif _n then\n"
+            "\t\t\t\tlove.handlers['mousepressed'](_a,_b,_c,touched or _d) -- HID_ISTOUCH_FIX\n"
+            "\t\t\tend\n"
+            "\t\t\tif _rn then\n"
+            "\t\t\t\tlove.handlers['mousereleased'](_ra,_rb,_rc,touch_released or _rd) -- HID_ISTOUCH_RELEASE_FIX\n"
+            "\t\t\tend"
+        )
+        if old_event_loop in content:
+            content = content.replace(old_event_loop, new_event_loop, 1)
+        else:
+            print("WARNING: event loop anchor not found — HID istouch release fix NOT applied")
+
+        old_mousereleased = "function love.mousereleased(x, y, button)\n    if button == 1 then G.CONTROLLER:L_cursor_release(x, y) end\nend"
+        new_mousereleased = (
+            "function love.mousereleased(x, y, button, istouch)\n"
+            "    G.CONTROLLER:set_HID_flags(istouch and 'touch' or 'mouse') -- HID_ISTOUCH_RELEASE_FIX\n"
+            "    if button == 1 then G.CONTROLLER:L_cursor_release(x, y) end\n"
+            "end"
+        )
+        if old_mousereleased in content:
+            content = content.replace(old_mousereleased, new_mousereleased, 1)
+        else:
+            print("WARNING: love.mousereleased anchor not found — HID istouch release fix NOT applied")
 
     # 9. Inject telemetry loader at end of file (after all game setup)
     if '-- Android telemetry: load after all game hooks are set up' not in content:
