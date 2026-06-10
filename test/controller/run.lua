@@ -247,4 +247,23 @@ test('release dispatch tolerates the released-on node dying before dispatch (REL
     w.ctrl.dragging.target = nil
 end)
 
+test('press with a late position teleport targets the press coords, not the stale cursor (TOUCH_PRESS_POS_SYNC)', function()
+    local w = scene()
+    -- tap card A; the synthetic cursor parks there
+    w.touch_down(2.7, 9); w.frames(3); w.touch_up(); w.frames(5)
+    -- press empty felt, but the synthetic mouse teleport arrives a frame late:
+    -- queue the press at the TRUE coords while world.mx/my still sit on A
+    w.touches = { 1 }
+    w.ctrl:set_HID_flags('touch')
+    w.ctrl:queue_L_cursor_press(8.0, 5.0)
+    w.frame()
+    check(w.ctrl.dragSelectActive and w.ctrl.dragSelectActive.active,
+        'drag-select must arm from the press coordinates (empty felt), not the stale cursor position')
+    w.mx, w.my = 8.0, 5.0
+    w.frame()
+    w.touch_move(2.0, 8.5, 6)
+    check(w.A.highlighted or w.B.highlighted, 'sweep after late-teleport press must still select')
+    w.touch_up()
+end)
+
 H.finish()

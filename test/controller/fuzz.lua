@@ -60,10 +60,22 @@ local function run_seed(seed)
     local function step_op()
         local r = math.random()
         if not finger_down then
-            if r < 0.55 then
+            if r < 0.4 then
                 local x, y = rand_point()
                 log[#log + 1] = string.format('down(%.2f,%.2f)', x, y)
                 w.touch_down(x, y)
+                finger_down = true
+            elseif r < 0.55 then
+                -- late position teleport: press carries fresh coords while the
+                -- synthetic mouse position is still at the previous touch
+                local x, y = rand_point()
+                log[#log + 1] = string.format('down_stale(%.2f,%.2f)', x, y)
+                w.touches = { 1 }
+                w.ctrl:set_HID_flags('touch')
+                w.ctrl:queue_L_cursor_press(x, y)
+                w.frame()
+                w.mx, w.my = x, y
+                w.frame()
                 finger_down = true
             else
                 local n = math.random(1, 20)

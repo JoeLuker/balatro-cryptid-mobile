@@ -920,6 +920,15 @@ apply_tap_description_persist() {
     # so they never depend on event-classification timing. Vanilla HID.touch
     # reads are untouched; desktop unaffected (touch_env false off Android).
     sed -i "s|self.HID = {|self.HID = {\n    touch_env = love.system.getOS() == 'Android', -- HID_TOUCH_ENV|" "$f"
+    # press-position sync: on touch, the synthetic mouse position teleports via
+    # a motion event that can arrive a batch AFTER the press (same cross-batch
+    # delivery as the HID istouch race). set_cursor_position then describes
+    # where the finger USED to be, so the whole press frame — cursor_hover,
+    # collision_list, cursor_down.target, DRAG_SELECT_ACTIVATE's empty-space
+    # test — runs against the previous touch location: slide-to-select never
+    # arms, and the press can grab the previously-touched card instead. The
+    # press event carries the true coordinates; trust them for that frame.
+    sed -i 's|        self.cursor_position.x, self.cursor_position.y = love.mouse.getPosition()|        self.cursor_position.x, self.cursor_position.y = love.mouse.getPosition()\n        if (self.HID.touch or self.HID.touch_env) and self.L_cursor_queue then self.cursor_position.x, self.cursor_position.y = self.L_cursor_queue.x, self.L_cursor_queue.y end -- TOUCH_PRESS_POS_SYNC|' "$f"
     # persist: don't clear the hover on touch release
     sed -i 's|elseif (self.cursor_hover.target == nil or (self.HID.touch and not self.is_cursor_down)) and self.hovering.target then|elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST|' "$f"
     # hold-gate: on touch, a hand/playing card only shows its description after a
@@ -967,8 +976,8 @@ apply_tap_description_persist() {
     # SMODS_BOOSTER_OPENED). A dead release target means there is nothing to
     # dispatch to; skip it.
     sed -i 's|        self.released_on.target:release(self.dragging.prev_target)|        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) end -- RELEASED_ON_NIL_GUARD|' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f"; then
-        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover applied"
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f" && grep -q "TOUCH_PRESS_POS_SYNC" "$f"; then
+        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover + press-pos-sync applied"
     else
         log_warn "Tap-description fix did not fully match — check controller.lua"
     fi
