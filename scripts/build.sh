@@ -206,6 +206,17 @@ build_apk() {
         apktool d -f -o "$BUILD_DIR/apktool" "$SRC_DIR/base.apk"
     fi
 
+    # Launcher icon: the balatro-mobile-maker base template ships its author's
+    # cat photo as @drawable/love. Replace all density variants with the
+    # Cryptid glowing deck back (extracted from the mod's own b_cry_glowing
+    # atlas into patches/icon/; regenerate from there if the art changes).
+    for _icon_d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+        if [[ -f "$PATCHES_DIR/icon/love-$_icon_d.png" ]]; then
+            cp "$PATCHES_DIR/icon/love-$_icon_d.png" "$BUILD_DIR/apktool/res/drawable-$_icon_d/love.png"
+        fi
+    done
+    log_success "Launcher icon set to Cryptid glowing deck back"
+
     # Modify AndroidManifest.xml
     log_info "Patching AndroidManifest.xml..."
     # Use apktool's renameManifestPackage so resources and activity resolution work correctly
@@ -1849,9 +1860,15 @@ deploy() {
     adb shell "rm -rf $temp_dir" 2>/dev/null || true
     adb push "$transfer_dir" "$temp_dir"
 
-    # Copy to app's internal storage
+    # Copy to app's internal storage — preserving on-device mod CONFIG files:
+    # Talisman (and any mod using an in-folder config.lua) writes user settings
+    # into files/save/Mods/<mod>/config.lua, and a blind cp -r clobbers them on
+    # every deploy (Joe's Talisman settings were wiped ~10x in one night).
+    # Back configs up before the overlay, restore after.
     adb shell "run-as $INSTALLED_PACKAGE_ID mkdir -p files/save"
+    adb shell "run-as $INSTALLED_PACKAGE_ID sh -c 'cd files/save 2>/dev/null && find Mods -name config.lua 2>/dev/null | while read f; do cp \"\$f\" \"\$f.keep\"; done'" 2>/dev/null || true
     adb shell "run-as $INSTALLED_PACKAGE_ID cp -r $temp_dir/* files/save/"
+    adb shell "run-as $INSTALLED_PACKAGE_ID sh -c 'cd files/save 2>/dev/null && find Mods -name config.lua.keep 2>/dev/null | while read f; do mv \"\$f\" \"\${f%.keep}\"; done'" 2>/dev/null || true
 
     # Verify
     log_info "Verifying deployment..."
