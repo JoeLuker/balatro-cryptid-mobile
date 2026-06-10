@@ -1604,6 +1604,22 @@ prepare_transfer() {
     apply_shader_eof_newlines "$transfer_dir"
     apply_blur_shader_reorder "$transfer_dir/Mods/Cryptid/assets/shaders/blur.fs"
 
+    # All perf/correctness patches applied to the embedded game copy must also be
+    # applied here: save-dir Mods shadow the APK-embedded ones, so a missing patch
+    # in phone-transfer silently regresses the fix the next time mods are pushed.
+    apply_glitch_shader_fix "$transfer_dir/Mods/Cryptid/assets/shaders/glitched.fs"
+    apply_glitched_b_fix "$transfer_dir/Mods/Cryptid/assets/shaders/glitched_b.fs"
+    apply_cryptid_dead_copy_fix "$transfer_dir/Mods/Cryptid/lib/calculate.lua"
+    apply_cryptid_flip_side_cache "$transfer_dir/Mods/Cryptid/lib/calculate.lua" "$transfer_dir/Mods/Cryptid/lib/overrides.lua"
+    apply_cryptid_events_guard "$transfer_dir/Mods/Cryptid/lib/calculate.lua"
+    apply_talisman_gc_dead_block "$transfer_dir/Mods/Talisman/talisman.lua"
+    apply_talisman_calc_counter "$transfer_dir/Mods/Talisman/talisman.lua"
+    apply_cryptid_to_big_elim \
+        "$transfer_dir/Mods/Cryptid/items/epic.lua" \
+        "$transfer_dir/Mods/Cryptid/items/exotic.lua" \
+        "$transfer_dir/Mods/Cryptid/items/m.lua"
+    apply_hand_level_no_recalc "$transfer_dir/Mods/Steamodded/src/ui.lua"
+
     # Create SMODS folder with version/release files for require'SMODS.version' to work
     # The lovely injector on desktop does this automatically, but we need it explicit for Android
     mkdir -p "$transfer_dir/Mods/SMODS"
