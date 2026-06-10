@@ -170,3 +170,7 @@ the build ships TWO copies of every mod — embedded in game.love (patched by bu
 ### Emulator GLES translator is stricter than Mali/Mesa
 rejects (1) shader files whose last line is a directive without trailing newline (28 shipped .fs had this), (2) prototype-first shader structure (blur.fs: effect() before helper definitions -> 'function definition not found' in vertex stage). Both fixed as build appliers (apply_shader_eof_newlines, apply_blur_shader_reorder). Also: LÖVE's crash screen logs NOTHING to logcat and keeps the process alive — detect via screenshot polling: static+flat = crash, animated+colour-diverse = menu. LuaJIT under ARM->x86 ndk_translation cannot JIT: emulator boot takes minutes vs desktop 14s.
 <!-- session:2026-06-09-7507a29a | commit:54f3b4c8d557967eba10312e71574a15475c7b11 | date:2026-06-09 -->
+
+### Perf findings doc at docs/PERF-FINDINGS.md
+verified+ranked optimization list. NEVER reapply setShader bind elision (corrupts rendering — Shader:send not batch-aware) or pseudoseed %.13f format change (PRNG desync). Tier-1 GC wins (align_cards closures, parse_highlighted hoists, juice_up literal) are measurable in DESKTOP SMOKE via collectgarbage deltas — same Lua, no phone. Biggest scoring candidate: to_big fast-path for values <1e15 (OmegaNum allocs at normal chip scale).
+<!-- session:2026-06-09-cc3a91f3 | commit:2a8c40df01796705cd1f79cfd1e11af4d9fd6c0c | files:scripts/build.sh,patches/android-telemetry.lua,docs/PERF-FINDINGS.md | area:scripts | date:2026-06-10 -->
