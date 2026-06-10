@@ -371,6 +371,7 @@ EOF
     # on mobile). The Graphics tab (texture scaling / CRT / bloom / shadows) stays
     # visible so quality is tunable on device.
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
+    apply_android_quit_fix "$game_dir/functions/button_callbacks.lua"
     apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
@@ -1748,6 +1749,7 @@ apply_android_settings_fix() {
         self.F_DISCORD = false\
         self.F_CRASH_REPORTS = false\
         self.F_RUMBLE = false\
+        self.F_QUIT_BUTTON = false  -- Android has no meaningful quit; users swipe out (matches Switch/PS behavior)\
         -- FPS_CAP_DISPLAY: the run loop defaults G.FPS_CAP to 500 and vsync\
         -- does not engage on this device — light scenes burned 240 fps on a\
         -- 120 Hz panel (pure battery drain). Cap at the panel refresh rate.\
@@ -1757,6 +1759,70 @@ apply_android_settings_fix() {
     }' "$globals_file"
 
     log_success "Android settings fix applied"
+}
+
+# Patch G.FUNCS.quit in button_callbacks.lua:
+#   1. Hide the Quit button on Android (F_QUIT_BUTTON already false from
+#      apply_android_settings_fix, but the callback fix is platform-agnostic).
+#   2. Flush staged FILE_HANDLER saves before exiting so queued async writes
+#      (save_progress, save_settings) are not lost when the process exits.
+#      The bare love.event.quit() call skips the save-dispatch window in
+#      Game:update(); defer quit by one frame via E_MANAGER so the forced
+#      FILE_HANDLER flush can dispatch through the normal update path.
+apply_android_quit_fix() {
+    local callbacks_file="$1"
+
+    if [[ ! -f "$callbacks_file" ]]; then
+        log_warn "button_callbacks.lua not found, skipping quit fix"
+        return
+    fi
+
+    if grep -q "QUIT_FLUSH" "$callbacks_file"; then
+        log_info "Quit flush already patched"
+        return
+    fi
+
+    log_info "Patching G.FUNCS.quit for safe save-flush..."
+
+    # Replace the bare love.event.quit() call with a flush-then-defer pattern.
+    # Use Python for multiline replacement (sed multiline is fragile across platforms).
+    python3 - "$callbacks_file" << 'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+content = open(path, 'r', encoding='utf-8').read()
+
+old = (
+    'G.FUNCS.quit = function(e)\n'
+    '  love.event.quit()\n'
+    'end'
+)
+new = (
+    'G.FUNCS.quit = function(e) -- QUIT_FLUSH\n'
+    '  -- Flush any staged save work before the Lua loop exits.\n'
+    '  -- save_progress() marks FILE_HANDLER dirty; the channel push happens in\n'
+    '  -- Game:update(). force=true makes it dispatch on the very next tick\n'
+    '  -- instead of waiting for the 30s F_SAVE_TIMER. Defer quit by one frame\n'
+    '  -- so that update tick fires before the loop returns.\n'
+    '  G:save_progress()\n'
+    '  if G.FILE_HANDLER then G.FILE_HANDLER.force = true end\n'
+    '  G.E_MANAGER:add_event(Event({\n'
+    '    trigger = \'after\', delay = 0.05, blockable = false, blocking = false,\n'
+    '    func = function() love.event.quit() return true end\n'
+    '  }))\n'
+    'end'
+)
+
+if old not in content:
+    print("WARNING: G.FUNCS.quit anchor not found — quit flush NOT patched")
+    sys.exit(0)
+
+content = content.replace(old, new, 1)
+open(path, 'w', encoding='utf-8').write(content)
+print("G.FUNCS.quit patched.")
+PYEOF
+
+    log_success "Quit flush fix applied"
 }
 
 # Hide desktop-only video settings on Android
