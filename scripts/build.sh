@@ -311,6 +311,7 @@ EOF
     apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
     apply_parse_highlighted_lean "$game_dir/cardarea.lua"
+    apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -1964,6 +1965,61 @@ PYEOF
         log_success "parse_highlighted lean applied (dead hand evaluation removed + option tables hoisted + joker-merge scratch)"
     else
         log_warn "parse_highlighted lean did not apply — check cardarea.lua"
+    fi
+}
+
+# card_eval_status_text fires once per scoring trigger. Its `local config = {}`
+# escaped into the deferred E_MANAGER event closure (attention_text reads
+# config.scale when the event fires), so the PERF-FINDINGS scratch-table shape
+# is UNSAFE — a shared scratch would alias every queued popup. The safe shape
+# is stronger: .scale becomes a plain local (per-call frame, captured correctly
+# by the closure), the 16 config.type writes were never read anywhere (dead),
+# and the config.colour read happened while the table was still empty (always
+# nil). Net: one table alloc per trigger gone + dead code removed.
+apply_card_eval_config_elide() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "common_events.lua not found, skipping card_eval config elide"
+        return 0
+    fi
+    if grep -q "CES_CONFIG_ELIDED" "$f"; then
+        log_info "card_eval config elide already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+
+start = text.find('function card_eval_status_text(')
+if start < 0:
+    print('ERROR: card_eval_status_text not found', file=sys.stderr); sys.exit(1)
+nxt = text.find('\nfunction ', start + 1)
+body = text[start:nxt]
+
+body = body.replace(
+    '    local config = {}\n',
+    '    local config_scale -- CES_CONFIG_ELIDED: .scale -> local; .type writes were dead; .colour read was always nil\n', 1)
+body = body.replace(
+    'local colour = config.colour or (extra and extra.colour) or ( G.C.FILTER )',
+    'local colour = (extra and extra.colour) or ( G.C.FILTER )', 1)
+body, n_type = re.subn(r'[ \t]*config\.type = \'(?:fade|fall)\'\n', '', body)
+body, n_w = re.subn(r'\bconfig\.scale = ', 'config_scale = ', body)
+body, n_r = re.subn(r'\bconfig\.scale or 1\b', 'config_scale or 1', body)
+
+leftover = [l for l in body.splitlines() if 'config' in l and 'config_scale' not in l and 'CES_CONFIG' not in l]
+if leftover:
+    print('ERROR: unhandled config references remain:', file=sys.stderr)
+    for l in leftover: print('  ' + l.strip(), file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text[:start] + body + text[nxt:])
+print(f'card_eval config elided ({n_type} dead .type writes removed, {n_w}+{n_r} .scale sites -> local)')
+PYEOF
+    if grep -q "CES_CONFIG_ELIDED" "$f"; then
+        log_success "card_eval_status_text config elided (1 escaping table/trigger removed + 16 dead writes)"
+    else
+        log_warn "card_eval config elide did not apply — check common_events.lua"
     fi
 }
 

@@ -38,6 +38,8 @@ targets are **headroom, battery, scoring throughput, and GC-spike avoidance**
 | align_cards 6 sort closures → named function | `SORT_CLOSURE_HOISTED` (0.72 KB/1kf) |
 | juice_up rotation table alloc → direct pick | `JUICE_ROT_HOISTED` (~0.3 µB/call) |
 | LONG_DT logcat write rate-limited to once/5s | `LONG_DT_RATELIMITED` |
+| parse_highlighted: dead double hand-evaluation removed + option tables hoisted + joker-merge scratch | `PARSE_HL_LEAN` (307.9→165.9 KB/selection-cycle, −46%; the dead `get_poker_hand_info` call was a full O(hand²) eval discarded every call) |
+| card_eval_status_text: config table → local, 16 dead `.type` writes removed | `CES_CONFIG_ELIDED` (below noise floor of the 286 MB-gross scoring window; see refutation note below) |
 
 ## Reverted — do not reapply
 
@@ -55,21 +57,32 @@ targets are **headroom, battery, scoring throughput, and GC-spike avoidance**
   13-decimal rounding is part of the PRNG; replacing it desyncs every seeded
   run and saved stream. Never apply.
 
-## Tier 1 — safe mechanical wins (GC pressure; measurable locally)
+## Tier 1 — complete (2026-06-10)
 
-1. **parse_highlighted `update_hand_text` option-table hoists** —
-   `cardarea.lua:201-227`: three distinct first-arg literal forms allocated
-   per selection change. Hoist all three as constants (verify callee doesn't
-   mutate — it doesn't; confirmed `update_hand_text` reads `config.immediate`,
-   `.delay`, `.nopulse` only).
-2. **parse_highlighted joker-scan cache** — `cardarea.lua:190-196`: rebuilds
-   the joker-card list + `Cryptid.table_merge` fresh copy on every selection
-   change. Cache; invalidate on G.jokers emplace/remove.
-3. **card_eval_status_text scratch tables** — `common_events.lua:951/966-994`:
-   per-trigger `config`/`vars` literals → module scratch tables.
-4. **mipmaps=false at texture_scaling=1** — `game.lua:1128/1138`: 1x atlases
-   under `nearest` filter are never minified; mip chains are pure VRAM + boot
-   upload waste. (dpiscale already follows texture_scaling.)
+All four items resolved; 1–3 applied (see Already applied), 4 rejected:
+
+- **Item 2 correction**: the listed "cache + invalidate" shape was replaced by
+  a module scratch table wiped per call — same allocation win, zero staleness
+  risk (no invalidation sites to miss). Bonus found during implementation: the
+  Cryptid lovely patch left vanilla's `get_poker_hand_info` call computing a
+  full discarded hand evaluation on every parse — removing it was most of the
+  −46%.
+- **Item 3 refutation**: the "config/vars → module scratch" shape is UNSAFE —
+  `config` escapes into the deferred E_MANAGER event closure (attention_text
+  reads `config.scale` when the event fires); a shared scratch would alias
+  every queued scoring popup. Applied the safe reduction instead (plain local
+  + dead-write removal). The `localize{vars={...}}` arg tables were left
+  alone: retention analysis of localize not done, win too small to justify it.
+- **Item 4 rejected (N/A)**: premise is texture_scaling=1; Joe runs
+  texture_scaling=2 (settings.jkr), where mipmaps are wanted. No-op on the
+  target device — revisit only if 1x ever becomes the shipped config.
+  (Measured context: 259 MB texture memory across 112 images at 2x.)
+
+**Bench**: `test/perf/alloc-bench.sh <save-dir>` — real-save boot, three
+synchronous selection batches (nuGC-quiet, RNG-seeded; batch 1 is JIT-cold,
+compare like batches), gross-allocation scoring window, texmem readout.
+Scoring window grosses ~286 MB/hand — sub-100 KB findings are invisible
+there; use the selection metric or a targeted micro-bench.
 
 ## Tier 2 — high value, needs an audit + measurement first
 
