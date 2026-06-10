@@ -1,6 +1,13 @@
 -- Android Telemetry for Balatro Cryptid Mobile
--- Logs game events to logcat via print() (LÖVE routes to SDL/APP tag)
--- All entries prefixed with [TEL] for easy filtering: adb logcat -s SDL/APP | grep TEL
+-- Every event goes to TWO sinks:
+--   1. logcat via print() (LÖVE routes to SDL/APP) — live tailing
+--   2. telemetry.log in the save dir — persistent, pullable any time with
+--      `just perf-pull` (adb run-as). Survives logcat's ring buffer; no
+--      observer needs to be attached when something interesting happens.
+-- File lines are "epoch session event k=v ..." — grep/awk friendly.
+-- Buffered: lines accumulate in memory and flush every FLUSH_INTERVAL (or
+-- immediately on crash / app-background, so dying words are never lost).
+-- Rotated at boot: >1 MB moves to telemetry.log.1 (one generation kept).
 
 if love.system.getOS() ~= 'Android' then return end
 
@@ -14,6 +21,34 @@ TEL.exp_recompute_window_start = 0
 local EXP_REPORT_INTERVAL = 10  -- emit EXP_RECOMPUTE summary every 10 s
 local PERF_REPORT_INTERVAL = 5  -- emit PERF_SNAPSHOT every 5 s
 TEL.perf_window_start = 0
+-- always-on frame stats for the file snapshot (no perf_mode needed)
+TEL.frame_count = 0
+TEL.frame_dt_sum = 0
+TEL.frame_dt_max = 0
+
+local LOG_FILE = "telemetry.log"
+local LOG_CAP_BYTES = 1024 * 1024
+local FLUSH_INTERVAL = 5
+local buf = {}
+local last_flush = 0
+
+-- boot-time rotation (love.filesystem has no rename; one read/write at boot)
+do
+    local info = love.filesystem.getInfo(LOG_FILE)
+    if info and info.size and info.size > LOG_CAP_BYTES then
+        local old = love.filesystem.read(LOG_FILE)
+        if old then
+            love.filesystem.write(LOG_FILE .. ".1", old)
+            love.filesystem.remove(LOG_FILE)
+        end
+    end
+end
+
+local function flush()
+    if #buf == 0 then return end
+    love.filesystem.append(LOG_FILE, table.concat(buf, "\n") .. "\n")
+    for i = #buf, 1, -1 do buf[i] = nil end
+end
 
 local function tel(event, data)
     local parts = {"[TEL]", event}
@@ -23,6 +58,8 @@ local function tel(event, data)
         end
     end
     print(table.concat(parts, " "))
+    parts[1] = TEL.session_id
+    buf[#buf + 1] = os.time() .. " " .. table.concat(parts, " ")
 end
 
 -- Session start
@@ -52,6 +89,12 @@ function Game:update(dt)
         TEL.exp_recompute_count = TEL.exp_recompute_count + 1
     end
 
+    -- always-on frame stats for the file snapshot
+    local rdt = self.real_dt or dt
+    TEL.frame_count = TEL.frame_count + 1
+    TEL.frame_dt_sum = TEL.frame_dt_sum + rdt
+    if rdt > TEL.frame_dt_max then TEL.frame_dt_max = rdt end
+
     -- Emit summary every EXP_REPORT_INTERVAL seconds of real time
     local now = self.TIMERS and self.TIMERS.UPTIME or 0
     if now - TEL.exp_recompute_window_start >= EXP_REPORT_INTERVAL then
@@ -67,35 +110,50 @@ function Game:update(dt)
         TEL.exp_recompute_window_start = now
     end
 
-    -- Emit perf checkpoint averages every PERF_REPORT_INTERVAL seconds
-    -- Only fires when perf_mode is enabled (G.check exists).
-    -- Each checkpoint label already encodes KB-since-last: "label: KBdelta"
-    -- We emit the rolling-average TTC (ms) for each named checkpoint.
-    if G.SETTINGS and G.SETTINGS.perf_mode and G.check and now - TEL.perf_window_start >= PERF_REPORT_INTERVAL then
-        local fps = love.timer.getFPS()
-        local gc_kb = math.floor(collectgarbage("count"))
-        -- Build a compact flat string: "name=avg_ms,name=avg_ms,..."
-        local upd_parts = {}
-        for i = 1, G.check.update.checkpoints do
-            local cp = G.check.update.checkpoint_list[i]
-            -- strip the KB suffix from the label ("move: 12" -> "move")
-            local name = (cp.label or "?"):match("^([^:]+)") or "?"
-            table.insert(upd_parts, name .. "=" .. string.format("%.2f", 1000*(cp.average or 0)))
-        end
-        local drw_parts = {}
-        for i = 1, G.check.draw.checkpoints do
-            local cp = G.check.draw.checkpoint_list[i]
-            local name = (cp.label or "?"):match("^([^:]+)") or "?"
-            table.insert(drw_parts, name .. "=" .. string.format("%.2f", 1000*(cp.average or 0)))
-        end
-        tel("PERF_SNAPSHOT", {
-            fps = fps,
-            gc_kb = gc_kb,
+    -- Emit a perf snapshot every PERF_REPORT_INTERVAL seconds. Basic frame
+    -- stats are ALWAYS on (fps, avg/max frame ms in the window, heap KB);
+    -- per-checkpoint trace averages are added when perf_mode is enabled
+    -- (G.check exists; each checkpoint label encodes KB-since-last).
+    if now - TEL.perf_window_start >= PERF_REPORT_INTERVAL then
+        local snap = {
+            fps = love.timer.getFPS(),
+            gc_kb = math.floor(collectgarbage("count")),
             state = get_state_name(G.STATE),
-            upd = table.concat(upd_parts, ","),
-            drw = table.concat(drw_parts, ","),
-        })
+            dt_avg_ms = string.format("%.2f", 1000 * TEL.frame_dt_sum / math.max(TEL.frame_count, 1)),
+            dt_max_ms = string.format("%.2f", 1000 * TEL.frame_dt_max),
+        }
+        if G.SETTINGS and G.SETTINGS.perf_mode and G.check then
+            local upd_parts = {}
+            for i = 1, G.check.update.checkpoints do
+                local cp = G.check.update.checkpoint_list[i]
+                -- strip the KB suffix from the label ("move: 12" -> "move")
+                local name = (cp.label or "?"):match("^([^:]+)") or "?"
+                table.insert(upd_parts, name .. "=" .. string.format("%.2f", 1000*(cp.average or 0)))
+            end
+            local drw_parts = {}
+            for i = 1, G.check.draw.checkpoints do
+                local cp = G.check.draw.checkpoint_list[i]
+                local name = (cp.label or "?"):match("^([^:]+)") or "?"
+                table.insert(drw_parts, name .. "=" .. string.format("%.2f", 1000*(cp.average or 0)))
+            end
+            snap.upd = table.concat(upd_parts, ",")
+            snap.drw = table.concat(drw_parts, ",")
+        end
+        tel("PERF_SNAPSHOT", snap)
+        TEL.frame_count = 0
+        TEL.frame_dt_sum = 0
+        TEL.frame_dt_max = 0
         TEL.perf_window_start = now
+    end
+
+    -- flush the file buffer on its own cadence
+    if now - last_flush >= FLUSH_INTERVAL then
+        last_flush = now
+        local ok = pcall(flush)
+        if not ok and not TEL.flush_warned then
+            TEL.flush_warned = true
+            print("[TEL] FLUSH_FAILED telemetry.log writes disabled?")
+        end
     end
 
     -- Log state changes
@@ -189,9 +247,17 @@ love.errorhandler = function(msg)
         round = G and G.GAME and G.GAME.round or 0,
         error = tostring(msg):sub(1, 200):gsub("\n", " | ")
     })
+    pcall(flush)  -- dying words must reach the file
     if _original_errorhandler then
         return _original_errorhandler(msg)
     end
+end
+
+-- flush on app-background too: Android may kill the process while paused
+local _original_tel_focus = love.focus
+function love.focus(focused)
+    if not focused then pcall(flush) end
+    if _original_tel_focus then return _original_tel_focus(focused) end
 end
 
 -- Hook save_run to log saves

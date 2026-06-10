@@ -121,6 +121,19 @@ save-logs:
 tel:
     adb logcat -s SDL/APP:I | grep --line-buffered TEL
 
+# Pull the persistent telemetry log from the device (no live observer needed —
+# the app appends events + PERF_SNAPSHOT frame stats to telemetry.log in its
+# save dir, flushed every 5s and on crash/background, rotated at 1MB)
+perf-pull:
+    @mkdir -p build/telemetry
+    adb exec-out "run-as systems.shorty.lmm cat files/save/game/telemetry.log" > build/telemetry/telemetry.log 2>/dev/null || echo "no telemetry.log on device yet"
+    -adb exec-out "run-as systems.shorty.lmm cat files/save/game/telemetry.log.1" > build/telemetry/telemetry.log.1 2>/dev/null
+    @echo "pulled to build/telemetry/ — lines: $(wc -l < build/telemetry/telemetry.log)"
+
+# Summarize pulled telemetry (fps/frame-time per state, crashes, session list)
+perf-summary:
+    @awk '$3=="PERF_SNAPSHOT" {for(i=4;i<=NF;i++){split($i,a,"="); v[a[1]]=a[2]}; n[v["state"]]++; fps[v["state"]]+=v["fps"]; dtm[v["state"]]=(v["dt_max_ms"]>dtm[v["state"]])?v["dt_max_ms"]:dtm[v["state"]]} $3=="CRASH" {print "CRASH:", $0} END {printf "%-22s %6s %8s %10s\n","state","snaps","avg_fps","worst_ms"; for(s in n) printf "%-22s %6d %8.1f %10.1f\n", s, n[s], fps[s]/n[s], dtm[s]}' build/telemetry/telemetry.log
+
 # Watch telemetry from a specific device (pass serial)
 tel-device serial:
     adb -s {{serial}} logcat -s SDL/APP:I | grep --line-buffered TEL
