@@ -27,7 +27,7 @@ targets are **headroom, battery, scoring throughput, and GC-spike avoidance**
 | CARD_CALC_COUNTS incremental counter + plain time format | talisman.lua:741/745 |
 | Scoring context-table hoist | `OTHER_KEY_HOISTED`/`CTX_TABLE_HOISTED` |
 | DARK_EDITION sin dedup + EDITION base cache | game.lua:2668-76 |
-| `FPS_CAP = 60` on Android | globals.lua:67 |
+| ~~`FPS_CAP = 60` on Android~~ — **was never true** (hunter error, like the remove_nils entry): main.lua defaults G.FPS_CAP to 500 and nothing set it; device telemetry showed 240 fps at menus. Fixed 2026-06-10: cap at panel refresh rate | `FPS_CAP_DISPLAY` (globals.lua Android block) |
 | CRT uniform sends gated on `crt>0 or bloom>1` | game.lua:3163 |
 | HTTP channel pop gated on `F_HTTP_SCORES` | game.lua:2649 |
 | hand chip/mult double `update_text` dedup | `apply_hand_update_text_dedup` |

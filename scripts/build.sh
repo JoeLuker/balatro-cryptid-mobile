@@ -1538,6 +1538,11 @@ apply_android_settings_fix() {
         self.F_DISCORD = false\
         self.F_CRASH_REPORTS = false\
         self.F_RUMBLE = false\
+        -- FPS_CAP_DISPLAY: the run loop defaults G.FPS_CAP to 500 and vsync\
+        -- does not engage on this device — light scenes burned 240 fps on a\
+        -- 120 Hz panel (pure battery drain). Cap at the panel refresh rate.\
+        local _, _, _wflags = love.window.getMode()\
+        self.FPS_CAP = (_wflags and _wflags.refreshrate and _wflags.refreshrate > 0) and _wflags.refreshrate or 120\
     end
     }' "$globals_file"
 
