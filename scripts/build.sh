@@ -903,6 +903,17 @@ apply_tap_description_persist() {
     # Clear the flag in the same breath. (Found by test/controller/fuzz.lua;
     # minimal repro in test/controller/min-repro.lua.)
     sed -i 's|if self.dragging.prev_target == self.hovering.target then self.hovering.target:stop_hover();self.hovering.target = nil end|if self.dragging.prev_target == self.hovering.target then self.hovering.target.states.hover.is = false; self.hovering.target:stop_hover();self.hovering.target = nil end -- DRAG_RELEASE_UNHOVER|' "$f"
+    # released_on dispatch liveness guard: vanilla only sets released_on.handled
+    # = false in the branch that assigns a valid target, but Node:remove nils
+    # the controller's released_on.target when that node is destroyed (its own
+    # cleanup contract) without setting handled — anything that removes nodes
+    # between assignment and dispatch (clicked:click(), drag targets being
+    # destroyed at drag end — sticky-fingers Pull creates temp drag-target
+    # nodes per drag in the booster screen) leaves handled=false with a nil
+    # target and the dispatch crashes (seen on device: controller.lua:444 in
+    # SMODS_BOOSTER_OPENED). A dead release target means there is nothing to
+    # dispatch to; skip it.
+    sed -i 's|        self.released_on.target:release(self.dragging.prev_target)|        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) end -- RELEASED_ON_NIL_GUARD|' "$f"
     if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f"; then
         log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover applied"
     else

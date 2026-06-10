@@ -229,4 +229,19 @@ test('touch_env keeps DRAG_SELECT_ACTIVATE armed when HID.touch is stuck-false',
     w.touch_up()
 end)
 
+test('release dispatch tolerates the released-on node dying before dispatch (RELEASED_ON_NIL_GUARD)', function()
+    local w = scene()
+    -- The booster-screen crash: released_on.handled=false is only ever set
+    -- alongside a valid target, but Node:remove nils the controller's
+    -- released_on.target when that node is destroyed (temp drag-targets from
+    -- sticky-fingers Pull die at drag end). Forge that exact state and step.
+    w.touch_down(2.7, 9); w.frames(20)
+    w.touch_up(); w.frames(1)
+    w.ctrl.dragging.prev_target = w.A
+    w.ctrl.released_on.handled = false
+    w.ctrl.released_on.target = nil
+    w.frames(1)             -- pre-guard: attempt to index field 'target' (nil)
+    check(w.ctrl.released_on.handled, 'dispatch must mark handled even when the target died')
+end)
+
 H.finish()
