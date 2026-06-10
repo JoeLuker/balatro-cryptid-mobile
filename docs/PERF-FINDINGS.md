@@ -163,4 +163,9 @@ there; use the selection metric or a targeted micro-bench.
     `tel()` fires at 0.45 calls/s (132 events over 296s in a real session) —
     two orders of magnitude below frame rate; allocation and concat cost are
     invisible at this rate.
-    deploy-push asset stripping (deploy-time only; needs a nativefs asset-load audit).
+    ~~deploy-push asset stripping~~ — **DONE 2026-06-10** (`strip_en_us_assets`
+    in build.sh): 7 non-English fonts + non-en locale files from 3 dirs +
+    gamecontrollerdb.txt stripped before zip. game.love 81 MB → 47 MB (−34 MB
+    compressed; 64 MB freed uncompressed). All removals safe: font loader guards
+    with getInfo, SMODS locale loading is by exact name with no dir scan,
+    loadGamepadMappings returns false on missing file without error.

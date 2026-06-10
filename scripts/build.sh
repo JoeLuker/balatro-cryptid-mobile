@@ -195,6 +195,76 @@ patch_mods_dir() {
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
 }
 
+# Strip assets unused in an en-us Android build.
+# Saves ~60 MB from game.love by removing non-English fonts and locale files.
+# All removals are safe: game.lua's font loader guards with love.filesystem.getInfo
+# (missing = skipped silently), SMODS locale loading is by exact name (no dir scan),
+# and loadGamepadMappings returns false on missing file without error.
+strip_en_us_assets() {
+    local game_dir="$1"
+    local saved=0
+
+    # Fonts: only m6x11plus.ttf is used for en-us. All others are CJK / script fonts
+    # for languages this build never selects. GoNotoCurrent/CJKCore are 'all1'/'all2'
+    # omit=true entries — no language selects them; font slots 8/9 go unreferenced.
+    local fonts_dir="$game_dir/resources/fonts"
+    local strip_fonts=(
+        "NotoSansSC-Bold.ttf"   # zh_CN  — 11 MB
+        "NotoSansTC-Bold.ttf"   # zh_TW  —  7 MB
+        "NotoSansKR-Bold.ttf"   # ko     —  6 MB
+        "NotoSansJP-Bold.ttf"   # ja     —  6 MB
+        "NotoSans-Bold.ttf"     # ru     —  1 MB
+        "GoNotoCurrent-Bold.ttf" # all1 omit=true — 14 MB
+        "GoNotoCJKCore.ttf"     # all2 omit=true — 18 MB
+    )
+    for f in "${strip_fonts[@]}"; do
+        local path="$fonts_dir/$f"
+        if [[ -f "$path" ]]; then
+            local sz
+            sz=$(du -k "$path" | cut -f1)
+            saved=$((saved + sz))
+            rm "$path"
+        fi
+    done
+
+    # Locale files: strip all non-English from every localization/ directory.
+    # Keep en-us.lua and default.lua (SMODS loads both by name; others are never read).
+    local loc_dirs=(
+        "$game_dir/localization"
+        "$game_dir/Mods/Cryptid/localization"
+        "$game_dir/Mods/Talisman/localization"
+    )
+    for dir in "${loc_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            for f in "$dir"/*.lua "$dir"/*.json; do
+                [[ -f "$f" ]] || continue
+                local base
+                base="$(basename "$f")"
+                # Keep en-us.lua and default.lua; strip everything else
+                if [[ "$base" != "en-us.lua" && "$base" != "default.lua" && \
+                      "$base" != "en-us.json" && "$base" != "default.json" ]]; then
+                    local sz
+                    sz=$(du -k "$f" | cut -f1)
+                    saved=$((saved + sz))
+                    rm "$f"
+                fi
+            done
+        fi
+    done
+
+    # Gamepad DB: loadGamepadMappings returns false on missing file — no error.
+    # Touch-only Android never uses gamepad mappings.
+    local db="$game_dir/resources/gamecontrollerdb.txt"
+    if [[ -f "$db" ]]; then
+        local sz
+        sz=$(du -k "$db" | cut -f1)
+        saved=$((saved + sz))
+        rm "$db"
+    fi
+
+    log_success "Asset strip complete — freed ~$((saved / 1024)) MB from game.love"
+}
+
 # Build the APK
 build_apk() {
     log_info "Building APK..."
@@ -347,6 +417,14 @@ function love.conf(t)
     t.window.minheight = 100
 end
 EOF
+
+    # Strip assets that are never used in an en-us Android build.
+    # Fonts: game.lua loads all fonts unconditionally via love.filesystem.getInfo guard —
+    # missing files are silently skipped. Only m6x11plus.ttf is needed for en-us.
+    # Locales: SMODS.handle_loc_file loads by exact name (en-us.lua + default.lua);
+    # no directory scan — missing locale files are silently skipped.
+    # gamecontrollerdb.txt: loadGamepadMappings returns false on missing file, no error.
+    strip_en_us_assets "$game_dir"
 
     # Create game.love ZIP archive
     log_info "Creating game.love archive..."
