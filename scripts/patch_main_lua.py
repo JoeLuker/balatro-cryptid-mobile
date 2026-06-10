@@ -86,6 +86,10 @@ end
 -- On Android, override talisman_path to relative path for love.filesystem compatibility
 if love.system.getOS() == 'Android' and talisman_path ~= "" then
     talisman_path = "Mods/Talisman"
+    -- Ensure the save-dir directory exists so love.filesystem.write can create config.lua.
+    -- love.filesystem.write does not auto-create intermediate directories; without this the
+    -- write silently fails (pcall swallows the error) and settings reset on every boot.
+    love.filesystem.createDirectory(talisman_path)
 end
 
 if love.system.getOS() ~= 'Android' and not nativefs.getInfo(talisman_path) then"""
