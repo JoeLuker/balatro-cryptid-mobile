@@ -104,6 +104,10 @@ local function tel(event, data)
     parts[1] = TEL.session_id
     buf[#buf + 1] = os.time() .. " " .. table.concat(parts, " ")
 end
+-- Global hook so instrumentation injected into game files (e.g. RELEASED_ON_NIL_GUARD
+-- in controller.lua) can reach both sinks (logcat + telemetry.log).  Only set on
+-- Android; injected sites must guard: if ATLOG then ATLOG(...) else print(...) end
+_G.ATLOG = tel
 
 -- Session start
 tel("SESSION_START", {id = TEL.session_id, device = love.system.getOS()})
