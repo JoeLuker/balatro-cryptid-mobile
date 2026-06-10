@@ -137,7 +137,7 @@ end"""
 
     # 8. Fix nativefs.write calls (skip on Android since we can't write to APK assets)
     write_pattern = r"nativefs\.write\(talisman_path \.\. \"/config\.lua\", STR_PACK\(Talisman\.config_file\)\)"
-    write_replacement = """pcall(function() if love.system.getOS() ~= 'Android' then nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end end)"""
+    write_replacement = """pcall(function() if love.system.getOS() == 'Android' then love.filesystem.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) else nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end end)"""
     content = re.sub(write_pattern, write_replacement, content)
 
     # 10. Remove duplicate Talisman F_NO_COROUTINE block from main.lua.

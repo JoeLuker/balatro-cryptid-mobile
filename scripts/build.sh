@@ -177,6 +177,7 @@ patch_mods_dir() {
     local mods_dir="$1"   # absolute path to the Mods/ directory to patch
 
     apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
+    apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
     apply_shader_eof_newlines "$(dirname "$mods_dir")"
     apply_blur_shader_reorder "$mods_dir/Cryptid/assets/shaders/blur.fs"
     apply_glitch_shader_fix   "$mods_dir/Cryptid/assets/shaders/glitched.fs"
@@ -1002,7 +1003,7 @@ apply_tap_description_persist() {
     # target and the dispatch crashes (seen on device: controller.lua:444 in
     # SMODS_BOOSTER_OPENED). A dead release target means there is nothing to
     # dispatch to; skip it.
-    sed -i 's|        self.released_on.target:release(self.dragging.prev_target)|        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) end -- RELEASED_ON_NIL_GUARD|' "$f"
+    sed -i 's|        self.released_on.target:release(self.dragging.prev_target)|        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) else print("[TEL] G_REL_SKIP card=" .. tostring(self.dragging.prev_target and self.dragging.prev_target.config and self.dragging.prev_target.config.center and self.dragging.prev_target.config.center.key or "?") .. " state=" .. tostring(G.STATE)) end -- RELEASED_ON_NIL_GUARD|' "$f"
     if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f" && grep -q "TOUCH_PRESS_POS_SYNC" "$f"; then
         log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover + press-pos-sync applied"
     else
@@ -2393,6 +2394,36 @@ PYEOF
         log_success "DynaText glyph cache applied (shared Text objects per font+char)"
     else
         log_warn "DynaText glyph cache did not apply — check engine/text.lua"
+    fi
+}
+
+# Talisman config persistence on Android. talisman.lua reads and writes its
+# settings via nativefs with a RELATIVE path (talisman_path = "Mods/Talisman"
+# on Android) — which resolves against the process CWD ("/"): the read fails
+# every boot (settings reset to defaults) and all three write sites fail
+# silently (changes never persist). Route both through love.filesystem on
+# Android: writes land in the writable save dir
+# (files/save/game/Mods/Talisman/config.lua) and reads check the save dir
+# BEFORE the embedded archive, so the user copy naturally shadows defaults.
+# Desktop keeps nativefs.
+apply_talisman_config_persist() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "talisman.lua not found, skipping config persistence fix"
+        return 0
+    fi
+    if grep -q "TAL_CONFIG_PERSIST" "$f"; then
+        log_info "Talisman config persistence already applied"
+        return 0
+    fi
+    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|local config_read_result = (love.system.getOS() == "Android" and love.filesystem.read or nativefs.read)(talisman_path.."/config.lua") -- TAL_CONFIG_PERSIST|' "$f"
+    sed -i 's|nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file))|do local _w = love.system.getOS() == "Android" and love.filesystem.write or nativefs.write; _w(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end -- TAL_CONFIG_PERSIST|g' "$f"
+    local n
+    n=$(grep -c "TAL_CONFIG_PERSIST" "$f")
+    if [[ "$n" -ge 4 ]]; then
+        log_success "Talisman config persistence applied ($n sites -> love.filesystem on Android)"
+    else
+        log_warn "Talisman config persistence matched only $n/4 sites — check talisman.lua"
     fi
 }
 
