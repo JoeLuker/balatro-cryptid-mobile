@@ -890,8 +890,16 @@ apply_tap_description_persist() {
     # click threshold is not a reorder; skip the drag-release path so its
     # description persists. Real drags (travel >= MIN_CLICK_DIST) still reorder.
     sed -i 's|            elseif self.dragging.prev_target then |            elseif self.dragging.prev_target and not ((self.HID.touch or self.HID.touch_env) and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_NODRAG |' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f"; then
-        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env applied"
+    # drag-release unhover: the released_on path nils hovering.target after
+    # stop_hover(), but stop_hover only removes the popup — it never clears
+    # states.hover.is. The card is orphaned with hover.is stuck true, and its
+    # 3D tilt stays anchored to the live cursor forever (THE warp). On desktop
+    # the next mouse-over re-acquires and heals it; on touch nothing ever does.
+    # Clear the flag in the same breath. (Found by test/controller/fuzz.lua;
+    # minimal repro in test/controller/min-repro.lua.)
+    sed -i 's|if self.dragging.prev_target == self.hovering.target then self.hovering.target:stop_hover();self.hovering.target = nil end|if self.dragging.prev_target == self.hovering.target then self.hovering.target.states.hover.is = false; self.hovering.target:stop_hover();self.hovering.target = nil end -- DRAG_RELEASE_UNHOVER|' "$f"
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f"; then
+        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover applied"
     else
         log_warn "Tap-description fix did not fully match — check controller.lua"
     fi
