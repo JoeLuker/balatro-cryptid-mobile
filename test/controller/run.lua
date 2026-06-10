@@ -261,8 +261,10 @@ test('press with a late position teleport targets the press coords, not the stal
         'drag-select must arm from the press coordinates (empty felt), not the stale cursor position')
     w.mx, w.my = 8.0, 5.0
     w.frame()
-    w.touch_move(2.0, 8.5, 6)
-    check(w.A.highlighted or w.B.highlighted, 'sweep after late-teleport press must still select')
+    -- sweep onto B (A is already highlighted from the tap; ending on A would
+    -- correctly enter deselect mode — that's the feature, not the bug)
+    w.touch_move(4.7, 9, 6)
+    check(w.B.highlighted, 'sweep after late-teleport press must still select')
     w.touch_up()
 end)
 
