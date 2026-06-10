@@ -35,6 +35,9 @@ targets are **headroom, battery, scoring throughput, and GC-spike avoidance**
 | `localize('k_lvl')` cache | `apply_lvl_prefix_cache` |
 | shader_time per-card cache | 98846f8 + ARGS guard simplify |
 | enh_cache metatable hoist, MOVEABLES ipairs, exp_times cache | 0c01843 |
+| align_cards 6 sort closures → named function | `SORT_CLOSURE_HOISTED` (0.72 KB/1kf) |
+| juice_up rotation table alloc → direct pick | `JUICE_ROT_HOISTED` (~0.3 µB/call) |
+| LONG_DT logcat write rate-limited to once/5s | `LONG_DT_RATELIMITED` |
 
 ## Reverted — do not reapply
 
@@ -54,30 +57,19 @@ targets are **headroom, battery, scoring throughput, and GC-spike avoidance**
 
 ## Tier 1 — safe mechanical wins (GC pressure; measurable locally)
 
-1. **align_cards sort-closure hoist** — `cardarea.lua:504-600`: 7 sort
-   closures allocated per CardArea per frame (5 byte-identical pinned-sort
-   comparators); ~420 closures/sec across live areas. Hoist to module-level
-   named functions. Risk ~zero. Measure: `collectgarbage('count')` delta per
-   frame in smoke.
-2. **parse_highlighted `update_hand_text` option-table hoists** —
+1. **parse_highlighted `update_hand_text` option-table hoists** —
    `cardarea.lua:201-227`: three distinct first-arg literal forms allocated
    per selection change. Hoist all three as constants (verify callee doesn't
-   mutate — it doesn't).
-3. **parse_highlighted joker-scan cache** — `cardarea.lua:190-196`: rebuilds
+   mutate — it doesn't; confirmed `update_hand_text` reads `config.immediate`,
+   `.delay`, `.nopulse` only).
+2. **parse_highlighted joker-scan cache** — `cardarea.lua:190-196`: rebuilds
    the joker-card list + `Cryptid.table_merge` fresh copy on every selection
    change. Cache; invalidate on G.jokers emplace/remove.
-4. **juice_up rotation literal** — `moveable.lua:260`:
-   `pseudorandom_element({0.6*a, -0.6*a})` per juice call (35+ card.lua call
-   sites, fires constantly during scoring). Replace with direct two-way pick.
-   Cosmetic RNG only.
-5. **card_eval_status_text scratch tables** — `common_events.lua:951/966-994`:
+3. **card_eval_status_text scratch tables** — `common_events.lua:951/966-994`:
    per-trigger `config`/`vars` literals → module scratch tables.
-6. **mipmaps=false at texture_scaling=1** — `game.lua:1128/1138`: 1x atlases
+4. **mipmaps=false at texture_scaling=1** — `game.lua:1128/1138`: 1x atlases
    under `nearest` filter are never minified; mip chains are pure VRAM + boot
    upload waste. (dpiscale already follows texture_scaling.)
-7. **LONG DT print rate-limit** — `game.lua:2639`: synchronous logcat write
-   fires per slow frame exactly when the CPU is already hurting. Limit to
-   once/5s.
 
 ## Tier 2 — high value, needs an audit + measurement first
 
