@@ -52,6 +52,12 @@ test-controller:
 smoke:
     test/smoke.sh
 
+# Telemetry gate test — boots build/game twice (toggles off, then on) and
+# asserts zero telemetry output/files by default, live output when enabled.
+# Needs nix-shell (love + xvfb-run), same as smoke. ~4 min.
+telgate:
+    test/telemetry-gate.sh
+
 # Headless Android-emulator test of the BUILT APK (KVM + ARM translation):
 # installs build/apk/*.apk, mirrors the phone deploy, polls screenshots until
 # a menu-like frame (PASS) or crash-screen signature (FAIL). ~5-10 min.
@@ -60,7 +66,7 @@ emu-test:
     nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
 
 # All local tests (run before deploying to the phone)
-test: test-controller smoke
+test: test-controller smoke telgate
 
 # Push only mod files (no APK reinstall)
 push-mods:
@@ -123,7 +129,8 @@ tel:
 
 # Pull the persistent telemetry log from the device (no live observer needed —
 # the app appends events + PERF_SNAPSHOT frame stats to telemetry.log in its
-# save dir, flushed every 5s and on crash/background, rotated at 1MB)
+# save dir, flushed every 5s and on crash/background, rotated at 1MB).
+# Requires Settings > Game > Debug Logging ON (default OFF — shareable APK).
 perf-pull:
     @mkdir -p build/telemetry
     adb exec-out "run-as systems.shorty.lmm cat files/save/game/telemetry.log" > build/telemetry/telemetry.log 2>/dev/null || echo "no telemetry.log on device yet"
@@ -133,6 +140,7 @@ perf-pull:
 # Run the phone-home telemetry receiver in the foreground (the app POSTs its
 # flushed telemetry here over the tailnet — lands in ~/balatro-telemetry/phone.log
 # the moment it happens, no adb needed). --print-unit emits a systemd user unit.
+# Requires Settings > Game > Phone Home Telemetry ON (default OFF).
 tel-home:
     python3 scripts/telemetry-home.py
 

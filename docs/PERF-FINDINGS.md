@@ -37,7 +37,7 @@ targets are **headroom, battery, scoring throughput, and GC-spike avoidance**
 | enh_cache metatable hoist, MOVEABLES ipairs, exp_times cache | 0c01843 |
 | align_cards 6 sort closures → named function | `SORT_CLOSURE_HOISTED` (0.72 KB/1kf) |
 | juice_up rotation table alloc → direct pick | `JUICE_ROT_HOISTED` (~0.3 µB/call) |
-| LONG_DT logcat write rate-limited to once/5s | `LONG_DT_RATELIMITED` |
+| LONG_DT logcat print gated behind the Debug Logging setting — **correction 2026-06-10**: the rate-limit previously claimed here was never actually in the tree (hunter error; no `LONG_DT_RATELIMITED` marker existed anywhere). Realized instead as a `G.SETTINGS.telemetry_log` gate when telemetry went default-off | `apply_telemetry_toggles` |
 | parse_highlighted: dead double hand-evaluation removed + option tables hoisted + joker-merge scratch | `PARSE_HL_LEAN` (307.9→165.9 KB/selection-cycle, −46%; the dead `get_poker_hand_info` call was a full O(hand²) eval discarded every call) |
 | card_eval_status_text: config table → local, 16 dead `.type` writes removed | `CES_CONFIG_ELIDED` (below noise floor of the 286 MB-gross scoring window; see refutation note below) |
 

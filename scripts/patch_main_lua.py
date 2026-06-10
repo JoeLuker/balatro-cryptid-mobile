@@ -371,6 +371,9 @@ if love.system.getOS() == 'Android' then
         local chunk = love.filesystem.load('android-telemetry.lua')
         if chunk then chunk() end
     end)
+    -- deliberately ungated by the Debug Logging setting: this is the one
+    -- last-resort diagnostic for a BROKEN telemetry build (the gate lives in
+    -- the chunk that just failed to load); it never fires on a healthy build
     if not tel_ok then print('[TEL] LOAD_FAILED error=' .. tostring(tel_err)) end
 end
 """

@@ -380,6 +380,7 @@ EOF
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
+    apply_telemetry_toggles "$game_dir/functions/UI_definitions.lua" "$game_dir/game.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
     apply_card_to_big_elim "$game_dir/card.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
@@ -844,6 +845,40 @@ apply_debug_overlay() {
         log_success "Debug overlay added (Settings > Game > Debug Overlay)"
     else
         log_warn "Debug overlay did not fully apply — check anchors"
+    fi
+}
+
+# Telemetry & debug logging are OFF by default so the APK is shareable — on a
+# phone that never flips the toggles the game prints nothing, writes no
+# telemetry.log, and never starts the phone-home thread. Two toggles in
+# Settings > Game (persisted in settings.jkr like every other setting):
+#   "Debug Logging"        -> G.SETTINGS.telemetry_log
+#   "Phone Home Telemetry" -> G.SETTINGS.telemetry_home
+# patches/android-telemetry.lua reads both live each frame. This applier adds
+# the toggles (anchored on the Slide-to-select toggle, so it must run after
+# apply_drag_select) and gates the vanilla LONG DT logcat print behind
+# telemetry_log — the PERF-FINDINGS LONG_DT entry, realized as a gate.
+apply_telemetry_toggles() {
+    local ui_file="$1"
+    local game_lua="$2"
+    if [[ ! -f "$ui_file" || ! -f "$game_lua" ]]; then
+        log_warn "UI_definitions.lua / game.lua not found, skipping telemetry toggles"
+        return 0
+    fi
+    if ! grep -q "telemetry_log" "$ui_file"; then
+        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),|" "$ui_file"
+    fi
+    if ! grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
+        sed -i "s|    if self.real_dt > 0.05 then print('LONG DT|    if G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"
+    fi
+    if grep -q "telemetry_home" "$ui_file" && grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
+        log_success "Telemetry toggles added (Settings > Game — both default OFF; LONG DT print gated)"
+    else
+        # hard failure: a silent anchor miss here ships an APK whose telemetry
+        # can never be enabled (or whose LONG DT print is ungated) — the whole
+        # point of the gating is consent, so a broken gate fails the build
+        log_error "Telemetry toggles did not fully apply — check anchors"
+        exit 1
     fi
 }
 

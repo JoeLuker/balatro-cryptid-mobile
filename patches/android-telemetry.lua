@@ -1,5 +1,21 @@
 -- Android Telemetry for Balatro Cryptid Mobile
--- Every event goes to TWO sinks:
+-- OFF BY DEFAULT — the APK is shareable; on a stranger's phone this file
+-- installs its hooks but emits nothing and writes nothing. Two in-game
+-- settings (Settings > Game), persisted in settings.jkr and re-read every
+-- frame so toggling applies immediately, no restart:
+--   G.SETTINGS.telemetry_log  ("Debug Logging")        — logcat prints +
+--       telemetry.log file sink (+ ungates the vanilla LONG DT print)
+--   G.SETTINGS.telemetry_home ("Phone Home Telemetry") — POST flushed chunks
+--       to the dev machine over the tailnet (independent of the file sink)
+--
+-- Boot order: this chunk runs at the end of main.lua, BEFORE love.load()
+-- merges settings.jkr into G.SETTINGS — the gates can't be read yet. Events
+-- that fire during load (SESSION_START, HOOKS_LOADED) buffer in memory
+-- (bounded at 64) and are replayed into the sinks on the first frame if a
+-- sink is enabled, dropped otherwise. A crash before the first frame is the
+-- one case that logs nothing (LÖVE's own error output still reaches logcat).
+--
+-- When enabled, every event goes to TWO sinks:
 --   1. logcat via print() (LÖVE routes to SDL/APP) — live tailing
 --   2. telemetry.log in the save dir — persistent, pullable any time with
 --      `just perf-pull` (adb run-as). Survives logcat's ring buffer; no
@@ -7,7 +23,8 @@
 -- File lines are "epoch session event k=v ..." — grep/awk friendly.
 -- Buffered: lines accumulate in memory and flush every FLUSH_INTERVAL (or
 -- immediately on crash / app-background, so dying words are never lost).
--- Rotated at boot: >1 MB moves to telemetry.log.1 (one generation kept).
+-- Rotated when the file sink first turns on: >1 MB moves to telemetry.log.1
+-- (one generation kept).
 
 if love.system.getOS() ~= 'Android' then return end
 
@@ -32,17 +49,12 @@ local FLUSH_INTERVAL = 5
 local buf = {}
 local last_flush = 0
 
--- boot-time rotation (love.filesystem has no rename; one read/write at boot)
-do
-    local info = love.filesystem.getInfo(LOG_FILE)
-    if info and info.size and info.size > LOG_CAP_BYTES then
-        local old = love.filesystem.read(LOG_FILE)
-        if old then
-            love.filesystem.write(LOG_FILE .. ".1", old)
-            love.filesystem.remove(LOG_FILE)
-        end
-    end
-end
+-- gating: nil until the first frame resolves them from G.SETTINGS (booleans
+-- after; both are always set together in apply_gates)
+local log_on, home_on = nil, nil
+local boot_buf = {}     -- pre-settings events: {print_line, file_line} pairs
+local rotated = false   -- rotation runs once, when the file sink first opens
+local home_thread
 
 -- phone-home: a background thread mirrors every flushed chunk to the dev
 -- machine over the tailnet (best-effort — the on-device file is canonical).
@@ -73,8 +85,9 @@ while true do
     end
 end
 ]]
-local home_thread
-if not os.getenv('BALATRO_FAKE_ANDROID') then
+
+local function start_sender()
+    if home_thread or os.getenv('BALATRO_FAKE_ANDROID') then return end
     local ok, thr = pcall(love.thread.newThread, TEL_SENDER)
     if ok and thr then
         local started = pcall(function() thr:start() end)
@@ -85,29 +98,101 @@ end
 local function flush()
     if #buf == 0 then return end
     local chunk = table.concat(buf, "\n") .. "\n"
-    love.filesystem.append(LOG_FILE, chunk)
-    if home_thread then
+    if log_on then
+        -- love.filesystem.append reports failure by RETURN VALUE, not by
+        -- raising — a pcall around flush() never sees a failed write, so the
+        -- one-shot warning must live here (and being inside the log_on branch
+        -- keeps the logcat print mapped to the Debug Logging toggle)
+        local ok_w = love.filesystem.append(LOG_FILE, chunk)
+        if not ok_w and not TEL.flush_warned then
+            TEL.flush_warned = true
+            print("[TEL] FLUSH_FAILED telemetry.log writes failing — file sink lost")
+        end
+    end
+    if home_on and home_thread then
         local ch = love.thread.getChannel('tel_home')
         if ch:getCount() < 20 then ch:push(chunk) end
     end
     for i = #buf, 1, -1 do buf[i] = nil end
 end
 
+local function apply_gates(want_log, want_home)
+    -- drain under the OLD gates on ANY change while active: lines buffered
+    -- under one consent state must never be delivered under another (e.g.
+    -- enabling phone-home must not ship lines captured while it was off, and
+    -- enabling the file sink must not write lines from a home-only window)
+    if (log_on or home_on) and (log_on ~= want_log or home_on ~= want_home) then
+        pcall(flush)
+    end
+    -- the sender thread, once started, stays for the process lifetime and
+    -- idles on an empty channel while home is off — flush() only pushes when
+    -- home_on. (Quitting and restarting it on toggle edges invites a race
+    -- where a stale '__quit__' kills the replacement thread.)
+    if want_log and not rotated then
+        rotated = true
+        -- deferred boot rotation (love.filesystem has no rename; one read/write)
+        local info = love.filesystem.getInfo(LOG_FILE)
+        if info and info.size and info.size > LOG_CAP_BYTES then
+            local old = love.filesystem.read(LOG_FILE)
+            if old then
+                love.filesystem.write(LOG_FILE .. ".1", old)
+                love.filesystem.remove(LOG_FILE)
+            end
+        end
+    end
+    if want_home then start_sender() end
+    if (want_log or want_home) and not (log_on or home_on) then
+        -- activation edge: start the reporting windows now, not at t=0
+        local now = (G and G.TIMERS and G.TIMERS.UPTIME) or 0
+        TEL.exp_recompute_window_start = now
+        TEL.perf_window_start = now
+        TEL.exp_recompute_count = 0
+        TEL.frame_count, TEL.frame_dt_sum, TEL.frame_dt_max = 0, 0, 0
+        last_flush = now
+        -- resync the STATE baseline: a re-enable mid-game would otherwise
+        -- emit a transition whose 'from' is the stale pre-disable state.
+        -- (Gesture baselines are left alone — their events carry no 'from',
+        -- so a first event after re-enable is just a current-state dump.)
+        TEL.last_state = G and G.STATE
+        TEL.last_stage = G and G.STAGE
+    end
+    local first = (log_on == nil)
+    log_on, home_on = want_log, want_home
+    if first then
+        if (want_log or want_home) and boot_buf then
+            for i = 1, #boot_buf do
+                if log_on then print(boot_buf[i][1]) end
+                buf[#buf + 1] = boot_buf[i][2]
+            end
+        end
+        boot_buf = nil
+    end
+end
+
 local function tel(event, data)
+    if log_on == false and home_on == false then return end
     local parts = {"[TEL]", event}
     if data then
         for k, v in pairs(data) do
             table.insert(parts, k .. "=" .. tostring(v))
         end
     end
-    print(table.concat(parts, " "))
+    local pline = table.concat(parts, " ")
     parts[1] = TEL.session_id
-    buf[#buf + 1] = os.time() .. " " .. table.concat(parts, " ")
+    local fline = os.time() .. " " .. table.concat(parts, " ")
+    if log_on == nil then
+        if #boot_buf < 64 then boot_buf[#boot_buf + 1] = {pline, fline} end
+        return
+    end
+    if log_on then print(pline) end
+    buf[#buf + 1] = fline
 end
--- Global hook so instrumentation injected into game files (e.g. RELEASED_ON_NIL_GUARD
--- in controller.lua) can reach both sinks (logcat + telemetry.log).  Only set on
--- Android; injected sites must guard: if ATLOG then ATLOG(...) else print(...) end
-_G.ATLOG = tel
+
+-- Instrumentation injected into game files by build.sh (G_REL_SKIP in
+-- controller.lua) calls this global when present — defining it here routes
+-- those events through the same gates and sinks. On desktop the global stays
+-- nil and the call sites fall back to print().
+ATLOG = tel
 
 -- Session start
 tel("SESSION_START", {id = TEL.session_id, device = love.system.getOS()})
@@ -128,6 +213,20 @@ local STAGE_NAMES = {[1] = "MAIN_MENU", [2] = "RUN", [3] = "SANDBOX"}
 -- Hook Game:update to track state transitions and exp_recompute rate
 local _original_game_update = Game.update
 function Game:update(dt)
+    -- resolve/refresh the gates from settings before anything can emit this
+    -- frame. settings.jkr merges in start_up() (inside love.load), so the
+    -- first frame's read is already the persisted value; after that this is
+    -- two table reads per frame and the toggles apply live.
+    local s = self.SETTINGS
+    local want_log = not not (s and s.telemetry_log)
+    local want_home = not not (s and s.telemetry_home)
+    if want_log ~= log_on or want_home ~= home_on then
+        apply_gates(want_log, want_home)
+    end
+    if not (log_on or home_on) then
+        return _original_game_update(self, dt)
+    end
+
     local exp_dt_before = self._exp_dt
     local result = _original_game_update(self, dt)
 
@@ -193,14 +292,11 @@ function Game:update(dt)
         TEL.perf_window_start = now
     end
 
-    -- flush the file buffer on its own cadence
+    -- flush the file buffer on its own cadence (write failures are detected
+    -- and warned about inside flush(), where they actually surface)
     if now - last_flush >= FLUSH_INTERVAL then
         last_flush = now
-        local ok = pcall(flush)
-        if not ok and not TEL.flush_warned then
-            TEL.flush_warned = true
-            print("[TEL] FLUSH_FAILED telemetry.log writes disabled?")
-        end
+        pcall(flush)
     end
 
     -- gesture-debug: trace the description/drag chain as state TRANSITIONS
@@ -264,6 +360,8 @@ end
 -- gesture provenance: wrap the mutation sites the gesture system fights over
 -- and tag every call with its CALLER (file:line via debug.getinfo) — the
 -- transition events above say WHAT changed; these say WHO did it.
+-- Each wrapper checks the gates itself so the debug.getinfo provenance walk
+-- never runs while telemetry is off.
 local function src_at(level)
     local info = debug.getinfo(level, "Sl")
     if not info then return "?" end
@@ -282,7 +380,7 @@ end
 if Node and Node.stop_hover then
     local _sh = Node.stop_hover
     function Node:stop_hover(...)
-        if self.children and self.children.h_popup then
+        if (log_on or home_on) and self.children and self.children.h_popup then
             tel("G_STOPHOVER", {card = card_key_of(self), src = caller_src()})
         end
         return _sh(self, ...)
@@ -291,14 +389,14 @@ end
 if CardArea then
     local _add = CardArea.add_to_highlighted
     function CardArea:add_to_highlighted(card, silent, ...)
-        if self == G.hand then
+        if (log_on or home_on) and self == G.hand then
             tel("G_HL", {op = "add", card = card_key_of(card), src = caller_src(), n = #self.highlighted})
         end
         return _add(self, card, silent, ...)
     end
     local _rem = CardArea.remove_from_highlighted
     function CardArea:remove_from_highlighted(card, ...)
-        if self == G.hand then
+        if (log_on or home_on) and self == G.hand then
             tel("G_HL", {op = "rem", card = card_key_of(card), src = caller_src(), n = #self.highlighted})
         end
         return _rem(self, card, ...)
@@ -307,20 +405,24 @@ end
 if Controller and Controller.queue_L_cursor_press then
     local _qp = Controller.queue_L_cursor_press
     function Controller:queue_L_cursor_press(x, y, ...)
-        local mx, my = love.mouse.getPosition()
-        tel("G_PRESS", {
-            qx = string.format("%.0f", x or -1), qy = string.format("%.0f", y or -1),
-            mx = string.format("%.0f", mx or -1), my = string.format("%.0f", my or -1),
-            dpi = string.format("%.2f", (love.window.getDPIScale and love.window.getDPIScale()) or -1),
-            cl = (self.collision_list and #self.collision_list) or -1,
-        })
+        if log_on or home_on then
+            local mx, my = love.mouse.getPosition()
+            tel("G_PRESS", {
+                qx = string.format("%.0f", x or -1), qy = string.format("%.0f", y or -1),
+                mx = string.format("%.0f", mx or -1), my = string.format("%.0f", my or -1),
+                dpi = string.format("%.2f", (love.window.getDPIScale and love.window.getDPIScale()) or -1),
+                cl = (self.collision_list and #self.collision_list) or -1,
+            })
+        end
         return _qp(self, x, y, ...)
     end
 end
 if Card and Card.click then
     local _click = Card.click
     function Card:click(...)
-        tel("G_CLICK", {card = card_key_of(self), src = caller_src(), area = self.area and self.area.config and self.area.config.type or "?"})
+        if log_on or home_on then
+            tel("G_CLICK", {card = card_key_of(self), src = caller_src(), area = self.area and self.area.config and self.area.config.type or "?"})
+        end
         return _click(self, ...)
     end
 end
@@ -329,6 +431,7 @@ end
 local _original_start_run = Game.start_run
 function Game:start_run(args)
     TEL.run_start_time = os.time()
+    TEL.game_over_logged = nil  -- re-arm GAME_OVER logging for the new run
     local seed = args and args.seed or (G.GAME and G.GAME.pseudorandom and G.GAME.pseudorandom.seed)
     tel("RUN_START", {
         seed = seed or "unknown",
