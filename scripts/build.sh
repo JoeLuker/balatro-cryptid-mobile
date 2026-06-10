@@ -299,6 +299,9 @@ EOF
         "$game_dir/Mods/Cryptid/items/exotic.lua" \
         "$game_dir/Mods/Cryptid/items/m.lua"
     apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
+    apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
+    apply_hand_level_no_recalc "$game_dir/Mods/Steamodded/src/ui.lua"
+    apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -1691,6 +1694,163 @@ watch_logs() {
     log_info "Watching app logs (Ctrl+C to stop)..."
     adb logcat -c
     adb logcat | grep -E "SDL/APP|LOVE|SMODS|NATIVEFS"
+}
+
+# UI hot-path fix: remove the redundant update_text() call in hand_chip_UI_set and
+# hand_mult_UI_set. Both functions call e.config.object:update_text() explicitly
+# (lines 1940, 1956) and then immediately call G.FUNCS.text_super_juice(e, num),
+# which calls update_text() a SECOND time. The first call is wasted because the
+# scale hasn't been committed to the font layout yet and text_super_juice re-does
+# the work. Removing the two early calls cuts update_text() invocations in half
+# during the per-chip/mult scoring animation (~60-76 Hz * 2 calls = 120-152 saved
+# per second while scoring).
+apply_hand_update_text_dedup() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "button_callbacks.lua not found, skipping hand update_text dedup"
+        return 0
+    fi
+    if grep -q "HAND_UPDATE_TEXT_DEDUP" "$f"; then
+        log_info "Hand update_text dedup already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+# Remove the explicit update_text() call from hand_mult_UI_set (text_super_juice repeats it)
+old_mult = (
+    "    e.config.object.scale = scale_number(G.GAME.current_round.current_hand.mult, 0.9, 1000)\n"
+    "    e.config.object:update_text()\n"
+    "    local num = 0\n"
+)
+new_mult = (
+    "    e.config.object.scale = scale_number(G.GAME.current_round.current_hand.mult, 0.9, 1000)\n"
+    "    -- HAND_UPDATE_TEXT_DEDUP: removed early update_text(); text_super_juice calls it again\n"
+    "    local num = 0\n"
+)
+
+# Remove the explicit update_text() call from hand_chip_UI_set
+old_chip = (
+    "      e.config.object.scale = scale_number(G.GAME.current_round.current_hand.chips, 0.9, 1000)\n"
+    "      e.config.object:update_text()\n"
+    "      local num = 0\n"
+)
+new_chip = (
+    "      e.config.object.scale = scale_number(G.GAME.current_round.current_hand.chips, 0.9, 1000)\n"
+    "      -- HAND_UPDATE_TEXT_DEDUP: removed early update_text(); text_super_juice calls it again\n"
+    "      local num = 0\n"
+)
+
+if old_mult not in text:
+    print("ERROR: hand_mult_UI_set anchor not found", file=sys.stderr)
+    sys.exit(1)
+if old_chip not in text:
+    print("ERROR: hand_chip_UI_set anchor not found", file=sys.stderr)
+    sys.exit(1)
+
+text = text.replace(old_mult, new_mult, 1)
+text = text.replace(old_chip, new_chip, 1)
+open(path, 'w').write(text)
+print("Hand update_text dedup applied")
+PYEOF
+    if grep -q "HAND_UPDATE_TEXT_DEDUP" "$f"; then
+        log_success "Hand update_text dedup applied (removed 2 redundant update_text() calls per scoring tick)"
+    else
+        log_warn "Hand update_text dedup did not apply — check button_callbacks.lua"
+    fi
+}
+
+# UI hot-path fix: add no_recalc = true to the hand_level T-element in SMODS GUI.
+# Without it, UIElement:update_text() fires a full UIBox:recalculate() whenever the
+# hand_level string length changes (e.g. "Lv 1" -> "Lv 10"). recalculate() walks the
+# entire HUD tree — all children's calculate_xywh, set_wh, set_alignments, and
+# initialize_VT — on every level-up display update. With no_recalc, the string is
+# updated in-place and the layout walk is suppressed (safe because the hand_level
+# column uses a fixed-width parent container).
+apply_hand_level_no_recalc() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Steamodded src/ui.lua not found, skipping hand_level no_recalc"
+        return 0
+    fi
+    if grep -q "HAND_LEVEL_NO_RECALC" "$f"; then
+        log_info "hand_level no_recalc already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "{n=G.UIT.T, config={ref_table = G.GAME.current_round.current_hand, ref_value='hand_level', scale = scale, colour = G.C.UI.TEXT_LIGHT, id = 'hand_level', shadow = true}},"
+new = "{n=G.UIT.T, config={ref_table = G.GAME.current_round.current_hand, ref_value='hand_level', scale = scale, colour = G.C.UI.TEXT_LIGHT, id = 'hand_level', shadow = true, no_recalc = true}}, -- HAND_LEVEL_NO_RECALC"
+
+if old not in text:
+    print("ERROR: hand_level T-element anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("hand_level no_recalc applied")
+PYEOF
+    if grep -q "HAND_LEVEL_NO_RECALC" "$f"; then
+        log_success "hand_level no_recalc applied (suppresses full HUD recalculate on level-up display)"
+    else
+        log_warn "hand_level no_recalc did not apply — check Steamodded src/ui.lua"
+    fi
+}
+
+# UI hot-path fix: cache the localize('k_lvl') prefix string in update_hand_text.
+# The level update path in common_events.lua calls localize('k_lvl') twice on every
+# invocation where vals.level is set — once in the comparison guard and again when
+# assigning the new hand_level string. localize() itself is cheap (O(1) table lookup)
+# but the string concatenation (' '..localize('k_lvl')..tostring(vals.level)) produces
+# two short-lived strings that the GC must collect. Caching the prefix in a local
+# reduces this to one concatenation and zero repeated localize() calls per level update.
+apply_lvl_prefix_cache() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "common_events.lua not found, skipping lvl prefix cache"
+        return 0
+    fi
+    if grep -q "LVL_PREFIX_CACHED" "$f"; then
+        log_info "lvl prefix cache already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = (
+    "        if vals.level and G.GAME.current_round.current_hand.hand_level ~= ' '..localize('k_lvl')..tostring(vals.level) then\n"
+    "            if vals.level == '' then\n"
+    "                G.GAME.current_round.current_hand.hand_level = vals.level\n"
+    "            else\n"
+    "                G.GAME.current_round.current_hand.hand_level = ' '..localize('k_lvl')..tostring(vals.level)\n"
+)
+new = (
+    "        local _lvl_pfx = ' '..localize('k_lvl') -- LVL_PREFIX_CACHED\n"
+    "        if vals.level and G.GAME.current_round.current_hand.hand_level ~= _lvl_pfx..tostring(vals.level) then\n"
+    "            if vals.level == '' then\n"
+    "                G.GAME.current_round.current_hand.hand_level = vals.level\n"
+    "            else\n"
+    "                G.GAME.current_round.current_hand.hand_level = _lvl_pfx..tostring(vals.level)\n"
+)
+
+if old not in text:
+    print("ERROR: lvl prefix anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("lvl prefix cache applied")
+PYEOF
+    if grep -q "LVL_PREFIX_CACHED" "$f"; then
+        log_success "lvl prefix cache applied (1 localize() + 1 concat eliminated per hand-level update)"
+    else
+        log_warn "lvl prefix cache did not apply — check common_events.lua"
+    fi
 }
 
 # Clean build artifacts
