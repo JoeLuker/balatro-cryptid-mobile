@@ -2603,9 +2603,13 @@ apply_talisman_config_persist() {
     fi
     # 1. Ensure the save-dir directory exists before any read/write attempt.
     #    Inject createDirectory right before the config_read_result line.
-    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|if love.system.getOS() == "Android" then love.filesystem.createDirectory(talisman_path) end -- TAL_CONFIG_PERSIST\nlocal config_read_result = (love.system.getOS() == "Android" and love.filesystem.read or nativefs.read)(talisman_path.."/config.lua") -- TAL_CONFIG_PERSIST|' "$f"
+    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|if love.system.getOS() == "Android" then love.filesystem.createDirectory("Mods") love.filesystem.createDirectory(talisman_path) end -- TAL_CONFIG_PERSIST\nlocal config_read_result = (love.system.getOS() == "Android" and love.filesystem.read or nativefs.read)(talisman_path.."/config.lua") -- TAL_CONFIG_PERSIST|' "$f"
     # 2. Route all write sites through love.filesystem on Android.
     sed -i 's|nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file))|do local _w = love.system.getOS() == "Android" and love.filesystem.write or nativefs.write; _w(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end -- TAL_CONFIG_PERSIST|g' "$f"
+    # 2b. TAL_BREAKINF_CLAMP (same clamp as the main.lua layer — see
+    #     apply_android_smods_path_fix): a persisted break_infinity="" crash-loops
+    #     boot; this pack requires omeganum.
+    sed -i 's|Talisman.config_file = STR_UNPACK(config_read_result)|do local _ok, _cfg = pcall(STR_UNPACK, config_read_result) if _ok and type(_cfg) == "table" then Talisman.config_file = _cfg end end -- TAL_CFG_SAFE_UNPACK: a truncated config (process killed mid-write) must not crash boot\n    if Talisman.config_file.break_infinity ~= "omeganum" then Talisman.config_file.break_infinity = "omeganum" Talisman.config_file.score_opt_id = 2 end -- TAL_BREAKINF_CLAMP|' "$f"
     local n
     n=$(grep -c "TAL_CONFIG_PERSIST" "$f")
     if [[ "$n" -ge 4 ]]; then

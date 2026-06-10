@@ -18,7 +18,8 @@ def patch_main_lua(filepath):
     already_istouch = 'HID_ISTOUCH_FIX' in content
     already_istouch_release = 'HID_ISTOUCH_RELEASE_FIX' in content
     already_istouch_move = 'HID_ISTOUCH_MOVE_FIX' in content
-    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move:
+    already_breakinf = 'TAL_BREAKINF_CLAMP' in content
+    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_breakinf:
         print("Already patched")
         return
 
@@ -86,9 +87,11 @@ end
 -- On Android, override talisman_path to relative path for love.filesystem compatibility
 if love.system.getOS() == 'Android' and talisman_path ~= "" then
     talisman_path = "Mods/Talisman"
-    -- Ensure the save-dir directory exists so love.filesystem.write can create config.lua.
+    -- Ensure the save-dir directory tree exists so love.filesystem.write can create config.lua.
     -- love.filesystem.write does not auto-create intermediate directories; without this the
     -- write silently fails (pcall swallows the error) and settings reset on every boot.
+    -- createDirectory also does not recurse: create Mods/ first, then Mods/Talisman/.
+    love.filesystem.createDirectory("Mods")
     love.filesystem.createDirectory(talisman_path)
 end
 
@@ -117,6 +120,23 @@ else
     config_read_result = nativefs.read(talisman_path.."/config.lua")
 end"""
     content = re.sub(config_read_pattern, config_read_replacement, content)
+
+    # 5b. Harden the Talisman config unpack (TAL_CFG_SAFE_UNPACK + TAL_BREAKINF_CLAMP).
+    # The config file is user data and must not be able to crash boot:
+    # - a truncated file (process killed mid love.filesystem.write, which is
+    #   not atomic) makes STR_UNPACK throw -> safe-unpack keeps the defaults;
+    # - Talisman's score-type UI cycle persists break_infinity="" for its
+    #   "vanilla scoring" option, which makes the big-num loader try
+    #   "big-num/.lua", leaves Big nil, and crash-loops number_format at boot
+    #   (proven on-device 2026-06-10). This pack requires the omeganum
+    #   backend (Cryptid math assumes Big), so clamp anything else at read.
+    unpack_pattern = "    Talisman.config_file = STR_UNPACK(config_read_result)"
+    unpack_replacement = """    do local _ok, _cfg = pcall(STR_UNPACK, config_read_result) if _ok and type(_cfg) == "table" then Talisman.config_file = _cfg end end -- TAL_CFG_SAFE_UNPACK
+    if Talisman.config_file.break_infinity ~= "omeganum" then Talisman.config_file.break_infinity = "omeganum" Talisman.config_file.score_opt_id = 2 end -- TAL_BREAKINF_CLAMP"""
+    if unpack_pattern in content:
+        content = content.replace(unpack_pattern, unpack_replacement, 1)
+    else:
+        print("WARNING: Talisman STR_UNPACK anchor not found - TAL_BREAKINF_CLAMP NOT applied")
 
     # 6. Fix nativefs.load calls for big-num
     # Match both lines: Big, err = nativefs.load(...) AND if not err then Big = Big() else Big = nil end

@@ -54,6 +54,21 @@ if IS_ANDROID then
         return fn
     end
 
+    -- love.filesystem.write/append fail silently (false return, no error)
+    -- when the parent directory doesn't exist in the save dir — PhysFS does
+    -- not create it, and on this device createDirectory does not recurse
+    -- either. Real nativefs (io.open against an existing on-disk mod dir)
+    -- never hit this, so callers like SMODS save_mod_config don't guard for
+    -- it: every mod config write was silently lost. Create each path segment
+    -- before any write.
+    local function ensure_parent_dirs(name)
+        local acc
+        for seg in name:gmatch("([^/]+)/") do
+            acc = acc and (acc .. "/" .. seg) or seg
+            love.filesystem.createDirectory(acc)
+        end
+    end
+
     -- Write file
     function nativefs.write(name, data, size)
         if type(data) ~= 'string' then
@@ -62,6 +77,7 @@ if IS_ANDROID then
         if size and size ~= 'all' then
             data = data:sub(1, size)
         end
+        ensure_parent_dirs(name)
         return love.filesystem.write(name, data)
     end
 
@@ -73,6 +89,7 @@ if IS_ANDROID then
         if size and size ~= 'all' then
             data = data:sub(1, size)
         end
+        ensure_parent_dirs(name)
         return love.filesystem.append(name, data)
     end
 
