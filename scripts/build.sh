@@ -313,6 +313,7 @@ EOF
     apply_parse_highlighted_lean "$game_dir/cardarea.lua"
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
+    apply_ces_sign_fast "$game_dir/functions/common_events.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -2090,6 +2091,81 @@ PYEOF
         log_success "get_X_same lean applied (O(n) count-first; -83% alloc, 3.4x faster per evaluation)"
     else
         log_warn "get_X_same lean did not apply — check misc_functions.lua"
+    fi
+}
+
+# Tier-2 item 8 (re-scoped): a GLOBAL to_big fast-path returning plain numbers
+# below a threshold is UNWORKABLE — LÖVE's LuaJIT has no 5.2-compat (verified:
+# mixed number<table comparison errors before the metamethod), and scoring
+# routinely compares small values against huge stored Bigs. The safe shape is
+# site-level: type-aware sign/zero helpers for the per-trigger hot path.
+# 14 sites: 8 in card_eval_status_text (per scoring trigger) + 6 to_big(mod)<0
+# checks in the HUD chip/mult updaters (per scoring tick). Differential-tested
+# against real OmegaNum across the 0 / -0.01 / 1e15 / 1e300 boundaries in both
+# plain and Big forms. Isolated alloc (GC stopped): 16417 -> 1 KB per 30k
+# checks; ~300 KB less garbage per scored hand at 550+ checks/hand.
+apply_ces_sign_fast() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "common_events.lua not found, skipping sign-check fast helpers"
+        return 0
+    fi
+    if grep -q "CES_SIGN_FAST" "$f"; then
+        log_info "sign-check fast helpers already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+helpers = """-- CES_SIGN_FAST: sign/zero checks against constants without the paired
+-- to_big() allocations. These run per scoring trigger (card_eval_status_text)
+-- and per HUD chip/mult update — together 550+ times per scored hand. amt/mod
+-- is a plain Lua number at normal chip scale (lenient_bignum keeps values
+-- plain below 1e300): that path allocates nothing. The non-number path keeps
+-- the exact to_big coercion semantics but compares against a cached Big
+-- constant, halving its allocations. Mixed plain/Big comparison is never
+-- attempted (LuaJIT 5.1 semantics reject it).
+local CES_BIG_ZERO, CES_BIG_NEGP
+local function ces_is_neg(x)
+    if type(x) == 'number' then return x < 0 end
+    CES_BIG_ZERO = CES_BIG_ZERO or to_big(0)
+    return to_big(x) < CES_BIG_ZERO
+end
+local function ces_lt_negp(x)
+    if type(x) == 'number' then return x < -0.01 end
+    CES_BIG_NEGP = CES_BIG_NEGP or to_big(-0.01)
+    return to_big(x) < CES_BIG_NEGP
+end
+local function ces_nonzero(x)
+    if type(x) == 'number' then return x ~= 0 end
+    CES_BIG_ZERO = CES_BIG_ZERO or to_big(0)
+    return to_big(x) ~= CES_BIG_ZERO
+end
+
+"""
+
+reps = [
+    ('to_big(mod) < to_big(0)', 'ces_is_neg(mod)', 6),
+    ('to_big(amt)<to_big(0)', 'ces_is_neg(amt)', 5),
+    ('to_big(amt) < to_big(-0.01)', 'ces_lt_negp(amt)', 2),
+    ('to_big(amt) ~= to_big(0)', 'ces_nonzero(amt)', 1),
+]
+for old, new, expected in reps:
+    n = text.count(old)
+    if n != expected:
+        print(f'ERROR: expected {expected} of "{old}", found {n}', file=sys.stderr)
+        sys.exit(1)
+    text = text.replace(old, new)
+
+open(path, 'w').write(helpers + text)
+print('CES_SIGN_FAST applied (14 paired to_big sign checks -> allocation-free helpers)')
+PYEOF
+    if grep -q "CES_SIGN_FAST" "$f"; then
+        log_success "sign-check fast helpers applied (14 hot paired-to_big sites, plain path allocation-free)"
+    else
+        log_warn "sign-check fast helpers did not apply — check common_events.lua"
     fi
 }
 

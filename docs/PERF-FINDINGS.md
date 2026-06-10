@@ -86,12 +86,22 @@ there; use the selection metric or a targeted micro-bench.
 
 ## Tier 2 — high value, needs an audit + measurement first
 
-8. **`to_big` fast-path below 1e15** — talisman.lua to_big + 22 hot card.lua
-   call sites: at Joe's normal chip scale every comparison allocates OmegaNum
-   heap tables (`to_big(a) < to_big(b)` = 2 allocs); 550+/hand. Biggest
-   scoring-throughput candidate. Risk: operators must tolerate plain-number
-   operands — audit + test across the 1e15/1e300 boundaries. Measure:
-   heap delta across a scoring pass (works in desktop smoke + sandbox).
+8. ~~`to_big` fast-path below 1e15~~ — **DONE 2026-06-10 in re-scoped form**
+   (`CES_SIGN_FAST`). The global fast-path is UNWORKABLE and must not be
+   attempted: LÖVE's LuaJIT has no 5.2-compat — `plain < Big` errors before
+   the metamethod is consulted (verified empirically in the smoke runtime),
+   and scoring routinely compares small values against huge stored Bigs, so a
+   to_big that sometimes returns plain numbers crashes on the first mixed
+   comparison. `__eq` is worse: mixed types return false silently. The safe
+   shape is site-level type-aware helpers that never mix operand kinds.
+   Shipped: 14 hot sign/zero-check sites (8 per-trigger in
+   card_eval_status_text + 6 per-tick in the HUD chip/mult updaters) →
+   `ces_is_neg/ces_lt_negp/ces_nonzero` with cached Big constants.
+   Differential-tested against real OmegaNum across the 0/-0.01/1e15/1e300
+   boundaries in plain and Big forms. Isolated alloc (GC stopped): 16,417 →
+   1.0 KB per 30k checks; ~300 KB less garbage per scored hand. Remaining
+   to_big sites are cold (once-per-round state_events checks, unlock
+   conditions, display) — not worth the audit surface.
 9. ~~evaluate_poker_hand / get_X_same table reuse~~ — **DONE 2026-06-10**
    (`GET_X_SAME_LEAN_V2`), but re-scoped twice during implementation:
    - vanilla `evaluate_poker_hand` (misc_functions.lua:412) is DEAD CODE —
