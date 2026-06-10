@@ -40,17 +40,85 @@ local function measure_selection()
         print('BENCH: selection skipped (hand too small)')
         return
     end
+    -- three batches in one boot: intra-run agreement validates the number;
+    -- seeded RNG kills cross-run variance from random-driven selection hooks
+    for batch = 1, 3 do
+        math.randomseed(12345 + batch)
+        collectgarbage('collect')
+        collectgarbage('collect')
+        local before = collectgarbage('count')
+        for _ = 1, SELECTION_CYCLES do
+            for i = 1, 5 do hand:add_to_highlighted(hand.cards[i], true) end
+            hand:unhighlight_all()
+            hand:parse_highlighted()
+        end
+        local after = collectgarbage('count')
+        print(string.format('BENCH: selection_kb_cycle=%.3f batch=%d cycles=%d',
+            (after - before) / SELECTION_CYCLES, batch, SELECTION_CYCLES))
+    end
+end
+
+-- attribution profile: wrap every SMODS PokerHandPart func and per-hand
+-- evaluate with allocation counters, then run selection cycles and rank where
+-- the KB/cycle actually goes (the SMODS registry replaced vanilla
+-- evaluate_poker_hand, so the PERF-FINDINGS line numbers are dead code)
+local function profile_hand_eval()
+    local hand = G.hand
+    if not hand or #hand.cards < 5 then return end
+    local costs = {}
+    local function wrap(tbl, key, fn, label)
+        costs[label] = 0
+        tbl[key] = function(...)
+            local b = collectgarbage('count')
+            local a, b2, c, d = fn(...)
+            costs[label] = costs[label] + (collectgarbage('count') - b)
+            return a, b2, c, d
+        end
+        return fn
+    end
+    local saved = {}
+    for _, v in ipairs(SMODS.PokerHandPart.obj_buffer) do
+        local part = SMODS.PokerHandParts[v]
+        saved[#saved + 1] = { part, 'func', part.func }
+        wrap(part, 'func', part.func, 'part:' .. v)
+    end
+    for k, h in pairs(SMODS.PokerHands) do
+        saved[#saved + 1] = { h, 'evaluate', h.evaluate }
+        wrap(h, 'evaluate', h.evaluate, 'hand:' .. k)
+    end
+    math.randomseed(777)
     collectgarbage('collect')
-    collectgarbage('collect')
+    local cycles = 100
     local before = collectgarbage('count')
-    for _ = 1, SELECTION_CYCLES do
+    for _ = 1, cycles do
         for i = 1, 5 do hand:add_to_highlighted(hand.cards[i], true) end
         hand:unhighlight_all()
         hand:parse_highlighted()
     end
-    local after = collectgarbage('count')
-    print(string.format('BENCH: selection_kb_cycle=%.3f total_kb=%.1f cycles=%d',
-        (after - before) / SELECTION_CYCLES, after - before, SELECTION_CYCLES))
+    local total = collectgarbage('count') - before
+    for _, s in ipairs(saved) do s[1][s[2]] = s[3] end
+    local ranked = {}
+    for label, kb in pairs(costs) do ranked[#ranked + 1] = { label, kb } end
+    table.sort(ranked, function(a, b) return a[2] > b[2] end)
+    print(string.format('BENCH: profile total_kb_cycle=%.2f over %d cycles', total / cycles, cycles))
+    local shown = 0
+    for _, r in ipairs(ranked) do
+        if r[2] > 0.5 and shown < 15 then
+            shown = shown + 1
+            print(string.format('BENCH: profile %-28s %8.2f kb_total %6.3f kb_cycle', r[1], r[2], r[2] / cycles))
+        end
+    end
+end
+
+-- gross-allocation accumulator: sums positive heap deltas frame-over-frame so
+-- collections (nuGC steps, explicit collects in the scoring path) subtract
+-- nothing — robust where a single end-minus-start delta goes negative
+local alloc_sum = 0
+local last_count = nil
+local function alloc_tick()
+    local c = collectgarbage('count')
+    if last_count and c > last_count then alloc_sum = alloc_sum + (c - last_count) end
+    last_count = c
 end
 
 local game_update = love.update
@@ -80,25 +148,28 @@ love.update = function(dt, ...)
         selection_done = true
         local ok, err = pcall(measure_selection)
         if not ok then print('BENCH: selection ERROR ' .. tostring(err)) end
+        ok, err = pcall(profile_hand_eval)
+        if not ok then print('BENCH: profile ERROR ' .. tostring(err)) end
     end
 
     -- scoring measurement: play one hand, heap delta from play press until
     -- the state machine leaves the scoring pipeline
     if selection_done and scoring_state == 'idle' and G.STATE == G.STATES.SELECTING_HAND and #G.hand.highlighted == 0 then
         scoring_state = 'playing'
+        math.randomseed(99999)
         for i = 1, math.min(5, #G.hand.cards) do G.hand:add_to_highlighted(G.hand.cards[i], true) end
         collectgarbage('collect')
-        -- neuter the budgeted GC for the window so the delta is pure allocation
-        _G.bench_nuGC = _G.nuGC
-        _G.nuGC = function() end
-        scoring_kb_start = collectgarbage('count')
+        alloc_sum = 0
+        last_count = collectgarbage('count')
         plays = plays + 1
         local ok, err = pcall(G.FUNCS.play_cards_from_highlighted)
         if not ok then print('BENCH: play ERROR ' .. tostring(err)); scoring_state = 'measured' end
-    elseif scoring_state == 'playing' and G.STATE ~= G.STATES.HAND_PLAYED and elapsed - in_run_at > 14 then
-        scoring_state = 'measured'
-        print(string.format('BENCH: scoring_kb=%.1f (state now %s)', collectgarbage('count') - scoring_kb_start, tostring(G.STATE)))
-        if _G.bench_nuGC then _G.nuGC = _G.bench_nuGC end
+    elseif scoring_state == 'playing' then
+        alloc_tick()
+        if G.STATE ~= G.STATES.HAND_PLAYED and elapsed - in_run_at > 14 then
+            scoring_state = 'measured'
+            print(string.format('BENCH: scoring_alloc_kb=%.1f (gross, state now %s)', alloc_sum, tostring(G.STATE)))
+        end
     end
 
     if not done and (scoring_state == 'measured' or (in_run_at and elapsed - in_run_at > 45)) then

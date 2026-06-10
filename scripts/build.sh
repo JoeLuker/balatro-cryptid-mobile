@@ -312,6 +312,7 @@ EOF
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
     apply_parse_highlighted_lean "$game_dir/cardarea.lua"
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
+    apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -2020,6 +2021,75 @@ PYEOF
         log_success "card_eval_status_text config elided (1 escaping table/trigger removed + 16 dead writes)"
     else
         log_warn "card_eval config elide did not apply — check common_events.lua"
+    fi
+}
+
+# get_X_same is called 5x per hand evaluation (SMODS _2/_3/_4/_5/_all_pairs
+# parts), which runs on every selection change. Vanilla is O(hand²) and
+# allocates ~16 preallocated empty rank buckets plus a discarded `curr` table
+# per card per call. Replaced by a two-pass O(n): count ranks (no allocation),
+# then build group tables only for qualifying ranks. Outputs differential-
+# tested identical to vanilla over 5000 randomized hands (group membership,
+# member order, result order, ids<1 exclusion). Isolated bench (GC stopped):
+# 9.5 -> 1.6 KB gross per evaluation (-83%), 3.4x faster.
+apply_get_x_same_lean() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "misc_functions.lua not found, skipping get_X_same lean"
+        return 0
+    fi
+    if grep -q "GET_X_SAME_LEAN_V2" "$f"; then
+        log_info "get_X_same lean already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+
+start = text.find('function get_X_same(')
+if start < 0:
+    print('ERROR: get_X_same not found', file=sys.stderr); sys.exit(1)
+m = re.search(r'\nend\n', text[start:])
+if not m:
+    print('ERROR: get_X_same end not found', file=sys.stderr); sys.exit(1)
+
+new = """function get_X_same(num, hand, or_more) -- GET_X_SAME_LEAN_V2
+  -- Two-pass O(n): count ranks (no allocation), then build group tables ONLY
+  -- for qualifying ranks. Replaces the vanilla O(n²) scan that preallocated
+  -- ~16 empty rank buckets and a discarded `curr` per card — called 5x per
+  -- hand evaluation by the SMODS _2/_3/_4/_5/_all_pairs parts. Outputs are
+  -- differential-tested identical to vanilla: groups hold cards in hand
+  -- order, result ordered by descending rank id, ids < 1 excluded.
+  local counts = {}
+  local max_id = 0
+  for i = 1, #hand do
+    local id = hand[i]:get_id()
+    counts[id] = (counts[id] or 0) + 1
+    if id > max_id then max_id = id end
+  end
+  local ret = {}
+  for id = math.floor(max_id), 1, -1 do
+    local n = counts[id]
+    if n and (or_more and (n >= num) or (n == num)) then
+      local g = {}
+      for i = 1, #hand do
+        if hand[i]:get_id() == id then g[#g + 1] = hand[i] end
+      end
+      ret[#ret + 1] = g
+    end
+  end
+  return ret
+end
+"""
+
+open(path, 'w').write(text[:start] + new + text[start + m.end():])
+print('get_X_same lean v2 applied')
+PYEOF
+    if grep -q "GET_X_SAME_LEAN_V2" "$f"; then
+        log_success "get_X_same lean applied (O(n) count-first; -83% alloc, 3.4x faster per evaluation)"
+    else
+        log_warn "get_X_same lean did not apply — check misc_functions.lua"
     fi
 }
 

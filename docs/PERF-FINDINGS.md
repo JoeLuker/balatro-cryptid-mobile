@@ -92,11 +92,25 @@ there; use the selection metric or a targeted micro-bench.
    scoring-throughput candidate. Risk: operators must tolerate plain-number
    operands — audit + test across the 1e15/1e300 boundaries. Measure:
    heap delta across a scoring pass (works in desktop smoke + sandbox).
-9. **evaluate_poker_hand / get_X_same table reuse** —
-   `misc_functions.lua:412-431/661-684`: 12 result sub-tables + O(hand²)
-   `curr` tables per evaluation, fired on every selection change. Reuse
-   requires confirming results don't escape the call frame (initial read says
-   they don't; verify `parse_highlighted` + `evaluate_play_intro`).
+9. ~~evaluate_poker_hand / get_X_same table reuse~~ — **DONE 2026-06-10**
+   (`GET_X_SAME_LEAN_V2`), but re-scoped twice during implementation:
+   - vanilla `evaluate_poker_hand` (misc_functions.lua:412) is DEAD CODE —
+     SMODS overrides it (overrides.lua:1721) with a registry: one func per
+     PokerHandPart + one evaluate per registered hand. Alloc attribution
+     (bench profile phase): the `_2/_3/_4/_5/_all_pairs` parts — five
+     `get_X_same` calls per evaluation — were ~63 KB/selection-cycle.
+   - "table reuse" is UNSAFE: qualifying group tables escape into results and
+     become the scoring hand. Shipped shape instead: O(n) count-first rewrite
+     allocating ONLY qualifying groups. Differential-tested identical to
+     vanilla over 5000 randomized hands (membership, member order, result
+     order, id<1 exclusion).
+   - Isolated bench (GC stopped): 9.5 → 1.6 KB gross/evaluation (−83%),
+     3.4× faster. Game-level batch-3 median: 196 → 144 KB/cycle.
+   - Measurement gotcha for posterity: LuaJIT allocation sinking makes
+     non-escaping garbage invisible in simple micro-traces, and per-run trace
+     blacklisting makes game-level numbers bimodal (~144 vs ~379 KB/cycle on
+     identical builds) — always run the bench 3× and compare medians of like
+     batches, and stop the GC when measuring gross allocation.
 10. **DrawStep layer short-circuit** — `card_draw.lua:512-14`: 21
     `check_conditions` per card per layer; bail on layer mismatch before the
     conditions pairs-loop. (Skip the bitmask variant — invalidation risk not
