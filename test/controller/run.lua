@@ -166,4 +166,67 @@ test('HID.touch stays true at release when HID was stale-mouse between batches',
     check(not w.A.states.hover.is, 'TAP_DESC_RELAX must clear hover on touch lift (stale-HID regression)')
 end)
 
+-- HID_ISTOUCH_RELEASE_FIX regression: TAP_DESC_HOLD_NODRAG guard must suppress
+-- spurious release() on short touch-drags even when HID was stale-mouse at release.
+-- Guard: not (HID.touch AND dist < MIN_CLICK_DIST). With stale-false, the guard
+-- is not(false AND ...) = true, so release() fires on the card under the cursor,
+-- incorrectly treating a short drag as a drop. With fix, HID.touch is true and the
+-- guard correctly suppresses the release.
+test('short touch-drag with stale-HID does not fire spurious release on lift (HOLD_NODRAG, HID_ISTOUCH_RELEASE_FIX)', function()
+    local w = scene()
+    w.B.states.release_on.can = true   -- B is a valid drop target if HOLD_NODRAG misfires
+    w.touch_down(2.7, 9)               -- press A (draggable hand card)
+    w.frames(2)
+    check(w.ctrl.dragging.target == w.A, 'precondition: A is being dragged')
+    -- Move less than MIN_CLICK_DIST=0.9: short drag, must NOT be treated as a drop
+    w.touch_move(3.0, 9, 2)
+    check((w.ctrl.cursor_down.distance or 0) < 0.9, 'precondition: distance below MIN_CLICK_DIST')
+    -- Simulate stale HID (batch-split) then correct it before release, as the fix does
+    w.ctrl:set_HID_flags('mouse')
+    check(not w.ctrl.HID.touch, 'precondition: HID is stale-mouse before release')
+    w.ctrl:set_HID_flags('touch')      -- HID_ISTOUCH_RELEASE_FIX: fix restores touch before L_cursor_release
+    w.ctrl:L_cursor_release(3.0, 9)
+    w.frames(2)
+    -- With HID.touch=true: guard fires, released_on stays unhandled=true (never set)
+    check(w.ctrl.released_on.handled, 'HOLD_NODRAG: short touch-drag must not set released_on')
+    check((w.B.calls.release or 0) == 0, 'B must not receive spurious release() from a short drag')
+end)
+
+-- HID_TOUCH_ENV fallback: when HID_ISTOUCH_RELEASE_FIX does not fire (worst case:
+-- the per-event fix is absent or the event arrives without the istouch flag), the
+-- stable touch_env predicate (set once from love.system.getOS()=='Android') must
+-- keep all five touch gates armed. Simulate by forcing HID.touch=false for the
+-- whole gesture and confirming TAP_DESC_RELAX still clears hover.is (needs touch_env
+-- true, which the harness provides via getOS() returning 'Android').
+test('touch_env keeps TAP_DESC_RELAX armed when HID.touch is stuck-false', function()
+    local w = scene()
+    w.touch_down(2.7, 9)
+    w.frames(20)    -- hold past 0.2s so hover.is becomes true via HOLDGATE
+    check(w.A.states.hover.is, 'precondition: hover.is set after deliberate hold')
+    -- Force HID.touch to false for the whole release, bypassing the fix
+    w.ctrl:set_HID_flags('mouse')
+    check(not w.ctrl.HID.touch, 'precondition: HID.touch is false')
+    check(w.ctrl.HID.touch_env, 'precondition: touch_env is true (Android harness)')
+    w.ctrl:L_cursor_release(2.7, 9)
+    w.frames(3)
+    -- touch_env is true, so (HID.touch or HID.touch_env) fires TAP_DESC_RELAX
+    check(not w.A.states.hover.is, 'TAP_DESC_RELAX must clear hover.is via touch_env even with HID.touch=false')
+end)
+
+test('touch_env keeps DRAG_SELECT_ACTIVATE armed when HID.touch is stuck-false', function()
+    local w = scene()
+    -- Force HID.touch to false before the touch-down, keeping touch_env true
+    w.ctrl:set_HID_flags('mouse')
+    check(not w.ctrl.HID.touch, 'precondition: HID.touch is false')
+    check(w.ctrl.HID.touch_env, 'precondition: touch_env is true (Android harness)')
+    w.touch_down(0.5, 5)    -- empty space: no card hit
+    w.frames(2)
+    check(w.ctrl.dragSelectActive and w.ctrl.dragSelectActive.active,
+        'drag-select must arm via touch_env even when HID.touch is false')
+    w.touch_move(2.7, 9, 8); w.touch_move(4.7, 9, 8)
+    check(w.A.highlighted, 'A selected by sweep (touch_env path)')
+    check(w.B.highlighted, 'B selected by sweep (touch_env path)')
+    w.touch_up()
+end)
+
 H.finish()
