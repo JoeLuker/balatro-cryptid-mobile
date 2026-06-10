@@ -1006,7 +1006,7 @@ apply_drag_select() {
     # 2) init the drag-select state alongside cursor_down
     sed -i 's|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}\nself.dragSelectActive = {active = false, mode = nil, start_card = nil} -- DRAG_SELECT_INIT|' "$ctrl"
     # 2b) card-start slides: a touch press on a HAND card no longer picks the
-    #     card up for reorder immediately — pickup is deferred to a ~0.2s hold
+    #     card up for reorder immediately — pickup is deferred to a ~0.1s hold
     #     (DRAG_SELECT_HOLD_REORDER below). Until then the press is an armed
     #     slide: crossing onto a neighbor begins a multi-select sweep. Quick
     #     tap (select) and hold-for-description are unchanged. Other areas
@@ -1018,11 +1018,11 @@ apply_drag_select() {
     sed -i 's|^        self.cursor_down.handled = true$|        if (self.HID.touch or self.HID.touch_env) and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE\n        if (self.HID.touch or self.HID.touch_env) and G.SETTINGS.enable_drag_select and not self.dragging.target and self.cursor_down.target and self.cursor_down.target.area == G.hand and self.cursor_down.target.states.hover.can then self.dragSelectActive.active = true; self.dragSelectActive.start_card = self.cursor_down.target end -- DRAG_SELECT_CARD_START\n        self.cursor_down.handled = true|' "$ctrl"
     # 4) reset on touch release
     sed -i 's|    if not self.cursor_up.handled then |    if not self.cursor_up.handled then \n        self.dragSelectActive.active = false; self.dragSelectActive.mode = nil; self.dragSelectActive.start_card = nil -- DRAG_SELECT_RESET|' "$ctrl"
-    # 4b) a card-start press held ~0.2s without sweeping becomes the vanilla
+    # 4b) a card-start press held ~0.1s without sweeping becomes the vanilla
     #     reorder pickup (the deferral from 2b ends; same threshold as the
     #     description hold, so "hold then drag" reorders while the description
     #     shows — matching the pre-existing hold feel)
-    sed -i "s|^    self.dragging.prev_target = self.dragging.target$|    if self.dragSelectActive.active and self.dragSelectActive.start_card and not self.dragSelectActive.mode and self.is_cursor_down and (self.cursor_down.duration or 0) >= 0.2 then -- DRAG_SELECT_HOLD_REORDER\n        local _sc = self.dragSelectActive.start_card\n        self.dragSelectActive.active = false; self.dragSelectActive.start_card = nil\n        if _sc.states.drag.can and not _sc.REMOVED then\n            _sc.states.drag.is = true\n            _sc:set_offset(self.cursor_down.T, 'Click')\n            self.dragging.target = _sc\n            self.dragging.handled = false\n        end\n    end\n    self.dragging.prev_target = self.dragging.target|" "$ctrl"
+    sed -i "s|^    self.dragging.prev_target = self.dragging.target$|    if self.dragSelectActive.active and self.dragSelectActive.start_card and not self.dragSelectActive.mode and self.is_cursor_down and (self.cursor_down.duration or 0) >= 0.1 then -- DRAG_SELECT_HOLD_REORDER\n        local _sc = self.dragSelectActive.start_card\n        self.dragSelectActive.active = false; self.dragSelectActive.start_card = nil\n        if _sc.states.drag.can and not _sc.REMOVED then\n            _sc.states.drag.is = true\n            _sc:set_offset(self.cursor_down.T, 'Click')\n            self.dragging.target = _sc\n            self.dragging.handled = false\n        end\n    end\n    self.dragging.prev_target = self.dragging.target|" "$ctrl"
     # 5) per-frame while active: highlight/unhighlight the closest hand card
     #    under the finger. Empty-space starts: the first card touched seeds the
     #    mode. Card starts: nothing toggles until the finger crosses OFF the
