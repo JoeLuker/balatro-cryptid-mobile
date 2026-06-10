@@ -12,6 +12,8 @@ TEL.run_start_time = nil
 TEL.exp_recompute_count = 0
 TEL.exp_recompute_window_start = 0
 local EXP_REPORT_INTERVAL = 10  -- emit EXP_RECOMPUTE summary every 10 s
+local PERF_REPORT_INTERVAL = 5  -- emit PERF_SNAPSHOT every 5 s
+TEL.perf_window_start = 0
 
 local function tel(event, data)
     local parts = {"[TEL]", event}
@@ -63,6 +65,37 @@ function Game:update(dt)
         })
         TEL.exp_recompute_count = 0
         TEL.exp_recompute_window_start = now
+    end
+
+    -- Emit perf checkpoint averages every PERF_REPORT_INTERVAL seconds
+    -- Only fires when perf_mode is enabled (G.check exists).
+    -- Each checkpoint label already encodes KB-since-last: "label: KBdelta"
+    -- We emit the rolling-average TTC (ms) for each named checkpoint.
+    if G.SETTINGS and G.SETTINGS.perf_mode and G.check and now - TEL.perf_window_start >= PERF_REPORT_INTERVAL then
+        local fps = love.timer.getFPS()
+        local gc_kb = math.floor(collectgarbage("count"))
+        -- Build a compact flat string: "name=avg_ms,name=avg_ms,..."
+        local upd_parts = {}
+        for i = 1, G.check.update.checkpoints do
+            local cp = G.check.update.checkpoint_list[i]
+            -- strip the KB suffix from the label ("move: 12" -> "move")
+            local name = (cp.label or "?"):match("^([^:]+)") or "?"
+            table.insert(upd_parts, name .. "=" .. string.format("%.2f", 1000*(cp.average or 0)))
+        end
+        local drw_parts = {}
+        for i = 1, G.check.draw.checkpoints do
+            local cp = G.check.draw.checkpoint_list[i]
+            local name = (cp.label or "?"):match("^([^:]+)") or "?"
+            table.insert(drw_parts, name .. "=" .. string.format("%.2f", 1000*(cp.average or 0)))
+        end
+        tel("PERF_SNAPSHOT", {
+            fps = fps,
+            gc_kb = gc_kb,
+            state = get_state_name(G.STATE),
+            upd = table.concat(upd_parts, ","),
+            drw = table.concat(drw_parts, ","),
+        })
+        TEL.perf_window_start = now
     end
 
     -- Log state changes
@@ -193,4 +226,4 @@ if _original_game_over then
     end
 end
 
-tel("HOOKS_LOADED", {count = 9})
+tel("HOOKS_LOADED", {count = 10})
