@@ -11,11 +11,12 @@ def patch_main_lua(filepath):
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Check if already fully patched (all three sentinel strings must be present).
+    # Check if already fully patched (all sentinel strings must be present).
     already_android = '-- Android SMODS path fix' in content
     already_dedup = 'Duplicate Talisman coroutine harness' in content
     already_focus = '-- Android flush-on-background' in content
-    if already_android and already_dedup and already_focus:
+    already_istouch = 'HID_ISTOUCH_FIX' in content
+    if already_android and already_dedup and already_focus and already_istouch:
         print("Already patched")
         return
 
@@ -217,6 +218,24 @@ end
             content = content.replace(quit_anchor, quit_anchor + focus_callback, 1)
         else:
             print("WARNING: love.quit anchor not found — love.focus callback NOT injected")
+
+    # 9b. HID touch classification fix. The run loop dedupes the touchpressed +
+    # synthetic-mousepressed pair by holding the mousepressed and dispatching it
+    # once with `touched` — a flag set only if a touchpressed arrived in the SAME
+    # event-pump batch. When SDL delivers the pair across two batches (seen on
+    # the 120Hz foldable), the press dispatches with touched=nil and the
+    # controller classifies a finger as a MOUSE: every HID.touch-gated patch
+    # (TAP_DESC_RELAX, DRAG_SELECT_*) silently deactivates for that press, and
+    # vanilla mouse-hover semantics wedge states.hover.is on the card — the
+    # tilt-warp Joe sees. LÖVE already passes its native per-event istouch flag
+    # as the mousepressed's 4th arg (_d); vanilla discards it. Trust it.
+    if 'HID_ISTOUCH_FIX' not in content:
+        old_dispatch = "love.handlers['mousepressed'](_a,_b,_c,touched)"
+        new_dispatch = "love.handlers['mousepressed'](_a,_b,_c,touched or _d) -- HID_ISTOUCH_FIX"
+        if old_dispatch in content:
+            content = content.replace(old_dispatch, new_dispatch, 1)
+        else:
+            print("WARNING: mousepressed dispatch anchor not found — HID istouch fix NOT applied")
 
     # 9. Inject telemetry loader at end of file (after all game setup)
     if '-- Android telemetry: load after all game hooks are set up' not in content:
