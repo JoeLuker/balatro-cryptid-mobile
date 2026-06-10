@@ -2578,14 +2578,19 @@ PYEOF
 }
 
 # Talisman config persistence on Android. talisman.lua reads and writes its
-# settings via nativefs with a RELATIVE path (talisman_path = "Mods/Talisman"
-# on Android) — which resolves against the process CWD ("/"): the read fails
-# every boot (settings reset to defaults) and all three write sites fail
-# silently (changes never persist). Route both through love.filesystem on
-# Android: writes land in the writable save dir
-# (files/save/game/Mods/Talisman/config.lua) and reads check the save dir
-# BEFORE the embedded archive, so the user copy naturally shadows defaults.
-# Desktop keeps nativefs.
+# settings using love.filesystem (TAL_CONFIG_PERSIST routes through it) with
+# the relative path "Mods/Talisman/config.lua". love.filesystem.write resolves
+# that into the writable save dir (files/save/game/Mods/Talisman/config.lua),
+# and the read checks the save dir before the embedded archive so the written
+# copy naturally shadows defaults on the next boot.
+#
+# Root cause of the reset: love.filesystem.write does NOT auto-create
+# intermediate directories. files/save/game/Mods/Talisman/ only exists inside
+# the read-only game.love archive, never as a real directory in the save dir
+# unless explicitly created. Without createDirectory the write silently returns
+# false (pcall swallows it) and settings reset on every restart.
+# Fix: inject love.filesystem.createDirectory(talisman_path) on Android right
+# before the first read so the directory exists before any write attempt.
 apply_talisman_config_persist() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -2596,7 +2601,10 @@ apply_talisman_config_persist() {
         log_info "Talisman config persistence already applied"
         return 0
     fi
-    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|local config_read_result = (love.system.getOS() == "Android" and love.filesystem.read or nativefs.read)(talisman_path.."/config.lua") -- TAL_CONFIG_PERSIST|' "$f"
+    # 1. Ensure the save-dir directory exists before any read/write attempt.
+    #    Inject createDirectory right before the config_read_result line.
+    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|if love.system.getOS() == "Android" then love.filesystem.createDirectory(talisman_path) end -- TAL_CONFIG_PERSIST\nlocal config_read_result = (love.system.getOS() == "Android" and love.filesystem.read or nativefs.read)(talisman_path.."/config.lua") -- TAL_CONFIG_PERSIST|' "$f"
+    # 2. Route all write sites through love.filesystem on Android.
     sed -i 's|nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file))|do local _w = love.system.getOS() == "Android" and love.filesystem.write or nativefs.write; _w(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end -- TAL_CONFIG_PERSIST|g' "$f"
     local n
     n=$(grep -c "TAL_CONFIG_PERSIST" "$f")
