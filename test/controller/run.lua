@@ -73,8 +73,10 @@ end)
 test('drag past the click threshold is a reorder drag, not a hold', function()
     local w = scene()
     w.touch_down(2.7, 9)        -- on A (hand cards draggable for reorder)
-    w.frames(2)
-    check(w.A.states.drag.is, 'drag should engage on a draggable hand card')
+    -- DRAG_SELECT_CARD_START: hand pickup is deferred to a ~0.2s hold; an
+    -- immediate move would be a slide-select sweep instead
+    w.frames(15)
+    check(w.A.states.drag.is, 'drag should engage on a draggable hand card after the hold')
     w.touch_move(6.7, 9, 12)    -- well past MIN_CLICK_DIST (0.9)
     w.touch_up()
     w.frames(2)
@@ -176,7 +178,7 @@ test('short touch-drag with stale-HID does not fire spurious release on lift (HO
     local w = scene()
     w.B.states.release_on.can = true   -- B is a valid drop target if HOLD_NODRAG misfires
     w.touch_down(2.7, 9)               -- press A (draggable hand card)
-    w.frames(2)
+    w.frames(15)                       -- past the hold: pickup engages (DRAG_SELECT_HOLD_REORDER)
     check(w.ctrl.dragging.target == w.A, 'precondition: A is being dragged')
     -- Move less than MIN_CLICK_DIST=0.9: short drag, must NOT be treated as a drop
     w.touch_move(3.0, 9, 2)
@@ -265,6 +267,45 @@ test('press with a late position teleport targets the press coords, not the stal
     -- correctly enter deselect mode — that's the feature, not the bug)
     w.touch_move(4.7, 9, 6)
     check(w.B.highlighted, 'sweep after late-teleport press must still select')
+    w.touch_up()
+end)
+
+test('card-start slide: quick sweep from a hand card multi-selects, no reorder (DRAG_SELECT_CARD_START)', function()
+    local w = scene()
+    w.touch_down(2.7, 9)                 -- on A
+    w.frames(3)                          -- well under the 0.2s hold
+    check(not w.A.states.drag.is, 'no instant pickup on a hand card (deferred to hold)')
+    check(not w.A.highlighted, 'start card not toggled until the sweep begins')
+    w.touch_move(4.7, 9, 4)              -- cross onto B
+    check(w.A.highlighted, 'sweep start toggles the start card')
+    check(w.B.highlighted, 'and the crossed card')
+    check(w.ctrl.dragging.target == nil, 'sweeping must not reorder')
+    w.touch_move(6.7, 9, 4)              -- on to C
+    check(w.C.highlighted, 'sweep continues across the hand')
+    w.touch_up()
+    w.frames(2)
+end)
+
+test('card-start slide from a highlighted card deselects (mode seeded from start card)', function()
+    local w = scene()
+    w.hand:add_to_highlighted(w.A)
+    w.hand:add_to_highlighted(w.B)
+    w.touch_down(2.7, 9)                 -- on highlighted A
+    w.frames(3)
+    w.touch_move(4.7, 9, 4)              -- cross onto highlighted B
+    check(not w.A.highlighted, 'start card deselected')
+    check(not w.B.highlighted, 'crossed card deselected (deselect mode)')
+    w.touch_up()
+end)
+
+test('hold-then-drag still reorders: pickup engages at the hold threshold (DRAG_SELECT_HOLD_REORDER)', function()
+    local w = scene()
+    w.touch_down(2.7, 9)
+    w.frames(15)                         -- ~0.25s: past the hold
+    check(w.ctrl.dragging.target == w.A, 'hold picks the card up for reorder')
+    check(not (w.ctrl.dragSelectActive and w.ctrl.dragSelectActive.active), 'slide arming ends when reorder begins')
+    w.touch_move(6.7, 9, 8)
+    check(not w.B.highlighted and not w.C.highlighted, 'reorder drag must not multi-select')
     w.touch_up()
 end)
 

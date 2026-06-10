@@ -1004,20 +1004,37 @@ apply_drag_select() {
     # 1) default the setting on (seed into the SETTINGS table in globals.lua)
     sed -i 's|    self.SETTINGS = {|    self.SETTINGS = {\n        enable_drag_select = true, -- DRAG_SELECT_DEFAULT|' "$globals"
     # 2) init the drag-select state alongside cursor_down
-    sed -i 's|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}\nself.dragSelectActive = {active = false, mode = nil} -- DRAG_SELECT_INIT|' "$ctrl"
-    # 3) activate on a touch that starts on empty space with nothing being dragged
-    sed -i 's|^        self.cursor_down.handled = true$|        if (self.HID.touch or self.HID.touch_env) and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE\n        self.cursor_down.handled = true|' "$ctrl"
+    sed -i 's|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}\nself.dragSelectActive = {active = false, mode = nil, start_card = nil} -- DRAG_SELECT_INIT|' "$ctrl"
+    # 2b) card-start slides: a touch press on a HAND card no longer picks the
+    #     card up for reorder immediately — pickup is deferred to a ~0.2s hold
+    #     (DRAG_SELECT_HOLD_REORDER below). Until then the press is an armed
+    #     slide: crossing onto a neighbor begins a multi-select sweep. Quick
+    #     tap (select) and hold-for-description are unchanged. Other areas
+    #     (jokers/consumables) keep instant pickup.
+    sed -i 's|        if self.cursor_down.target.states.drag.can then|        if self.cursor_down.target.states.drag.can and not ((self.HID.touch or self.HID.touch_env) and G.SETTINGS.enable_drag_select and self.cursor_down.target.area == G.hand) then -- DRAG_SELECT_CARD_START: hand pickup deferred to hold|' "$ctrl"
+    # 3) activate on a touch that starts on empty space with nothing being
+    #    dragged, OR on a hand card (card-start slide; start_card remembered so
+    #    the sweep can seed its mode from it)
+    sed -i 's|^        self.cursor_down.handled = true$|        if (self.HID.touch or self.HID.touch_env) and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE\n        if (self.HID.touch or self.HID.touch_env) and G.SETTINGS.enable_drag_select and not self.dragging.target and self.cursor_down.target and self.cursor_down.target.area == G.hand and self.cursor_down.target.states.hover.can then self.dragSelectActive.active = true; self.dragSelectActive.start_card = self.cursor_down.target end -- DRAG_SELECT_CARD_START\n        self.cursor_down.handled = true|' "$ctrl"
     # 4) reset on touch release
-    sed -i 's|    if not self.cursor_up.handled then |    if not self.cursor_up.handled then \n        self.dragSelectActive.active = false; self.dragSelectActive.mode = nil -- DRAG_SELECT_RESET|' "$ctrl"
-    # 5) per-frame while active: highlight/unhighlight the closest hand card under
-    #    the finger. The first card touched sets the mode (select vs deselect) so a
-    #    sweep stays consistent; the hand's 5-card limit is enforced by
-    #    add_to_highlighted (over-limit cards just no-op).
-    sed -i 's|    --Cursor is currently hovering over something|    if (self.HID.touch or self.HID.touch_env) and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        if closest and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
+    sed -i 's|    if not self.cursor_up.handled then |    if not self.cursor_up.handled then \n        self.dragSelectActive.active = false; self.dragSelectActive.mode = nil; self.dragSelectActive.start_card = nil -- DRAG_SELECT_RESET|' "$ctrl"
+    # 4b) a card-start press held ~0.2s without sweeping becomes the vanilla
+    #     reorder pickup (the deferral from 2b ends; same threshold as the
+    #     description hold, so "hold then drag" reorders while the description
+    #     shows — matching the pre-existing hold feel)
+    sed -i "s|^    self.dragging.prev_target = self.dragging.target$|    if self.dragSelectActive.active and self.dragSelectActive.start_card and not self.dragSelectActive.mode and self.is_cursor_down and (self.cursor_down.duration or 0) >= 0.2 then -- DRAG_SELECT_HOLD_REORDER\n        local _sc = self.dragSelectActive.start_card\n        self.dragSelectActive.active = false; self.dragSelectActive.start_card = nil\n        if _sc.states.drag.can and not _sc.REMOVED then\n            _sc.states.drag.is = true\n            _sc:set_offset(self.cursor_down.T, 'Click')\n            self.dragging.target = _sc\n            self.dragging.handled = false\n        end\n    end\n    self.dragging.prev_target = self.dragging.target|" "$ctrl"
+    # 5) per-frame while active: highlight/unhighlight the closest hand card
+    #    under the finger. Empty-space starts: the first card touched seeds the
+    #    mode. Card starts: nothing toggles until the finger crosses OFF the
+    #    start card (so tap/hold semantics survive); the first crossing seeds
+    #    the mode from the start card's state and toggles it plus the new card.
+    #    The hand's selection limit is enforced by add_to_highlighted (no-op
+    #    when over limit).
+    sed -i 's|    --Cursor is currently hovering over something|    if (self.HID.touch or self.HID.touch_env) and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        local _start = self.dragSelectActive.start_card\n        if closest and _start and not self.dragSelectActive.mode and closest ~= _start then -- DRAG_SELECT_CARD_START sweep begins\n            self.dragSelectActive.mode = _start.highlighted and "deselect" or "select"\n            if _start.highlighted then _start.area:remove_from_highlighted(_start) else _start.area:add_to_highlighted(_start) end\n        end\n        if closest and (closest ~= _start or self.dragSelectActive.mode) and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
     # 6) toggle in Settings > Game (after the Debug Overlay toggle)
     sed -i "s|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
-    if grep -q "DRAG_SELECT_LOOP" "$ctrl" && grep -q "DRAG_SELECT_ACTIVATE" "$ctrl" && grep -q "enable_drag_select" "$ui_file"; then
-        log_success "Drag-select (slide to select) applied"
+    if grep -q "DRAG_SELECT_LOOP" "$ctrl" && grep -q "DRAG_SELECT_ACTIVATE" "$ctrl" && grep -q "DRAG_SELECT_CARD_START" "$ctrl" && grep -q "DRAG_SELECT_HOLD_REORDER" "$ctrl" && grep -q "enable_drag_select" "$ui_file"; then
+        log_success "Drag-select (slide to select, incl. card-start sweeps + hold-to-reorder) applied"
     else
         log_warn "Drag-select did not fully match — check controller.lua/globals.lua/UI_definitions.lua"
     fi
