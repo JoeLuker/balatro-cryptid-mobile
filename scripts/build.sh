@@ -180,6 +180,7 @@ patch_mods_dir() {
     apply_shader_eof_newlines "$(dirname "$mods_dir")"
     apply_blur_shader_reorder "$mods_dir/Cryptid/assets/shaders/blur.fs"
     apply_glitch_shader_fix   "$mods_dir/Cryptid/assets/shaders/glitched.fs"
+    apply_glitch_shader_range_fix "$mods_dir/Cryptid/assets/shaders/glitched.fs"
     apply_glitched_b_fix      "$mods_dir/Cryptid/assets/shaders/glitched_b.fs"
     apply_cryptid_dead_copy_fix   "$mods_dir/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$mods_dir/Cryptid/lib/calculate.lua" "$mods_dir/Cryptid/lib/overrides.lua"
@@ -436,6 +437,58 @@ apply_glitch_shader_fix() {
         log_success "Glitch shader fix applied (highp math + tan guard)"
     else
         log_warn "Glitch shader fix did not fully match — check glitched.fs"
+    fi
+}
+
+# The prior glitched.fs fixes (highp + tan NaN guard) are necessary but NOT
+# sufficient on Mali: tan(2.*time) takes arguments up to ~6000 rad and the
+# sin-based rand() hash feeds sin() up to ~13000 rad. Desktop Mesa range-
+# reduces large transcendental arguments precisely; Mali's cheap range
+# reduction returns garbage there REGARDLESS of declared precision — the
+# glitch edition renders as a black/garbage card. Eliminate the class:
+# reduce tan's argument by its own period first (mathematically what a
+# correct tan implementation computes, so desktop visuals are unchanged),
+# and replace the sin-hash with a sineless fract hash whose intermediates
+# are bounded by construction — also drops three sin calls per fragment.
+apply_glitch_shader_range_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "glitched.fs not found, skipping glitch range fix"
+        return 0
+    fi
+    if grep -q "MALI_RANGE_FIX" "$f"; then
+        log_info "Glitch shader range fix already applied"
+        return 0
+    fi
+    sed -i 's|tan(2. \* time)|tan(mod(2. * time, 3.14159265358979))|' "$f"
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """highp float rand(highp vec2 co){
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}"""
+new = """highp float rand(highp vec2 co){
+    // MALI_RANGE_FIX: sineless hash. The sin-based hash fed sin() arguments
+    // up to ~13000 rad, where Mali's range reduction returns garbage. fract
+    // keeps every intermediate bounded; same statistical character, and no
+    // transcendentals.
+    highp vec3 p3 = fract(vec3(co.xyx) * .1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}"""
+
+if old not in text:
+    print('ERROR: rand() anchor not found (did apply_glitch_shader_fix run first?)', file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print('glitched.fs range fix applied')
+PYEOF
+    if grep -q "MALI_RANGE_FIX" "$f" && grep -q "tan(mod(2. \* time" "$f"; then
+        log_success "Glitch shader range fix applied (bounded tan + sineless hash)"
+    else
+        log_warn "Glitch shader range fix did not fully match — check glitched.fs"
     fi
 }
 
