@@ -309,4 +309,17 @@ test('hold-then-drag still reorders: pickup engages at the hold threshold (DRAG_
     w.touch_up()
 end)
 
+test('lifting right after the description appears keeps it (TAP_DESC_HOLD_KEEP / HOLD_NOSELECT)', function()
+    local w = scene()
+    -- the killer duration: past the 0.2s description threshold but inside the
+    -- 0.3s click_timeout — this registered as a tap and dismissed+selected
+    w.touch_down(2.7, 9)
+    w.frames(15)                 -- ~0.25s
+    check(w.A.states.hover.is, 'description up during the hold')
+    w.touch_up()
+    w.frames(3)
+    check(w.ctrl.hovering.target == w.A, 'description must persist after a 0.25s hold-release')
+    check(not w.A.highlighted, 'a hold-release must not select the card')
+end)
+
 H.finish()

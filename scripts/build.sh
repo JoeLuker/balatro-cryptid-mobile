@@ -957,6 +957,22 @@ apply_tap_description_persist() {
     # click threshold is not a reorder; skip the drag-release path so its
     # description persists. Real drags (travel >= MIN_CLICK_DIST) still reorder.
     sed -i 's|            elseif self.dragging.prev_target then |            elseif self.dragging.prev_target and not ((self.HID.touch or self.HID.touch_env) and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_NODRAG |' "$f"
+    # hold-keep: descriptions appear at the 0.2s hold, but the tap window
+    # (click_timeout) is 0.3s — lifting right when the popup shows registered
+    # as a TAP, which for hand cards both SELECTED the card and ran the
+    # TAP_DESC_TOGGLE dismiss, destroying the description the hold just
+    # summoned (trace-confirmed on device). Holds >= 0.2s are not taps for
+    # hand cards on touch: no select, no toggle-dismiss.
+    sed -i 's|                    if self.cursor_down.target.area == G.hand then|                    if self.cursor_down.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2 then -- TAP_DESC_HOLD_KEEP|' "$f"
+    sed -i 's|                    if self.cursor_down.target.states.click.can then|                    if self.cursor_down.target.states.click.can and not ((self.HID.touch or self.HID.touch_env) and self.cursor_down.target.area == G.hand and (self.cursor_down.duration or 0) >= 0.2) then -- TAP_DESC_HOLD_NOSELECT|' "$f"
+    # popup no-collide: vanilla disables collision on the popup ROOT only; the
+    # inner UIElement tree still collides (and the root is drag.can=true), so
+    # a persisted description squats over its card and eats the next touch —
+    # the press lands on a popup element, drag-select arms empty-space style,
+    # and the card cannot be re-summoned. Description popups are display-only:
+    # disable collision on the whole tree.
+    local node_f="$(dirname "$f")/node.lua"
+    sed -i 's|            self.children.h_popup.states.collide.can = false|            self.children.h_popup.states.collide.can = false\n            self.children.h_popup.states.drag.can = false\n            local function _popup_nc(n) -- TAP_DESC_POPUP_NOCOLLIDE\n                n.states.collide.can = false\n                if n.children then for _, _c in pairs(n.children) do _popup_nc(_c) end end\n            end\n            _popup_nc(self.children.h_popup.UIRoot)|' "$node_f"
     # drag-release unhover: the released_on path nils hovering.target after
     # stop_hover(), but stop_hover only removes the popup — it never clears
     # states.hover.is. The card is orphaned with hover.is stuck true, and its
