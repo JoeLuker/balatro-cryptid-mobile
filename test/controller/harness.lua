@@ -236,10 +236,13 @@ function M.new_world(opts)
         end
     end
 
-    -- mirrors love.mousereleased(x, y, 1) on device
+    -- mirrors love.mousereleased(x, y, 1, istouch) on device.
+    -- HID_ISTOUCH_RELEASE_FIX: set_HID_flags must fire before L_cursor_release so
+    -- TAP_DESC_HOLD_NODRAG and TAP_DESC_RELAX see HID.touch=true on the release frame.
     function world.touch_up(x, y)
         x, y = x or world.mx, y or world.my
         world.mx, world.my = x, y
+        ctrl:set_HID_flags('touch')
         ctrl:L_cursor_release(x, y)
         world.touches = {}
         world.frame()
