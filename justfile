@@ -130,6 +130,12 @@ perf-pull:
     -adb exec-out "run-as systems.shorty.lmm cat files/save/game/telemetry.log.1" > build/telemetry/telemetry.log.1 2>/dev/null
     @echo "pulled to build/telemetry/ — lines: $(wc -l < build/telemetry/telemetry.log)"
 
+# Run the phone-home telemetry receiver in the foreground (the app POSTs its
+# flushed telemetry here over the tailnet — lands in ~/balatro-telemetry/phone.log
+# the moment it happens, no adb needed). --print-unit emits a systemd user unit.
+tel-home:
+    python3 scripts/telemetry-home.py
+
 # Summarize pulled telemetry (fps/frame-time per state, crashes, session list)
 perf-summary:
     @awk '$3=="PERF_SNAPSHOT" {for(i=4;i<=NF;i++){split($i,a,"="); v[a[1]]=a[2]}; n[v["state"]]++; fps[v["state"]]+=v["fps"]; dtm[v["state"]]=(v["dt_max_ms"]>dtm[v["state"]])?v["dt_max_ms"]:dtm[v["state"]]} $3=="CRASH" {print "CRASH:", $0} END {printf "%-22s %6s %8s %10s\n","state","snaps","avg_fps","worst_ms"; for(s in n) printf "%-22s %6d %8.1f %10.1f\n", s, n[s], fps[s]/n[s], dtm[s]}' build/telemetry/telemetry.log

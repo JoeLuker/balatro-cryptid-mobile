@@ -44,9 +44,52 @@ do
     end
 end
 
+-- phone-home: a background thread mirrors every flushed chunk to the dev
+-- machine over the tailnet (best-effort — the on-device file is canonical).
+-- POSTs happen off the main thread; offline costs one 3s timeout then backs
+-- off for 60s; the channel is bounded so an offline session can't grow it.
+local TEL_HOME_URL = "http://100.87.221.109:8753/ingest"
+local TEL_SENDER = [[
+local channel = love.thread.getChannel('tel_home')
+local socket = require('socket')
+local http = require('socket.http')
+local ltn12 = require('ltn12')
+http.TIMEOUT = 3
+local fail_until = 0
+while true do
+    local chunk = channel:demand()
+    if chunk == '__quit__' then break end
+    if socket.gettime() >= fail_until then
+        local ok, r = pcall(function()
+            local res = http.request{
+                url = ']] .. TEL_HOME_URL .. [[',
+                method = 'POST',
+                headers = { ['content-length'] = #chunk, ['content-type'] = 'text/plain' },
+                source = ltn12.source.string(chunk),
+            }
+            return res
+        end)
+        if not ok or not r then fail_until = socket.gettime() + 60 end
+    end
+end
+]]
+local home_thread
+if not os.getenv('BALATRO_FAKE_ANDROID') then
+    local ok, thr = pcall(love.thread.newThread, TEL_SENDER)
+    if ok and thr then
+        local started = pcall(function() thr:start() end)
+        if started then home_thread = thr end
+    end
+end
+
 local function flush()
     if #buf == 0 then return end
-    love.filesystem.append(LOG_FILE, table.concat(buf, "\n") .. "\n")
+    local chunk = table.concat(buf, "\n") .. "\n"
+    love.filesystem.append(LOG_FILE, chunk)
+    if home_thread then
+        local ch = love.thread.getChannel('tel_home')
+        if ch:getCount() < 20 then ch:push(chunk) end
+    end
     for i = #buf, 1, -1 do buf[i] = nil end
 end
 
