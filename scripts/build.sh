@@ -310,6 +310,7 @@ EOF
     apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
     apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
+    apply_parse_highlighted_lean "$game_dir/cardarea.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -1873,6 +1874,96 @@ PYEOF
         log_success "lvl prefix cache applied (1 localize() + 1 concat eliminated per hand-level update)"
     else
         log_warn "lvl prefix cache did not apply — check common_events.lua"
+    fi
+}
+
+# parse_highlighted runs on every selection change (and again per add when a
+# sweep multi-selects). Three allocation sources, all in the same function:
+#   1. DEAD duplicate hand evaluation: the Cryptid lovely patch redeclares
+#      text/disp_text/poker_hands right after vanilla's call, so the first
+#      G.FUNCS.get_poker_hand_info(self.highlighted) — a full O(hand²)
+#      evaluate_poker_hand with its 12 result sub-tables — is computed and
+#      thrown away on EVERY call. Delete it.
+#   2. The update_hand_text first-arg option tables: identical literals
+#      allocated per call (and per Scoring_Parameters loop iteration). Hoist
+#      as module constants — update_hand_text only reads .immediate/.delay/
+#      .nopulse, never mutates or retains.
+#   3. The joker-merge: fresh tbl {} + Cryptid.table_merge fresh copy per
+#      call. Reuse one module scratch table — evaluate_poker_hand stores CARD
+#      references in its results, never the input table, so the scratch never
+#      escapes (verified SMODS overrides.lua:1518 + Cryptid ascended.lua:25).
+apply_parse_highlighted_lean() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "cardarea.lua not found, skipping parse_highlighted lean"
+        return 0
+    fi
+    if grep -q "PARSE_HL_LEAN" "$f"; then
+        log_info "parse_highlighted lean already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+# constants + scratch, hoisted above the function
+old_head = "function CardArea:parse_highlighted()"
+new_head = """local PH_CFG_PULSE = {immediate = true, nopulse = true, delay = 0} -- PARSE_HL_LEAN
+local PH_CFG_PLAIN = {immediate = true, delay = 0}
+local PH_JOKER_SCRATCH = {}
+function CardArea:parse_highlighted()"""
+
+# 1. dead duplicate evaluation (vanilla call immediately shadowed by the
+#    Cryptid-patched redeclaration)
+old_dead = """    local text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(self.highlighted)
+    local text,disp_text,poker_hands
+"""
+new_dead = """    local text,disp_text,poker_hands
+"""
+
+# 3. joker-merge scratch reuse (replaces fresh tbl + table_merge copy)
+old_merge = """    	local tbl = {}
+    	for i, v in pairs(G.jokers.cards) do
+    		if v.base.nominal and v.base.suit then
+    			tbl[#tbl+1] = v
+    		end
+    	end
+    	text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(Cryptid.table_merge(self.highlighted, tbl))"""
+new_merge = """    	local tbl = PH_JOKER_SCRATCH
+    	for i = #tbl, 1, -1 do tbl[i] = nil end
+    	for i, v in ipairs(self.highlighted) do tbl[#tbl+1] = v end
+    	for i, v in pairs(G.jokers.cards) do
+    		if v.base.nominal and v.base.suit then
+    			tbl[#tbl+1] = v
+    		end
+    	end
+    	text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(tbl)"""
+
+for name, old in (('head', old_head), ('dead-call', old_dead), ('joker-merge', old_merge)):
+    if old not in text:
+        print(f"ERROR: parse_highlighted anchor not found: {name}", file=sys.stderr)
+        sys.exit(1)
+
+text = text.replace(old_dead, new_dead, 1)
+text = text.replace(old_merge, new_merge, 1)
+text = text.replace(old_head, new_head, 1)
+
+# 2. option-table hoists — only within this function's known call shapes
+n1 = text.count("update_hand_text({immediate = true, nopulse = true, delay = 0},")
+text = text.replace("update_hand_text({immediate = true, nopulse = true, delay = 0},",
+                    "update_hand_text(PH_CFG_PULSE,")
+n2 = text.count("update_hand_text({immediate = true, nopulse = nil, delay = 0},")
+text = text.replace("update_hand_text({immediate = true, nopulse = nil, delay = 0},",
+                    "update_hand_text(PH_CFG_PLAIN,")
+
+open(path, 'w').write(text)
+print(f"parse_highlighted lean applied (dead call removed, {n1}+{n2} option tables hoisted, joker scratch)")
+PYEOF
+    if grep -q "PARSE_HL_LEAN" "$f"; then
+        log_success "parse_highlighted lean applied (dead hand evaluation removed + option tables hoisted + joker-merge scratch)"
+    else
+        log_warn "parse_highlighted lean did not apply — check cardarea.lua"
     fi
 }
 
