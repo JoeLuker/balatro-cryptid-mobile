@@ -985,6 +985,18 @@ apply_tap_description_persist() {
     # disable collision on the whole tree.
     local node_f="$(dirname "$f")/node.lua"
     sed -i 's|            self.children.h_popup.states.collide.can = false|            self.children.h_popup.states.collide.can = false\n            self.children.h_popup.states.drag.can = false\n            local function _popup_nc(n) -- TAP_DESC_POPUP_NOCOLLIDE\n                n.states.collide.can = false\n                if n.children then for _, _c in pairs(n.children) do _popup_nc(_c) end end\n            end\n            _popup_nc(self.children.h_popup.UIRoot)|' "$node_f"
+    # pending-release ownership: Node:remove nils the controller's
+    # released_on.target when the node dies — correct cleanup, EXCEPT while a
+    # release dispatch is still pending (handled == false) in the same frame.
+    # Sticky-fingers' drag-to-buy targets are destroyed by drag-end cleanup
+    # BEFORE the released_on dispatch runs: vanilla then crashed (the booster
+    # Pull crash), and with RELEASED_ON_NIL_GUARD alone the buy was silently
+    # swallowed (trace-confirmed: G_REL_SKIP on v_cry_double_vision drag-buys).
+    # A pending dispatch owns the reference: the node is already removed from
+    # the world, but its release callback acts on the CARD, so dispatching on
+    # the removed node is exactly the intended behavior. The nil-guard stays
+    # for genuinely never-registered releases.
+    sed -i 's|    if G.CONTROLLER.released_on.target ==self then |    if G.CONTROLLER.released_on.target ==self and G.CONTROLLER.released_on.handled then -- RELEASED_ON_PENDING_KEEP |' "$node_f"
     # drag-release unhover: the released_on path nils hovering.target after
     # stop_hover(), but stop_hover only removes the popup — it never clears
     # states.hover.is. The card is orphaned with hover.is stuck true, and its
