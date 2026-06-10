@@ -314,6 +314,7 @@ EOF
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
     apply_ces_sign_fast "$game_dir/functions/common_events.lua"
+    apply_dynatext_glyph_cache "$game_dir/engine/text.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -2166,6 +2167,62 @@ PYEOF
         log_success "sign-check fast helpers applied (14 hot paired-to_big sites, plain path allocation-free)"
     else
         log_warn "sign-check fast helpers did not apply — check common_events.lua"
+    fi
+}
+
+# DynaText creates a love Text GPU object PER GLYPH on every update_text —
+# 300-380/sec during scoring animations, and a chunk of the description-popup
+# open cost. The objects are immutable after creation (both draw sites pass
+# them straight to love.graphics.draw; no :set()/:add(); no DynaTextEffect is
+# registered in this modpack), so they are shared via a permanent (font, char)
+# cache — content-addressed, staleness impossible, bounded by distinct glyphs
+# per session. Measured: joker description open 3.14 -> 2.50 ms (-20%).
+apply_dynatext_glyph_cache() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "engine/text.lua not found, skipping glyph cache"
+        return 0
+    fi
+    if grep -q "DYNATEXT_GLYPH_CACHE" "$f"; then
+        log_info "DynaText glyph cache already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+header = """-- DYNATEXT_GLYPH_CACHE: love Text objects are immutable after creation here
+-- (both draw sites pass them straight to love.graphics.draw with per-letter
+-- transforms; no :set()/:add() anywhere, and no DynaTextEffect is registered
+-- in this modpack). Cache them per (font, char): DynaText rebuilds its letter
+-- tables on every update_text — 300-380 newText GPU objects/sec during
+-- scoring and a large share of the popup-open cost. Distinct glyphs per
+-- session are bounded (a few hundred), so the cache is permanent by design.
+local GLYPH_CACHE = {}
+local function cached_glyph(font, c)
+    local fc = GLYPH_CACHE[font]
+    if not fc then fc = {}; GLYPH_CACHE[font] = fc end
+    local g = fc[c]
+    if not g then g = love.graphics.newText(font, c); fc[c] = g end
+    return g
+end
+
+"""
+
+old = "                    local let_tab = {letter = love.graphics.newText(self.font.FONT, c), char = c, scale = old_letter and old_letter.scale or part_scale}"
+new = "                    local let_tab = {letter = cached_glyph(self.font.FONT, c), char = c, scale = old_letter and old_letter.scale or part_scale} -- DYNATEXT_GLYPH_CACHE"
+
+if old not in text:
+    print('ERROR: newText anchor not found', file=sys.stderr); sys.exit(1)
+
+open(path, 'w').write(header + text.replace(old, new, 1))
+print('DynaText glyph cache applied')
+PYEOF
+    if grep -q "DYNATEXT_GLYPH_CACHE" "$f"; then
+        log_success "DynaText glyph cache applied (shared Text objects per font+char)"
+    else
+        log_warn "DynaText glyph cache did not apply — check engine/text.lua"
     fi
 }
 

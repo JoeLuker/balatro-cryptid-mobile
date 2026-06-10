@@ -74,6 +74,39 @@ local function report_draw()
         card_draw_ms, card_draw_calls, card_draw_ms / n))
 end
 
+-- hover popup rebuild cost (Tier-3 item 12 premeasurement): full
+-- hover->stop_hover cycles on a joker and a hand card, synchronous
+local function measure_hover()
+    local targets = {}
+    if G.jokers and G.jokers.cards[1] then targets[#targets + 1] = { 'joker', G.jokers.cards[1] } end
+    if G.hand and G.hand.cards[1] then targets[#targets + 1] = { 'hand', G.hand.cards[1] } end
+    for _, t in ipairs(targets) do
+        local label, card = t[1], t[2]
+        local N = 30
+        collectgarbage('collect')
+        collectgarbage('stop')
+        local kb0 = collectgarbage('count')
+        local t0 = love.timer.getTime()
+        for _ = 1, N do
+            card:hover()
+            card:stop_hover()
+        end
+        local ms = (love.timer.getTime() - t0) * 1000 / N
+        local kb = (collectgarbage('count') - kb0) / N
+        collectgarbage('restart')
+        print(string.format('BENCH: hover_%s ms=%.2f kb=%.1f per open (n=%d)', label, ms, kb, N))
+        -- phase breakdown: ability table vs popup definition vs UIBox instantiation
+        local function phase(name, fn)
+            local p0 = love.timer.getTime()
+            for _ = 1, N do fn() end
+            print(string.format('BENCH: hover_%s phase %s=%.2fms', label, name, (love.timer.getTime() - p0) * 1000 / N))
+        end
+        phase('ability_table', function() card.ability_UIBox_table = card:generate_UIBox_ability_table() end)
+        phase('popup_def', function() card.config.h_popup = G.UIDEF.card_h_popup(card); card.config.h_popup_config = card:align_h_popup() end)
+        phase('instantiate', function() Node.hover(card); Node.stop_hover(card) end)
+    end
+end
+
 local function measure_selection()
     local hand = G.hand
     if not hand or #hand.cards < 5 then
@@ -189,6 +222,8 @@ love.update = function(dt, ...)
         selection_done = true
         local ok, err = pcall(measure_selection)
         if not ok then print('BENCH: selection ERROR ' .. tostring(err)) end
+        ok, err = pcall(measure_hover)
+        if not ok then print('BENCH: hover ERROR ' .. tostring(err)) end
         ok, err = pcall(profile_hand_eval)
         if not ok then print('BENCH: profile ERROR ' .. tostring(err)) end
     end

@@ -137,12 +137,22 @@ there; use the selection metric or a targeted micro-bench.
 
 ## Tier 3 — measure before deciding
 
-12. **Card hover popup cache** (`card.lua:4872-74`): full UI-tree rebuild per
-    hover start — one-frame jank on description open; directly relevant to our
-    tap-and-hold descriptions. Dirty-flag cache across set_ability/edition/
-    seal. Medium risk (stale tooltips if a mutation site is missed).
-13. **DynaText per-glyph `newText` cache** (`text.lua:118-122`): 300-380 GPU
-    text objects/sec during scoring animations. Cache keyed by (font, char).
+12. **Card hover popup cache** — measured 2026-06-10 (bench hover phase):
+    joker description open = 3.14 ms + ~440 KB allocation. Phase breakdown:
+    ability_table 0.14 + popup_def 0.23 + UIBox INSTANTIATION ~2.8 ms (88%).
+    The doc's dirty-flag cache targets the wrong layer (the cheap definition
+    phases) and its invalidation is intractable anyway — jokers mutate
+    ability state inside calculate without going through set_ability, so any
+    set_ability/edition/seal dirty flag serves stale scaling tooltips.
+    **Deferred**: the remaining lever is making UIBox instantiation itself
+    cheaper, which is a layout-engine project, not a cache. Item 13 shipped
+    instead (below) — it was the content-addressable share of this cost.
+13. ~~DynaText per-glyph `newText` cache~~ — **DONE 2026-06-10**
+    (`DYNATEXT_GLYPH_CACHE`): love Text objects shared per (font, char) —
+    immutable after creation (verified: both draw sites are pure draws; no
+    DynaTextEffect registered in this modpack). Joker description open
+    3.14 → 2.50 ms (−20%); 300-380 GPU text objects/sec during scoring → ~0
+    steady-state (not visible in Lua heap metrics — GPU object churn).
 14. `SMODS.get_card_areas` module cache (mind Cryptid `cry_beta` variant);
     telemetry wrapper micro-costs; deploy-push asset stripping (deploy-time
     only; needs a nativefs asset-load audit).
