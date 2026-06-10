@@ -237,11 +237,14 @@ test('release dispatch tolerates the released-on node dying before dispatch (REL
     -- sticky-fingers Pull die at drag end). Forge that exact state and step.
     w.touch_down(2.7, 9); w.frames(20)
     w.touch_up(); w.frames(1)
-    w.ctrl.dragging.prev_target = w.A
+    -- dragging.prev_target is re-stamped from dragging.target every frame
+    -- (controller.lua:321), so the live drag must be forged too
+    w.ctrl.dragging.target = w.A
     w.ctrl.released_on.handled = false
     w.ctrl.released_on.target = nil
     w.frames(1)             -- pre-guard: attempt to index field 'target' (nil)
     check(w.ctrl.released_on.handled, 'dispatch must mark handled even when the target died')
+    w.ctrl.dragging.target = nil
 end)
 
 H.finish()
