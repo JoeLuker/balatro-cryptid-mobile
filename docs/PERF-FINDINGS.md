@@ -153,6 +153,14 @@ there; use the selection metric or a targeted micro-bench.
     DynaTextEffect registered in this modpack). Joker description open
     3.14 → 2.50 ms (−20%); 300-380 GPU text objects/sec during scoring → ~0
     steady-state (not visible in Lua heap metrics — GPU object churn).
-14. `SMODS.get_card_areas` module cache (mind Cryptid `cry_beta` variant);
-    telemetry wrapper micro-costs; deploy-push asset stripping (deploy-time
-    only; needs a nativefs asset-load audit).
+14. ~~`SMODS.get_card_areas` module cache~~ — **REJECTED by audit 2026-06-10**:
+    the one hot call site (`'jokers'` inside the per-joker scoring loop) is
+    already hoisted outside the loop (`SCORING_AREAS_CACHED`, state_events.lua:821).
+    The remaining call sites are once-per-hand or once-per-round-end — not
+    per-frame. `cry_beta` is unrelated (Nostalgic Deck blind substitution; no
+    `get_card_areas` variant exists).
+    ~~telemetry wrapper micro-costs~~ — **REJECTED by measurement 2026-06-10**:
+    `tel()` fires at 0.45 calls/s (132 events over 296s in a real session) —
+    two orders of magnitude below frame rate; allocation and concat cost are
+    invisible at this rate.
+    deploy-push asset stripping (deploy-time only; needs a nativefs asset-load audit).
