@@ -854,12 +854,20 @@ apply_tap_description_persist() {
         log_info "Tap-description persist already applied"
         return 0
     fi
+    # touch_env: stable "this is a touch device" predicate. self.HID.touch is
+    # re-classified on EVERY input event, so any single mis-classified event
+    # (the istouch races fixed in main.lua) flips it to mouse and silently
+    # disarms every per-frame touch patch below — RELAX stops clearing
+    # hover.is and the stuck-tilt warp returns. Gates use (touch or touch_env)
+    # so they never depend on event-classification timing. Vanilla HID.touch
+    # reads are untouched; desktop unaffected (touch_env false off Android).
+    sed -i "s|self.HID = {|self.HID = {\n    touch_env = love.system.getOS() == 'Android', -- HID_TOUCH_ENV|" "$f"
     # persist: don't clear the hover on touch release
     sed -i 's|elseif (self.cursor_hover.target == nil or (self.HID.touch and not self.is_cursor_down)) and self.hovering.target then|elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST|' "$f"
     # hold-gate: on touch, a hand/playing card only shows its description after a
     # deliberate hold (>0.2s, past the tap/select boundary) — a quick tap selects
     # without ever flashing the description. Jokers/etc. still show immediately.
-    sed -i 's|if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) then|if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) and not (self.HID.touch and self.cursor_hover.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2) then -- TAP_DESC_HOLDGATE|' "$f"
+    sed -i 's|if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) then|if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) and not ((self.HID.touch or self.HID.touch_env) and self.cursor_hover.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2) then -- TAP_DESC_HOLDGATE|' "$f"
     # tap behaviour by card type: hand/playing cards quick-tap = select only (no
     # description; description is hold-only via the persist above, and any tap
     # dismisses it). Jokers/consumables/shop = tap toggles the persistent desc.
@@ -874,16 +882,16 @@ apply_tap_description_persist() {
     # tilt falls to the ambient branch (orbits its own centre, no warp). The
     # description popup is tied to hovering.target — NOT hover.is — so it stays;
     # hover.is's only other card effects are a benign +5% zoom and collision buffer.
-    sed -i 's|    --The object being hovered over|    if self.HID.touch and self.hovering.target and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target) then self.hovering.target.states.hover.is = false end -- TAP_DESC_RELAX\n    --The object being hovered over|' "$f"
+    sed -i 's|    --The object being hovered over|    if (self.HID.touch or self.HID.touch_env) and self.hovering.target and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target) then self.hovering.target.states.hover.is = false end -- TAP_DESC_RELAX\n    --The object being hovered over|' "$f"
     # hold-persist: hand cards are draggable (reorder), so a stationary hold was
     # treated as a degenerate drag — on release the drag-release path calls
     # stop_hover() and nils hovering.target, destroying the description the hold
     # just revealed ("doesn't stay"). A touch hold that never travelled past the
     # click threshold is not a reorder; skip the drag-release path so its
     # description persists. Real drags (travel >= MIN_CLICK_DIST) still reorder.
-    sed -i 's|            elseif self.dragging.prev_target then |            elseif self.dragging.prev_target and not (self.HID.touch and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_NODRAG |' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f"; then
-        log_success "Tap-description persist + toggle + no-warp + hold-persist applied"
+    sed -i 's|            elseif self.dragging.prev_target then |            elseif self.dragging.prev_target and not ((self.HID.touch or self.HID.touch_env) and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_NODRAG |' "$f"
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f"; then
+        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env applied"
     else
         log_warn "Tap-description fix did not fully match — check controller.lua"
     fi
@@ -912,14 +920,14 @@ apply_drag_select() {
     # 2) init the drag-select state alongside cursor_down
     sed -i 's|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}\nself.dragSelectActive = {active = false, mode = nil} -- DRAG_SELECT_INIT|' "$ctrl"
     # 3) activate on a touch that starts on empty space with nothing being dragged
-    sed -i 's|^        self.cursor_down.handled = true$|        if self.HID.touch and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE\n        self.cursor_down.handled = true|' "$ctrl"
+    sed -i 's|^        self.cursor_down.handled = true$|        if (self.HID.touch or self.HID.touch_env) and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE\n        self.cursor_down.handled = true|' "$ctrl"
     # 4) reset on touch release
     sed -i 's|    if not self.cursor_up.handled then |    if not self.cursor_up.handled then \n        self.dragSelectActive.active = false; self.dragSelectActive.mode = nil -- DRAG_SELECT_RESET|' "$ctrl"
     # 5) per-frame while active: highlight/unhighlight the closest hand card under
     #    the finger. The first card touched sets the mode (select vs deselect) so a
     #    sweep stays consistent; the hand's 5-card limit is enforced by
     #    add_to_highlighted (over-limit cards just no-op).
-    sed -i 's|    --Cursor is currently hovering over something|    if self.HID.touch and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        if closest and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
+    sed -i 's|    --Cursor is currently hovering over something|    if (self.HID.touch or self.HID.touch_env) and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        if closest and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
     # 6) toggle in Settings > Game (after the Debug Overlay toggle)
     sed -i "s|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
     if grep -q "DRAG_SELECT_LOOP" "$ctrl" && grep -q "DRAG_SELECT_ACTIVATE" "$ctrl" && grep -q "enable_drag_select" "$ui_file"; then
