@@ -963,8 +963,8 @@ apply_tap_description_persist() {
     # TAP_DESC_TOGGLE dismiss, destroying the description the hold just
     # summoned (trace-confirmed on device). Holds >= 0.2s are not taps for
     # hand cards on touch: no select, no toggle-dismiss.
-    sed -i 's|                    if self.cursor_down.target.area == G.hand then|                    if self.cursor_down.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2 then -- TAP_DESC_HOLD_KEEP|' "$f"
-    sed -i 's|                    if self.cursor_down.target.states.click.can then|                    if self.cursor_down.target.states.click.can and not ((self.HID.touch or self.HID.touch_env) and self.cursor_down.target.area == G.hand and (self.cursor_down.duration or 0) >= 0.2) then -- TAP_DESC_HOLD_NOSELECT|' "$f"
+    sed -i 's|                    if self.cursor_down.target.area == G.hand then|                    if self.cursor_down.target.area == G.hand and ((self.cursor_up.time or 0) - (self.cursor_down.time or 0)) < 0.2 then -- TAP_DESC_HOLD_KEEP (duration is nil at release time; use the tap-window clock)|' "$f"
+    sed -i 's|                    if self.cursor_down.target.states.click.can then|                    if self.cursor_down.target.states.click.can and not ((self.HID.touch or self.HID.touch_env) and self.cursor_down.target.area == G.hand and ((self.cursor_up.time or 0) - (self.cursor_down.time or 0)) >= 0.2) then -- TAP_DESC_HOLD_NOSELECT|' "$f"
     # popup no-collide: vanilla disables collision on the popup ROOT only; the
     # inner UIElement tree still collides (and the root is drag.can=true), so
     # a persisted description squats over its card and eats the next touch —

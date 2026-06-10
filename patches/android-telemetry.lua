@@ -199,6 +199,50 @@ function Game:update(dt)
         end
     end
 
+    -- gesture-debug: trace the description/drag chain as state TRANSITIONS
+    -- (cheap comparisons per frame; emits only on change). Reads the live
+    -- controller so the device's actual gesture state machine is visible in
+    -- the phone-home log.
+    local C = G.CONTROLLER
+    if C and C.hovering then
+        local ht = C.hovering.target
+        if ht ~= TEL.g_hover then
+            TEL.g_hover = ht
+            tel("G_HOVER", {
+                card = ht and (ht.config and ht.config.center and ht.config.center.key or "node") or "nil",
+                drag = ht and ht.states and ht.states.drag.is and 1 or 0,
+                dur = string.format("%.2f", (C.cursor_down and C.cursor_down.duration) or -1),
+            })
+        end
+        local hi = ht and ht.states and ht.states.hover.is or false
+        if hi ~= TEL.g_hover_is then
+            TEL.g_hover_is = hi
+            tel("G_HOVER_IS", {is = hi and 1 or 0, dur = string.format("%.2f", (C.cursor_down and C.cursor_down.duration) or -1)})
+        end
+        local popup = (ht and ht.children and ht.children.h_popup) and 1 or 0
+        if popup ~= TEL.g_popup then
+            TEL.g_popup = popup
+            tel("G_POPUP", {up = popup})
+        end
+        local dt_ = C.dragging and C.dragging.target
+        if dt_ ~= TEL.g_drag then
+            TEL.g_drag = dt_
+            tel("G_DRAG", {
+                card = dt_ and (dt_.config and dt_.config.center and dt_.config.center.key or "node") or "nil",
+                dur = string.format("%.2f", (C.cursor_down and C.cursor_down.duration) or -1),
+            })
+        end
+        local dsa = C.dragSelectActive
+        local dss = dsa and (tostring(dsa.active) .. "/" .. tostring(dsa.mode) .. "/" .. (dsa.start_card and "sc" or "-")) or "?"
+        if dss ~= TEL.g_dsel then
+            TEL.g_dsel = dss
+            tel("G_DSEL", {s = dss,
+                dur = string.format("%.2f", (C.cursor_down and C.cursor_down.duration) or -1),
+                cl = C.collision_list and #C.collision_list or -1,
+                tap = string.format("%.2f", ((C.cursor_up and C.cursor_up.time or 0) - (C.cursor_down and C.cursor_down.time or 0)))})
+        end
+    end
+
     -- Log state changes
     if G.STATE ~= TEL.last_state or G.STAGE ~= TEL.last_stage then
         tel("STATE", {
