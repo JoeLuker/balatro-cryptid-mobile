@@ -16,3 +16,9 @@ Sticky Fingers only needs G.FUNCS.can_reserve_card/reserve_card (defined by Poke
 ### Shim vs. full Pokermon install
 Cryptid needed `can_reserve_card` which Pokermon normally provides → created a minimal `reserve-shim` patch defining just that function instead of installing Pokermon (full install crashed on its loader guard, and partial install is impossible; shim is the root-cause-correct minimal fix).
 <!-- session:2026-06-08-44ada020 | commit:e7723fadd74a66044489c875107455c9b6a9d6af | files:patches/reserve-shim/reserve-shim.lua,patches/reserve-shim/reserve-shim.json | area:patches | date:2026-06-08 -->
+### Emulator over physical-phone testing
+Need to validate the APK without deploying to Joe's phone → set up a headless Android emulator on the NixOS machine (respects the established `never-deploy-to-phone-unasked` constraint; emulator gives a CI-style test target the agent fully controls).
+<!-- session:2026-06-09-a2689c6a | commit:4f9e9afb539b4b1966b0672efaf3f28df643e549 | files:test/emulator/shell.nix,test/emulator/run.sh | area:test | date:2026-06-09 -->
+### Build a headless test harness instead of phone deploys
+Repeated phone deploys were the only verification path → built a Nix-provisioned headless LOVE2D smoke test plus a scripted controller harness (`test/controller/`) driven through `justfile` recipes (reasoning: enables local verification of game-core changes without occupying Joe's phone, which is explicitly gated behind BALATRO_DEPLOY_PHONE=1).
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:shell.nix,test/smoke.sh,test/smoke-autorun.lua,test/controller/harness.lua,test/controller/run.lua,justfile | area:test | date:2026-06-09 -->

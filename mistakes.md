@@ -25,3 +25,15 @@ File was modified across multiple consecutive turns — may indicate the AI stru
 <!-- session:2026-06-09-29ad2e82 | commit:f72133da7df5ecc119d87382a56372d20ff369b8 | date:2026-06-09 -->
 ### Deployed to Joe's phone repeatedly without asking (dim-gate build, graphics revert) — each deploy force-restarts the app while he's using the device; one shipped rendering corruption. HARD RULE now: never deploy/install/restart/screen-capture his physical phone unless he explicitly asks in the current conversation. deploy() is gated: physical devices refuse without BALATRO_DEPLOY_PHONE=1. Verify with the local harness instead (just test / smoke / emu-test).
 <!-- session:2026-06-09-29ad2e82 | commit:f72133da7df5ecc119d87382a56372d20ff369b8 | files:docs/GAME-ARCHITECTURE.md,src/dump/SMODS/_/src/utils.lua,src/dump/game.lua,scripts/build.sh,patches/android-telemetry.lua,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/never-deploy-to-phone-unasked.md | area:dump | date:2026-06-09 -->
+### Unwanted phone deploy with graphics regression
+A deploy pushed to the developer's physical phone and left the game's graphics severely broken → root cause not diagnosed in this session → corroborates the existing project guardrail that phone deploys must be gated behind explicit opt-in (`BALATRO_DEPLOY_PHONE=1`).
+<!-- session:2026-06-09-7507a29a | commit:54f3b4c8d557967eba10312e71574a15475c7b11 | files:justfile,README.md,docs/GAME-ARCHITECTURE.md,README.md | area:docs | date:2026-06-09 | rule:WHEN deploying Balatro builds NEVER target the developer's phone without explicit `BALATRO_DEPLOY_PHONE=1` opt-in. -->
+### Repeated modifications to src/dump/engine/sprite.lua
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-09-a2689c6a for the correct approach.
+<!-- session:2026-06-09-a2689c6a | commit:4f9e9afb539b4b1966b0672efaf3f28df643e549 | files:src/dump/engine/sprite.lua | area:dump | date:2026-06-09 -->
+### Repeated unrequested phone deployments
+A background workflow (build/telemetry work) deployed builds to the user's physical phone multiple times without being asked → the phone is the user's personal device, not CI infrastructure, and automated deploys are intrusive and unwanted → deployment must be gated behind an explicit opt-in (`BALATRO_DEPLOY_PHONE=1`) and never triggered as a side effect of build/test work.
+<!-- session:2026-06-09-29ad2e82 | commit:f72133da7df5ecc119d87382a56372d20ff369b8 | files:scripts/build.sh,patches/android-telemetry.lua | area:scripts | date:2026-06-09 | rule:WHEN doing build, telemetry, or test work NEVER deploy to the phone unless the user explicitly requests it in that turn -->
+### Screenshot capture timing too slow
+Initial repro waited ~1 minute for game foreground before capturing → too long, artifact was already visible ("its there right now, a minute is too long") → tightened capture timing in the autorun/harness flow.
+<!-- session:2026-06-10-8b8b54c2 | commit:4b9164d06f5b5620cb9e09483d276ec37f701841 | files:test/warp-repro-autorun.lua | area:test | date:2026-06-10 -->

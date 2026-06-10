@@ -174,3 +174,55 @@ rejects (1) shader files whose last line is a directive without trailing newline
 ### Perf findings doc at docs/PERF-FINDINGS.md
 verified+ranked optimization list. NEVER reapply setShader bind elision (corrupts rendering — Shader:send not batch-aware) or pseudoseed %.13f format change (PRNG desync). Tier-1 GC wins (align_cards closures, parse_highlighted hoists, juice_up literal) are measurable in DESKTOP SMOKE via collectgarbage deltas — same Lua, no phone. Biggest scoring candidate: to_big fast-path for values <1e15 (OmegaNum allocs at normal chip scale).
 <!-- session:2026-06-09-cc3a91f3 | commit:2a8c40df01796705cd1f79cfd1e11af4d9fd6c0c | files:scripts/build.sh,patches/android-telemetry.lua,docs/PERF-FINDINGS.md | area:scripts | date:2026-06-10 -->
+
+### Headless Android emulation on NixOS
+The project can run the APK in a headless emulator via a Nix shell (`test/emulator/shell.nix`) that downloads a system image, booted/driven by `test/emulator/run.sh`, providing an alternative to physical-phone deploys (which are gated behind `BALATRO_DEPLOY_PHONE=1`).
+<!-- session:2026-06-09-a2689c6a | commit:4f9e9afb539b4b1966b0672efaf3f28df643e549 | files:test/emulator/shell.nix,test/emulator/run.sh,scripts/build.sh | area:test | date:2026-06-09 -->
+
+### Dual build/source tree mirroring
+Edits are consistently applied to both `build/game/...` and `src/dump/...` paths in tandem, indicating these trees mirror each other and changes must be kept in sync.
+<!-- session:2026-06-09-a2689c6a | commit:4f9e9afb539b4b1966b0672efaf3f28df643e549 | files:build/game/engine/sprite.lua,src/dump/engine/sprite.lua,build/game/game.lua,src/dump/game.lua | area:build | date:2026-06-09 -->
+
+### Custom love.run frame loop
+The game replaces LOVE's default run loop (main.lua:906). Per frame it pumps events (deferring touchpressed until after mousepressed), steps the timer, applies an EMA dt smoothing (0.8 prev + 0.2 raw, capped at 0.1s), then calls update/draw and sleeps to enforce G.FPS_CAP (default 500). The smoothed dt — not raw dt — is what feeds simulation, preventing Android resume spikes from jumping the sim.
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:main.lua,conf.lua | date:2026-06-09 -->
+
+### Talisman scoring coroutine
+Scoring runs as a cross-frame coroutine. `G.FUNCS.evaluate_play` (main.lua:2094) creates `G.SCORING_COROUTINE`, records `G.SCORING_START`, and resumes once; subsequent resumes happen every frame in the Talisman `love.update` override (main.lua:2111). The only `coroutine.yield()` site is in `Card:calculate_joker` (main.lua:2204), which yields when more than TIME_BETWEEN_SCORING_FRAMES (0.03s) has elapsed. A 'calculating...' overlay appears only after scoring exceeds 0.3s.
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:main.lua | date:2026-06-09 -->
+
+### Android nativefs shim
+On Android, `nativefs.lua:14` returns a pure-Lua table wrapping love.filesystem (no FFI), whereas other platforms delegate to the FFI-based `nativefs.nativefs`. The telemetry error handler (android-telemetry.lua:127) is the outermost love.errorhandler, logging a CRASH event with state/ante/round context before chaining to the SMODS crash-screen handler.
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:nativefs.lua,android-telemetry.lua | date:2026-06-09 -->
+
+### Save system cadence
+`G.FILE_HANDLER` holds per-cycle flags (progress, settings, run, metrics, force) polled in `Game:update`. Saves push to the `save_request` channel every F_SAVE_TIMER seconds (30s default, 5s dev). SOUND/SAVE/HTTP managers each run as background threads started in `G:start_up`.
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:game.lua | date:2026-06-09 -->
+
+### Incremental GC budget
+`nuGC` (functions/misc_functions.lua:718) runs `collectgarbage('step',1)` under a time budget (~0.3ms) at the top of every `Game:update`, with `disable_otherwise=true` halting automatic GC between calls and a safety full-collect when the heap exceeds 300MB.
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:functions/misc_functions.lua | area:functions | date:2026-06-09 -->
+
+### Timer semantics
+`G.TIMERS` distinguishes TOTAL (game-speed-scaled), REAL (wall seconds, reset at round start), REAL_SHADER (frozen at 300 under reduced_motion), UPTIME (never reset), and BACKGROUND. Nodes receive `dt*SPEEDFACTOR`; SPEEDFACTOR derives from SETTINGS.GAMESPEED plus ACC overflow during HAND_PLAYED/NEW_ROUND.
+<!-- session:2026-06-09-c2f18140 | commit:83a0ee4eeb06f6f3e31d098bf50a4f0b3a966550 | files:globals.lua,game.lua | date:2026-06-09 -->
+
+### Warp-artifact root cause
+vanilla main.lua run loop dedupes touchpressed+synthetic mousepressed by same-pump coincidence (the 'touched' flag), discarding LÖVE's native istouch arg (_d). When SDL delivers the pair across two pump batches (seen on Joe's 120Hz foldable, 2208x1840 inner display), the press classifies as MOUSE: every HID.touch-gated patch (TAP_DESC_RELAX, DRAG_SELECT_ACTIVATE) silently deactivates for that press, vanilla mouse-hover semantics wedge states.hover.is=true on the card, its tilt anchor (tilt_var.mx/my -> mouse_screen_pos shader uniform) tracks the finger forever, and hover.is being stuck also blocks the ambient_tilt branch from ever overwriting the huge frozen tilt_var.amt — cards stay violently stretched at rest and artifacts accumulate one per lost race. Fix: HID_ISTOUCH_FIX in patch_main_lua.py — dispatch with (touched or _d). Diagnosis chain that worked: phone APK byte-identical to build/game, desktop repro with phone save clean, gesture suite green (harness force-sets HID touch so it is blind to misclassification), Joe's repro steps (tap card A, drag card B) pinned the trigger.
+<!-- session:2026-06-10-8b8b54c2 | commit:4b9164d06f5b5620cb9e09483d276ec37f701841 | files:test/warp-repro-autorun.lua,test/warp-repro.sh,scripts/patch_main_lua.py | area:test | date:2026-06-10 -->
+
+### CORRECTION to earlier warp root-cause note
+the HID istouch races were real hardening but NOT the warp. The actual warp: vanilla controller.lua released_on path (line ~442) runs hovering.target:stop_hover() + nils hovering.target after any card drag — but Node:stop_hover only removes the popup and NOTHING clears states.hover.is. The card is orphaned with hover.is stuck true; its 3D tilt (tilt_var -> mouse_screen_pos uniform) tracks the live cursor forever. Desktop self-heals via constant mouse-over re-acquisition; touch never re-acquires, so every card drag (reorder, drag-select sweep, sticky-fingers) wedged one more card until restart. Fixed by DRAG_RELEASE_UNHOVER applier (commit 25b97a1): clear the flag in the same path. Found mechanically by test/controller/fuzz.lua (invariant: finger up => no card holds hover.is) — wedged within 40 steps on every seed in ALL configs including drag-select disabled; frame-traced minimal repro in test/controller/min-repro.lua. Lesson: the nominal-flow gesture suite was green the whole time — only invariant-fuzzing over random interleavings exposed it.
+<!-- session:2026-06-10-29cb0bd3 | commit:fc08cbf30e7e5aa487ac3a2b0101b6e425575532 | files:test/controller/run.lua,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/never-deploy-to-phone-unasked.md,test/controller/fuzz.lua,test/controller/min-repro.lua,scripts/build.sh | area:test | date:2026-06-10 -->
+
+### Drag-to-select regression
+The multi-card drag-select path in the controller was the confirmed root cause of the touch breakage; isolated via a minimal repro plus fuzz harness under `test/controller/`.
+<!-- session:2026-06-10-29cb0bd3 | commit:fc08cbf30e7e5aa487ac3a2b0101b6e425575532 | files:test/controller/min-repro.lua,test/controller/fuzz.lua | area:test | date:2026-06-10 -->
+
+### Alloc benchmarking workflow
+Per-frame allocation hotspots are measured via an autorun Lua bench wired through `scripts/build.sh`, with results captured in `docs/PERF-FINDINGS.md`. Lean-down Python helpers (`/tmp/ph-lean.py`, `/tmp/ces-lean.py`, `/tmp/gxs-lean*.py`) were used to trim measurement noise.
+<!-- session:2026-06-10-29cb0bd3 | commit:fc08cbf30e7e5aa487ac3a2b0101b6e425575532 | files:test/perf/alloc-bench-autorun.lua,test/perf/alloc-bench.sh,docs/PERF-FINDINGS.md | area:test | date:2026-06-10 -->
+
+### Warp artifact regression window
+User reported shader warp artifacts that were NOT present "earlier today at ~3pm" but appear now when moving cards around — pointing to a regression introduced by commits between 3pm and the session. Recent commits in the window touch shader range reduction (`glitched.fs` MALI_RANGE_FIX), DynaText glyph cache, and released_on liveness guards — these are the prime suspects for a future bisect.
+<!-- session:2026-06-10-8b8b54c2 | commit:4b9164d06f5b5620cb9e09483d276ec37f701841 | files:shaders/glitched.fs,build/game/main.lua | area:shaders | date:2026-06-10 -->
