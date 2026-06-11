@@ -212,36 +212,20 @@ end"""
     else:
         print("NOTE: F_NO_COROUTINE duplicate block not found in main.lua — already removed or structure changed")
 
-    # 10b. FPS_CAP_REFRESH: G.FPS_CAP is set once from the window's refresh
-    # rate at boot. On an LTPO panel that idles at 60Hz (e.g. when the app is
-    # launched by a deploy while the screen is untouched), the window reports
-    # 60 and the cap stays frozen at half the panel's real rate for the whole
-    # session (observed on-device 2026-06-10: 120Hz panel, uniform ~15.5ms
-    # frames in every state). The panel upshifts on interaction with NO focus
-    # event, so the cap must be re-read periodically: once every ~2 seconds
-    # (cheap SDL query) in the base love.update, beneath the mod wrappers.
-    if 'FPS_CAP_REFRESH' not in content:
-        update_anchor = """function love.update( dt )
-\t--Perf monitoring checkpoint
-    timer_checkpoint(nil, 'update', true)"""
-        update_replacement = """function love.update( dt )
-\t--Perf monitoring checkpoint
-    timer_checkpoint(nil, 'update', true)
-    -- FPS_CAP_REFRESH (Android): track the panel's live refresh rate
-    if love.system.getOS() == 'Android' then
-        G.FPS_CAP_REFRESH_AT = G.FPS_CAP_REFRESH_AT or 0
-        if G.TIMERS.UPTIME > G.FPS_CAP_REFRESH_AT then
-            G.FPS_CAP_REFRESH_AT = G.TIMERS.UPTIME + 2
-            local _, _, _wf = love.window.getMode()
-            if _wf and _wf.refreshrate and _wf.refreshrate > 0 and _wf.refreshrate ~= G.FPS_CAP then
-                G.FPS_CAP = _wf.refreshrate
-            end
-        end
-    end"""
-        if update_anchor in content:
-            content = content.replace(update_anchor, update_replacement, 1)
-        else:
-            print("WARNING: love.update anchor not found - FPS_CAP_REFRESH NOT applied")
+    # NOTE on the FPS cap and LTPO panels (investigated on-device 2026-06-10):
+    # G.FPS_CAP is read once from the window's refresh rate at boot
+    # (FPS_CAP_DISPLAY in globals.lua). If the app is launched while an LTPO
+    # panel idles at 60Hz the cap freezes at half the panel's real rate for
+    # the session. Two runtime fixes were tried and REJECTED with live data:
+    # - periodic love.window.getMode() polling: returns the frozen
+    #   creation-time value on Android, never moves (dumpsys showed 120Hz
+    #   while getMode said 60);
+    # - love.window.setVSync(1): paces to the compositor but quantizes frame
+    #   times up (measured 42-55fps where the cap gave 60+, heap pressure
+    #   visible) — reverted.
+    # Human launches always read the true rate (a finger wakes the panel to
+    # full rate before the window is created); only idle adb/deploy launches
+    # hit the freeze, so deploy() nudges the screen awake before am start.
 
     # 11. Inject love.focus callback for Android flush-on-background.
     #

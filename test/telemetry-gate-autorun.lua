@@ -11,7 +11,7 @@
 --                    the input tracer events (G_MPRESS, G_REL).
 local mode = os.getenv('TELGATE_MODE') or 'off'
 local elapsed, menu_at, enabled_at, done = 0, nil, nil, false
-local pressed_at, released = nil, false
+local pressed_at, released, forced_click = nil, false, false
 print('TELGATE: loaded mode=' .. mode)
 print('TELGATE: savedir=' .. love.filesystem.getSaveDirectory())
 
@@ -54,6 +54,17 @@ love.update = function(dt, ...)
         released = true
         love.event.push('mousereleased', 800, 450, 1, false, 1)
     end
+    -- force a clicked/released_on identity transition so the G_CLICKT/G_RELON
+    -- tracer paths (and their card_key_of calls) execute under the harness:
+    -- the synthetic press lands on empty menu space and never produces a real
+    -- click, which let an upvalue-scoping crash in those paths ship to device
+    -- while this harness stayed green (2026-06-10). handled stays true, so
+    -- no dispatch fires — only the tracer sees the change.
+    if mode == 'on' and released and not forced_click and elapsed - pressed_at > 1 and G.CONTROLLER then
+        forced_click = true
+        G.CONTROLLER.clicked.target = G.ROOM
+        G.CONTROLLER.released_on.target = G.ROOM
+    end
 
     if menu_at and elapsed - menu_at > 12 then
         local info = love.filesystem.getInfo('telemetry.log')
@@ -76,6 +87,8 @@ love.update = function(dt, ...)
                     finish(false, 'mode=on synthetic press did not produce G_PRESS (late hook not installed or clobbered again)')
                 elseif not content:find('G_REL', 1, true) then
                     finish(false, 'mode=on synthetic release did not produce G_REL')
+                elseif not content:find('G_CLICKT', 1, true) then
+                    finish(false, 'mode=on forced transition did not produce G_CLICKT (tracer path broken)')
                 else
                     local _, lines = content:gsub('\n', '')
                     finish(true, 'mode=on telemetry.log has ' .. lines .. ' lines incl PERF_SNAPSHOT + input tracer events')

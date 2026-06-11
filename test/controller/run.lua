@@ -168,6 +168,23 @@ test('re-pressing the same stale-hovered card re-fires hover (TAP_DESC_REHOVER)'
     w.touch_up(); w.frames(2)
 end)
 
+-- REHOVER's popup-absence guard: pressing a card whose description popup IS
+-- up (the dismiss gesture) must NOT re-fire hover() — Card:hover would
+-- create a second popup over the live one and orphan it (UIBox leak,
+-- ~200MB heap observed on-device 2026-06-10 after an evening of taps).
+test('pressing a card with its popup up does not re-hover (popup leak guard)', function()
+    local w = scene()
+    w.touch_down(2.7, 2.5); w.frames(12); w.touch_up(); w.frames(3)
+    check(w.ctrl.hovering.target == w.J, 'precondition: J is the persisted hover target')
+    local hovers_before = w.J.calls.hover or 0
+    w.J.children.h_popup = {}   -- description popup is up (mock)
+    w.touch_down(2.7, 2.5); w.frames(12)
+    check((w.J.calls.hover or 0) == hovers_before,
+        'press on a popup-bearing card must not re-fire hover() (would leak a second popup)')
+    w.touch_up(); w.frames(2)
+    w.J.children.h_popup = nil
+end)
+
 -- TAP_DESC_STALE_CLEAR contract: shown_desc (the toggle's memory of whose
 -- description is on screen) must die whenever the popup dies, i.e. whenever
 -- stop_hover removes it — otherwise the next tap on the same card takes the

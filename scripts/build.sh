@@ -1111,7 +1111,12 @@ apply_tap_description_persist() {
     # overwritten, so nil'ing prev directly is a no-op) propagate nil, and
     # the normal acquisition then re-assigns the card as a genuine change,
     # re-firing hover() through the MIN_HOVER_TIME path.
-    sed -i 's|    local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target|    local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target\n    if press_node and press_node == self.hovering.target and not press_node.states.hover.is then self.hovering.target = nil end -- TAP_DESC_REHOVER|' "$f"
+    # The popup-absence guard is load-bearing: pressing a card whose
+    # description IS up (the dismiss gesture) must NOT re-fire hover() —
+    # Card:hover would create a second popup over the live one, orphaning it
+    # (UIBox leak; observed on-device 2026-06-10 as ~200MB heap growth and
+    # ~30fps after an evening of description taps).
+    sed -i 's|    local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target|    local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target\n    if press_node and press_node == self.hovering.target and not press_node.states.hover.is and not (press_node.children and press_node.children.h_popup) then self.hovering.target = nil end -- TAP_DESC_REHOVER|' "$f"
     # pending-release ownership: Node:remove nils the controller's
     # released_on.target when the node dies — correct cleanup, EXCEPT while a
     # release dispatch is still pending (handled == false) in the same frame.
@@ -2139,6 +2144,14 @@ deploy() {
         adb shell pidof "$INSTALLED_PACKAGE_ID" >/dev/null 2>&1 || break
         sleep 0.3
     done
+    # Nudge the panel to its full refresh rate before the window is created:
+    # G.FPS_CAP reads the rate once at boot, and an idle LTPO panel reports
+    # 60Hz — a deploy-launched session then runs at half rate until manual
+    # restart (proven via telemetry 2026-06-10; runtime re-reads don't work,
+    # see the FPS-cap note in patch_main_lua.py). A wakeup + harmless swipe on
+    # the navigation area upshifts the panel the same way a human launch does.
+    adb shell input keyevent KEYCODE_WAKEUP
+    adb shell input swipe 100 10 110 10 50
     adb shell am start -n "$INSTALLED_PACKAGE_ID/org.love2d.android.GameActivity"
 }
 
