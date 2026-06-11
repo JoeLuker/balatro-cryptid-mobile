@@ -19,9 +19,29 @@ def patch_main_lua(filepath):
     already_istouch_release = 'HID_ISTOUCH_RELEASE_FIX' in content
     already_istouch_move = 'HID_ISTOUCH_MOVE_FIX' in content
     already_breakinf = 'TAL_BREAKINF_CLAMP' in content
-    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_breakinf:
+    already_jitopt = 'JIT_OPT_RAISE' in content
+    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_breakinf and already_jitopt:
         print("Already patched")
         return
+
+    # 0. JIT_OPT_RAISE (Tier 0b): raise LuaJIT trace budgets at the earliest
+    # possible point. The defaults (maxtrace=1000, maxmcode=2048KB,
+    # maxside=100, maxsnap=500, hotloop=56) starve a 128k-line codebase:
+    # when the trace pool exhausts, hot paths blacklist and run interpreted
+    # forever — the bimodal frame-time cliff measured on-device. jit.opt is
+    # a C builtin (lib_jit.c, preregistered), available even in the static
+    # liblove.so where plain-Lua jit modules (vmdef) are not. Unconditional
+    # (not Android-gated) so desktop benches measure the same configuration;
+    # pcall-guarded for any non-LuaJIT runtime.
+    if 'JIT_OPT_RAISE' not in content:
+        jit_opt_block = """-- JIT_OPT_RAISE: see scripts/patch_main_lua.py section 0
+pcall(function()
+    require("jit.opt").start(
+        "maxtrace=4000", "maxmcode=16384", "maxside=400", "maxsnap=2000", "hotloop=28"
+    )
+end)
+"""
+        content = jit_opt_block + content
 
     # 1. Add require path fix and package.preload before SMODS = {}
     smods_init = "SMODS = {}"
