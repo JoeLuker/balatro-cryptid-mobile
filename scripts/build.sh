@@ -406,6 +406,7 @@ EOF
     # the fix inert on-device.
     apply_nf_big_cache         "$game_dir/main.lua"
     apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
+    apply_moveable_sleep       "$game_dir/engine/moveable.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -2999,6 +3000,93 @@ PYEOF
 # are cheap scalars that we just overwrite. The dims.x/y values are mutated in-
 # place on the reused sub-table — safe because old_letters is a local that goes
 # out of scope after the loop and the draw pass reads from the new letters array.
+
+# MOVEABLE_SLEEP: the move pass visits every moveable every frame (no culling),
+# and vanilla's own STATIONARY skip is dead on arrival: align_to_major runs
+# FIRST and unconditionally stamps NEW_ALIGNMENT=true — the very flag the skip
+# then tests. Settled moveables (Minors under a stationary major; Majors whose
+# springs have snapped) now early-exit BEFORE align_to_major, behind a full
+# wake-condition wall built from the recon of every external mutation path:
+#   - juice / NEW_ALIGNMENT (drag) / config.refresh_movement / Weak bonds:
+#     vanilla's own wake conditions, kept verbatim
+#   - alignment type+offset vs the prev_* caches align_to_major already
+#     maintains: catches the ~60 direct alignment.offset.y= pokes
+#     (blind panels, shop slide-ins) that set no dirty flag
+#   - a tiny last-T cache (4 floats, written on awake frames): catches direct
+#     T writes that set no flag (Blind:align wobble children, Cryptid
+#     scatter, pack-use teleports)
+#   - Minors only sleep after their major has ALREADY moved this frame, so
+#     they read this frame's STATIONARY, never a stale one; sleeping minors
+#     still propagate STATIONARY=true for their own dependents
+# Springs snap (move_xy/move_r hard-snap VT=T below epsilon; move_wh clamps),
+# so STATIONARY is a sound settled signal for Majors; an unsettled scale
+# (hover zoom) keeps STATIONARY false and the major awake. Desktop bench on
+# the real 250-card save: move pass 3.29ms -> 2.11ms from the minor tier
+# alone; the major tier adds align_to_major + call-overhead savings on ~300
+# settled majors.
+apply_moveable_sleep() {
+    local f="$1"
+    if grep -q "MOVEABLE_SLEEP" "$f"; then
+        log_info "Moveable sleep already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "    if not self.created_on_pause and G.SETTINGS.paused then return end"
+new = """    if not self.created_on_pause and G.SETTINGS.paused then return end
+
+    -- MOVEABLE_SLEEP: settled moveables exit before align_to_major (which
+    -- would falsely stamp NEW_ALIGNMENT) -- see build.sh applier comment for
+    -- the full wake-condition rationale
+    local _rt = self.role.role_type
+    if (
+            (_rt == 'Minor' and self.role.major
+                and self.role.major.FRAME.MOVE >= G.FRAMES.MOVE
+                and self.role.major.STATIONARY)
+            or (_rt == 'Major' and self.STATIONARY)
+        )
+        and not self.juice
+        and not self.NEW_ALIGNMENT
+        and not self.config.refresh_movement
+        and self.role.xy_bond ~= 'Weak' and self.role.r_bond ~= 'Weak'
+        and self.T.x == self._slp_tx and self.T.y == self._slp_ty
+        and self.T.r == self._slp_tr and self.T.w == self._slp_tw
+        and (not self.alignment or (
+            self.alignment.type == self.alignment.prev_type
+            and (not self.alignment.offset or (self.alignment.prev_offset
+                and self.alignment.offset.x == self.alignment.prev_offset.x
+                and self.alignment.offset.y == self.alignment.prev_offset.y))))
+    then
+        self.FRAME.OLD_MAJOR = self.FRAME.MAJOR
+        self.FRAME.MAJOR = nil
+        self.FRAME.MOVE = G.FRAMES.MOVE
+        self.CALCING = nil
+        if _rt == 'Minor' then self.STATIONARY = true end
+        return
+    end
+    self._slp_tx, self._slp_ty = self.T.x, self.T.y
+    self._slp_tr, self._slp_tw = self.T.r, self.T.w"""
+
+if old not in text:
+    print("ERROR: moveable sleep anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: moveable sleep anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("MOVEABLE_SLEEP applied")
+PYEOF
+    if grep -q "MOVEABLE_SLEEP" "$f"; then
+        log_success "Moveable sleep applied (settled moveables skip the move pass)"
+    else
+        log_error "Moveable sleep did not apply — check moveable.lua anchor"
+        exit 1
+    fi
+}
 
 # NUGC_ADAPTIVE: nuGC runs every frame with a FIXED 0.3ms collection budget and
 # the GC stopped otherwise (misc_functions.lua). Under Big-number churn at
