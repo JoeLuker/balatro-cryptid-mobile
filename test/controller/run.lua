@@ -168,6 +168,30 @@ test('re-pressing the same stale-hovered card re-fires hover (TAP_DESC_REHOVER)'
     w.touch_up(); w.frames(2)
 end)
 
+-- DRAG_SELF_DROP_EXCLUDE: a dragged card's attached UI (a voucher's redeem
+-- button UIBox) travels with the drag, draws on top, and stole the drop from
+-- the buy zone beneath whenever the finger released over it — voucher
+-- drag-buys failed position-dependently (on-device trace 2026-06-10:
+-- G_RELON t=node<v_cry_double_vision). The dragged card's own subtree must
+-- be excluded from drop resolution.
+test('a dragged card\'s own attached UI cannot steal its drop (DRAG_SELF_DROP_EXCLUDE)', function()
+    local w = scene()
+    w.B.states.release_on.can = true
+    -- attached UI riding with the drag: hoverable child of J at the drop spot,
+    -- created after B so it wins collision order (drawn later = checked first)
+    local C = H.make_node(w, { x = 4, y = 8 })
+    C.parent = w.J
+    C.states.hover.can = true
+    C.states.release_on.can = true
+    w.touch_down(2.7, 2.5); w.frames(15)
+    check(w.ctrl.dragging.target == w.J, 'precondition: J is being dragged')
+    w.touch_move(4.2, 8.2, 4)
+    check((w.ctrl.cursor_down.distance or 0) > 0.9, 'precondition: a real drag, past MIN_CLICK_DIST')
+    w.touch_up(); w.frames(3)
+    check((C.calls.release or 0) == 0, 'the dragged card\'s own child must not receive the drop')
+    check((w.B.calls.release or 0) >= 1, 'the real drop target beneath must receive the release')
+end)
+
 -- REHOVER's popup-absence guard: pressing a card whose description popup IS
 -- up (the dismiss gesture) must NOT re-fire hover() — Card:hover would
 -- create a second popup over the live one and orphan it (UIBox leak,

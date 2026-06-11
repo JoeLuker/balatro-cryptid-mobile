@@ -381,6 +381,8 @@ EOF
     apply_shake_trig_guard "$game_dir/functions/common_events.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
+    apply_drag_self_drop_exclude "$game_dir/engine/controller.lua"
+    apply_ui_colour_guard "$game_dir/engine/ui.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_telemetry_toggles "$game_dir/functions/UI_definitions.lua" "$game_dir/game.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
@@ -1791,6 +1793,52 @@ apply_android_settings_fix() {
 }
 
 # Patch G.FUNCS.quit in button_callbacks.lua:
+# DRAG_SELF_DROP_EXCLUDE: vouchers carry an attached redeem-button UIBox that
+# travels with the card during a drag and is drawn on top of everything at the
+# finger. The drop-resolution collision walk (TAP_DESC_HOLD_NODRAG block)
+# picked it over the sticky-fingers buy zone beneath whenever the release
+# happened with the finger over the card's lower strip — so voucher drag-buys
+# failed position-dependently (trace: G_RELON t=node<v_cry_double_vision on a
+# full 8.4-unit drag; jokers always worked because their price tags are not
+# hoverable). Releasing a card onto its OWN descendants is never the intent:
+# exclude the dragged card's subtree from drop resolution.
+apply_drag_self_drop_exclude() {
+    local f="$1"
+    if grep -q "DRAG_SELF_DROP_EXCLUDE" "$f"; then
+        log_info "Drag self-drop exclude already applied"
+        return 0
+    fi
+    sed -i 's|                local releasable = nil|                local releasable = nil\n                local _drag_anc = function(n) local p, d = n.parent, 0 while p and d < 8 do if p == self.dragging.prev_target then return true end p = p.parent; d = d + 1 end return false end -- DRAG_SELF_DROP_EXCLUDE|' "$f"
+    sed -i 's|                    if v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) then|                    if v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and not _drag_anc(v) then -- DRAG_SELF_DROP_EXCLUDE|' "$f"
+    if [[ $(grep -c "DRAG_SELF_DROP_EXCLUDE" "$f") -ge 2 ]]; then
+        log_success "Drag self-drop exclude applied (dragged card's own UI cannot steal its drop)"
+    else
+        log_error "Drag self-drop exclude did not fully apply — check anchors"
+        exit 1
+    fi
+}
+
+# UI_COLOUR_GUARD: engine/ui.lua draw_self indexes self.config.colour[4]
+# unconditionally; an element created without a colour crashes the whole draw
+# loop (hit on-device 2026-06-10 at ante 9: 'attempt to index field colour',
+# button_active=true, creator unknown). Never let one cosmetic field kill the
+# game: default the colour to transparent and NAME the element through ATLOG
+# so the creating site can be fixed at the root when it next occurs.
+apply_ui_colour_guard() {
+    local f="$1"
+    if grep -q "UI_COLOUR_GUARD" "$f"; then
+        log_info "UI colour guard already applied"
+        return 0
+    fi
+    sed -i 's|    if self.config.colour\[4\] > 0.01 then|    if not self.config.colour then -- UI_COLOUR_GUARD\n        if ATLOG then ATLOG("UI_NIL_COLOUR", {btn = tostring(self.config.button), id = tostring(self.config.id), ut = tostring(self.UIT), pk = tostring(self.parent and self.parent.config and (self.parent.config.button or self.parent.config.id))}) end\n        self.config.colour = {0, 0, 0, 0}\n    end\n    if self.config.colour[4] > 0.01 then|' "$f"
+    if grep -q "UI_COLOUR_GUARD" "$f"; then
+        log_success "UI colour guard applied (colourless elements draw transparent + self-identify)"
+    else
+        log_error "UI colour guard did not apply — check anchor"
+        exit 1
+    fi
+}
+
 # DRAG_REJECT_FEEDBACK: sticky-fingers' drag-drop targets silently no-op when
 # the drop is rejected (check_drag_target_active sets release_func=nil while
 # the card is unaffordable). On a touchscreen that silence is
