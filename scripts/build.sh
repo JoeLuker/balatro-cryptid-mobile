@@ -3518,20 +3518,25 @@ PYEOF
 }
 
 # MOVEABLE_SHADOW_LISTS (Tier-1a): G.MOVEABLES is a single polymorphic list of all
-# live Moveable instances (Cards, Sprites, UIBoxes, UIElements). The two hot loops
-# in Game:update (move pass + update pass) iterate it every frame, producing a
-# polymorphic call-site that JIT cannot specialize — every dispatch goes through a
-# vtable walk instead of a direct jump.
+# live Moveable instances. The two hot loops in Game:update (move pass + update pass)
+# iterate it every frame, producing a polymorphic call-site that JIT cannot specialize
+# — every dispatch goes through a vtable walk instead of a direct jump.
 #
-# Fix: maintain four monomorphic shadow lists (G.MOVEABLES_C / _S / _UB / _UE) in
-# parallel with G.MOVEABLES (unchanged, still used by controller hit-testing and
-# telemetry). At init/remove, insert/remove into the appropriate shadow list based
-# on exact metatable identity (O(1), same check already used for G.I.MOVEABLE).
-# Replace the two hot loops with four monomorphic loops each — JIT traces for
-# Card:move, Sprite:move, UIBox:move, UIElement:move stay independent and compiled.
+# Fix: maintain five shadow lists in parallel with G.MOVEABLES (unchanged):
+#   MOVEABLES_C  — Card (direct Moveable subclass, not a Sprite subclass)
+#   MOVEABLES_S  — Sprite (direct subclass; AnimatedSprite extends Sprite so its
+#                  exact metatable != Sprite and lands in MOVEABLES_O)
+#   MOVEABLES_UB — UIBox
+#   MOVEABLES_UE — UIElement
+#   MOVEABLES_O  — catch-all for every other Moveable subclass (DynaText,
+#                  Card_Character, AnimatedSprite, and any mod-added classes).
+#                  This list remains polymorphic but is small and correctness-safe.
+#
+# Classification uses getmetatable(self) == <Class> — O(1) exact identity check.
+# Any instance whose metatable doesn't match one of the four named classes falls
+# into MOVEABLES_O and is still processed every frame.
 #
 # G.MOVEABLES stays intact so no mod code breaks. Shadow lists are additive.
-# Card extends Sprite; Card metatable check must come BEFORE Sprite check.
 apply_moveable_shadow_lists() {
     local globals_f="$1"
     local moveable_f="$2"
@@ -3548,11 +3553,12 @@ globals_path, moveable_path, game_path = sys.argv[1], sys.argv[2], sys.argv[3]
 gtext = open(globals_path).read()
 old_g = "    self.MOVEABLES = {}\n"
 new_g = """    self.MOVEABLES = {}
-    -- MOVEABLE_SHADOW_LISTS: per-class monomorphic lists for JIT-friendly loops
+    -- MOVEABLE_SHADOW_LISTS: per-class shadow lists for JIT-friendly loops
     self.MOVEABLES_C  = {}  -- Card
-    self.MOVEABLES_S  = {}  -- Sprite (non-Card)
+    self.MOVEABLES_S  = {}  -- Sprite (exact; AnimatedSprite goes to MOVEABLES_O)
     self.MOVEABLES_UB = {}  -- UIBox
     self.MOVEABLES_UE = {}  -- UIElement
+    self.MOVEABLES_O  = {}  -- catch-all: DynaText, Card_Character, AnimatedSprite, mods
 """
 if old_g not in gtext:
     print("ERROR: globals MOVEABLES anchor not found", file=sys.stderr)
