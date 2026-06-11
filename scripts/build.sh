@@ -849,7 +849,10 @@ apply_debug_overlay() {
         log_info "Debug overlay already applied"
         return 0
     fi
-    sed -i 's|if not G.F_ENABLE_PERF_OVERLAY then return end|if not G.SETTINGS.perf_mode then return end|' "$misc"
+    # collection runs with EITHER toggle: Debug Logging alone gives headless
+    # per-checkpoint timing through telemetry (no on-screen overlay — the
+    # draw stays gated on perf_mode below)
+    sed -i 's|if not G.F_ENABLE_PERF_OVERLAY then return end|if not (G.SETTINGS.perf_mode or G.SETTINGS.telemetry_log) then return end|' "$misc"
     sed -i 's|if not _RELEASE_MODE and G.DEBUG and not G.video_control and G.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
     sed -i 's|        love.graphics.setColor(0, 1, 1,1)|        love.graphics.origin()\n        love.graphics.setColor(0, 1, 1,1)|' "$game_lua"
     sed -i "s|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),\n      create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|" "$ui_file"
@@ -989,6 +992,19 @@ apply_talisman_dim_fix() {
         log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands): $f"
     else
         log_warn "Talisman dim fix did not fully apply — check $f"
+    fi
+    # TAL_CALC_TRACE: the user reports the Calculating/Abort overlay NEVER
+    # appears, even on multi-second scorings where it should. The decisive
+    # facts (does the coroutine stay alive across frames? is G.OVERLAY_MENU
+    # blocking the gate?) are only observable live — one event per completed
+    # scoring carries them all.
+    sed -i 's|              G.SCORING_TEXT = nil|              G.SCORING_FRAMES = (G.SCORING_FRAMES or 0) + 1 -- TAL_CALC_TRACE\n              G.SCORING_TEXT = nil|' "$f"
+    sed -i 's|              G.GAME.LAST_CALCS = totalCalcs|              if ATLOG then ATLOG("TAL_CALC_DONE", {calcs = totalCalcs, frames = G.SCORING_FRAMES or 0, elapsed = string.format("%.2f", love.timer.getTime() - (G.SCORING_START or love.timer.getTime())), ovl = G.OVERLAY_MENU and 1 or 0}) end G.SCORING_FRAMES = 0 -- TAL_CALC_TRACE\n              G.GAME.LAST_CALCS = totalCalcs|' "$f"
+    sed -i 's|                  G.scoring_text = {localize("talisman_string_D"), "", "", ""}|                  if ATLOG then ATLOG("TAL_CALC_OVERLAY", {at = string.format("%.2f", love.timer.getTime() - (G.SCORING_START or 0))}) end -- TAL_CALC_TRACE\n                  G.scoring_text = {localize("talisman_string_D"), "", "", ""}|' "$f"
+    if [[ $(grep -c "TAL_CALC_TRACE" "$f") -ge 3 ]]; then
+        log_success "Talisman calc-screen trace applied"
+    else
+        log_warn "Talisman calc-screen trace did not fully apply — check $f"
     fi
 }
 

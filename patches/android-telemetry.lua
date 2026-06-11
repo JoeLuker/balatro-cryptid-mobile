@@ -339,7 +339,10 @@ function Game:update(dt)
             snap.n_card = #G.I.CARD
             snap.n_moves = G.MOVEABLES and #G.MOVEABLES or -1
         end
-        if G.SETTINGS and G.SETTINGS.perf_mode and G.check then
+        -- checkpoint breakdowns flow whenever collection is on: Debug Logging
+        -- alone enables them headlessly (the on-screen overlay needs the
+        -- separate Debug Overlay toggle)
+        if G.SETTINGS and (G.SETTINGS.perf_mode or G.SETTINGS.telemetry_log) and G.check then
             local upd_parts = {}
             for i = 1, G.check.update.checkpoints do
                 local cp = G.check.update.checkpoint_list[i]
