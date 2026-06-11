@@ -217,13 +217,9 @@ end"""
     # launched by a deploy while the screen is untouched), the window reports
     # 60 and the cap stays frozen at half the panel's real rate for the whole
     # session (observed on-device 2026-06-10: 120Hz panel, uniform ~15.5ms
-    # frames in every state, while dumpsys showed renderFrameRate=120).
-    # love.window.getMode() returns the frozen creation-time value on Android
-    # (verified live: polling it never moved), so the correct governor is
-    # VSYNC — eglSwapInterval paces presentation to the compositor's LIVE
-    # rate, following LTPO up- and down-shifts in hardware. The manual cap
-    # stays as a high backstop in case a device ignores swap interval (the
-    # original 206-240fps runaway must not return).
+    # frames in every state). The panel upshifts on interaction with NO focus
+    # event, so the cap must be re-read periodically: once every ~2 seconds
+    # (cheap SDL query) in the base love.update, beneath the mod wrappers.
     if 'FPS_CAP_REFRESH' not in content:
         update_anchor = """function love.update( dt )
 \t--Perf monitoring checkpoint
@@ -231,12 +227,16 @@ end"""
         update_replacement = """function love.update( dt )
 \t--Perf monitoring checkpoint
     timer_checkpoint(nil, 'update', true)
-    -- FPS_CAP_REFRESH (Android): vsync paces to the panel's live rate;
-    -- the manual cap becomes a runaway backstop only
-    if not G.FPS_CAP_REFRESH_DONE and love.system.getOS() == 'Android' then
-        G.FPS_CAP_REFRESH_DONE = true
-        if love.window.setVSync then love.window.setVSync(1) end
-        G.FPS_CAP = 144
+    -- FPS_CAP_REFRESH (Android): track the panel's live refresh rate
+    if love.system.getOS() == 'Android' then
+        G.FPS_CAP_REFRESH_AT = G.FPS_CAP_REFRESH_AT or 0
+        if G.TIMERS.UPTIME > G.FPS_CAP_REFRESH_AT then
+            G.FPS_CAP_REFRESH_AT = G.TIMERS.UPTIME + 2
+            local _, _, _wf = love.window.getMode()
+            if _wf and _wf.refreshrate and _wf.refreshrate > 0 and _wf.refreshrate ~= G.FPS_CAP then
+                G.FPS_CAP = _wf.refreshrate
+            end
+        end
     end"""
         if update_anchor in content:
             content = content.replace(update_anchor, update_replacement, 1)
