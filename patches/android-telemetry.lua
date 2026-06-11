@@ -195,7 +195,8 @@ end
 ATLOG = tel
 
 -- Session start
-tel("SESSION_START", {id = TEL.session_id, device = love.system.getOS()})
+tel("SESSION_START", {id = TEL.session_id, device = love.system.getOS(),
+    build = (G and G.CRYPTID_MOBILE_BUILD) or "?"})
 
 -- State name lookup
 local STATE_NAMES = {}

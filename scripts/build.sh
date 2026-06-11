@@ -365,6 +365,7 @@ EOF
 
     # Apply patches to game files
     log_info "Applying patches..."
+    apply_build_stamp "$game_dir/globals.lua"
     apply_crt_fix "$game_dir/resources/shaders/CRT.fs"
     apply_android_settings_fix "$game_dir/globals.lua"
     apply_mobile_graphics_defaults "$game_dir/globals.lua"
@@ -881,7 +882,7 @@ apply_telemetry_toggles() {
         return 0
     fi
     if ! grep -q "telemetry_log" "$ui_file"; then
-        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),|" "$ui_file"
+        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},|" "$ui_file"
     fi
     if ! grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
         sed -i "s|    if self.real_dt > 0.05 then print('LONG DT|    if G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"
@@ -1779,6 +1780,27 @@ apply_crt_fix() {
         log_success "CRT shader fix applied"
     else
         log_info "CRT shader already fixed or pattern not found"
+    fi
+}
+
+# BUILD_STAMP: every build bakes in 'MMDD-HHMM.githash' so the running build
+# is identifiable — shown in Settings > Game (under the telemetry toggles)
+# and attached to every telemetry SESSION_START. Without it a dozen deploys
+# in an evening are indistinguishable on-device.
+apply_build_stamp() {
+    local f="$1"
+    if grep -q "CRYPTID_MOBILE_BUILD" "$f"; then
+        log_info "Build stamp already applied"
+        return 0
+    fi
+    local stamp
+    stamp="$(date +%m%d-%H%M).$(git -C "$PROJECT_DIR" rev-parse --short=6 HEAD 2>/dev/null || echo nogit)"
+    sed -i "s|    self.VERSION = VERSION|    self.VERSION = VERSION\n    self.CRYPTID_MOBILE_BUILD = '$stamp' -- BUILD_STAMP|" "$f"
+    if grep -q "CRYPTID_MOBILE_BUILD = '$stamp'" "$f"; then
+        log_success "Build stamp: $stamp"
+    else
+        log_error "Build stamp did not apply — check globals.lua anchor"
+        exit 1
     fi
 }
 
