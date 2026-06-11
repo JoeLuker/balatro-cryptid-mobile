@@ -194,6 +194,8 @@ patch_mods_dir() {
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
         "$mods_dir/Cryptid/items/m.lua"
+    apply_cryptid_demicolon_no_chain   "$mods_dir/Cryptid/items/epic.lua"
+    apply_cryptid_oil_lamp_local_fix   "$mods_dir/Cryptid/items/misc_joker.lua"
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
 }
 
@@ -1658,6 +1660,77 @@ PYEOF
         log_success "Cryptid to_big elimination applied (paired OmegaNum comparisons → plain Lua)"
     else
         log_warn "Cryptid to_big elimination did not apply marker — check epic.lua"
+    fi
+}
+
+# Fix: Demicolon stack overflow (DEMICOLON_NO_CHAIN).
+# Demicolon has demicoloncompat=true, so it can be force-triggered by another
+# Demicolon.  When that happens context.forcetrigger is already set and
+# Demicolon's calculate would call Cryptid.forcetrigger again — unbounded
+# recursion that stack-overflows on long runs (observed: ante 13, round 40).
+# Guard: skip the force-trigger chain when already in a forcetrigger context.
+apply_cryptid_demicolon_no_chain() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Cryptid epic.lua not found, skipping Demicolon chain fix"
+        return 0
+    fi
+    if grep -q "DEMICOLON_NO_CHAIN" "$f"; then
+        log_info "Demicolon no-chain fix already applied"
+        return 0
+    fi
+    sed -i 's/if context\.joker_main and not context\.blueprint then$/if context.joker_main and not context.blueprint and not context.forcetrigger then -- DEMICOLON_NO_CHAIN/' "$f"
+    if grep -q "DEMICOLON_NO_CHAIN" "$f"; then
+        log_success "Demicolon no-chain fix applied (DEMICOLON_NO_CHAIN)"
+    else
+        log_warn "Demicolon no-chain fix did not apply — check epic.lua"
+    fi
+}
+
+# Fix: Oil Lamp global leak (OIL_LAMP_LOCAL_FIX).
+# Oil Lamp's update function sets other_joker without local, leaking the
+# variable into _G and letting it alias across all joker update calls.
+apply_cryptid_oil_lamp_local_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Cryptid misc_joker.lua not found, skipping Oil Lamp local fix"
+        return 0
+    fi
+    if grep -q "OIL_LAMP_LOCAL_FIX" "$f"; then
+        log_info "Oil Lamp local fix already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = (
+    '\t\t\tfor i = 1, #G.jokers.cards do\n'
+    '\t\t\t\tif G.jokers.cards[i] == card then\n'
+    '\t\t\t\t\tother_joker = G.jokers.cards[i + 1]\n'
+    '\t\t\t\tend\n'
+    '\t\t\tend\n'
+    '\t\t\tif other_joker and other_joker ~= card'
+)
+new = (
+    '\t\t\tlocal other_joker = nil -- OIL_LAMP_LOCAL_FIX\n'
+    '\t\t\tfor i = 1, #G.jokers.cards do\n'
+    '\t\t\t\tif G.jokers.cards[i] == card then\n'
+    '\t\t\t\t\tother_joker = G.jokers.cards[i + 1]\n'
+    '\t\t\t\tend\n'
+    '\t\t\tend\n'
+    '\t\t\tif other_joker and other_joker ~= card'
+)
+if old in text:
+    open(path, 'w').write(text.replace(old, new, 1))
+    print("Oil Lamp local fix applied")
+else:
+    print("Oil Lamp local fix: pattern not found, skipping")
+PYEOF
+    if grep -q "OIL_LAMP_LOCAL_FIX" "$f"; then
+        log_success "Oil Lamp local fix applied (OIL_LAMP_LOCAL_FIX)"
+    else
+        log_warn "Oil Lamp local fix did not apply — check misc_joker.lua"
     fi
 }
 
@@ -3598,6 +3671,52 @@ PYEOF
         log_success "MOVEABLE_SHADOW_LISTS applied (4 monomorphic move+update loops)"
     else
         log_error "MOVEABLE_SHADOW_LISTS did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# BLIND_SELECT_DEFER: create_UIBox_blind_select() builds four UIBoxes
+# synchronously — set_parent_child tree construction + calculate_xywh
+# (recursive with font:getWidth per text node) for three blind-choice cards.
+# Measured cost: 260ms EV_SLOW on game.lua:3521. The event is currently
+# trigger='immediate', so it fires before any frame is rendered post-transition.
+# Change to trigger='after', delay=0.05 (3 frames at 60fps): the background
+# colour ease plays for ~50ms before the stall, making it perceptually invisible.
+# State correctness: all inputs (blind_states, blind_choices, dollars, tags) are
+# read at construction time, which is still correct — just 50ms later.
+apply_blind_select_defer() {
+    local f="$1"
+    if grep -q "BLIND_SELECT_DEFER" "$f"; then
+        log_info "BLIND_SELECT_DEFER already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """        G.E_MANAGER:add_event(Event({
+            trigger = 'immediate',
+            func = function()
+                --G.GAME.round_resets.blind_states"""
+new = """        G.E_MANAGER:add_event(Event({ -- BLIND_SELECT_DEFER
+            trigger = 'after', delay = 0.05,
+            func = function()
+                --G.GAME.round_resets.blind_states"""
+
+if old not in text:
+    print("ERROR: BLIND_SELECT_DEFER anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: BLIND_SELECT_DEFER anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("BLIND_SELECT_DEFER applied")
+PYEOF
+    if grep -q "BLIND_SELECT_DEFER" "$f"; then
+        log_success "BLIND_SELECT_DEFER applied (blind UI build deferred 50ms behind transition)"
+    else
+        log_error "BLIND_SELECT_DEFER did not apply — check game.lua anchor"
         exit 1
     fi
 }
