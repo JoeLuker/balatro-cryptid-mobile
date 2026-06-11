@@ -4,11 +4,14 @@
 --                    never created (the shell additionally asserts no [TEL]
 --                    or LONG DT lines reached stdout).
 -- TELGATE_MODE=on  : boot to menu, flip G.SETTINGS.telemetry_log live (the
---                    gates re-read settings each frame — no restart), observe
---                    12s (> one 5s flush + one 5s PERF window), assert
---                    telemetry.log exists and contains a PERF_SNAPSHOT.
+--                    gates re-read settings each frame — no restart), push a
+--                    synthetic press+release through the run loop's deduped
+--                    event pump, observe 12s (> one 5s flush + one 5s PERF
+--                    window), assert telemetry.log contains PERF_SNAPSHOT and
+--                    the input tracer events (G_MPRESS, G_REL).
 local mode = os.getenv('TELGATE_MODE') or 'off'
 local elapsed, menu_at, enabled_at, done = 0, nil, nil, false
+local pressed_at, released = nil, false
 print('TELGATE: loaded mode=' .. mode)
 print('TELGATE: savedir=' .. love.filesystem.getSaveDirectory())
 
@@ -31,7 +34,25 @@ love.update = function(dt, ...)
             G.SETTINGS.telemetry_log = true
             enabled_at = elapsed
             print('TELGATE: telemetry_log enabled live')
+            -- input-tracer wiring diagnostic: report where the press-queue
+            -- method actually resolves (telemetry wrapper vs raw controller)
+            local qi = Controller and debug.getinfo(Controller.queue_L_cursor_press, 'S')
+            print('TELGATE: queue_L_cursor_press defined at ' .. (qi and (qi.short_src .. ':' .. qi.linedefined) or 'nil'))
+            local gi = G.CONTROLLER and debug.getinfo(G.CONTROLLER.queue_L_cursor_press, 'S')
+            print('TELGATE: instance method defined at ' .. (gi and (gi.short_src .. ':' .. gi.linedefined) or 'nil'))
         end
+    end
+
+    -- synthetic input through the real event pump: the run loop stashes
+    -- mousepressed for its touch-dedupe pass, so this exercises the same
+    -- dispatch path a device press takes (minus the touchpressed flag)
+    if mode == 'on' and menu_at and not pressed_at and elapsed - menu_at > 2 then
+        pressed_at = elapsed
+        love.event.push('mousepressed', 800, 450, 1, false, 1)
+    end
+    if mode == 'on' and pressed_at and not released and elapsed - pressed_at > 0.3 then
+        released = true
+        love.event.push('mousereleased', 800, 450, 1, false, 1)
     end
 
     if menu_at and elapsed - menu_at > 12 then
@@ -47,11 +68,17 @@ love.update = function(dt, ...)
                 finish(false, 'mode=on but telemetry.log was never created')
             else
                 local content = love.filesystem.read('telemetry.log') or ''
-                if content:find('PERF_SNAPSHOT', 1, true) then
-                    local _, lines = content:gsub('\n', '')
-                    finish(true, 'mode=on telemetry.log has ' .. lines .. ' lines incl PERF_SNAPSHOT')
-                else
+                if not content:find('PERF_SNAPSHOT', 1, true) then
                     finish(false, 'mode=on telemetry.log exists but has no PERF_SNAPSHOT')
+                elseif not content:find('G_MPRESS', 1, true) then
+                    finish(false, 'mode=on synthetic press did not produce G_MPRESS')
+                elseif not content:find('G_PRESS', 1, true) then
+                    finish(false, 'mode=on synthetic press did not produce G_PRESS (late hook not installed or clobbered again)')
+                elseif not content:find('G_REL', 1, true) then
+                    finish(false, 'mode=on synthetic release did not produce G_REL')
+                else
+                    local _, lines = content:gsub('\n', '')
+                    finish(true, 'mode=on telemetry.log has ' .. lines .. ' lines incl PERF_SNAPSHOT + input tracer events')
                 end
             end
         end

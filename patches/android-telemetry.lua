@@ -210,6 +210,31 @@ end
 
 local STAGE_NAMES = {[1] = "MAIN_MENU", [2] = "RUN", [3] = "SANDBOX"}
 
+-- G_PRESS must install LATE: SMODS mods load during start_up — after this
+-- chunk — and Cryptid REPLACES Controller.queue_L_cursor_press outright
+-- (lib/overrides.lua:1385), clobbering any chunk-load-time wrap. That is why
+-- G_PRESS never fired from any prior build. Installing on the first
+-- Game:update frame wraps Cryptid's version instead.
+local late_hooks_done = false
+local function install_late_hooks()
+    late_hooks_done = true
+    if Controller and Controller.queue_L_cursor_press then
+        local _qp = Controller.queue_L_cursor_press
+        function Controller:queue_L_cursor_press(x, y, ...)
+            if log_on or home_on then
+                local mx, my = love.mouse.getPosition()
+                tel("G_PRESS", {
+                    qx = string.format("%.0f", x or -1), qy = string.format("%.0f", y or -1),
+                    mx = string.format("%.0f", mx or -1), my = string.format("%.0f", my or -1),
+                    dpi = string.format("%.2f", (love.window.getDPIScale and love.window.getDPIScale()) or -1),
+                    cl = (self.collision_list and #self.collision_list) or -1,
+                })
+            end
+            return _qp(self, x, y, ...)
+        end
+    end
+end
+
 -- Hook Game:update to track state transitions and exp_recompute rate
 local _original_game_update = Game.update
 function Game:update(dt)
@@ -217,6 +242,7 @@ function Game:update(dt)
     -- frame. settings.jkr merges in start_up() (inside love.load), so the
     -- first frame's read is already the persisted value; after that this is
     -- two table reads per frame and the toggles apply live.
+    if not late_hooks_done then install_late_hooks() end
     local s = self.SETTINGS
     local want_log = not not (s and s.telemetry_log)
     local want_home = not not (s and s.telemetry_home)
@@ -373,9 +399,13 @@ local function caller_src()
     return src_at(4) .. "<-" .. src_at(5)
 end
 local function card_key_of(n)
-    return n and ((n.config and n.config.center and n.config.center.key)
+    if not n then return "nil" end
+    if G and n == G.ROOM then return "ROOM" end  -- the press-on-nothing fallback target
+    return (n.config and n.config.center and n.config.center.key)
+        or (n.config and n.config.button)                  -- UIBox buttons: the G.FUNCS callback name
+        or (n.config and n.config.id and tostring(n.config.id))
         or (n.base and n.base.value and tostring(n.base.value)..tostring(n.base.suit or ""))
-        or "node") or "nil"
+        or "node"
 end
 if Node and Node.stop_hover then
     local _sh = Node.stop_hover
@@ -402,19 +432,45 @@ if CardArea then
         return _rem(self, card, ...)
     end
 end
-if Controller and Controller.queue_L_cursor_press then
-    local _qp = Controller.queue_L_cursor_press
-    function Controller:queue_L_cursor_press(x, y, ...)
-        if log_on or home_on then
-            local mx, my = love.mouse.getPosition()
-            tel("G_PRESS", {
-                qx = string.format("%.0f", x or -1), qy = string.format("%.0f", y or -1),
-                mx = string.format("%.0f", mx or -1), my = string.format("%.0f", my or -1),
-                dpi = string.format("%.2f", (love.window.getDPIScale and love.window.getDPIScale()) or -1),
-                cl = (self.collision_list and #self.collision_list) or -1,
+-- G_REL: one event per cursor release at the classification chokepoint —
+-- what was under the press, what the release resolved to (click / drop
+-- target / nothing), the distance+duration that gated it, and whether the
+-- controller lock ate the release entirely (locked releases never classify;
+-- a lock window during animations reads as "button didn't respond").
+if Controller and Controller.L_cursor_release then
+    local _lr = Controller.L_cursor_release
+    function Controller:L_cursor_release(x, y)
+        if not (log_on or home_on) then return _lr(self, x, y) end
+        local down_t = self.cursor_down and self.cursor_down.target
+        local was_drag = self.dragging and self.dragging.target
+        local r = _lr(self, x, y)
+        tel("G_REL", {
+            down = card_key_of(down_t),
+            drag = was_drag and card_key_of(was_drag) or "-",
+            clicked = (self.clicked.target and not self.clicked.handled) and card_key_of(self.clicked.target) or "-",
+            rel_on = (self.released_on.target and not self.released_on.handled) and card_key_of(self.released_on.target) or "-",
+            up_t = card_key_of(self.cursor_up and self.cursor_up.target),
+            dist = string.format("%.2f", (self.cursor_down.T and self.cursor_up.T and Vector_Dist and Vector_Dist(self.cursor_down.T, self.cursor_up.T)) or -1),
+            dur = string.format("%.2f", (self.cursor_up.time or 0) - (self.cursor_down.time or 0)),
+            lock = (self.locked and 1 or 0) .. "/" .. (self.locks and self.locks.frame and 1 or 0),
+        })
+        return r
+    end
+end
+-- G_MPRESS: love.mousepressed-level probe (the run loop dispatches every
+-- press, touch-synthesized or real, through here) — pins down where the
+-- never-firing G_PRESS method wrapper loses the call chain.
+if love.mousepressed then
+    local _mp = love.mousepressed
+    function love.mousepressed(x, y, button, touch, ...)
+        if (log_on or home_on) and button == 1 then
+            tel("G_MPRESS", {
+                x = string.format("%.0f", x or -1), y = string.format("%.0f", y or -1),
+                touch = touch and 1 or 0,
+                lock = (G.CONTROLLER and G.CONTROLLER.locked and 1 or 0) .. "/" .. (G.CONTROLLER and G.CONTROLLER.locks and G.CONTROLLER.locks.frame and 1 or 0),
             })
         end
-        return _qp(self, x, y, ...)
+        return _mp(x, y, button, touch, ...)
     end
 end
 if Card and Card.click then
