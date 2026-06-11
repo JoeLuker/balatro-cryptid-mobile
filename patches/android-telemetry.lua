@@ -361,6 +361,68 @@ function Game:update(dt)
         TEL.frame_dt_sum = 0
         TEL.frame_dt_max = 0
         TEL.perf_window_start = now
+
+        -- HEAP CENSUS: when the heap crosses a threshold, walk the reachable
+        -- table graph from the major roots and report the biggest subtrees —
+        -- retained data can hide from samplers but not from a reachability
+        -- walk. Budgeted (~150k entries, tens of ms once per threshold), so
+        -- it costs one hitch at 130MB and another every +40MB.
+        local heap_mb = snap.gc_kb / 1024
+        TEL.census_next = TEL.census_next or 130
+        if heap_mb >= TEL.census_next then
+            TEL.census_next = heap_mb + 40
+            local ok_c = pcall(function()
+                local visited, budget = {}, 150000
+                -- pre-mark the mega-roots so no subtree absorbs them through
+                -- back-references (package.loaded._G reaches everything)
+                visited[_G] = true; visited[G] = true
+                if package then visited[package] = true; visited[package.loaded] = true end
+                local function subtree_count(root)
+                    if type(root) ~= 'table' or visited[root] then return 0 end
+                    visited[root] = true
+                    local n, queue, qi = 0, {root}, 1
+                    while queue[qi] and budget > 0 do
+                        local cur = queue[qi]; queue[qi] = nil; qi = qi + 1
+                        local ok_iter = pcall(function()
+                            for k, v in pairs(cur) do
+                                budget = budget - 1; n = n + 1
+                                if type(v) == 'table' and not visited[v] then
+                                    visited[v] = true; queue[#queue + 1] = v
+                                end
+                                if type(k) == 'table' and not visited[k] then
+                                    visited[k] = true; queue[#queue + 1] = k
+                                end
+                                if budget <= 0 then break end
+                            end
+                        end)
+                        if not ok_iter then break end
+                    end
+                    return n
+                end
+                local entries = {}
+                -- G's fields first (the game lives here), then other globals;
+                -- shared structures attribute to whichever root reaches them
+                -- first, so ordering is part of the report's semantics
+                for k, v in pairs(G) do
+                    if type(v) == 'table' then
+                        local n = subtree_count(v)
+                        if n > 500 then entries[#entries + 1] = {'G.' .. tostring(k), n} end
+                    end
+                end
+                for k, v in pairs(_G) do
+                    if type(v) == 'table' and v ~= G and v ~= _G then
+                        local n = subtree_count(v)
+                        if n > 500 then entries[#entries + 1] = {tostring(k), n} end
+                    end
+                end
+                table.sort(entries, function(a, b) return a[2] > b[2] end)
+                for i = 1, math.min(#entries, 20) do
+                    tel("CENSUS", {at_mb = math.floor(heap_mb), root = entries[i][1], n = entries[i][2]})
+                end
+                tel("CENSUS_DONE", {at_mb = math.floor(heap_mb), budget_left = budget})
+            end)
+            if not ok_c then tel("CENSUS_FAILED", {at_mb = math.floor(heap_mb)}) end
+        end
     end
 
     -- flush the file buffer on its own cadence (write failures are detected
