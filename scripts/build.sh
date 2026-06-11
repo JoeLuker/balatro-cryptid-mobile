@@ -1099,6 +1099,19 @@ apply_tap_description_persist() {
     # (inside the removal branch, so Cryptid's force_tooltips exception —
     # popup kept — correctly keeps the state too).
     sed -i 's|^        self.children.h_popup = nil$|        self.children.h_popup = nil\n        if G.CONTROLLER and G.CONTROLLER.shown_desc == self then G.CONTROLLER.shown_desc = nil end -- TAP_DESC_STALE_CLEAR|' "$node_f"
+    # TAP_DESC_REHOVER: the controller only calls hover() (which creates the
+    # description popup) when hovering.target CHANGES. After an in-place
+    # press-release on a draggable card, hovering.target stays pointed at
+    # that card with hover.is dead — re-pressing the SAME card is "no change"
+    # so hover() never re-fires and the description cannot be shown twice in
+    # a row (trace-confirmed on-device 2026-06-10: j_cry_coin, first press
+    # popup up, second press hover re-acquired, no popup). Clearing the
+    # STALE hovering.target on such a press makes the per-frame prev-stamp
+    # (which runs AFTER press processing — prev_target itself gets
+    # overwritten, so nil'ing prev directly is a no-op) propagate nil, and
+    # the normal acquisition then re-assigns the card as a genuine change,
+    # re-firing hover() through the MIN_HOVER_TIME path.
+    sed -i 's|    local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target|    local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target\n    if press_node and press_node == self.hovering.target and not press_node.states.hover.is then self.hovering.target = nil end -- TAP_DESC_REHOVER|' "$f"
     # pending-release ownership: Node:remove nils the controller's
     # released_on.target when the node dies — correct cleanup, EXCEPT while a
     # release dispatch is still pending (handled == false) in the same frame.
@@ -1130,7 +1143,7 @@ apply_tap_description_persist() {
     # SMODS_BOOSTER_OPENED). A dead release target means there is nothing to
     # dispatch to; skip it.
     sed -i 's|        self.released_on.target:release(self.dragging.prev_target)|        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) else local _k = tostring(self.dragging.prev_target and self.dragging.prev_target.config and self.dragging.prev_target.config.center and self.dragging.prev_target.config.center.key or "?"); if ATLOG then ATLOG("G_REL_SKIP", {card=_k, state=tostring(G.STATE)}) else print("[TEL] G_REL_SKIP card=" .. _k .. " state=" .. tostring(G.STATE)) end end -- RELEASED_ON_NIL_GUARD|' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f" && grep -q "TOUCH_PRESS_POS_SYNC" "$f" && grep -q "TAP_DESC_STALE_CLEAR" "$node_f"; then
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f" && grep -q "TOUCH_PRESS_POS_SYNC" "$f" && grep -q "TAP_DESC_REHOVER" "$f" && grep -q "TAP_DESC_STALE_CLEAR" "$node_f"; then
         log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover + press-pos-sync + stale-clear applied"
     else
         log_warn "Tap-description fix did not fully match — check controller.lua/node.lua"

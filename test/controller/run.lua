@@ -145,6 +145,29 @@ test('joker tap toggles a persistent description (non-hand behaviour)', function
     check(w.ctrl.shown_desc == nil, 'second tap dismisses')
 end)
 
+-- TAP_DESC_REHOVER: the controller only calls hover() (which creates the
+-- description popup) when hovering.target CHANGES. After an in-place
+-- press-release on a draggable card, hovering.target stays pointed at that
+-- card with its hover state dead — so re-pressing the SAME card never
+-- re-fires hover() and the description cannot be shown twice in a row
+-- without visiting a different card first (trace-confirmed on-device
+-- 2026-06-10, j_cry_coin: first press popup up, second press hover re-
+-- acquired but no popup). The fix clears hovering.prev_target on a press
+-- whose target is the stale hovering.target, forcing the change-detection
+-- to re-fire hover() through the normal MIN_HOVER_TIME path.
+test('re-pressing the same stale-hovered card re-fires hover (TAP_DESC_REHOVER)', function()
+    local w = scene()
+    w.touch_down(2.7, 2.5); w.frames(12)  -- past MIN_HOVER_TIME so the delayed hover() event fires
+    local hovers_after_first = w.J.calls.hover or 0
+    check(hovers_after_first >= 1, 'precondition: first press fires hover()')
+    w.touch_up(); w.frames(3)
+    check(w.ctrl.hovering.target == w.J, 'precondition: hovering.target stays on J after in-place release')
+    w.touch_down(2.7, 2.5); w.frames(12)
+    check((w.J.calls.hover or 0) > hovers_after_first,
+        'second press on the stale-hovered card must re-fire hover() (description re-summon)')
+    w.touch_up(); w.frames(2)
+end)
+
 -- TAP_DESC_STALE_CLEAR contract: shown_desc (the toggle's memory of whose
 -- description is on screen) must die whenever the popup dies, i.e. whenever
 -- stop_hover removes it — otherwise the next tap on the same card takes the

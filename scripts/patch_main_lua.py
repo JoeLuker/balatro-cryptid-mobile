@@ -230,8 +230,21 @@ end"""
 -- Android flush-on-background: force-dispatch any staged saves when the app
 -- loses focus so data survives an immediate OS process kill.
 function love.focus(focused)
-    if focused then return end
     if love.system.getOS() ~= 'Android' then return end
+    if focused then
+        -- FPS_CAP_REFRESH: the cap is read from the window's refresh rate
+        -- once at boot — if the app launched while an LTPO panel idled at
+        -- 60Hz, the cap stays frozen at half rate for the whole session
+        -- (observed on-device 2026-06-10: 120Hz panel, uniform ~15.5ms
+        -- frames). Re-read it whenever the app regains focus.
+        if G and love.window and love.window.getMode then
+            local _, _, wf = love.window.getMode()
+            if wf and wf.refreshrate and wf.refreshrate > 0 then
+                G.FPS_CAP = wf.refreshrate
+            end
+        end
+        return
+    end
     if G and G.FILE_HANDLER and G.FILE_HANDLER.update_queued then
         G.FILE_HANDLER.force = true
     end
