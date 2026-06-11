@@ -398,6 +398,11 @@ EOF
     apply_ces_sign_fast "$game_dir/functions/common_events.lua"
     apply_dynatext_glyph_cache "$game_dir/engine/text.lua"
     apply_letter_table_reuse   "$game_dir/engine/text.lua"
+    # NF_BIG_CACHE must ALSO hit the lovely-merged Talisman copy inside
+    # main.lua — that copy is what executes on Android (the Mods/Talisman
+    # tree is dead code at runtime there); patching only the mod copy left
+    # the fix inert on-device.
+    apply_nf_big_cache         "$game_dir/main.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
