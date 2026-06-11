@@ -456,6 +456,8 @@ function Game:update(dt)
             end
             snap.n_ui_s = n_s
             snap.n_ui_total = #G.I.UIBOX
+            -- MOVEABLE_SHADOW_LISTS: UIElement count drives the update= cost
+            snap.n_uie = G.MOVEABLES_UE and #G.MOVEABLES_UE or -1
         end
         -- checkpoint breakdowns flow whenever collection is on: Debug Logging
         -- alone enables them headlessly (the on-screen overlay needs the

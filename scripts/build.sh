@@ -3574,12 +3574,16 @@ mtext = open(moveable_path).read()
 
 old_init = "    table.insert(G.MOVEABLES, self)\n    if getmetatable(self) == Moveable then \n        table.insert(G.I.MOVEABLE, self)\n    end"
 new_init = """    table.insert(G.MOVEABLES, self)
-    -- MOVEABLE_SHADOW_LISTS: route into the monomorphic per-class shadow list
+    -- MOVEABLE_SHADOW_LISTS: route into the appropriate per-class shadow list.
+    -- MOVEABLES_O catches all subclasses not explicitly named (DynaText,
+    -- Card_Character, AnimatedSprite, mod-added classes) so they are still
+    -- processed every frame — correctness preserved, polymorphic but small.
     local _mt = getmetatable(self)
     if     _mt == Card      then table.insert(G.MOVEABLES_C,  self)
     elseif _mt == Sprite    then table.insert(G.MOVEABLES_S,  self)
     elseif _mt == UIBox     then table.insert(G.MOVEABLES_UB, self)
     elseif _mt == UIElement then table.insert(G.MOVEABLES_UE, self)
+    else                         table.insert(G.MOVEABLES_O,  self)
     end
     if _mt == Moveable then
         table.insert(G.I.MOVEABLE, self)
@@ -3617,10 +3621,9 @@ new_remove = """function Moveable:remove()
              or (_mt == Sprite and G.MOVEABLES_S)
              or (_mt == UIBox and G.MOVEABLES_UB)
              or (_mt == UIElement and G.MOVEABLES_UE)
-    if _sl then
-        for k, v in pairs(_sl) do
-            if v == self then table.remove(_sl, k); break end
-        end
+             or G.MOVEABLES_O
+    for k, v in pairs(_sl) do
+        if v == self then table.remove(_sl, k); break end
     end
     for k, v in pairs(G.I.MOVEABLE) do
         if v == self then table.remove(G.I.MOVEABLE, k); break end
@@ -3642,11 +3645,13 @@ gtext = open(game_path).read()
 old_move_loop = """        for k, v in ipairs(self.MOVEABLES) do
             if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end
         end"""
-new_move_loop = """        -- MOVEABLE_SHADOW_LISTS: four monomorphic move-pass loops (JIT-specialised per class)
+new_move_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic move-pass loops per class; MOVEABLES_O
+        -- catches all other subclasses (DynaText, Card_Character, AnimatedSprite, mods)
         for k, v in ipairs(self.MOVEABLES_C)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
         for k, v in ipairs(self.MOVEABLES_S)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
         for k, v in ipairs(self.MOVEABLES_UB) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
-        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end"""
+        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_O)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end"""
 if old_move_loop not in gtext:
     print("ERROR: game.lua move loop anchor not found", file=sys.stderr)
     sys.exit(1)
@@ -3659,11 +3664,13 @@ old_update_loop = """        for k, v in ipairs(self.MOVEABLES) do
             v:update(dt*self.SPEEDFACTOR, self.real_dt)
             v.states.collide.is = false
         end"""
-new_update_loop = """        -- MOVEABLE_SHADOW_LISTS: four monomorphic update-pass loops (JIT-specialised per class)
+new_update_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic update-pass loops per class; MOVEABLES_O
+        -- catches all other subclasses (DynaText, Card_Character, AnimatedSprite, mods)
         for k, v in ipairs(self.MOVEABLES_C)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
         for k, v in ipairs(self.MOVEABLES_S)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
         for k, v in ipairs(self.MOVEABLES_UB) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
-        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end"""
+        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_O)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end"""
 if old_update_loop not in gtext:
     print("ERROR: game.lua update loop anchor not found", file=sys.stderr)
     sys.exit(1)
@@ -3674,7 +3681,7 @@ open(game_path, 'w').write(gtext.replace(old_update_loop, new_update_loop, 1))
 print("MOVEABLE_SHADOW_LISTS: game.lua patched")
 PYEOF
     if grep -q "MOVEABLE_SHADOW_LISTS" "$moveable_f"; then
-        log_success "MOVEABLE_SHADOW_LISTS applied (4 monomorphic move+update loops)"
+        log_success "MOVEABLE_SHADOW_LISTS applied (4 monomorphic + 1 catch-all move+update loops)"
     else
         log_error "MOVEABLE_SHADOW_LISTS did not apply — check anchors"
         exit 1
