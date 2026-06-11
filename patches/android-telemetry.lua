@@ -395,6 +395,13 @@ function Game:update(dt)
                 dur = string.format("%.2f", (C.cursor_down and C.cursor_down.duration) or -1),
             })
         end
+        -- the description-toggle memory: which card the controller believes
+        -- has its description on screen (TAP_DESC_TOGGLE state)
+        local sd = C.shown_desc
+        if sd ~= TEL.g_sdesc then
+            TEL.g_sdesc = sd
+            tel("G_SDESC", {t = card_key_of(sd)})
+        end
         -- classification outcomes (assigned in Controller:update after the
         -- release is recorded; G_REL can't see them — these transitions can)
         local ck = C.clicked and C.clicked.target

@@ -1089,6 +1089,16 @@ apply_tap_description_persist() {
     # disable collision on the whole tree.
     local node_f="$(dirname "$f")/node.lua"
     sed -i 's|            self.children.h_popup.states.collide.can = false|            self.children.h_popup.states.collide.can = false\n            self.children.h_popup.states.drag.can = false\n            local function _popup_nc(n) -- TAP_DESC_POPUP_NOCOLLIDE\n                n.states.collide.can = false\n                if n.children then for _, _c in pairs(n.children) do _popup_nc(_c) end end\n            end\n            _popup_nc(self.children.h_popup.UIRoot)|' "$node_f"
+    # TAP_DESC_STALE_CLEAR: shown_desc is the toggle's memory of "whose
+    # description is on screen"; tapping that card again means dismiss. The
+    # tap branches clear it, but every OTHER dismissal path (tap empty space,
+    # play a hand, state change) closes the popup via Node:stop_hover and
+    # left shown_desc stale — so the next tap on the same card took the
+    # dismiss branch and the description could not be re-summoned without
+    # tapping a different card first. Clear it where the popup actually dies
+    # (inside the removal branch, so Cryptid's force_tooltips exception —
+    # popup kept — correctly keeps the state too).
+    sed -i 's|^        self.children.h_popup = nil$|        self.children.h_popup = nil\n        if G.CONTROLLER and G.CONTROLLER.shown_desc == self then G.CONTROLLER.shown_desc = nil end -- TAP_DESC_STALE_CLEAR|' "$node_f"
     # pending-release ownership: Node:remove nils the controller's
     # released_on.target when the node dies — correct cleanup, EXCEPT while a
     # release dispatch is still pending (handled == false) in the same frame.
@@ -1120,10 +1130,10 @@ apply_tap_description_persist() {
     # SMODS_BOOSTER_OPENED). A dead release target means there is nothing to
     # dispatch to; skip it.
     sed -i 's|        self.released_on.target:release(self.dragging.prev_target)|        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) else local _k = tostring(self.dragging.prev_target and self.dragging.prev_target.config and self.dragging.prev_target.config.center and self.dragging.prev_target.config.center.key or "?"); if ATLOG then ATLOG("G_REL_SKIP", {card=_k, state=tostring(G.STATE)}) else print("[TEL] G_REL_SKIP card=" .. _k .. " state=" .. tostring(G.STATE)) end end -- RELEASED_ON_NIL_GUARD|' "$f"
-    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f" && grep -q "TOUCH_PRESS_POS_SYNC" "$f"; then
-        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover + press-pos-sync applied"
+    if grep -q "TAP_DESC_PERSIST" "$f" && grep -q "TAP_DESC_TOGGLE" "$f" && grep -q "TAP_DESC_RELAX" "$f" && grep -q "TAP_DESC_HOLD_NODRAG" "$f" && grep -q "HID_TOUCH_ENV" "$f" && grep -q "DRAG_RELEASE_UNHOVER" "$f" && grep -q "TOUCH_PRESS_POS_SYNC" "$f" && grep -q "TAP_DESC_STALE_CLEAR" "$node_f"; then
+        log_success "Tap-description persist + toggle + no-warp + hold-persist + touch_env + drag-release-unhover + press-pos-sync + stale-clear applied"
     else
-        log_warn "Tap-description fix did not fully match — check controller.lua"
+        log_warn "Tap-description fix did not fully match — check controller.lua/node.lua"
     fi
 }
 

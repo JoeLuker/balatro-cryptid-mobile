@@ -145,6 +145,25 @@ test('joker tap toggles a persistent description (non-hand behaviour)', function
     check(w.ctrl.shown_desc == nil, 'second tap dismisses')
 end)
 
+-- TAP_DESC_STALE_CLEAR contract: shown_desc (the toggle's memory of whose
+-- description is on screen) must die whenever the popup dies, i.e. whenever
+-- stop_hover removes it — otherwise the next tap on the same card takes the
+-- dismiss branch and the description cannot be re-summoned without visiting
+-- a different card first (reported on-device 2026-06-10). The mock node's
+-- stop_hover mirrors the patched node.lua; the marker grep in
+-- apply_tap_description_persist verifies the real file carries it.
+test('stop_hover clears the description-toggle memory, enabling re-summon', function()
+    local w = scene()
+    w.touch_down(2.7, 2.5); w.frames(2); w.touch_up(); w.frames(3)
+    check(w.ctrl.shown_desc == w.J, 'precondition: joker description toggled on')
+    -- the popup dies via stop_hover (any external dismissal path)
+    w.J:stop_hover()
+    check(w.ctrl.shown_desc == nil, 'stale-clear: shown_desc dies with the popup')
+    -- the same joker must show its description again on the very next tap
+    w.touch_down(2.7, 2.5); w.frames(2); w.touch_up(); w.frames(3)
+    check(w.ctrl.shown_desc == w.J, 'description re-summons on the same card (stale shown_desc regression)')
+end)
+
 -- HID_ISTOUCH_RELEASE_FIX: HID.touch must be true on the release frame even
 -- if set_HID_flags was last called with 'mouse' (simulating a cross-pump-batch
 -- scenario where the SDL event scheduler delivers touchreleased and

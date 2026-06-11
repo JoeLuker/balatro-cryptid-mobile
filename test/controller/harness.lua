@@ -62,7 +62,14 @@ function M.make_node(world, opts)
     end
     n.set_offset  = recorder(n, 'set_offset')
     n.hover       = recorder(n, 'hover')
-    n.stop_hover  = recorder(n, 'stop_hover')
+    n.stop_hover  = function(self, ...)
+        self.calls.stop_hover = (self.calls.stop_hover or 0) + 1
+        -- mirror patched node.lua (TAP_DESC_STALE_CLEAR): stop_hover is where
+        -- the description popup dies, and the toggle's memory dies with it —
+        -- otherwise a description dismissed by tapping elsewhere leaves
+        -- shown_desc stale and the same card cannot re-summon it
+        if G.CONTROLLER and G.CONTROLLER.shown_desc == self then G.CONTROLLER.shown_desc = nil end
+    end
     n.stop_drag   = recorder(n, 'stop_drag')
     n.drag        = recorder(n, 'drag')
     n.juice_up    = recorder(n, 'juice_up')
