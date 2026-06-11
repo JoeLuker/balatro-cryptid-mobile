@@ -201,12 +201,18 @@ patch_mods_dir() {
     # apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
     # apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
     apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
+    apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
+    apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
         "$mods_dir/Cryptid/items/m.lua"
     apply_cryptid_demicolon_no_chain   "$mods_dir/Cryptid/items/epic.lua"
     apply_cryptid_oil_lamp_local_fix   "$mods_dir/Cryptid/items/misc_joker.lua"
+    apply_cry_vanilla_gameset \
+        "$mods_dir/Cryptid/lib/gameset.lua" \
+        "$mods_dir/Cryptid/Cryptid.lua" \
+        "$mods_dir/Cryptid/localization/en-us.lua"
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
 }
 
@@ -3331,6 +3337,389 @@ PYEOF
         log_success "LETTER_TABLE_REUSE applied (reuse let_tab+dims in-place on char match)"
     else
         log_warn "LETTER_TABLE_REUSE did not apply — check engine/text.lua letter loop anchor"
+    fi
+}
+
+# CRY_VANILLA_GAMESET: fourth Cryptid gameset that disables ALL Cryptid
+# content while the mod stays loaded — the sanctioned "play without
+# Cryptid" switch (the SMODS toggle is locked: its lovely half is baked
+# into the game files and disabling only the runtime half crashes on baked
+# references). Rides Cryptid's own machinery: "disabled" is already a
+# first-class per-item state; Cryptid.enabled() (62 consumers), set_ability
+# cry_disabled stamping, pool checks and grey tinting all follow from the
+# resolution returning "disabled". This applier:
+#   1. replaces Cryptid.gameset() with a vanilla-aware version (every
+#      CENTER resolution under the vanilla profile gameset returns
+#      "disabled"; the bare profile query reports "vanilla"; force_gameset
+#      still wins so picker previews render; per-item overrides are inert
+#      under vanilla by short-circuit order — stale overrides cannot
+#      resurrect items);
+#   2. adds the 4th intro-picker option (atlas col 3, grey-mix colour);
+#   3. adds a gameset switcher row to Cryptid's config tab (upstream has NO
+#      post-intro switcher at all) — buttons write the profile gameset and
+#      G:save_settings() persists it (the settings push includes the
+#      current profile);
+#   4. injects the localization keys.
+apply_cry_vanilla_gameset() {
+    local gameset_f="$1"
+    local cryptid_f="$2"
+    local loc_f="$3"
+    if grep -q "CRY_VANILLA_GAMESET" "$gameset_f"; then
+        log_info "CRY_VANILLA_GAMESET already applied"
+        return 0
+    fi
+    python3 - "$gameset_f" "$cryptid_f" "$loc_f" <<'PYEOF'
+import sys
+gameset_path, cryptid_path, loc_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# ── gameset.lua ──────────────────────────────────────────────────────────
+text = open(gameset_path).read()
+
+# 1. Replace the whole Cryptid.gameset function (span-anchored on the
+# signature and the comment that follows the function — immune to
+# tab/space drift inside the body).
+start_marker = "function Cryptid.gameset(card, center)"
+end_marker = "-- set_ability accounts for gamesets"
+si = text.find(start_marker)
+ei = text.find(end_marker)
+if si == -1 or ei == -1 or text.count(start_marker) != 1 or text.count(end_marker) != 1:
+    print("ERROR: Cryptid.gameset span anchors not found/unique", file=sys.stderr)
+    sys.exit(1)
+
+new_fn = """function Cryptid.gameset(card, center)
+\t-- CRY_VANILLA_GAMESET: under the vanilla profile gameset every CENTER
+\t-- resolution returns "disabled" -- Cryptid.enabled(), set_ability's
+\t-- cry_disabled stamp, pool checks and tinting all follow. The bare
+\t-- profile query still reports "vanilla" for UI callers. force_gameset
+\t-- wins first so picker previews and the per-item config UI render.
+\t-- The short-circuit sits BEFORE the per-item override lookup on
+\t-- purpose: stale overrides from a profile's earlier gameset must not
+\t-- resurrect items under vanilla.
+\tlocal _profile_gameset = G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
+\tif not center then
+\t\tif not card then
+\t\t\treturn _profile_gameset
+\t\tend
+\t\tcenter = card.config and card.config.center or card.effect and card.effect.center or card
+\tend
+\tif card.force_gameset then
+\t\treturn card.force_gameset
+\tend
+\tif center.force_gameset then
+\t\treturn center.force_gameset
+\tend
+\tif _profile_gameset == "vanilla" then
+\t\treturn "disabled"
+\tend
+\tif center.fake_card then
+\t\treturn _profile_gameset
+\tend
+\tif not center.key then
+\t\tif center.tag and center.tag.key then --dumb fix for tags
+\t\t\tcenter = center.tag
+\t\telse
+\t\t\tif false then
+\t\t\t\tprint("Could not find key for center: " .. tprint(center))
+\t\t\tend
+\t\t\treturn _profile_gameset
+\t\tend
+\tend
+\tlocal gameset = _profile_gameset
+\tif Cryptid_config.experimental and center.extra_gamesets then
+\t\tfor i = 1, #center.extra_gamesets do
+\t\t\tif center.extra_gamesets[i] == "exp_" .. gameset then
+\t\t\t\tgameset = "exp_" .. gameset
+\t\t\t\tbreak
+\t\t\telseif center.extra_gamesets[i] == "exp" then
+\t\t\t\tgameset = "exp"
+\t\t\t\tbreak
+\t\t\tend
+\t\tend
+\tend
+\tif
+\t\tG.PROFILES[G.SETTINGS.profile].cry_gameset_overrides
+\t\tand G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides[center.key]
+\tthen
+\t\treturn G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides[center.key]
+\tend
+\treturn gameset
+end
+"""
+text = text[:si] + new_fn + text[ei:]
+print("CRY_VANILLA_GAMESET: resolution replaced")
+
+# 2. Intro picker: vanilla sprite + button before the gamesetUI build
+anchor_ui = "\t\tlocal gamesetUI = create_UIBox_generic_options({"
+if text.count(anchor_ui) != 1:
+    print("ERROR: gamesetUI anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+vanilla_btn = """\t\tlocal vanillaSprite = Sprite(0, 0, 1, 1, G.ASSET_ATLAS["cry_gameset"], { x = 3, y = 0 })
+\t\tvanillaSprite:define_draw_steps({
+\t\t\t{ shader = "dissolve", shadow_height = 0.05 },
+\t\t\t{ shader = "dissolve" },
+\t\t})
+\t\tG.vanillaBtn = create_UIBox_character_button_with_sprite({
+\t\t\tsprite = vanillaSprite,
+\t\t\tbutton = localize("cry_gameset_vanilla"),
+\t\t\tid = "vanilla",
+\t\t\tfunc = "cry_vanilla",
+\t\t\tcolour = mix_colours(G.C.RED, G.C.GREY, 0.7),
+\t\t\tmaxw = 3,
+\t\t})
+"""
+text = text.replace(anchor_ui, vanilla_btn + anchor_ui, 1)
+
+anchor_contents = "\t\t\t\tG.madnessBtn,\n\t\t\t},"
+if text.count(anchor_contents) != 1:
+    print("ERROR: picker contents anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+text = text.replace(anchor_contents, "\t\t\t\tG.madnessBtn,\n\t\t\t\tG.vanillaBtn,\n\t\t\t},", 1)
+
+# 3. intro_part condition + desc_length
+old_cond = 'if _part == "modest" or _part == "mainline" or _part == "madness" then'
+if text.count(old_cond) != 1:
+    print("ERROR: intro_part condition anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old_cond,
+    'if _part == "modest" or _part == "mainline" or _part == "madness" or _part == "vanilla" then', 1)
+
+old_desc = "\t\t\tmadness = 3,\n\t\t}"
+if text.count(old_desc) != 1:
+    print("ERROR: desc_length anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old_desc, "\t\t\tmadness = 3,\n\t\t\tvanilla = 1,\n\t\t}", 1)
+
+# 4. colour resets in the three existing funcs + the new cry_vanilla func
+reset_line = '\tif G.vanillaBtn then G.vanillaBtn.config.colour = mix_colours(G.C.RED, G.C.GREY, 0.7) end\n'
+for part in ("modest", "mainline", "madness"):
+    call = '\tG.FUNCS.cry_intro_part("%s")' % part
+    if text.count(call) != 1:
+        print("ERROR: cry_intro_part call anchor for %s not found/unique" % part, file=sys.stderr)
+        sys.exit(1)
+    text = text.replace(call, reset_line + call, 1)
+
+anchor_confirm = "G.FUNCS.cry_gameset_confirm = function(e)"
+if text.count(anchor_confirm) != 1:
+    print("ERROR: gameset_confirm anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+vanilla_func = """G.FUNCS.cry_vanilla = function(e)
+\tG.modestBtn.config.colour = G.C.GREEN
+\tG.mainlineBtn.config.colour = G.C.RED
+\tG.madnessBtn.config.colour = G.C.CRY_EXOTIC
+\tG.vanillaBtn.config.colour = G.C.CRY_SELECTED
+\tG.FUNCS.cry_intro_part("vanilla")
+\tG.selectedGameset = "vanilla"
+end
+"""
+text = text.replace(anchor_confirm, vanilla_func + anchor_confirm, 1)
+
+open(gameset_path, 'w').write(text)
+print("CRY_VANILLA_GAMESET: gameset.lua patched")
+
+# ── Cryptid.lua: config-tab switcher ─────────────────────────────────────
+ctext = open(cryptid_path).read()
+
+anchor_reset = """\tcry_nodes[#cry_nodes + 1] = UIBox_button({
+\t\tcolour = G.C.CRY_ALTGREENGRADIENT,
+\t\tbutton = "reset_gameset_config","""
+if ctext.count(anchor_reset) != 1:
+    print("ERROR: reset button anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+switcher = """\t-- CRY_VANILLA_GAMESET: gameset switcher (upstream has no post-intro
+\t-- switcher at all; gameset applies to new runs)
+\tcry_nodes[#cry_nodes + 1] = {
+\t\tn = G.UIT.R,
+\t\tconfig = { align = "cm", padding = 0.05 },
+\t\tnodes = { { n = G.UIT.T, config = { text = localize("cry_current_gameset_label"), scale = 0.4, colour = G.C.UI.TEXT_LIGHT } } },
+\t}
+\tlocal _gs_row = { n = G.UIT.R, config = { align = "cm", padding = 0.05 }, nodes = {} }
+\tfor _, _gs in ipairs({ "modest", "mainline", "madness", "vanilla" }) do
+\t\t_gs_row.nodes[#_gs_row.nodes + 1] = UIBox_button({
+\t\t\tcolour = (G.PROFILES[G.SETTINGS.profile].cry_gameset == _gs) and G.C.CRY_SELECTED or G.C.GREY,
+\t\t\tbutton = "cry_cfg_set_gameset",
+\t\t\tref_table = { gameset = _gs },
+\t\t\tfunc = "cry_cfg_gameset_colour",
+\t\t\tlabel = { localize("cry_gameset_" .. _gs) },
+\t\t\tminw = 2.2,
+\t\t\tscale = 0.35,
+\t\t})
+\tend
+\tcry_nodes[#cry_nodes + 1] = _gs_row
+"""
+ctext = ctext.replace(anchor_reset, switcher + anchor_reset, 1)
+
+anchor_tabs = "local cryptidTabs = function()"
+if ctext.count(anchor_tabs) != 1:
+    print("ERROR: cryptidTabs anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+handlers = """-- CRY_VANILLA_GAMESET: config-tab gameset switcher handlers
+G.FUNCS.cry_cfg_set_gameset = function(e)
+\tlocal _gs = e.config.ref_table and e.config.ref_table.gameset
+\tif not _gs then return end
+\tG.PROFILES[G.SETTINGS.profile].cry_gameset = _gs
+\tG:save_settings()
+end
+G.FUNCS.cry_cfg_gameset_colour = function(e)
+\tlocal _gs = e.config.ref_table and e.config.ref_table.gameset
+\tif not _gs then return end
+\tlocal _sel = (G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline") == _gs
+\te.config.colour = _sel and G.C.CRY_SELECTED or G.C.GREY
+end
+
+"""
+ctext = ctext.replace(anchor_tabs, handlers + anchor_tabs, 1)
+open(cryptid_path, 'w').write(ctext)
+print("CRY_VANILLA_GAMESET: Cryptid.lua patched")
+
+# ── localization ─────────────────────────────────────────────────────────
+ltext = open(loc_path).read()
+
+anchor_loc = '\t\t\tcry_gameset_modest = "Modest",'
+if ltext.count(anchor_loc) != 1:
+    print("ERROR: localization gameset anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+ltext = ltext.replace(anchor_loc,
+    '\t\t\tcry_gameset_vanilla = "Vanilla",\n'
+    '\t\t\tcry_current_gameset_label = "Gameset (applies to new runs)",\n'
+    + anchor_loc, 1)
+
+anchor_reset_loc = '\t\t\tb_reset_gameset_madness = "Reset Gameset Config (Madness)",'
+if ltext.count(anchor_reset_loc) != 1:
+    print("ERROR: localization reset anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+ltext = ltext.replace(anchor_reset_loc,
+    anchor_reset_loc + '\n\t\t\tb_reset_gameset_vanilla = "Reset Gameset Config (Vanilla)",', 1)
+
+anchor_intro = "\t\t\tcry_modest_1 = {"
+if ltext.count(anchor_intro) != 1:
+    print("ERROR: localization intro anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+ltext = ltext.replace(anchor_intro,
+    '\t\t\tcry_vanilla_1 = {\n'
+    '\t\t\t\t"Just want plain Balatro? The {C:inactive}Vanilla{}",\n'
+    '\t\t\t\t"gameset turns all Cryptid content off.",\n'
+    '\t\t\t},\n'
+    + anchor_intro, 1)
+
+open(loc_path, 'w').write(ltext)
+print("CRY_VANILLA_GAMESET: localization patched")
+PYEOF
+    if grep -q "CRY_VANILLA_GAMESET" "$gameset_f" && grep -q "cry_gameset_vanilla" "$loc_f"; then
+        log_success "CRY_VANILLA_GAMESET applied (4th gameset: all Cryptid content off)"
+    else
+        log_error "CRY_VANILLA_GAMESET did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# AMULET_CALC_DELAY: Amulet's scoring coroutine summons the "calculating"
+# overlay on the FIRST update frame of every scoring run (co.update:
+# `if not G.OVERLAY_MENU then co.overlay()`), so small hands that finish in
+# a frame or two flash the overlay — the same class as the Talisman-era dim
+# fix (observed live 2026-06-11 after the migration). Gate the summon on
+# 1.0s of accumulated scoring wall-clock; the state is fresh per play
+# (co.initialize_state -> co.create_state), so the timer self-resets.
+apply_amulet_calc_delay() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "coroutine.lua not found at $f, skipping AMULET_CALC_DELAY"
+        return 0
+    fi
+    if grep -q "AMULET_CALC_DELAY" "$f"; then
+        log_info "AMULET_CALC_DELAY already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """	co.resume()
+
+	if not G.OVERLAY_MENU then
+		co.overlay()
+	else"""
+new = """	co.resume()
+
+	-- AMULET_CALC_DELAY: small hands finish in a frame or two; summoning the
+	-- overlay instantly reads as a flash. Only show it once this scoring run
+	-- has been visibly long.
+	Talisman.scoring_coroutine.pre_overlay_t = (Talisman.scoring_coroutine.pre_overlay_t or 0) + dt
+	if not G.OVERLAY_MENU then
+		if Talisman.scoring_coroutine.pre_overlay_t > 1.0 then co.overlay() end
+	else"""
+
+if old not in text:
+    print("ERROR: calc overlay anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: calc overlay anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("AMULET_CALC_DELAY applied")
+PYEOF
+    if grep -q "AMULET_CALC_DELAY" "$f"; then
+        log_success "AMULET_CALC_DELAY applied (calc overlay gated on 1.0s of scoring)"
+    else
+        log_error "AMULET_CALC_DELAY did not apply — check coroutine.lua anchor"
+        exit 1
+    fi
+}
+
+# STRUCTURAL_MODS_LOCK: on this build, Cryptid / Amulet / sticky-fingers are
+# HALF BAKED-IN — their lovely patches are compiled into the shipped game
+# files (the dump), and only their runtime half loads through SMODS. The
+# SMODS mods-menu toggle writes .lovelyignore into the save-dir Mods overlay
+# and disables ONLY the runtime half — baked references then call nil
+# (proven on-device 2026-06-11: Cryptid toggled off -> Cryptid.gameset_sprite
+# nil at UI_definitions.lua:6534 -> crash loop on every run-setup open).
+# Make the loader ignore .lovelyignore for the baked mods; they are not
+# optional content here.
+apply_structural_mods_lock() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "loader.lua not found at $f, skipping STRUCTURAL_MODS_LOCK"
+        return 0
+    fi
+    if grep -q "STRUCTURAL_MODS_LOCK" "$f"; then
+        log_info "STRUCTURAL_MODS_LOCK already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+table_def = """-- STRUCTURAL_MODS_LOCK: these mods' lovely patches are baked into the
+-- shipped game files; the runtime toggle cannot remove that half, so
+-- disabling them only breaks the baked references (nil calls). The loader
+-- ignores their .lovelyignore markers.
+local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['eramdam.sticky-fingers'] = true }
+
+"""
+
+old_check = """                    if NFS.getInfo(directory..'/.lovelyignore') then
+                        mod.disabled = true
+                    end"""
+new_check = """                    if NFS.getInfo(directory..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+                        mod.disabled = true
+                    end"""
+
+n = text.count(old_check)
+if n != 2:
+    print(f"ERROR: expected 2 lovelyignore checks, found {n}", file=sys.stderr)
+    sys.exit(1)
+
+text = table_def + text.replace(old_check, new_check)
+open(path, 'w').write(text)
+print("STRUCTURAL_MODS_LOCK applied")
+PYEOF
+    if grep -q "STRUCTURAL_MODS_LOCK" "$f"; then
+        log_success "STRUCTURAL_MODS_LOCK applied (baked mods cannot be runtime-disabled)"
+    else
+        log_error "STRUCTURAL_MODS_LOCK did not apply — check loader.lua anchors"
+        exit 1
     fi
 }
 
