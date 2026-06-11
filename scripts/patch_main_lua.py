@@ -212,6 +212,37 @@ end"""
     else:
         print("NOTE: F_NO_COROUTINE duplicate block not found in main.lua — already removed or structure changed")
 
+    # 10b. FPS_CAP_REFRESH: G.FPS_CAP is set once from the window's refresh
+    # rate at boot. On an LTPO panel that idles at 60Hz (e.g. when the app is
+    # launched by a deploy while the screen is untouched), the window reports
+    # 60 and the cap stays frozen at half the panel's real rate for the whole
+    # session (observed on-device 2026-06-10: 120Hz panel, uniform ~15.5ms
+    # frames in every state). The panel upshifts on interaction with NO focus
+    # event, so the cap must be re-read periodically: once every ~2 seconds
+    # (cheap SDL query) in the base love.update, beneath the mod wrappers.
+    if 'FPS_CAP_REFRESH' not in content:
+        update_anchor = """function love.update( dt )
+\t--Perf monitoring checkpoint
+    timer_checkpoint(nil, 'update', true)"""
+        update_replacement = """function love.update( dt )
+\t--Perf monitoring checkpoint
+    timer_checkpoint(nil, 'update', true)
+    -- FPS_CAP_REFRESH (Android): track the panel's live refresh rate
+    if love.system.getOS() == 'Android' then
+        G.FPS_CAP_REFRESH_AT = G.FPS_CAP_REFRESH_AT or 0
+        if G.TIMERS.UPTIME > G.FPS_CAP_REFRESH_AT then
+            G.FPS_CAP_REFRESH_AT = G.TIMERS.UPTIME + 2
+            local _, _, _wf = love.window.getMode()
+            if _wf and _wf.refreshrate and _wf.refreshrate > 0 and _wf.refreshrate ~= G.FPS_CAP then
+                G.FPS_CAP = _wf.refreshrate
+            end
+        end
+    end"""
+        if update_anchor in content:
+            content = content.replace(update_anchor, update_replacement, 1)
+        else:
+            print("WARNING: love.update anchor not found - FPS_CAP_REFRESH NOT applied")
+
     # 11. Inject love.focus callback for Android flush-on-background.
     #
     # On Android, the OS may kill the process immediately after backgrounding
@@ -231,20 +262,7 @@ end"""
 -- loses focus so data survives an immediate OS process kill.
 function love.focus(focused)
     if love.system.getOS() ~= 'Android' then return end
-    if focused then
-        -- FPS_CAP_REFRESH: the cap is read from the window's refresh rate
-        -- once at boot — if the app launched while an LTPO panel idled at
-        -- 60Hz, the cap stays frozen at half rate for the whole session
-        -- (observed on-device 2026-06-10: 120Hz panel, uniform ~15.5ms
-        -- frames). Re-read it whenever the app regains focus.
-        if G and love.window and love.window.getMode then
-            local _, _, wf = love.window.getMode()
-            if wf and wf.refreshrate and wf.refreshrate > 0 then
-                G.FPS_CAP = wf.refreshrate
-            end
-        end
-        return
-    end
+    if focused then return end
     if G and G.FILE_HANDLER and G.FILE_HANDLER.update_queued then
         G.FILE_HANDLER.force = true
     end
