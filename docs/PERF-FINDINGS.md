@@ -84,6 +84,38 @@ compare like batches), gross-allocation scoring window, texmem readout.
 Scoring window grosses ~286 MB/hand — sub-100 KB findings are invisible
 there; use the selection metric or a targeted micro-bench.
 
+## Tier 0 — infra patches (landed 2026-06-11)
+
+All four patches build-verified clean; deployed to device (build stamp `0611-1042.24cfd8`).
+
+| Marker | Summary | Measured benefit |
+|---|---|---|
+| `JIT_OPT_RAISE` | Raises LuaJIT compile budgets (maxtrace=4000, maxmcode=16384, hotloop=28) via `pcall(jit.opt.start(...))` in main.lua | Not yet measured on device; prevents trace eviction on large mod load |
+| `EVQ_BURST_ATTRIB` | Times `Event:handle` calls when `EVQ_PROF` global is live (set by android-telemetry.lua); buckets slow handlers by `source:linedefined` for per-window EV_SLOW events | Working: `EV_SLOW src=button_callbacks.lua:3238 ms=5754` confirmed first use |
+| `EVQ_COMPACT` | Replaces `table.remove(v, i)` in hot `EventManager:update` loop with identity-mark + O(n) two-pointer compaction | e_manager drops from ~14ms (initial transition burst) to ~0.11ms steady-state after UIBox animation completes — but see caveat below |
+| `UI_FUNC_THROTTLE` | Phase-staggered `(G.FRAMES.MOVE + self.ID) % 3 == 0` func polling per UIElement; `_ft_seen` first-fire guarantee; `instant_func` escape hatch | Not yet isolated; contributes to UI update cost reduction |
+
+### First on-device draw-call baseline (2026-06-11, ante 1 BLIND_SELECT)
+
+| State | `e_manager` ms | `shsw_avg` | `dc_avg` | `uiboxes` ms | fps | `n_ui` |
+|---|---|---|---|---|---|---|
+| SPLASH | 0.38–0.46 | 12–96 | 7–49 | 0.04–0.08 | 124–125 | 0 |
+| MENU (idle) | 0.09–0.10 | 24 | 31–32 | 0.69–0.75 | 124–125 | 5 |
+| BLIND_SELECT (start_run burst) | 14.48 | 40 | 49 | 0.67 | 5 | 94 |
+| BLIND_SELECT (initial, n_ui=88) | 15.21 | 770 | 625 | 2.56 | 61 | 88 |
+| BLIND_SELECT (settling, n_ui=49) | 0.14 | 614 | 597 | 2.60 | 69 | 49 |
+| BLIND_SELECT (settling, n_ui=22) | 0.11 | 508 | 544 | 2.02 | 69 | 22 |
+| BLIND_SELECT (settled, n_ui=11) | 0.11 | 455 | 516 | 1.72 | 77 | 11 |
+
+**The `n_ui → shsw_avg` correlation is the Tier-1 target.** Each UI element emitting its own draw call with its own shader is the dominant draw overhead. `shsw_avg=455` at settled BLIND_SELECT with `n_ui=11` and `n_card=213` means ~2.1 shader switches per card in steady state. `uiboxes` at 1.72–2.56ms scales linearly with `n_ui`, consistent with per-element shader bind cost rather than geometry cost.
+
+**Identified slow event handlers (all `EV_SLOW` from 10:45–10:46 session):**
+- `functions/button_callbacks.lua:3238` → `G:start_run(args)` — 5754ms, expected (full run init)
+- `game.lua:3521` → `create_UIBox_blind_select()` — 260ms, the Cryptid-loaded blind select UI build
+- `game.lua:1556` → 33.7ms at MENU transition (mod UI build)
+- `functions/button_callbacks.lua:3081` → 6.9ms
+- `game.lua:3515` → `save_run()` — 3.2ms, expected
+
 ## Tier 2 — high value, needs an audit + measurement first
 
 8. ~~`to_big` fast-path below 1e15~~ — **DONE 2026-06-10 in re-scoped form**
