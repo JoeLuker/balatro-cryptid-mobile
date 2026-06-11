@@ -431,13 +431,31 @@ function Game:update(dt)
             dt_avg_ms = string.format("%.2f", 1000 * TEL.frame_dt_sum / math.max(TEL.frame_count, 1)),
             dt_max_ms = string.format("%.2f", 1000 * TEL.frame_dt_max),
         }
-        -- object-registry counts: a leak shows up as the counter that climbs
+        -- object-registry counts: a leak shows up as the counter that climbs.
+        -- n_ui_s counts only boxes that go through the uiboxes draw loop
+        -- (mirrors the filter at game.lua:3011: no attention_text, no parent,
+        -- not the excluded overlay singletons). n_ui_total is the raw registry
+        -- size; the delta (n_ui_total - n_ui_s) is mostly transient
+        -- attention_text animation boxes that are excluded from the draw loop
+        -- and therefore do NOT contribute to the uiboxes timer — correlating
+        -- n_ui_total against uiboxes ms produces a misleading floor artifact.
         if G.I then
             snap.n_node = #G.I.NODE
             snap.n_mov = #G.I.MOVEABLE
-            snap.n_ui = #G.I.UIBOX
             snap.n_card = #G.I.CARD
             snap.n_moves = G.MOVEABLES and #G.MOVEABLES or -1
+            local n_s = 0
+            for _, v in pairs(G.I.UIBOX) do
+                if not v.attention_text and not v.parent
+                    and v ~= G.OVERLAY_MENU and v ~= G.screenwipe
+                    and v ~= G.OVERLAY_TUTORIAL and v ~= G.debug_tools
+                    and v ~= G.online_leaderboard
+                    and v ~= G.achievement_notification then
+                    n_s = n_s + 1
+                end
+            end
+            snap.n_ui_s = n_s
+            snap.n_ui_total = #G.I.UIBOX
         end
         -- checkpoint breakdowns flow whenever collection is on: Debug Logging
         -- alone enables them headlessly (the on-screen overlay needs the
