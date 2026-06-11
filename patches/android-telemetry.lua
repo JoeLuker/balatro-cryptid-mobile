@@ -116,6 +116,95 @@ local function flush()
     for i = #buf, 1, -1 do buf[i] = nil end
 end
 
+-- ── Tier-0a collectors ──────────────────────────────────────────────────
+-- These must be defined ABOVE apply_gates, which references them (a
+-- definition below would compile the reference as a global — the scoping
+-- trap that shipped twice on 2026-06-10).
+
+-- Event-handler burst attribution: EVQ_PROF is a deliberate GLOBAL fed by
+-- the EVQ_BURST_ATTRIB patch in engine/event.lua — a table while telemetry
+-- collects (handlers timed, slow ones bucketed by source:linedefined), nil
+-- otherwise (the event loop pays one global nil-check per handle). Drained
+-- into EV_SLOW events alongside each PERF_SNAPSHOT.
+local function evq_prof_new()
+    return {n = 0, ms = 0, thresh_ms = 1, slow = {}}
+end
+
+-- Per-frame draw stats (love.graphics.getStats: drawcalls, shaderswitches,
+-- canvasswitches, drawcallsbatched) sampled at the end of Game:draw and
+-- averaged into PERF_SNAPSHOT — the targeting data for the SpriteBatch work.
+TEL.draw_frames = 0
+TEL.dc_sum, TEL.dc_max = 0, 0
+TEL.dcb_sum = 0
+TEL.shsw_sum, TEL.shsw_max = 0, 0
+TEL.cnv_sum = 0
+local function reset_draw_stats()
+    TEL.draw_frames = 0
+    TEL.dc_sum, TEL.dc_max = 0, 0
+    TEL.dcb_sum = 0
+    TEL.shsw_sum, TEL.shsw_max = 0, 0
+    TEL.cnv_sum = 0
+end
+
+-- JIT trace-abort visibility: every abort leaves that path interpreted (the
+-- bimodal frame-time cliff measured on-device). Aggregate aborts per
+-- (source:line, reason) and flush a summary with each PERF_SNAPSHOT.
+-- jit.vmdef (the error-string table) is a plain-Lua module usually NOT
+-- embedded in liblove.so — reasons then log as numeric codes; decode offline
+-- against LuaJIT 2.1.1700008891 lj_traceerr.h.
+local JIT_TR = {n_start = 0, n_stop = 0, n_abort = 0, n_flush = 0, detail = 0, aborts = {}}
+local jit_ok, jit_lib = pcall(require, "jit")
+local jutil_ok, jutil = pcall(require, "jit.util")
+local vmdef_ok, vmdef = pcall(require, "jit.vmdef")
+local function trace_cb(what, tr, func, pc, otr, oex)
+    -- runs from the JIT engine itself: must never raise, never trace
+    if what == "start" then JIT_TR.n_start = JIT_TR.n_start + 1
+    elseif what == "stop" then JIT_TR.n_stop = JIT_TR.n_stop + 1
+    elseif what == "flush" then JIT_TR.n_flush = JIT_TR.n_flush + 1
+    elseif what == "abort" then
+        JIT_TR.n_abort = JIT_TR.n_abort + 1
+        if JIT_TR.detail < 400 then  -- cap allocation per flush window
+            JIT_TR.detail = JIT_TR.detail + 1
+            pcall(function()
+                local loc = "?"
+                if jutil_ok and func then
+                    local fi = jutil.funcinfo(func, pc)
+                    if fi then
+                        loc = tostring(fi.source or "?"):gsub("^@", "")
+                            .. ":" .. tostring(fi.currentline or fi.linedefined or 0)
+                    end
+                end
+                local why
+                if vmdef_ok and type(otr) == "number" and vmdef.traceerr and vmdef.traceerr[otr] then
+                    why = vmdef.traceerr[otr]
+                    if why:find("%%") and oex ~= nil then
+                        local ok_f, msg = pcall(string.format, why, tostring(oex))
+                        why = ok_f and msg or why
+                    end
+                else
+                    why = tostring(otr) .. (oex ~= nil and ("|" .. tostring(oex)) or "")
+                end
+                -- telemetry lines are space-separated k=v: values must not
+                -- contain spaces or '='
+                local key = (loc .. "|" .. why):gsub("[%s=]", "_")
+                JIT_TR.aborts[key] = (JIT_TR.aborts[key] or 0) + 1
+            end)
+        end
+    end
+end
+if jit_ok and jit_lib and jit_lib.off then pcall(jit_lib.off, trace_cb, true) end
+local jit_attached = false
+local function set_jit_hook(on)
+    if not (jit_ok and jit_lib and jit_lib.attach) then return end
+    if on and not jit_attached then
+        jit_attached = pcall(jit_lib.attach, trace_cb, "trace") and true or false
+    elseif not on and jit_attached then
+        pcall(jit_lib.attach, trace_cb)  -- no event name = detach
+        jit_attached = false
+    end
+end
+-- ── end Tier-0a collectors ──────────────────────────────────────────────
+
 local function apply_gates(want_log, want_home)
     -- drain under the OLD gates on ANY change while active: lines buffered
     -- under one consent state must never be delivered under another (e.g.
@@ -141,6 +230,12 @@ local function apply_gates(want_log, want_home)
         end
     end
     if want_home then start_sender() end
+    if not (want_log or want_home) and (log_on or home_on) then
+        -- deactivation edge: drop the Tier-0a collectors so the event loop
+        -- and JIT engine pay nothing while telemetry is off
+        EVQ_PROF = nil
+        set_jit_hook(false)
+    end
     if (want_log or want_home) and not (log_on or home_on) then
         -- activation edge: start the reporting windows now, not at t=0
         local now = (G and G.TIMERS and G.TIMERS.UPTIME) or 0
@@ -149,6 +244,10 @@ local function apply_gates(want_log, want_home)
         TEL.exp_recompute_count = 0
         TEL.frame_count, TEL.frame_dt_sum, TEL.frame_dt_max = 0, 0, 0
         last_flush = now
+        -- arm the Tier-0a collectors
+        EVQ_PROF = evq_prof_new()
+        set_jit_hook(true)
+        reset_draw_stats()
         -- resync the STATE baseline: a re-enable mid-game would otherwise
         -- emit a transition whose 'from' is the stale pre-disable state.
         -- (Gesture baselines are left alone — their events carry no 'from',
@@ -360,7 +459,55 @@ function Game:update(dt)
             snap.upd = table.concat(upd_parts, ",")
             snap.drw = table.concat(drw_parts, ",")
         end
+        -- Tier-0a: draw-call stats for the window (Game:draw wrapper below)
+        if TEL.draw_frames > 0 then
+            local n = TEL.draw_frames
+            snap.dc_avg = math.floor(TEL.dc_sum / n + 0.5)
+            snap.dc_max = TEL.dc_max
+            snap.dcb_avg = math.floor(TEL.dcb_sum / n + 0.5)
+            snap.shsw_avg = math.floor(TEL.shsw_sum / n + 0.5)
+            snap.shsw_max = TEL.shsw_max
+            snap.cnv_avg = math.floor(TEL.cnv_sum / n + 0.5)
+            reset_draw_stats()
+        end
+        -- Tier-0a: event-handler totals for the window
+        local _ep = EVQ_PROF
+        if _ep then
+            snap.n_evh = _ep.n
+            snap.evh_ms = string.format("%.1f", _ep.ms)
+        end
         tel("PERF_SNAPSHOT", snap)
+        -- Tier-0a: name the slowest event handlers of the window (top 5 by
+        -- total ms; src is func source:linedefined — in the lovely-merged
+        -- main.lua the line number IS the mod attribution)
+        if _ep then
+            local top = {}
+            for k, b in pairs(_ep.slow) do top[#top + 1] = {k = k, b = b} end
+            table.sort(top, function(a, b) return a.b.ms > b.b.ms end)
+            for i = 1, math.min(#top, 5) do
+                local t = top[i]
+                tel("EV_SLOW", {src = t.k:gsub("[%s=]", "_"), n = t.b.n,
+                    ms = string.format("%.1f", t.b.ms),
+                    max_ms = string.format("%.1f", t.b.max)})
+            end
+            _ep.n, _ep.ms = 0, 0
+            if next(_ep.slow) then _ep.slow = {} end
+        end
+        -- Tier-0a: JIT trace activity for the window (only emit when the
+        -- compiler did something — steady state after warmup is silence)
+        if jit_attached and (JIT_TR.n_abort > 0 or JIT_TR.n_stop > 0
+                or JIT_TR.n_start > 0 or JIT_TR.n_flush > 0) then
+            tel("JIT_TRACE", {n_start = JIT_TR.n_start, n_stop = JIT_TR.n_stop,
+                n_abort = JIT_TR.n_abort, n_flush = JIT_TR.n_flush})
+            local atop = {}
+            for k, n in pairs(JIT_TR.aborts) do atop[#atop + 1] = {k = k, n = n} end
+            table.sort(atop, function(a, b) return a.n > b.n end)
+            for i = 1, math.min(#atop, 8) do
+                tel("JIT_ABORT", {at = atop[i].k, n = atop[i].n})
+            end
+            JIT_TR.n_start, JIT_TR.n_stop, JIT_TR.n_abort, JIT_TR.n_flush, JIT_TR.detail = 0, 0, 0, 0, 0
+            if next(JIT_TR.aborts) then JIT_TR.aborts = {} end
+        end
         TEL.frame_count = 0
         TEL.frame_dt_sum = 0
         TEL.frame_dt_max = 0
@@ -511,6 +658,29 @@ function Game:update(dt)
     end
 
     return result
+end
+
+-- Tier-0a: sample love.graphics.getStats at the end of Game:draw (stats
+-- accumulate from frame start; sampling here captures the whole game draw
+-- and excludes any overlay drawn after). Table-arg form avoids a per-frame
+-- allocation. Averaged into PERF_SNAPSHOT by the update hook above.
+local _original_game_draw = Game.draw
+local _gstats = {}
+function Game:draw(...)
+    local r = _original_game_draw(self, ...)
+    if (log_on or home_on) and love.graphics.getStats then
+        love.graphics.getStats(_gstats)
+        TEL.draw_frames = TEL.draw_frames + 1
+        local dc = _gstats.drawcalls or 0
+        TEL.dc_sum = TEL.dc_sum + dc
+        if dc > TEL.dc_max then TEL.dc_max = dc end
+        TEL.dcb_sum = TEL.dcb_sum + (_gstats.drawcallsbatched or 0)
+        local ss = _gstats.shaderswitches or 0
+        TEL.shsw_sum = TEL.shsw_sum + ss
+        if ss > TEL.shsw_max then TEL.shsw_max = ss end
+        TEL.cnv_sum = TEL.cnv_sum + (_gstats.canvasswitches or 0)
+    end
+    return r
 end
 
 -- gesture provenance: wrap the mutation sites the gesture system fights over

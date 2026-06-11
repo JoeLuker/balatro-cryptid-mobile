@@ -407,6 +407,8 @@ EOF
     apply_nf_big_cache         "$game_dir/main.lua"
     apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
     apply_moveable_sleep       "$game_dir/engine/moveable.lua"
+    apply_event_burst_attrib   "$game_dir/engine/event.lua"
+    apply_ui_func_throttle     "$game_dir/engine/ui.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -3214,6 +3216,225 @@ PYEOF
         log_success "LETTER_TABLE_REUSE applied (reuse let_tab+dims in-place on char match)"
     else
         log_warn "LETTER_TABLE_REUSE did not apply — check engine/text.lua letter loop anchor"
+    fi
+}
+
+# EVQ_COMPACT (Tier 0c): EventManager:update removes each completed event
+# with table.remove(v, i) mid-walk — O(queue length) per completion, so a
+# transition burst completing hundreds of events on a long queue goes
+# quadratic (the measured 38ms e_manager spikes). Replace with identity
+# marking + one O(n) compaction per queue after the walk:
+#   - completed events are marked in a per-queue set keyed by the EVENT
+#     OBJECT (not index — front-inserts during handle shift indices, and
+#     append_count bookkeeping already repoints i; identity is shift-proof);
+#   - the walk advances past marked events exactly where the original's
+#     remove would have exposed the next event — handled order is identical;
+#   - compaction drops marked events in place, preserving order.
+# Semantic deltas, all verified harmless: completed events remain visible
+# in the queue table until that queue's walk ends (one pass, sub-frame);
+# the clear_queue-during-handle stale-index edge case removes the same
+# wrong event in both versions (bit-identical wrongness). The nil guard
+# mirrors table.remove's silent no-op when i ran past #v.
+apply_event_queue_compact() {
+    local f="$1"
+    if grep -q "EVQ_COMPACT" "$f"; then
+        log_info "EVQ_COMPACT already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old_head = """        for k, v in pairs(self.queues) do
+            local blocked = false
+            local i=1
+"""
+new_head = """        for k, v in pairs(self.queues) do
+            local blocked = false
+            local i=1
+            -- EVQ_COMPACT: see build.sh applier comment
+            local dead, dead_n = nil, 0
+"""
+
+old_tail = """                if results.pause_skip then \n\
+                    i = i + 1
+                else if not blocked and results.blocking then blocked = true end
+                    if results.completed and results.time_done then
+                        table.remove(v, i)
+                    else
+                        i = i + 1
+                    end
+                end
+            end
+        end"""
+new_tail = """                if results.pause_skip then \n\
+                    i = i + 1
+                else if not blocked and results.blocking then blocked = true end
+                    if results.completed and results.time_done then
+                        local ev = v[i]
+                        if ev ~= nil then
+                            if not dead then dead = {} end
+                            dead[ev] = true
+                            dead_n = dead_n + 1
+                        end
+                        i = i + 1
+                    else
+                        i = i + 1
+                    end
+                end
+            end
+            if dead_n > 0 then
+                local n, w = #v, 1
+                for r = 1, n do
+                    local ev = v[r]
+                    if not dead[ev] then
+                        if w ~= r then v[w] = ev end
+                        w = w + 1
+                    end
+                end
+                for r = w, n do v[r] = nil end
+            end
+        end"""
+
+for name, frag in (("head", old_head), ("tail", old_tail)):
+    if frag not in text:
+        print(f"ERROR: EVQ_COMPACT {name} anchor not found", file=sys.stderr)
+        sys.exit(1)
+    if text.count(frag) != 1:
+        print(f"ERROR: EVQ_COMPACT {name} anchor not unique", file=sys.stderr)
+        sys.exit(1)
+
+text = text.replace(old_head, new_head, 1).replace(old_tail, new_tail, 1)
+open(path, 'w').write(text)
+print("EVQ_COMPACT applied")
+PYEOF
+    if grep -q "EVQ_COMPACT" "$f"; then
+        log_success "EVQ_COMPACT applied (event completions compact in O(n) per queue walk)"
+    else
+        log_error "EVQ_COMPACT did not apply — check engine/event.lua update anchors"
+        exit 1
+    fi
+}
+
+# UI_FUNC_THROTTLE (Tier 0d): UIElement:update fires G.FUNCS[config.func]
+# for every visible element with a func, every frame — pure state-polling
+# (enable/disable buttons, recolour, retext) that cannot change faster than
+# the user acts, yet it's 2-6ms of the measured steady-state UI update cost.
+# Run each element's func every 3rd frame instead, phase-staggered by node
+# ID so the load spreads evenly across frames. Two escape hatches:
+#   - first update after creation always fires (new UI paints correct state
+#     immediately, no 2-frame wrong-state flash);
+#   - config.instant_func = true opts an element back to every-frame for
+#     anything found to need frame-exact polling.
+# G.FRAMES.MOVE increments unconditionally at the top of Game:update
+# (game.lua:2622), including while paused — verified, so pause-menu
+# elements keep cycling.
+apply_ui_func_throttle() {
+    local f="$1"
+    if grep -q "UI_FUNC_THROTTLE" "$f"; then
+        log_info "UI_FUNC_THROTTLE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """    if self.config and self.config.func then
+        G.ARGS.FUNC_TRACKER[self.config.func] = (G.ARGS.FUNC_TRACKER[self.config.func] or 0) + 1
+        G.FUNCS[self.config.func](self)
+    end"""
+new = """    if self.config and self.config.func then
+        -- UI_FUNC_THROTTLE: poll funcs every 3rd frame, phase-staggered by
+        -- node ID; first update always fires; config.instant_func opts out
+        if self.config.instant_func or not self._ft_seen or (G.FRAMES.MOVE + self.ID) % 3 == 0 then
+            self._ft_seen = true
+            G.ARGS.FUNC_TRACKER[self.config.func] = (G.ARGS.FUNC_TRACKER[self.config.func] or 0) + 1
+            G.FUNCS[self.config.func](self)
+        end
+    end"""
+
+if old not in text:
+    print("ERROR: UIElement func anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: UIElement func anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("UI_FUNC_THROTTLE applied")
+PYEOF
+    if grep -q "UI_FUNC_THROTTLE" "$f"; then
+        log_success "UI_FUNC_THROTTLE applied (config.func polls every 3rd frame, ID-staggered)"
+    else
+        log_error "UI_FUNC_THROTTLE did not apply — check engine/ui.lua UIElement:update anchor"
+        exit 1
+    fi
+}
+
+# EVQ_BURST_ATTRIB (Tier 0a): the 38ms e_manager bursts are anonymous — the
+# checkpoint says "events were slow" but not WHICH handler. Time each
+# Event:handle() call when telemetry is collecting and bucket handlers over a
+# threshold by their func's source:linedefined (in the lovely-merged main.lua
+# the line number IS the mod attribution). android-telemetry.lua owns the
+# collector global (EVQ_PROF — table while collecting, nil otherwise) and
+# drains it into EV_SLOW events alongside each PERF_SNAPSHOT; the event loop
+# pays one global nil-check per handle when idle.
+apply_event_burst_attrib() {
+    local f="$1"
+    if grep -q "EVQ_BURST_ATTRIB" "$f"; then
+        log_info "EVQ_BURST_ATTRIB already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "                if (not blocked or not v[i].blockable) then v[i]:handle(results) end\n"
+new = """                -- EVQ_BURST_ATTRIB: time each handler while telemetry
+                -- collects (EVQ_PROF set by android-telemetry.lua); slow
+                -- handlers bucket by func source:line for burst attribution
+                if (not blocked or not v[i].blockable) then
+                    local _ep = EVQ_PROF
+                    if _ep then
+                        local _t0 = love.timer.getTime()
+                        v[i]:handle(results)
+                        local _ms = (love.timer.getTime() - _t0) * 1000
+                        _ep.n = _ep.n + 1
+                        _ep.ms = _ep.ms + _ms
+                        if _ms > _ep.thresh_ms then
+                            local _fn = v[i].func
+                            local _fi = _fn and debug.getinfo(_fn, "S")
+                            local _key = _fi and ((_fi.short_src or "?") .. ":" .. (_fi.linedefined or 0)) or "?"
+                            local _b = _ep.slow[_key]
+                            if not _b then _b = {n = 0, ms = 0, max = 0}; _ep.slow[_key] = _b end
+                            _b.n = _b.n + 1
+                            _b.ms = _b.ms + _ms
+                            if _ms > _b.max then _b.max = _ms end
+                        end
+                    else
+                        v[i]:handle(results)
+                    end
+                end
+"""
+
+if old not in text:
+    print("ERROR: event handle anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: event handle anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("EVQ_BURST_ATTRIB applied")
+PYEOF
+    if grep -q "EVQ_BURST_ATTRIB" "$f"; then
+        log_success "EVQ_BURST_ATTRIB applied (per-handler timing into EVQ_PROF when telemetry on)"
+    else
+        log_error "EVQ_BURST_ATTRIB did not apply — check engine/event.lua handle anchor"
+        exit 1
     fi
 }
 
