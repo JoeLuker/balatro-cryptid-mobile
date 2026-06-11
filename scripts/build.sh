@@ -407,9 +407,14 @@ EOF
     apply_nf_big_cache         "$game_dir/main.lua"
     apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
     apply_moveable_sleep       "$game_dir/engine/moveable.lua"
+    apply_moveable_shadow_lists \
+        "$game_dir/globals.lua" \
+        "$game_dir/engine/moveable.lua" \
+        "$game_dir/game.lua"
     apply_event_burst_attrib   "$game_dir/engine/event.lua"
     apply_event_queue_compact  "$game_dir/engine/event.lua"
     apply_ui_func_throttle     "$game_dir/engine/ui.lua"
+    apply_blind_select_defer   "$game_dir/game.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -3435,6 +3440,164 @@ PYEOF
         log_success "EVQ_BURST_ATTRIB applied (per-handler timing into EVQ_PROF when telemetry on)"
     else
         log_error "EVQ_BURST_ATTRIB did not apply — check engine/event.lua handle anchor"
+        exit 1
+    fi
+}
+
+# MOVEABLE_SHADOW_LISTS (Tier-1a): G.MOVEABLES is a single polymorphic list of all
+# live Moveable instances (Cards, Sprites, UIBoxes, UIElements). The two hot loops
+# in Game:update (move pass + update pass) iterate it every frame, producing a
+# polymorphic call-site that JIT cannot specialize — every dispatch goes through a
+# vtable walk instead of a direct jump.
+#
+# Fix: maintain four monomorphic shadow lists (G.MOVEABLES_C / _S / _UB / _UE) in
+# parallel with G.MOVEABLES (unchanged, still used by controller hit-testing and
+# telemetry). At init/remove, insert/remove into the appropriate shadow list based
+# on exact metatable identity (O(1), same check already used for G.I.MOVEABLE).
+# Replace the two hot loops with four monomorphic loops each — JIT traces for
+# Card:move, Sprite:move, UIBox:move, UIElement:move stay independent and compiled.
+#
+# G.MOVEABLES stays intact so no mod code breaks. Shadow lists are additive.
+# Card extends Sprite; Card metatable check must come BEFORE Sprite check.
+apply_moveable_shadow_lists() {
+    local globals_f="$1"
+    local moveable_f="$2"
+    local game_f="$3"
+    if grep -q "MOVEABLE_SHADOW_LISTS" "$moveable_f"; then
+        log_info "MOVEABLE_SHADOW_LISTS already applied"
+        return 0
+    fi
+    python3 - "$globals_f" "$moveable_f" "$game_f" <<'PYEOF'
+import sys
+globals_path, moveable_path, game_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# --- globals.lua: add shadow list initialization next to G.MOVEABLES = {} ---
+gtext = open(globals_path).read()
+old_g = "    self.MOVEABLES = {}\n"
+new_g = """    self.MOVEABLES = {}
+    -- MOVEABLE_SHADOW_LISTS: per-class monomorphic lists for JIT-friendly loops
+    self.MOVEABLES_C  = {}  -- Card
+    self.MOVEABLES_S  = {}  -- Sprite (non-Card)
+    self.MOVEABLES_UB = {}  -- UIBox
+    self.MOVEABLES_UE = {}  -- UIElement
+"""
+if old_g not in gtext:
+    print("ERROR: globals MOVEABLES anchor not found", file=sys.stderr)
+    sys.exit(1)
+if gtext.count(old_g) != 1:
+    print("ERROR: globals MOVEABLES anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(globals_path, 'w').write(gtext.replace(old_g, new_g, 1))
+print("MOVEABLE_SHADOW_LISTS: globals.lua patched")
+
+# --- moveable.lua: shadow insert at init, shadow remove at remove ---
+mtext = open(moveable_path).read()
+
+old_init = "    table.insert(G.MOVEABLES, self)\n    if getmetatable(self) == Moveable then \n        table.insert(G.I.MOVEABLE, self)\n    end"
+new_init = """    table.insert(G.MOVEABLES, self)
+    -- MOVEABLE_SHADOW_LISTS: route into the monomorphic per-class shadow list
+    local _mt = getmetatable(self)
+    if     _mt == Card      then table.insert(G.MOVEABLES_C,  self)
+    elseif _mt == Sprite    then table.insert(G.MOVEABLES_S,  self)
+    elseif _mt == UIBox     then table.insert(G.MOVEABLES_UB, self)
+    elseif _mt == UIElement then table.insert(G.MOVEABLES_UE, self)
+    end
+    if _mt == Moveable then
+        table.insert(G.I.MOVEABLE, self)
+    end"""
+if old_init not in mtext:
+    print("ERROR: moveable init anchor not found", file=sys.stderr)
+    sys.exit(1)
+if mtext.count(old_init) != 1:
+    print("ERROR: moveable init anchor not unique", file=sys.stderr)
+    sys.exit(1)
+mtext = mtext.replace(old_init, new_init, 1)
+
+old_remove = """function Moveable:remove()
+    for k, v in pairs(G.MOVEABLES) do
+        if v == self then
+            table.remove(G.MOVEABLES, k)
+            break;
+        end
+    end
+    for k, v in pairs(G.I.MOVEABLE) do
+        if v == self then
+            table.remove(G.I.MOVEABLE, k)
+            break;
+        end
+    end
+    Node.remove(self)
+end"""
+new_remove = """function Moveable:remove()
+    for k, v in pairs(G.MOVEABLES) do
+        if v == self then table.remove(G.MOVEABLES, k); break end
+    end
+    -- MOVEABLE_SHADOW_LISTS: mirror removal into the appropriate shadow list
+    local _mt = getmetatable(self)
+    local _sl = (_mt == Card and G.MOVEABLES_C)
+             or (_mt == Sprite and G.MOVEABLES_S)
+             or (_mt == UIBox and G.MOVEABLES_UB)
+             or (_mt == UIElement and G.MOVEABLES_UE)
+    if _sl then
+        for k, v in pairs(_sl) do
+            if v == self then table.remove(_sl, k); break end
+        end
+    end
+    for k, v in pairs(G.I.MOVEABLE) do
+        if v == self then table.remove(G.I.MOVEABLE, k); break end
+    end
+    Node.remove(self)
+end"""
+if old_remove not in mtext:
+    print("ERROR: moveable remove anchor not found", file=sys.stderr)
+    sys.exit(1)
+if mtext.count(old_remove) != 1:
+    print("ERROR: moveable remove anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(moveable_path, 'w').write(mtext.replace(old_remove, new_remove, 1))
+print("MOVEABLE_SHADOW_LISTS: moveable.lua patched")
+
+# --- game.lua: replace two monolithic loops with four monomorphic loops each ---
+gtext = open(game_path).read()
+
+old_move_loop = """        for k, v in ipairs(self.MOVEABLES) do
+            if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end
+        end"""
+new_move_loop = """        -- MOVEABLE_SHADOW_LISTS: four monomorphic move-pass loops (JIT-specialised per class)
+        for k, v in ipairs(self.MOVEABLES_C)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_S)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_UB) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end"""
+if old_move_loop not in gtext:
+    print("ERROR: game.lua move loop anchor not found", file=sys.stderr)
+    sys.exit(1)
+if gtext.count(old_move_loop) != 1:
+    print("ERROR: game.lua move loop anchor not unique", file=sys.stderr)
+    sys.exit(1)
+gtext = gtext.replace(old_move_loop, new_move_loop, 1)
+
+old_update_loop = """        for k, v in ipairs(self.MOVEABLES) do
+            v:update(dt*self.SPEEDFACTOR, self.real_dt)
+            v.states.collide.is = false
+        end"""
+new_update_loop = """        -- MOVEABLE_SHADOW_LISTS: four monomorphic update-pass loops (JIT-specialised per class)
+        for k, v in ipairs(self.MOVEABLES_C)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_S)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_UB) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end"""
+if old_update_loop not in gtext:
+    print("ERROR: game.lua update loop anchor not found", file=sys.stderr)
+    sys.exit(1)
+if gtext.count(old_update_loop) != 1:
+    print("ERROR: game.lua update loop anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(game_path, 'w').write(gtext.replace(old_update_loop, new_update_loop, 1))
+print("MOVEABLE_SHADOW_LISTS: game.lua patched")
+PYEOF
+    if grep -q "MOVEABLE_SHADOW_LISTS" "$moveable_f"; then
+        log_success "MOVEABLE_SHADOW_LISTS applied (4 monomorphic move+update loops)"
+    else
+        log_error "MOVEABLE_SHADOW_LISTS did not apply — check anchors"
         exit 1
     fi
 }
