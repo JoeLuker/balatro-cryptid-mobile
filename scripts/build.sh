@@ -372,6 +372,7 @@ EOF
     # visible so quality is tunable on device.
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
     apply_android_quit_fix "$game_dir/functions/button_callbacks.lua"
+    apply_drag_reject_feedback "$game_dir/functions/button_callbacks.lua"
     apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
@@ -1762,6 +1763,56 @@ apply_android_settings_fix() {
 }
 
 # Patch G.FUNCS.quit in button_callbacks.lua:
+# DRAG_REJECT_FEEDBACK: sticky-fingers' drag-drop targets silently no-op when
+# the drop is rejected (check_drag_target_active sets release_func=nil while
+# the card is unaffordable). On a touchscreen that silence is
+# indistinguishable from "drag-to-buy is broken" — proven live 2026-06-10
+# when a Crystal Ball drag at $9 against a $10 cost did nothing and read as a
+# bug. Replace the nil with a loud-reject: cancel sound, card shake, and the
+# unmet cost flashed in red over the card.
+apply_drag_reject_feedback() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "button_callbacks.lua not found, skipping drag reject feedback"
+        return 0
+    fi
+    if grep -q "DRAG_REJECT_FEEDBACK" "$f"; then
+        log_info "Drag reject feedback already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "      e.config.release_func = nil"
+new = """      -- DRAG_REJECT_FEEDBACK: reject drops loudly instead of doing nothing
+      e.config.release_func = function(other)
+        play_sound('cancel', 0.7, 0.6)
+        if other and other.juice_up then other:juice_up(0.3, 0.2) end
+        if other and other.cost and other.cost > 0 then
+          attention_text({scale = 0.9, text = localize('$')..other.cost, hold = 0.7, align = 'cm', offset = {x = 0, y = -1.2}, major = other, colour = G.C.RED})
+        end
+      end"""
+
+if old not in text:
+    print("ERROR: release_func=nil anchor not found in " + path, file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: release_func=nil anchor not unique in " + path, file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("drag reject feedback applied")
+PYEOF
+    if grep -q "DRAG_REJECT_FEEDBACK" "$f"; then
+        log_success "Drag reject feedback applied (rejected drops: cancel sound + shake + cost flash)"
+    else
+        log_error "Drag reject feedback did not apply — check anchor"
+        exit 1
+    fi
+}
+
 #   1. Hide the Quit button on Android (F_QUIT_BUTTON already false from
 #      apply_android_settings_fix, but the callback fix is platform-agnostic).
 #   2. Flush staged FILE_HANDLER saves before exiting so queued async writes

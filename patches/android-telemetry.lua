@@ -210,6 +210,33 @@ end
 
 local STAGE_NAMES = {[1] = "MAIN_MENU", [2] = "RUN", [3] = "SANDBOX"}
 
+-- node identity for traces. MUST be defined above every wrapper that calls
+-- it (including the Game:update tracer) — a definition below a wrapper
+-- compiles the reference as a global and crashes at runtime (shipped that
+-- bug twice on 2026-06-10: install_late_hooks caught in review, this one on
+-- device).
+local function key_of_one(n)
+    return (n.config and n.config.center and n.config.center.key)
+        or (n.config and n.config.button)                  -- UIBox buttons: the G.FUNCS callback name
+        or (n.config and n.config.id and tostring(n.config.id))
+        or (n.base and n.base.value and tostring(n.base.value)..tostring(n.base.suit or ""))
+end
+local function card_key_of(n)
+    if not n then return "nil" end
+    if G and n == G.ROOM then return "ROOM" end  -- the press-on-nothing fallback target
+    local k = key_of_one(n)
+    if k then return k end
+    -- anonymous node: climb parents for the nearest named ancestor so a
+    -- press-stealing child (e.g. a button's text node) is attributable
+    local p, depth = n.parent, 0
+    while p and depth < 4 do
+        local pk = key_of_one(p)
+        if pk then return "node<" .. pk end
+        p, depth = p.parent, depth + 1
+    end
+    return "node"
+end
+
 -- G_PRESS must install LATE: SMODS mods load during start_up — after this
 -- chunk — and Cryptid REPLACES Controller.queue_L_cursor_press outright
 -- (lib/overrides.lua:1385), clobbering any chunk-load-time wrap. That is why
@@ -218,6 +245,16 @@ local STAGE_NAMES = {[1] = "MAIN_MENU", [2] = "RUN", [3] = "SANDBOX"}
 local late_hooks_done = false
 local function install_late_hooks()
     late_hooks_done = true
+    -- definitive button-level signal: did the game callback actually run?
+    for _, fname in ipairs({ 'select_blind', 'skip_blind' }) do
+        local _f = G.FUNCS and G.FUNCS[fname]
+        if _f then
+            G.FUNCS[fname] = function(e, ...)
+                tel("G_BTN", { f = fname })
+                return _f(e, ...)
+            end
+        end
+    end
     if Controller and Controller.queue_L_cursor_press then
         local _qp = Controller.queue_L_cursor_press
         function Controller:queue_L_cursor_press(x, y, ...)
@@ -358,6 +395,18 @@ function Game:update(dt)
                 dur = string.format("%.2f", (C.cursor_down and C.cursor_down.duration) or -1),
             })
         end
+        -- classification outcomes (assigned in Controller:update after the
+        -- release is recorded; G_REL can't see them — these transitions can)
+        local ck = C.clicked and C.clicked.target
+        if ck ~= TEL.g_clicked then
+            TEL.g_clicked = ck
+            tel("G_CLICKT", {t = card_key_of(ck)})
+        end
+        local ro = C.released_on and C.released_on.target
+        if ro ~= TEL.g_rel_on then
+            TEL.g_rel_on = ro
+            tel("G_RELON", {t = card_key_of(ro)})
+        end
         local dsa = C.dragSelectActive
         local dss = dsa and (tostring(dsa.active) .. "/" .. tostring(dsa.mode) .. "/" .. (dsa.start_card and "sc" or "-")) or "?"
         if dss ~= TEL.g_dsel then
@@ -398,15 +447,6 @@ local function caller_src()
     -- two frames of provenance: immediate caller <- its caller
     return src_at(4) .. "<-" .. src_at(5)
 end
-local function card_key_of(n)
-    if not n then return "nil" end
-    if G and n == G.ROOM then return "ROOM" end  -- the press-on-nothing fallback target
-    return (n.config and n.config.center and n.config.center.key)
-        or (n.config and n.config.button)                  -- UIBox buttons: the G.FUNCS callback name
-        or (n.config and n.config.id and tostring(n.config.id))
-        or (n.base and n.base.value and tostring(n.base.value)..tostring(n.base.suit or ""))
-        or "node"
-end
 if Node and Node.stop_hover then
     local _sh = Node.stop_hover
     function Node:stop_hover(...)
@@ -444,15 +484,22 @@ if Controller and Controller.L_cursor_release then
         local down_t = self.cursor_down and self.cursor_down.target
         local was_drag = self.dragging and self.dragging.target
         local r = _lr(self, x, y)
+        -- NOTE: classification (clicked/released_on assignment) happens later
+        -- in Controller:update, not here — its outcome is traced by the
+        -- G_CLICKT/G_RELON transition events in the frame tracer. This event
+        -- captures release GEOMETRY plus the down-target's dispatch gates as
+        -- they stand at release (the UIElement:click() gates: click.can,
+        -- one_press disable_button, visible).
         tel("G_REL", {
             down = card_key_of(down_t),
             drag = was_drag and card_key_of(was_drag) or "-",
-            clicked = (self.clicked.target and not self.clicked.handled) and card_key_of(self.clicked.target) or "-",
-            rel_on = (self.released_on.target and not self.released_on.handled) and card_key_of(self.released_on.target) or "-",
             up_t = card_key_of(self.cursor_up and self.cursor_up.target),
             dist = string.format("%.2f", (self.cursor_down.T and self.cursor_up.T and Vector_Dist and Vector_Dist(self.cursor_down.T, self.cursor_up.T)) or -1),
             dur = string.format("%.2f", (self.cursor_up.time or 0) - (self.cursor_down.time or 0)),
             lock = (self.locked and 1 or 0) .. "/" .. (self.locks and self.locks.frame and 1 or 0),
+            ccan = down_t and down_t.states and (down_t.states.click.can and 1 or 0) or "-",
+            dis = down_t and (down_t.disable_button and 1 or 0) or "-",
+            vis = down_t and down_t.states and (down_t.states.visible and 1 or 0) or "-",
         })
         return r
     end
