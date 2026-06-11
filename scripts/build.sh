@@ -188,6 +188,7 @@ patch_mods_dir() {
     apply_cryptid_events_guard    "$mods_dir/Cryptid/lib/calculate.lua"
     apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"
     apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"
+    apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
@@ -396,6 +397,7 @@ EOF
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
     apply_ces_sign_fast "$game_dir/functions/common_events.lua"
     apply_dynatext_glyph_cache "$game_dir/engine/text.lua"
+    apply_letter_table_reuse   "$game_dir/engine/text.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -2804,6 +2806,196 @@ main() {
             exit 1
             ;;
     esac
+}
+
+# NF_BIG_CACHE: Talisman's number_format override calls to_big(num) unconditionally
+# at line 194, which always allocates a fresh OmegaNum table. The .str cache written
+# on that table at line 198 is therefore on a throwaway object and can never be
+# re-read on subsequent calls — every invocation for a Big value fully recomputes
+# the notation format string AND pays the to_big allocation cost.
+#
+# DynaText polls chips/mult via ref_table/ref_value every update_text() call (once
+# per frame for animated HUD displays), so this path fires at 120fps. At
+# GAMESPEED=4 with Cryptid ascension active, chips/mult are persistent Big tables.
+#
+# Fix: branch on type(num) before touching to_big.
+#   - Plain Lua number + small enough for vanilla formatter: return nf() directly
+#     (eliminates the to_big allocation entirely on the dominant path).
+#   - Plain Lua number + needs notation format: allocate Big once, format, no cache
+#     (ephemeral number → ephemeral Big; no point caching since next call gets a
+#     fresh number value anyway).
+#   - Already a Big: cache the format string on the original object using a
+#     notation-keyed field name ('str_'..notation) so different notations don't
+#     collide and no invalidation is needed. Big objects produced by arithmetic are
+#     transient so their cached field is collected with them; persistent Bigs
+#     (current_hand.chips/mult) reuse the cached string on every DynaText poll.
+apply_nf_big_cache() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "talisman.lua not found, skipping NF_BIG_CACHE"
+        return 0
+    fi
+    if grep -q "NF_BIG_CACHE" "$f"; then
+        log_info "NF_BIG_CACHE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = (
+    "  local nf = number_format\n"
+    "  function number_format(num, e_switch_point)\n"
+    "      if is_number(num) then\n"
+    "          num = to_big(num)\n"
+    "          if num.str then return num.str end\n"
+    "          if num:arraySize() > 2 then\n"
+    "            local str = Notations[Talisman.config_file.notation_key or Talisman.default_notation]:format(num, 3)\n"
+    "            num.str = str\n"
+    "            return str\n"
+    "          end\n"
+    "          G.E_SWITCH_POINT = Notations[Talisman.config_file.notation_key or Talisman.default_notation].E_SWITCH_POINT or G.E_SWITCH_POINT or 100000000000\n"
+    "          if ((num or 0) < (to_big(G.E_SWITCH_POINT) or 0)) and not Notations[Talisman.config_file.notation_key or Talisman.default_notation].always_use then\n"
+    "              return nf(num:to_number(), e_switch_point)\n"
+    "          else\n"
+    "            return Notations[Talisman.config_file.notation_key or Talisman.default_notation]:format(num, 3)\n"
+    "          end\n"
+    "      else return nf(num, e_switch_point) end\n"
+    "  end\n"
+)
+
+new = (
+    "  local nf = number_format\n"
+    "  function number_format(num, e_switch_point) -- NF_BIG_CACHE\n"
+    "      if is_number(num) then\n"
+    "          local notation = Talisman.config_file.notation_key or Talisman.default_notation\n"
+    "          local Notation  = Notations[notation]\n"
+    "          if type(num) == 'number' then\n"
+    "              -- Plain Lua number: avoid to_big on the small-value fast path\n"
+    "              G.E_SWITCH_POINT = Notation.E_SWITCH_POINT or G.E_SWITCH_POINT or 100000000000\n"
+    "              if num < G.E_SWITCH_POINT and not Notation.always_use then\n"
+    "                  return nf(num, e_switch_point)\n"
+    "              end\n"
+    "              -- Large plain number: allocate Big once, format, return (no cache —\n"
+    "              -- plain numbers change every frame so a per-object cache never hits)\n"
+    "              return Notation:format(to_big(num), 3)\n"
+    "          end\n"
+    "          -- num is already a Big — cache the formatted string on the object itself\n"
+    "          -- using a notation-keyed field so notation changes don't serve stale strings\n"
+    "          local cache_key = 'str_'..notation\n"
+    "          if num[cache_key] then return num[cache_key] end\n"
+    "          local str\n"
+    "          G.E_SWITCH_POINT = Notation.E_SWITCH_POINT or G.E_SWITCH_POINT or 100000000000\n"
+    "          if num:arraySize() > 2 then\n"
+    "              str = Notation:format(num, 3)\n"
+    "          elseif (num < to_big(G.E_SWITCH_POINT)) and not Notation.always_use then\n"
+    "              return nf(num:to_number(), e_switch_point)\n"
+    "          else\n"
+    "              str = Notation:format(num, 3)\n"
+    "          end\n"
+    "          num[cache_key] = str\n"
+    "          return str\n"
+    "      else return nf(num, e_switch_point) end\n"
+    "  end\n"
+)
+
+if old not in text:
+    print('ERROR: number_format anchor not found in talisman.lua', file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print('NF_BIG_CACHE applied')
+PYEOF
+    if grep -q "NF_BIG_CACHE" "$f"; then
+        log_success "NF_BIG_CACHE applied (skip to_big for small numbers; cache .str on persistent Bigs)"
+    else
+        log_warn "NF_BIG_CACHE did not apply — check talisman.lua number_format anchor"
+    fi
+}
+
+# LETTER_TABLE_REUSE: DynaText.update_text() rebuilds self.strings[k].letters from
+# scratch on every string change: each character gets a fresh let_tab table plus a
+# fresh dims={x,y} sub-table (unconditionally) and a fresh offset={x,y} sub-table
+# (when there is no old_letter). With animated chip/mult HUD displays at 120fps,
+# this generates hundreds of small table allocations per second that feed GC
+# pressure on Mali beyond what the minor collector can keep up with.
+#
+# Fix: reuse the old let_tab and its dims/offset sub-tables in-place when the
+# same character appears at the same position (common case: "12,345,678" stays the
+# same length while the number animates). New-position or new-character entries
+# still allocate fresh tables. The letter.pop_in, .prefix, .suffix, .colour fields
+# are cheap scalars that we just overwrite. The dims.x/y values are mutated in-
+# place on the reused sub-table — safe because old_letters is a local that goes
+# out of scope after the loop and the draw pass reads from the new letters array.
+apply_letter_table_reuse() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "engine/text.lua not found, skipping LETTER_TABLE_REUSE"
+        return 0
+    fi
+    if grep -q "LETTER_TABLE_REUSE" "$f"; then
+        log_info "LETTER_TABLE_REUSE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = (
+    "                for _, c in utf8.chars(v) do\n"
+    "                    local old_letter = old_letters and old_letters[current_letter] or nil\n"
+    "                    local let_tab = {letter = cached_glyph(self.font.FONT, c), char = c, scale = old_letter and old_letter.scale or part_scale} -- DYNATEXT_GLYPH_CACHE\n"
+    "                    self.strings[k].letters[current_letter] = let_tab\n"
+    "                    local tx = self.font.FONT:getWidth(c)*self.scale*part_scale*G.TILESCALE*self.font.FONTSCALE + 2.7*(self.config.spacing or 0)*G.TILESCALE*self.font.FONTSCALE\n"
+    "                    local ty = self.font.FONT:getHeight(c)*self.scale*part_scale*G.TILESCALE*self.font.FONTSCALE*self.font.TEXT_HEIGHT_SCALE\n"
+    "                    let_tab.offset = old_letter and old_letter.offset or {x = 0, y = 0}\n"
+    "                    let_tab.dims = {x = tx/(self.font.FONTSCALE*G.TILESCALE), y = ty/(self.font.FONTSCALE*G.TILESCALE)}\n"
+)
+
+new = (
+    "                for _, c in utf8.chars(v) do\n"
+    "                    local old_letter = old_letters and old_letters[current_letter] or nil\n"
+    "                    -- LETTER_TABLE_REUSE: reuse the old let_tab and its sub-tables when\n"
+    "                    -- the same char is at the same position (common during number animation).\n"
+    "                    -- Allocates fresh tables only on first appearance or char-position mismatch.\n"
+    "                    local let_tab\n"
+    "                    if old_letter and old_letter.char == c then\n"
+    "                        let_tab = old_letter\n"
+    "                    else\n"
+    "                        let_tab = {char = c}\n"
+    "                        if old_letter then\n"
+    "                            let_tab.scale  = old_letter.scale\n"
+    "                            let_tab.offset = old_letter.offset\n"
+    "                        end\n"
+    "                    end\n"
+    "                    let_tab.letter = cached_glyph(self.font.FONT, c) -- DYNATEXT_GLYPH_CACHE\n"
+    "                    if not let_tab.scale then let_tab.scale = part_scale end\n"
+    "                    self.strings[k].letters[current_letter] = let_tab\n"
+    "                    local tx = self.font.FONT:getWidth(c)*self.scale*part_scale*G.TILESCALE*self.font.FONTSCALE + 2.7*(self.config.spacing or 0)*G.TILESCALE*self.font.FONTSCALE\n"
+    "                    local ty = self.font.FONT:getHeight(c)*self.scale*part_scale*G.TILESCALE*self.font.FONTSCALE*self.font.TEXT_HEIGHT_SCALE\n"
+    "                    if not let_tab.offset then let_tab.offset = {x = 0, y = 0} end\n"
+    "                    if let_tab.dims then\n"
+    "                        let_tab.dims.x = tx/(self.font.FONTSCALE*G.TILESCALE)\n"
+    "                        let_tab.dims.y = ty/(self.font.FONTSCALE*G.TILESCALE)\n"
+    "                    else\n"
+    "                        let_tab.dims = {x = tx/(self.font.FONTSCALE*G.TILESCALE), y = ty/(self.font.FONTSCALE*G.TILESCALE)}\n"
+    "                    end\n"
+)
+
+if old not in text:
+    print('ERROR: letter loop anchor not found in engine/text.lua', file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print('LETTER_TABLE_REUSE applied')
+PYEOF
+    if grep -q "LETTER_TABLE_REUSE" "$f"; then
+        log_success "LETTER_TABLE_REUSE applied (reuse let_tab+dims in-place on char match)"
+    else
+        log_warn "LETTER_TABLE_REUSE did not apply — check engine/text.lua letter loop anchor"
+    fi
 }
 
 main "$@"

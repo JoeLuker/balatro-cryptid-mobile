@@ -169,3 +169,74 @@ there; use the selection metric or a targeted micro-bench.
     compressed; 64 MB freed uncompressed). All removals safe: font loader guards
     with getInfo, SMODS locale loading is by exact name with no dir scan,
     loadGamepadMappings returns false on missing file without error.
+
+## Memory leak audit — SELECTING_HAND heap growth (2026-06-10)
+
+**Observed signature**: heap grows ~1 MB/s (158→203 MB over 45s) during
+SELECTING_HAND while game-object counts fall. Retained Lua data; reaches
+~290 MB after ~30 min; resets on restart; fps degrades 120→28. Present
+across builds. GAMESPEED=4, Talisman omeganum backend, Cryptid mod active,
+score numbers animating constantly.
+
+Audit confirmed all 10 named project perf caches are safe (no unbounded
+insertion; correct eviction or bounded size). Two root-cause patches applied:
+
+### NF_BIG_CACHE — `talisman.lua` `number_format` override
+
+**Marker**: `NF_BIG_CACHE`  
+**Applied by**: `apply_nf_big_cache()` in build.sh, called from `patch_mods_dir()`
+
+**Root cause**: Talisman's `number_format` override called `to_big(num)` on every
+invocation to check `.str`, but `to_big` (`OmegaNum:new`) unconditionally allocates
+a fresh table. The `.str` cache was written on that throwaway and discarded
+immediately — it could never be re-read. At GAMESPEED=4 with score numbers
+animating at 120 fps, this produced a fresh OmegaNum table per digit per frame.
+
+**Fix**: Split into three paths:
+1. Plain Lua `number` below `E_SWITCH_POINT` — no allocation (fast-path return via
+   original `nf`).
+2. Plain Lua `number` that needs formatting — single `to_big` allocation, no cache
+   (value is ephemeral anyway).
+3. Already-a-Big input — cache on the original object under `'str_'..notation` key.
+   Different notation strings get different field names; no invalidation needed when
+   user switches notation.
+
+**Expected impact**: eliminates the dominant OmegaNum allocation during sustained
+scoring display. Exact rate depends on how many score strings are rendered per frame
+that arrive as plain numbers vs pre-boxed Bigs.
+
+### LETTER_TABLE_REUSE — `engine/text.lua` DynaText inner loop
+
+**Marker**: `LETTER_TABLE_REUSE`  
+**Applied by**: `apply_letter_table_reuse()` in build.sh, called after
+`apply_dynatext_glyph_cache` (anchors on the `cached_glyph(...)` text from that prior
+patch — ordering is load-bearing).
+
+**Root cause**: `DynaText:update_text()` rebuilds `strings[k].letters` from scratch on
+every call. For each character: fresh `let_tab` table, fresh `dims={x,y}` sub-table
+(unconditional), fresh `offset={x,y}` sub-table (when no old_letter). During score
+animation at 120 fps with multi-digit numbers, this is the dominant per-frame Lua
+allocation source: 3 tables × (digits per string) × (strings updating) × 120 fps.
+
+**Fix**: When `old_letter` exists and `old_letter.char == c` (same character at same
+position), reuse `old_letter` as `let_tab` directly. Mutate `dims.x`/`dims.y` in-place
+instead of allocating a new `{x,y}` table. Preserve `offset` reuse (was already
+conditional). Set `scale` only when nil (preserves animation interpolation state on
+reuse). Allocates fresh tables only on first appearance or character-position change.
+
+**Interaction with DYNATEXT_GLYPH_CACHE**: the GPU `love Text` object is still fetched
+via `cached_glyph(self.font.FONT, c)` and written into `let_tab.letter` each call —
+correctness preserved, GPU object still shared.
+
+**Expected impact**: during steady-state animation of a fixed-length score display
+(e.g. "1.23e456" not changing digit count), per-`update_text` allocation drops from
+O(chars) tables to near zero. Digit-count changes (e.g. a score crossing a power of
+ten) still allocate — unavoidable, but rare vs. per-frame.
+
+### Remaining contributor (not patched)
+
+**E_MANAGER event queue**: `update_hand_text` in `common_events.lua:541-606` enqueues
+`trigger='before'` events with `delay=0.8` whose `func` closures upvalue `vals`
+containing Big chips/mult objects. These are pre-existing vanilla-architecture events
+(user-triggered on hand selection change, not per-frame) — impact is low compared to
+the above two, and fixing it requires touching the event architecture. Deferred.
