@@ -408,6 +408,7 @@ EOF
     apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
     apply_moveable_sleep       "$game_dir/engine/moveable.lua"
     apply_event_burst_attrib   "$game_dir/engine/event.lua"
+    apply_event_queue_compact  "$game_dir/engine/event.lua"
     apply_ui_func_throttle     "$game_dir/engine/ui.lua"
 
     # Copy telemetry module into game root
