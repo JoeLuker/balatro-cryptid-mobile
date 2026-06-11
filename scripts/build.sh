@@ -403,6 +403,7 @@ EOF
     # tree is dead code at runtime there); patching only the mod copy left
     # the fix inert on-device.
     apply_nf_big_cache         "$game_dir/main.lua"
+    apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -2933,6 +2934,66 @@ PYEOF
 # are cheap scalars that we just overwrite. The dims.x/y values are mutated in-
 # place on the reused sub-table — safe because old_letters is a local that goes
 # out of scope after the loop and the draw pass reads from the new letters array.
+
+# NUGC_ADAPTIVE: nuGC runs every frame with a FIXED 0.3ms collection budget and
+# the GC stopped otherwise (misc_functions.lua). Under Big-number churn at
+# GAMESPEED=4 the budget cannot drain allocation, so the heap drifts ~1-2MB/s
+# (census-confirmed: reachable-table count flat while gc_kb climbs 140->267MB)
+# until the 300MB emergency full-collect fires — a multi-second hitch. Scale
+# the budget with heap pressure instead: 0.3ms while healthy (<100MB), ramping
+# linearly to a 4ms cap by ~174MB, with the step cap scaled to match so the
+# time budget is the binding limit. At the frame times where this matters the
+# extra milliseconds are invisible; while healthy nothing changes.
+apply_nugc_adaptive() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "misc_functions.lua not found, skipping NUGC_ADAPTIVE"
+        return 0
+    fi
+    if grep -q "NUGC_ADAPTIVE" "$f"; then
+        log_info "NUGC_ADAPTIVE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = (
+    "\ttime_budget = time_budget or 3e-4\n"
+    "\tmemory_ceiling = memory_ceiling or 300\n"
+    "\tlocal max_steps = 1000\n"
+)
+new = (
+    "\t-- NUGC_ADAPTIVE: scale the default budget with heap pressure so steady\n"
+    "\t-- collection keeps pace with allocation churn instead of riding the\n"
+    "\t-- memory_ceiling emergency full-collect (a multi-second hitch)\n"
+    "\tif not time_budget then\n"
+    "\t\tlocal mb = collectgarbage(\"count\") / 1024\n"
+    "\t\ttime_budget = mb < 100 and 3e-4 or math.min(4e-3, 3e-4 + (mb - 100) * 5e-5)\n"
+    "\tend\n"
+    "\tmemory_ceiling = memory_ceiling or 300\n"
+    "\tlocal max_steps = math.max(1000, math.ceil(time_budget * 3.4e6))\n"
+)
+
+if old not in text:
+    print("ERROR: nuGC budget anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: nuGC budget anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("NUGC_ADAPTIVE applied")
+PYEOF
+    if grep -q "NUGC_ADAPTIVE" "$f"; then
+        log_success "NUGC_ADAPTIVE applied (GC budget scales 0.3ms -> 4ms with heap pressure)"
+    else
+        log_error "NUGC_ADAPTIVE did not apply — check nuGC anchor"
+        exit 1
+    fi
+}
+
 apply_letter_table_reuse() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
