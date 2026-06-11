@@ -138,7 +138,7 @@ areas) rather than all UIBoxes uniformly.
 
 **Identified slow event handlers (all `EV_SLOW` from 10:45–10:46 session):**
 - `functions/button_callbacks.lua:3238` → `G:start_run(args)` — 5754ms, expected (full run init)
-- `game.lua:3521` → `create_UIBox_blind_select()` — 260ms, the Cryptid-loaded blind select UI build. **Patched 2026-06-11 (`BLIND_SELECT_DEFER`)**: changed `trigger='immediate'` to `trigger='after', delay=0.05`. Root cause: four synchronous UIBox instantiations (set_parent_child tree construction + calculate_xywh with font:getWidth per text node, ~90–120 text nodes across the three blind-choice cards). The 260ms work still happens but deferred 3 frames behind the transition so the stall is perceptually invisible. Expected: line no longer appears in EV_SLOW output; verify on next device session.
+- `game.lua:3521` → `create_UIBox_blind_select()` — 260ms, the Cryptid-loaded blind select UI build. **Patched + device-verified 2026-06-11 (`BLIND_SELECT_DEFER`)**: changed `trigger='immediate'` to `trigger='after', delay=0.05`. Root cause: four synchronous UIBox instantiations (set_parent_child tree construction + calculate_xywh with font:getWidth per text node, ~90–120 text nodes across the three blind-choice cards). Verified: session `6a2aeaa0` (post-patch), three BLIND_SELECT transitions observed, `game.lua:3521` absent from EV_SLOW in all three. `dt_max_ms` at BLIND_SELECT 22ms, `evh_ms` 21–28ms — normal range. The deferred 260ms spreads into normal frame budget without producing a new EV_SLOW attribution elsewhere.
 - `game.lua:1556` → 33.7ms at MENU transition (mod UI build)
 - `functions/button_callbacks.lua:3081` → 6.9ms
 - `game.lua:3515` → `save_run()` — 3.2ms, expected
