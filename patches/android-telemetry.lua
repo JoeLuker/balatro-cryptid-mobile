@@ -331,6 +331,14 @@ function Game:update(dt)
             dt_avg_ms = string.format("%.2f", 1000 * TEL.frame_dt_sum / math.max(TEL.frame_count, 1)),
             dt_max_ms = string.format("%.2f", 1000 * TEL.frame_dt_max),
         }
+        -- object-registry counts: a leak shows up as the counter that climbs
+        if G.I then
+            snap.n_node = #G.I.NODE
+            snap.n_mov = #G.I.MOVEABLE
+            snap.n_ui = #G.I.UIBOX
+            snap.n_card = #G.I.CARD
+            snap.n_moves = G.MOVEABLES and #G.MOVEABLES or -1
+        end
         if G.SETTINGS and G.SETTINGS.perf_mode and G.check then
             local upd_parts = {}
             for i = 1, G.check.update.checkpoints do
