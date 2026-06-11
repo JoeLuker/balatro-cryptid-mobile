@@ -980,8 +980,12 @@ apply_talisman_dim_fix() {
         return 0
     fi
     sed -i 's|G.SCORING_COROUTINE = coroutine.create(oldplay)|G.SCORING_COROUTINE = coroutine.create(oldplay)\n      G.SCORING_START = love.timer.getTime() -- TALISMAN_DIM_GATE|' "$f"
-    sed -i 's|              if not G.OVERLAY_MENU then|              if not G.OVERLAY_MENU and love.timer.getTime() - (G.SCORING_START or love.timer.getTime()) > 0.3 then -- TALISMAN_DIM_GATE|' "$f"
-    if grep -q "G.SCORING_START or love.timer.getTime()) > 0.3" "$f"; then
+    # 1.0s, not 0.3: the gate measures WALL-CLOCK scoring time, so at low frame
+    # rates (big Cryptid decks) every hand crosses a 0.3s threshold and the
+    # overlay legitimately flashes for the last frame or two of scoring. One
+    # second matches the original intent: appear only when Abort is useful.
+    sed -i 's|              if not G.OVERLAY_MENU then|              if not G.OVERLAY_MENU and love.timer.getTime() - (G.SCORING_START or love.timer.getTime()) > 1.0 then -- TALISMAN_DIM_GATE|' "$f"
+    if grep -q "G.SCORING_START or love.timer.getTime()) > 1.0" "$f"; then
         log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands): $f"
     else
         log_warn "Talisman dim fix did not fully apply — check $f"
