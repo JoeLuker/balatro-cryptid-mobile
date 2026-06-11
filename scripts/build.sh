@@ -176,6 +176,7 @@ generate_dumps() {
 patch_mods_dir() {
     local mods_dir="$1"   # absolute path to the Mods/ directory to patch
 
+    apply_build_stamp_menu "$mods_dir/Steamodded/src/ui.lua"
     apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
     apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
     apply_shader_eof_newlines "$(dirname "$mods_dir")"
@@ -1783,10 +1784,32 @@ apply_crt_fix() {
     fi
 }
 
+# BUILD_STAMP_MENU: append the build stamp to the SMODS version badge already
+# rendered top-right on the main menu — the place the user actually looks.
+apply_build_stamp_menu() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Steamodded ui.lua not found, skipping menu build stamp"
+        return 0
+    fi
+    if grep -q "BUILD_STAMP_MENU" "$f"; then
+        log_info "Menu build stamp already applied"
+        return 0
+    fi
+    sed -i 's|                        text = MODDED_VERSION,|                        text = MODDED_VERSION .. " \| " .. (G.CRYPTID_MOBILE_BUILD or "?"), -- BUILD_STAMP_MENU|' "$f"
+    if grep -q "BUILD_STAMP_MENU" "$f"; then
+        log_success "Menu build stamp applied (main menu badge shows the build id)"
+    else
+        log_error "Menu build stamp did not apply — check ui.lua anchor"
+        exit 1
+    fi
+}
+
 # BUILD_STAMP: every build bakes in 'MMDD-HHMM.githash' so the running build
-# is identifiable — shown in Settings > Game (under the telemetry toggles)
-# and attached to every telemetry SESSION_START. Without it a dozen deploys
-# in an evening are indistinguishable on-device.
+# is identifiable — shown on the main menu version badge (BUILD_STAMP_MENU),
+# in Settings > Game (under the telemetry toggles), and attached to every
+# telemetry SESSION_START. Without it a dozen deploys in an evening are
+# indistinguishable on-device.
 apply_build_stamp() {
     local f="$1"
     if grep -q "CRYPTID_MOBILE_BUILD" "$f"; then
