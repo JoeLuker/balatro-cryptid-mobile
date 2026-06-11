@@ -548,6 +548,27 @@ function Game:update(dt)
                 -- back-references (package.loaded._G reaches everything)
                 visited[_G] = true; visited[G] = true
                 if package then visited[package] = true; visited[package.loaded] = true end
+                -- pre-mark alias registries: every entry in these lists is
+                -- owned elsewhere (G.jokers, UIBoxes, ...), so letting them
+                -- act as census roots just steals whole subtrees from their
+                -- real owners by reach order (observed 2026-06-11:
+                -- G.MOVEABLES_UE "absorbed" 34.5k entries that belong to the
+                -- UI tree). Marking the list table itself stops the walk
+                -- from entering through the alias; contents still attribute
+                -- to whichever true owner reaches them.
+                for _, alias in ipairs({'MOVEABLES', 'MOVEABLES_C', 'MOVEABLES_S',
+                        'MOVEABLES_UB', 'MOVEABLES_UE', 'MOVEABLES_O'}) do
+                    if type(G[alias]) == 'table' then visited[G[alias]] = true end
+                end
+                -- G.I (instance registry: I.NODE/I.MOVEABLE/I.CARD/...) is the
+                -- same kind of alias — it reaches every live object and
+                -- absorbed 61k entries as a root on 2026-06-11
+                if type(G.I) == 'table' then
+                    visited[G.I] = true
+                    for _, reg in pairs(G.I) do
+                        if type(reg) == 'table' then visited[reg] = true end
+                    end
+                end
                 local function subtree_count(root)
                     if type(root) ~= 'table' or visited[root] then return 0 end
                     visited[root] = true

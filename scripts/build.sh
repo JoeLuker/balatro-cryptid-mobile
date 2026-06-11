@@ -83,7 +83,11 @@ fetch_sources() {
     # Fetch mods
     fetch_mod "Steamodded/smods" "smods" "Steamodded"
     fetch_mod "MathIsFun0/Cryptid" "cryptid" "Cryptid"
-    fetch_mod "MathIsFun0/Talisman" "talisman" "Talisman"
+    # Amulet replaces Talisman (2026-06-11): the officially recommended fork —
+    # cdata OmegaNum, save round-trip via self-rehydrating strings, lovely
+    # typefix compat layer. mods/Talisman stays on disk for rollback alongside
+    # src/dump-talisman; regenerate the dump with scripts/regen-dump.sh.
+    fetch_mod "frostice482/amulet" "Amulet" "Amulet"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
     fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
 
@@ -177,8 +181,14 @@ patch_mods_dir() {
     local mods_dir="$1"   # absolute path to the Mods/ directory to patch
 
     apply_build_stamp_menu "$mods_dir/Steamodded/src/ui.lua"
-    apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
-    apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
+    # TALISMAN-ERA (disabled under Amulet; functions kept for the
+    # src/dump-talisman rollback path): Amulet upstreamed the
+    # config-persistence class (love.filesystem + createDirectory in
+    # talisman/configinit.lua), rewrote the scoring coroutine + overlay
+    # (observe live before re-patching), and replaced the table OmegaNum
+    # whose churn NF_BIG_CACHE existed to avoid (cdata now).
+    # apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
+    # apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
     apply_shader_eof_newlines "$(dirname "$mods_dir")"
     apply_blur_shader_reorder "$mods_dir/Cryptid/assets/shaders/blur.fs"
     apply_glitch_shader_fix   "$mods_dir/Cryptid/assets/shaders/glitched.fs"
@@ -187,9 +197,10 @@ patch_mods_dir() {
     apply_cryptid_dead_copy_fix   "$mods_dir/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$mods_dir/Cryptid/lib/calculate.lua" "$mods_dir/Cryptid/lib/overrides.lua"
     apply_cryptid_events_guard    "$mods_dir/Cryptid/lib/calculate.lua"
-    apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"
-    apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"
-    apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"
+    # apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
+    # apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
+    # apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
+    apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
@@ -344,7 +355,7 @@ build_apk() {
     # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Talisman sticky-fingers; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
             rm -rf "$game_dir/Mods/$mod/lovely"
@@ -356,6 +367,24 @@ build_apk() {
     # for Sticky Fingers' Pull target (extracted from Pokermon — see patches/reserve-shim)
     cp -r "$PATCHES_DIR/reserve-shim" "$game_dir/Mods/"
     log_info "    Embedded reserve-shim"
+
+    # AMULET_ROOT_DIRS: Amulet expects talisman/ and big-num/ as PhysFS roots
+    # (it FFI-mounts them from the mod dir on desktop). PhysFS cannot mount
+    # paths inside game.love, so place them physically at the game root —
+    # require("talisman.*") and load("big-num/...") resolve natively on every
+    # platform. The copies under Mods/Amulet are then PRUNED: the root copy is
+    # the one that executes, and the two-copies trap is not getting a fourth
+    # notch (Mods/Amulet keeps smods.lua + manifest + assets, which SMODS
+    # loads at runtime).
+    if [[ -d "$game_dir/Mods/Amulet/talisman" ]]; then
+        cp -r "$game_dir/Mods/Amulet/talisman" "$game_dir/talisman"
+        cp -r "$game_dir/Mods/Amulet/big-num"  "$game_dir/big-num"
+        rm -rf "$game_dir/Mods/Amulet/talisman" "$game_dir/Mods/Amulet/big-num"
+        log_success "  Amulet talisman/ + big-num/ placed at game root (Mods copies pruned)"
+    else
+        log_error "Mods/Amulet/talisman missing — Amulet not embedded correctly"
+        exit 1
+    fi
 
     # Create lovely.lua config
     cat > "$game_dir/lovely.lua" << EOF
@@ -394,19 +423,26 @@ EOF
     apply_card_to_big_elim "$game_dir/card.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
     apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
-    apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
+    # apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
+    # ^ TALISMAN-ERA: Amulet's rewritten hand_*_UI_set functions ship the
+    #   text-change guard built in (and Talisman.juice_elm replaced the
+    #   to_big juice mess) — the dedup is upstreamed. Kept for rollback.
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
     apply_parse_highlighted_lean "$game_dir/cardarea.lua"
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
-    apply_ces_sign_fast "$game_dir/functions/common_events.lua"
+    # apply_ces_sign_fast "$game_dir/functions/common_events.lua"
+    # ^ TALISMAN-ERA: Talisman's lovely patches wrapped the card_eval sign
+    #   checks in to_big(); Amulet's cdata Big compares natively against
+    #   numbers, so the dump carries the vanilla `mod < 0` form already —
+    #   nothing left to elide. Kept for rollback.
     apply_dynatext_glyph_cache "$game_dir/engine/text.lua"
     apply_letter_table_reuse   "$game_dir/engine/text.lua"
-    # NF_BIG_CACHE must ALSO hit the lovely-merged Talisman copy inside
-    # main.lua — that copy is what executes on Android (the Mods/Talisman
-    # tree is dead code at runtime there); patching only the mod copy left
-    # the fix inert on-device.
-    apply_nf_big_cache         "$game_dir/main.lua"
+    # apply_nf_big_cache         "$game_dir/main.lua"
+    # ^ TALISMAN-ERA: number_format no longer lives in main.lua (Amulet keeps
+    #   it in its numfmt lovely patches + break_inf module), and the cache
+    #   existed to dodge table-OmegaNum churn that cdata eliminates. Bench
+    #   before ever reviving. Kept for rollback.
     apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
     apply_moveable_sleep       "$game_dir/engine/moveable.lua"
     apply_moveable_shadow_lists \
@@ -2247,7 +2283,7 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
-    for mod in Steamodded Cryptid Talisman sticky-fingers; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
             rm -rf "$transfer_dir/Mods/$mod/lovely"
@@ -3298,6 +3334,91 @@ PYEOF
     fi
 }
 
+# AMULET_CFG_SAFE_UNPACK + AMULET_OMEGA_CLAMP: harden Amulet's config load
+# (talisman/configinit.lua, executing from the game root — see
+# AMULET_ROOT_DIRS). Two independent protections, same bug class that bricked
+# the device on 2026-06-10:
+#   1. Talisman.config.load() runs STR_UNPACK(conf) unguarded — a truncated
+#      config/amulet.lua (process killed mid love.filesystem.write, which is
+#      not atomic) would raise and crash-loop the boot. pcall it; a bad file
+#      keeps the defaults.
+#   2. disable_omega=true would skip the big-num backend entirely (Amulet
+#      gates require("talisman.break_inf") on it) and Cryptid math assumes
+#      Big exists — clamp it false after the config merges, whatever was
+#      persisted.
+apply_amulet_config_hardening() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "configinit.lua not found at $f, skipping Amulet config hardening"
+        return 0
+    fi
+    if grep -q "AMULET_CFG_SAFE_UNPACK" "$f"; then
+        log_info "Amulet config hardening already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old_unpack = """    local conf = love.filesystem.read(Talisman.config.file_name)
+    if not conf then return end
+    local parsed = STR_UNPACK(conf)
+    if not parsed then return end"""
+new_unpack = """    local conf = love.filesystem.read(Talisman.config.file_name)
+    if not conf then return end
+    -- AMULET_CFG_SAFE_UNPACK: user data must not be able to crash boot
+    local _ok, parsed = pcall(STR_UNPACK, conf)
+    if not _ok or type(parsed) ~= "table" then return end"""
+
+old_load = "\nTalisman.config.load()\n"
+new_load = """
+Talisman.config.load()
+-- AMULET_CFG_MIGRATE: one-time import of the Talisman-era on-device config
+-- (Mods/Talisman/config.lua in the save dir, written by the old
+-- TAL_CONFIG_PERSIST shim) so preferences like disable_anims survive the
+-- Talisman->Amulet migration. Only keys Amulet knows are taken; the
+-- Talisman-only backend keys are skipped. Saving immediately makes this a
+-- one-shot: next boot finds config/amulet.lua and never looks back.
+if not love.filesystem.getInfo(Talisman.config.file_name) then
+    local legacy = love.filesystem.read('Mods/Talisman/config.lua')
+    if legacy then
+        local _lok, _lt = pcall(STR_UNPACK, legacy)
+        if _lok and type(_lt) == 'table' then
+            for k, v in pairs(_lt) do
+                if Talisman.config_file[k] ~= nil and k ~= 'break_infinity' then
+                    Talisman.config_file[k] = v
+                end
+            end
+            pcall(Talisman.config.save)
+        end
+    end
+end
+-- AMULET_OMEGA_CLAMP: this pack requires the big-num backend (Cryptid math
+-- assumes Big); never honor a persisted disable_omega
+Talisman.config_file.disable_omega = false
+"""
+
+for name, frag in (("unpack", old_unpack), ("load-call", old_load)):
+    if frag not in text:
+        print(f"ERROR: Amulet config {name} anchor not found", file=sys.stderr)
+        sys.exit(1)
+    if text.count(frag) != 1:
+        print(f"ERROR: Amulet config {name} anchor not unique", file=sys.stderr)
+        sys.exit(1)
+
+text = text.replace(old_unpack, new_unpack, 1).replace(old_load, new_load, 1)
+open(path, 'w').write(text)
+print("AMULET_CFG_SAFE_UNPACK + AMULET_OMEGA_CLAMP applied")
+PYEOF
+    if grep -q "AMULET_CFG_SAFE_UNPACK" "$f" && grep -q "AMULET_OMEGA_CLAMP" "$f"; then
+        log_success "Amulet config hardening applied (safe unpack + omega clamp)"
+    else
+        log_error "Amulet config hardening did not apply — check configinit.lua anchors"
+        exit 1
+    fi
+}
+
 # EVQ_COMPACT (Tier 0c): EventManager:update removes each completed event
 # with table.remove(v, i) mid-walk — O(queue length) per completion, so a
 # transition burst completing hundreds of events on a long queue goes
@@ -3642,16 +3763,23 @@ print("MOVEABLE_SHADOW_LISTS: moveable.lua patched")
 # --- game.lua: replace two monolithic loops with four monomorphic loops each ---
 gtext = open(game_path).read()
 
-old_move_loop = """        for k, v in ipairs(self.MOVEABLES) do
+old_move_loop = """        for k, v in pairs(self.MOVEABLES) do
             if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end
         end"""
-new_move_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic move-pass loops per class; MOVEABLES_O
-        -- catches all other subclasses (DynaText, Card_Character, AnimatedSprite, mods)
+new_move_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic move-pass loops per class.
+        -- MOVEABLES_O catches all subclasses not explicitly listed (CardArea,
+        -- Blind, DynaText, Card_Character, AnimatedSprite, Particles, mods)
+        -- and iterates FIRST: majors (CardAreas) must stamp FRAME.MOVE before
+        -- their minor cards run, or the MOVEABLE_SLEEP minor gate
+        -- (major.FRAME.MOVE >= G.FRAMES.MOVE) can never pass and every first
+        -- card per area pays the full move path each frame. Order follows the
+        -- attachment chain: CardArea(O) -> Card(C) -> Sprite(S)/UIBox(UB) ->
+        -- UIElement(UE).
+        for k, v in ipairs(self.MOVEABLES_O)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
         for k, v in ipairs(self.MOVEABLES_C)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
         for k, v in ipairs(self.MOVEABLES_S)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
         for k, v in ipairs(self.MOVEABLES_UB) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
-        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
-        for k, v in ipairs(self.MOVEABLES_O)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end"""
+        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end"""
 if old_move_loop not in gtext:
     print("ERROR: game.lua move loop anchor not found", file=sys.stderr)
     sys.exit(1)
@@ -3660,17 +3788,17 @@ if gtext.count(old_move_loop) != 1:
     sys.exit(1)
 gtext = gtext.replace(old_move_loop, new_move_loop, 1)
 
-old_update_loop = """        for k, v in ipairs(self.MOVEABLES) do
+old_update_loop = """        for k, v in pairs(self.MOVEABLES) do
             v:update(dt*self.SPEEDFACTOR, self.real_dt)
             v.states.collide.is = false
         end"""
-new_update_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic update-pass loops per class; MOVEABLES_O
-        -- catches all other subclasses (DynaText, Card_Character, AnimatedSprite, mods)
+new_update_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic update-pass loops per class,
+        -- majors-first (same order rationale as the move pass above)
+        for k, v in ipairs(self.MOVEABLES_O)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
         for k, v in ipairs(self.MOVEABLES_C)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
         for k, v in ipairs(self.MOVEABLES_S)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
         for k, v in ipairs(self.MOVEABLES_UB) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
-        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
-        for k, v in ipairs(self.MOVEABLES_O)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end"""
+        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end"""
 if old_update_loop not in gtext:
     print("ERROR: game.lua update loop anchor not found", file=sys.stderr)
     sys.exit(1)

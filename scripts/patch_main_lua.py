@@ -12,15 +12,19 @@ def patch_main_lua(filepath):
         content = f.read()
 
     # Check if already fully patched (all sentinel strings must be present).
+    # NOTE (Amulet era, 2026-06-11): the Talisman-specific sections below
+    # (config read/write redirects, big-num loads, F_NO_COROUTINE dedup,
+    # TAL_BREAKINF_CLAMP) no-op cleanly against the Amulet dump — their
+    # anchors only exist in src/dump-talisman. They are kept, not deleted,
+    # so pointing the build back at the old dump still works (rollback).
     already_android = '-- Android SMODS path fix' in content
-    already_dedup = 'Duplicate Talisman coroutine harness' in content
     already_focus = '-- Android flush-on-background' in content
     already_istouch = 'HID_ISTOUCH_FIX' in content
     already_istouch_release = 'HID_ISTOUCH_RELEASE_FIX' in content
     already_istouch_move = 'HID_ISTOUCH_MOVE_FIX' in content
-    already_breakinf = 'TAL_BREAKINF_CLAMP' in content
     already_jitopt = 'JIT_OPT_RAISE' in content
-    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_breakinf and already_jitopt:
+    already_amulet = 'AMULET_ROOT_MOUNT' in content or '_mod_dir_amulet' not in content
+    if already_android and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_jitopt and already_amulet:
         print("Already patched")
         return
 
@@ -42,6 +46,39 @@ pcall(function()
 end)
 """
         content = jit_opt_block + content
+
+    # 0b. AMULET_ROOT_MOUNT: Amulet's appended loader FFI-mounts
+    # <mod_dir>/talisman and <mod_dir>/big-num as PhysFS roots so its modules
+    # resolve as require("talisman.*") / load("big-num/..."). Two problems for
+    # us: the dump bakes the dump-rig's ABSOLUTE path into _mod_dir_amulet,
+    # and PhysFS cannot mount a directory that lives inside game.love on
+    # Android. build.sh instead places talisman/ and big-num/ physically at
+    # the game root (apply_amulet_root_dirs), which satisfies the same
+    # requires natively on every platform — so the mounts are deleted, not
+    # ported. The path var stays (smods.lua nil-checks it as an
+    # installed-correctly sentinel), rewritten to the embedded location.
+    if 'AMULET_ROOT_MOUNT' not in content and '_mod_dir_amulet' in content:
+        content = re.sub(
+            r'_mod_dir_amulet = "[^"]*"',
+            '_mod_dir_amulet = "Mods/Amulet"',
+            content,
+            count=1,
+        )
+        mount_block = """local ffi = require("ffi")
+ffi.cdef[[int PHYSFS_mount(const char* dir, const char* mountPoint, int appendToPath)]]
+local tinymount = (pcall(function() return ffi.C.PHYSFS_mount end) and ffi.C or ffi.load("love")).PHYSFS_mount
+
+local talisman_path = _mod_dir_amulet
+assert(tinymount(talisman_path .. '/talisman', 'talisman', 0) ~= 0, 'Amulet: Failed to mount talisman from ' .. talisman_path)
+assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Failed to mount big-num from ' .. talisman_path)"""
+        mount_replacement = """-- AMULET_ROOT_MOUNT: PhysFS mounts removed — talisman/ and big-num/ are
+-- placed physically at the game root by build.sh (PhysFS cannot mount
+-- paths inside game.love on Android); require("talisman.*") resolves
+-- natively. See patch_main_lua.py section 0b."""
+        if mount_block in content:
+            content = content.replace(mount_block, mount_replacement, 1)
+        else:
+            print("WARNING: Amulet mount block anchor not found — AMULET_ROOT_MOUNT NOT applied")
 
     # 1. Add require path fix and package.preload before SMODS = {}
     smods_init = "SMODS = {}"
@@ -88,7 +125,7 @@ end"""
 local info
 if love.system.getOS() == 'Android' then
     info = {}
-    for _, name in ipairs({'Cryptid', 'Steamodded', 'Talisman', 'lovely', 'sticky-fingers'}) do
+    for _, name in ipairs({'Cryptid', 'Steamodded', 'Amulet', 'lovely', 'sticky-fingers'}) do
         table.insert(info, {name = name, type = 'directory'})
     end
 else
@@ -155,7 +192,9 @@ end"""
     if Talisman.config_file.break_infinity ~= "omeganum" then Talisman.config_file.break_infinity = "omeganum" Talisman.config_file.score_opt_id = 2 end -- TAL_BREAKINF_CLAMP"""
     if unpack_pattern in content:
         content = content.replace(unpack_pattern, unpack_replacement, 1)
-    else:
+    elif '_mod_dir_amulet' not in content:
+        # only alarming on a Talisman-era dump; under Amulet the config system
+        # moved to talisman/configinit.lua (hardened by build.sh applier)
         print("WARNING: Talisman STR_UNPACK anchor not found - TAL_BREAKINF_CLAMP NOT applied")
 
     # 6. Fix nativefs.load calls for big-num
