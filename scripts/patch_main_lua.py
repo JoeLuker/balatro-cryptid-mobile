@@ -102,6 +102,9 @@ assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Faile
 	end"""
         new_clamp = """function love.resize(w, h)
 	-- ANDROID_RESIZE_CONTAIN: see scripts/patch_main_lua.py section 0c
+	-- (RESIZE telemetry: field evidence that fold posture changes actually
+	-- deliver resize events — pairs with FOLD_RESIZE manifest flip)
+	if ATLOG then ATLOG("RESIZE", { w = math.floor(w), h = math.floor(h) }) end
 	if love.system.getOS() == 'Android' then
 		if w/h < 0.6 then h = w/0.6 end
 	elseif w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen

@@ -322,6 +322,20 @@ build_apk() {
     fi
     sed -i "s/android:label=\"[^\"]*\"/android:label=\"$APP_NAME\"/" "$BUILD_DIR/apktool/AndroidManifest.xml"
 
+    # FOLD_RESIZE: upstream LÖVE ships GameActivity with
+    # android:resizeableActivity="false". On foldables that pins the app in
+    # size-compat mode on posture change — Android letterboxes/scales it at
+    # the old dimensions and NO surface resize ever reaches love.resize, so
+    # the contain layout and overlay recalculation never run. Flip it so
+    # fold-open delivers a real resize event.
+    sed -i 's/android:resizeableActivity="false"/android:resizeableActivity="true"/' "$BUILD_DIR/apktool/AndroidManifest.xml"
+    if grep -q 'android:resizeableActivity="true"' "$BUILD_DIR/apktool/AndroidManifest.xml"; then
+        log_success "FOLD_RESIZE applied (resizeableActivity=true — fold posture changes deliver real resizes)"
+    else
+        log_error "FOLD_RESIZE: resizeableActivity flip failed — check AndroidManifest.xml"
+        exit 1
+    fi
+
     if [[ "$DEBUGGABLE" == "true" ]]; then
         sed -i 's/android:allowBackup="true"/android:allowBackup="true" android:debuggable="true"/' "$BUILD_DIR/apktool/AndroidManifest.xml"
     fi
