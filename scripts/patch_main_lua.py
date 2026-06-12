@@ -506,6 +506,18 @@ end
             print("WARNING: love.mousemoved anchor not found — HID istouch move fix NOT applied")
 
 
+    if '-- Trigger-cascade collapsing' not in content:
+        content += """
+-- Trigger-cascade collapsing: pure module, hooks self-install on the first
+-- frame (SMODS loads after this chunk). NOT Android-gated: the desktop
+-- harnesses exercise the same code, and the engine is platform-free.
+local tc_ok, tc_err = pcall(function()
+    local chunk = love.filesystem.load('trigger-collapse.lua')
+    if chunk then chunk() end
+end)
+if not tc_ok then print('[TC] LOAD_FAILED error=' .. tostring(tc_err)) end
+"""
+
     if '-- Android telemetry: load after all game hooks are set up' not in content:
         content += """
 -- Android telemetry: load after all game hooks are set up

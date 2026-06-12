@@ -75,6 +75,12 @@ resize:
 evq-diff:
     luajit test/event/diff.lua 150 100
 
+# Trigger-collapse validation — affine property suite vs Amulet's real cdata
+# Big, then the in-game differential (same cascade scored with collapse off
+# and on must match exactly). Needs nix-shell. ~4 min.
+collapse:
+    test/collapse/run.sh
+
 # Headless Android-emulator test of the BUILT APK (KVM + ARM translation):
 # installs build/apk/*.apk, mirrors the phone deploy, polls screenshots until
 # a menu-like frame (PASS) or crash-screen signature (FAIL). ~5-10 min.
@@ -83,7 +89,7 @@ emu-test:
     nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
 
 # All local tests (run before deploying to the phone)
-test: evq-diff test-controller smoke telgate gameset resize
+test: evq-diff test-controller smoke telgate gameset resize collapse
 
 # Push only mod files (no APK reinstall)
 push-mods:

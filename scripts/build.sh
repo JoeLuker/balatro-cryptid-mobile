@@ -469,6 +469,10 @@ EOF
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
     log_success "Telemetry module embedded"
 
+    # Trigger-cascade collapsing engine (hooks self-install on first frame)
+    cp "$PATCHES_DIR/trigger-collapse.lua" "$game_dir/trigger-collapse.lua"
+    log_success "Trigger-collapse module embedded"
+
     # Patch conf.lua
     cat > "$game_dir/conf.lua" << 'EOF'
 _RELEASE_MODE = true
@@ -941,7 +945,7 @@ apply_telemetry_toggles() {
         return 0
     fi
     if ! grep -q "telemetry_log" "$ui_file"; then
-        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},|" "$ui_file"
+        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      create_toggle({label = \"Trigger Collapsing\", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},|" "$ui_file"
     fi
     if ! grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
         sed -i "s|    if self.real_dt > 0.05 then print('LONG DT|    if G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"

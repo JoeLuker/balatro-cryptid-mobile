@@ -570,6 +570,24 @@ function Game:update(dt)
             _ep.n, _ep.ms = 0, 0
             if next(_ep.slow) then _ep.slow = {} end
         end
+        -- trigger-collapse stats for the window (engine in
+        -- trigger-collapse.lua; mismatches must stay zero)
+        local tc = TRIGGER_COLLAPSE
+        if tc and tc.stats and (tc.stats.runs > 0 or tc.stats.unstable > 0
+                or tc.stats.impure > 0 or tc.stats.mismatches > 0) then
+            tel("RLE_STATS", {
+                runs = tc.stats.runs,
+                collapsed = tc.stats.collapsed_reps,
+                honest = tc.stats.honest_reps,
+                unstable = tc.stats.unstable,
+                impure = tc.stats.impure,
+                mismatch = tc.stats.mismatches,
+                max_run = tc.stats.max_run,
+            })
+            tc.stats.runs, tc.stats.collapsed_reps, tc.stats.honest_reps = 0, 0, 0
+            tc.stats.unstable, tc.stats.impure, tc.stats.mismatches = 0, 0, 0
+            tc.stats.max_run = 0
+        end
         -- Tier-0a: JIT trace activity for the window (only emit when the
         -- compiler did something — steady state after warmup is silence)
         if jit_attached and (JIT_TR.n_abort > 0 or JIT_TR.n_stop > 0
