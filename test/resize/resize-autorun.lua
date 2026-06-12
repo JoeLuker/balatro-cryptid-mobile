@@ -3,7 +3,7 @@
 -- geometries and assert the contain invariants after each:
 --   - TILESCALE positive and finite
 --   - the room's pixel extent fits inside the effective surface
---   - G.CANVAS matches the effective surface (real h for ratios >= 0.6;
+--   - G.CANVAS matches the effective surface (real h for ratios >= 0.4;
 --     sliver-clamped h below that)
 --   - idempotence: A -> B -> A reproduces A's geometry exactly
 -- Run via test/resize/run.sh. Prints RSZ: lines; PASS/FAIL verdict.
@@ -20,19 +20,21 @@ local function chk(cond, label)
     end
 end
 
--- {w, h, label} — inner landscape/portrait, cover landscape/portrait,
--- half-split, third-split sliver (exercises the 0.6 clamp)
+-- {w, h, label} — inner landscape/portrait, cover landscape/portrait
+-- (px and the dp dims the device actually reports), half-split, ribbon
+-- sliver (exercises the 0.4 clamp)
 local GEOMS = {
     { 2208, 1840, 'inner-landscape' },
     { 1840, 2208, 'inner-portrait' },
     { 2424, 1080, 'cover-landscape' },
     { 1080, 2424, 'cover-portrait' },
+    { 411, 722, 'cover-portrait-dp' },
     { 1104, 1840, 'half-split' },
-    { 736, 1840, 'third-sliver' },
+    { 600, 1840, 'ribbon-sliver' },
 }
 
 local function effective_h(w, h)
-    if w / h < 0.6 then return w / 0.6 end
+    if w / h < 0.4 then return w / 0.4 end
     return h
 end
 

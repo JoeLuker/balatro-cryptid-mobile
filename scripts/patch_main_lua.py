@@ -88,9 +88,11 @@ assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Faile
     # split-screen surfaces are NORMAL (inner screen portrait is ratio 0.83),
     # so screen switches feel broken. The scale math itself is sound absolute
     # contain (window_prev algebraically cancels), so the fix is narrow:
-    # on Android allow any aspect down to 0.6 (real height flows into layout,
+    # on Android allow any aspect down to 0.4 (real height flows into layout,
     # canvas and touch geometry; the room centers via the existing formula),
-    # keeping a far rarer clamp for extreme slivers. Trade-off: tall surfaces
+    # keeping a far rarer clamp for extreme slivers. The floor sat at 0.6
+    # first — but the cover screen itself reports 0.569 and got a 5% dead
+    # band; 0.4 also lets half-splits (~0.46-0.55) fill. Trade-off: tall surfaces
     # can show card staging pop-in above/below the room (the clamp's original
     # purpose) — cosmetic, versus a dead fifth of the screen. Also: open
     # overlay menus get the same recalculate() that buttons/HUD already get,
@@ -106,7 +108,10 @@ assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Faile
 	-- deliver resize events — pairs with FOLD_RESIZE manifest flip)
 	if ATLOG then ATLOG("RESIZE", { w = math.floor(w), h = math.floor(h) }) end
 	if love.system.getOS() == 'Android' then
-		if w/h < 0.6 then h = w/0.6 end
+		-- floor 0.4, NOT 0.6: the cover screen reports 411x722 = 0.569 and
+		-- must fill edge-to-edge (0.6 left a 5% dead band on it); only true
+		-- ribbon windows clamp
+		if w/h < 0.4 then h = w/0.4 end
 	elseif w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
 		h = w/1
 	end"""
