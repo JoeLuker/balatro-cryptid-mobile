@@ -442,6 +442,7 @@ EOF
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_self_drop_exclude "$game_dir/engine/controller.lua"
     apply_ui_colour_guard "$game_dir/engine/ui.lua"
+    apply_ui_o_detached_guard "$game_dir/engine/ui.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_telemetry_toggles "$game_dir/functions/UI_definitions.lua" "$game_dir/game.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
@@ -2057,6 +2058,57 @@ apply_ui_colour_guard() {
         log_success "UI colour guard applied (colourless elements draw transparent + self-identify)"
     else
         log_error "UI colour guard did not apply — check anchor"
+        exit 1
+    fi
+}
+
+# UI_O_DETACHED: a UIT.O node whose config.object has been detached
+# (mid-teardown UI) breaks recalculate twice over: calculate_xywh computes
+# nil dims and set_values writes T.w/T.h = nil (next frame: move_wh
+# arithmetic-on-nil crash — the fold-close field crash, dying words
+# who=UIElement T(x,y,nil,nil)), and set_values' role wiring derefs the
+# missing object (error swallowed by the resize handler's pcall, leaving
+# the half-mutated tree alive). Detached objects must lay out 0x0 and skip
+# role wiring.
+apply_ui_o_detached_guard() {
+    local f="$1"
+    if grep -q "UI_O_DETACHED" "$f"; then
+        log_info "UI_O_DETACHED already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old_dims = """                node.config.w or (node.config.object and node.config.object.T.w),
+                node.config.h or (node.config.object and node.config.object.T.h)"""
+new_dims = """                node.config.w or (node.config.object and node.config.object.T.w) or 0, -- UI_O_DETACHED: detached object lays out 0x0, never nil
+                node.config.h or (node.config.object and node.config.object.T.h) or 0"""
+
+old_role = """    if self.UIT == G.UIT.O and not self.config.no_role then
+        self.config.object:set_role(self.config.role or {role_type = 'Minor', major = self, xy_bond = 'Strong', wh_bond = 'Weak', scale_bond = 'Weak'})
+    end"""
+new_role = """    if self.UIT == G.UIT.O and self.config.object and not self.config.no_role then -- UI_O_DETACHED: skip role wiring when the object is gone
+        self.config.object:set_role(self.config.role or {role_type = 'Minor', major = self, xy_bond = 'Strong', wh_bond = 'Weak', scale_bond = 'Weak'})
+    end"""
+
+for name, old, new in (("dims", old_dims, new_dims), ("role", old_role, new_role)):
+    if old not in text:
+        print("ERROR: UI_O_DETACHED %s anchor not found" % name, file=sys.stderr)
+        sys.exit(1)
+    if text.count(old) != 1:
+        print("ERROR: UI_O_DETACHED %s anchor not unique" % name, file=sys.stderr)
+        sys.exit(1)
+    text = text.replace(old, new, 1)
+
+open(path, 'w').write(text)
+print("UI_O_DETACHED applied")
+PYEOF
+    if grep -q "UI_O_DETACHED" "$f"; then
+        log_success "UI_O_DETACHED applied (detached UIT.O nodes lay out 0x0, role wiring skipped)"
+    else
+        log_error "UI_O_DETACHED did not apply — check ui.lua anchors"
         exit 1
     fi
 }

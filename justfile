@@ -70,6 +70,12 @@ gameset:
 resize:
     test/resize/run.sh
 
+# UI_O_DETACHED regression — recalculating a UI tree with a detached UIT.O
+# object must lay out 0x0, not nil dims (fold-close field crash 2026-06-12).
+# Needs nix-shell. ~30 s.
+uio:
+    test/ui-o-dims/run.sh
+
 # EventManager differential soak — original vs EVQ_COMPACT implementation,
 # mirrored random event scripts; pure luajit, no love needed. ~1 min.
 evq-diff:
@@ -89,7 +95,7 @@ emu-test:
     nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
 
 # All local tests (run before deploying to the phone)
-test: evq-diff test-controller smoke telgate gameset resize collapse
+test: evq-diff test-controller smoke telgate gameset resize uio collapse
 
 # Push only mod files (no APK reinstall)
 push-mods:
