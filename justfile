@@ -58,6 +58,23 @@ smoke:
 telgate:
     test/telemetry-gate.sh
 
+# Vanilla gameset test — boots build/game twice (vanilla, then mainline) and
+# asserts all Cryptid content gates off / stays on respectively.
+# Needs nix-shell, same as smoke. ~5 min.
+gameset:
+    test/gameset/run.sh
+
+# Resize test — boots build/game once and drives love.resize through the
+# foldable's surface geometries (inner/cover x landscape/portrait, splits),
+# asserting contain invariants and idempotence. Needs nix-shell. ~1 min.
+resize:
+    test/resize/run.sh
+
+# EventManager differential soak — original vs EVQ_COMPACT implementation,
+# mirrored random event scripts; pure luajit, no love needed. ~1 min.
+evq-diff:
+    luajit test/event/diff.lua 150 100
+
 # Headless Android-emulator test of the BUILT APK (KVM + ARM translation):
 # installs build/apk/*.apk, mirrors the phone deploy, polls screenshots until
 # a menu-like frame (PASS) or crash-screen signature (FAIL). ~5-10 min.
@@ -66,7 +83,7 @@ emu-test:
     nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
 
 # All local tests (run before deploying to the phone)
-test: test-controller smoke telgate
+test: evq-diff test-controller smoke telgate gameset resize
 
 # Push only mod files (no APK reinstall)
 push-mods:
