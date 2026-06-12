@@ -626,6 +626,17 @@ function Game:update(dt)
                         if type(reg) == 'table' then visited[reg] = true end
                     end
                 end
+                -- G.STAGE_OBJECTS (scene-graph attachment root) reaches every
+                -- attached node — absorbed the entire 150k walk budget as the
+                -- first-reached root on 2026-06-12, blinding the census.
+                -- Mark the root and per-stage lists; contents attribute
+                -- through semantic owners (G.jokers, G.GAME, ...).
+                if type(G.STAGE_OBJECTS) == 'table' then
+                    visited[G.STAGE_OBJECTS] = true
+                    for _, stage in pairs(G.STAGE_OBJECTS) do
+                        if type(stage) == 'table' then visited[stage] = true end
+                    end
+                end
                 local function subtree_count(root)
                     if type(root) ~= 'table' or visited[root] then return 0 end
                     visited[root] = true
