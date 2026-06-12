@@ -202,6 +202,7 @@ patch_mods_dir() {
     # apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
     apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
     apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
+    apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
@@ -3869,6 +3870,65 @@ PYEOF
         log_success "AMULET_CALC_DELAY applied (calc overlay gated on 1.0s of scoring)"
     else
         log_error "AMULET_CALC_DELAY did not apply — check coroutine.lua anchor"
+        exit 1
+    fi
+}
+
+# AMULET_OVERLAY_FIT: the calc overlay ROOT uses padding=9999 as a
+# fill-the-screen hack. Under our contain layout the UI layouter then parks
+# the actual content ~10k units off-screen (desktop probe at 2208x1840: ROOT
+# T=(-9990,-19993), text child at y=-9993.9). Replace the hack with a
+# room-sized backdrop; align="cm" keeps the text centered on screen
+# (probe-verified: text child lands at (8.6, 4.9)).
+apply_amulet_overlay_fit() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "coroutine.lua not found at $f, skipping AMULET_OVERLAY_FIT"
+        return 0
+    fi
+    if grep -q "AMULET_OVERLAY_FIT" "$f"; then
+        log_info "AMULET_OVERLAY_FIT already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """		config = {
+			align = "cm",
+			padding = 9999,
+			offset = { x = 0, y = -3 },
+			r = 0.1,
+			colour = { G.C.GREY[1], G.C.GREY[2], G.C.GREY[3], 0.7 }
+		},"""
+new = """		-- AMULET_OVERLAY_FIT: padding=9999 was a fill-the-screen hack that
+		-- parks the laid-out content ~10k units off-screen (text child
+		-- measured at y=-9994 under the contain layout). Size the backdrop
+		-- to the room instead and let align="cm" center the content.
+		config = {
+			align = "cm",
+			padding = 0.2,
+			minw = G.TILE_W + 2 * G.ROOM_PADDING_W,
+			minh = G.TILE_H + 2 * G.ROOM_PADDING_H,
+			r = 0.1,
+			colour = { G.C.GREY[1], G.C.GREY[2], G.C.GREY[3], 0.7 }
+		},"""
+
+if old not in text:
+    print("ERROR: overlay config anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: overlay config anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("AMULET_OVERLAY_FIT applied")
+PYEOF
+    if grep -q "AMULET_OVERLAY_FIT" "$f"; then
+        log_success "AMULET_OVERLAY_FIT applied (calc overlay room-sized, content on-screen)"
+    else
+        log_error "AMULET_OVERLAY_FIT did not apply — check coroutine.lua anchor"
         exit 1
     fi
 }
