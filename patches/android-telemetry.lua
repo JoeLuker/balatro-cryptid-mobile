@@ -643,6 +643,13 @@ function Game:update(dt)
             -- binds (elision potential for Tier-2a)
             snap.shsw_set_avg = math.floor(TEL.shsw_calls_sum / n + 0.5)
             TEL.shsw_calls_sum = 0
+            -- lazy-shader elision (Tier-2a v1): real GPU binds vs game-issued
+            -- calls for the window — binds << calls is the win, live
+            if LAZY_SHADER then
+                snap.ls_binds = LAZY_SHADER.binds - (TEL.ls_binds_last or 0)
+                snap.ls_calls = LAZY_SHADER.calls - (TEL.ls_calls_last or 0)
+                TEL.ls_binds_last, TEL.ls_calls_last = LAZY_SHADER.binds, LAZY_SHADER.calls
+            end
             reset_draw_stats()
         end
         -- Tier-2a: attribute every setShader call of ONE upcoming frame to

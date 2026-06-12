@@ -490,6 +490,10 @@ EOF
     cp "$PATCHES_DIR/trigger-collapse.lua" "$game_dir/trigger-collapse.lua"
     log_success "Trigger-collapse module embedded"
 
+    # Lazy shader binding (Tier-2a; loads before telemetry — see main.lua tail)
+    cp "$PATCHES_DIR/lazy-shader.lua" "$game_dir/lazy-shader.lua"
+    log_success "Lazy-shader module embedded"
+
     # Patch conf.lua
     cat > "$game_dir/conf.lua" << 'EOF'
 _RELEASE_MODE = true

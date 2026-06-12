@@ -526,6 +526,19 @@ end)
 if not tc_ok then print('[TC] LOAD_FAILED error=' .. tostring(tc_err)) end
 """
 
+    if '-- Lazy shader binding' not in content:
+        content += """
+-- Lazy shader binding (Tier-2a): must load BEFORE android-telemetry so the
+-- telemetry setShader wrapper counts game-issued calls while the lazy
+-- flush talks to the captured original. NOT Android-gated: the desktop
+-- harnesses exercise the same draw path.
+local ls_ok, ls_err = pcall(function()
+    local chunk = love.filesystem.load('lazy-shader.lua')
+    if chunk then chunk() end
+end)
+if not ls_ok then print('[LS] LOAD_FAILED error=' .. tostring(ls_err)) end
+"""
+
     if '-- Android telemetry: load after all game hooks are set up' not in content:
         content += """
 -- Android telemetry: load after all game hooks are set up
