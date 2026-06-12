@@ -464,6 +464,7 @@ EOF
     apply_event_queue_compact  "$game_dir/engine/event.lua"
     apply_ui_func_throttle     "$game_dir/engine/ui.lua"
     apply_blind_select_defer   "$game_dir/game.lua"
+    apply_blind_select_tall    "$game_dir/functions/UI_definitions.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -3617,6 +3618,29 @@ PYEOF
         log_success "CRY_VANILLA_GAMESET applied (4th gameset: all Cryptid content off)"
     else
         log_error "CRY_VANILLA_GAMESET did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# BLIND_SELECT_TALL: the blind-select Select button is minh 0.6 design
+# units — small for thumbs (Joe, 2026-06-12: "just taller so it's more
+# touch friendly"). Bump both variants (live button + run_info display
+# row, same id) to 1.0; minh drives the hit box and the visual together.
+apply_blind_select_tall() {
+    local f="$1"
+    if ! grep -q "select_blind_button" "$f"; then
+        log_warn "select_blind_button not found, skipping BLIND_SELECT_TALL"
+        return 0
+    fi
+    if ! grep "select_blind_button" "$f" | grep -q "minh = 0.6"; then
+        log_info "BLIND_SELECT_TALL already applied"
+        return 0
+    fi
+    sed -i "/id = 'select_blind_button'/s/minh = 0.6/minh = 1.0/" "$f"
+    if grep "select_blind_button" "$f" | grep -q "minh = 1.0"; then
+        log_success "BLIND_SELECT_TALL applied (select button 0.6 -> 1.0 units tall)"
+    else
+        log_error "BLIND_SELECT_TALL did not apply — check select_blind_button lines"
         exit 1
     fi
 }
