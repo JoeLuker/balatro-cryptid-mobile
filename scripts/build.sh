@@ -440,6 +440,7 @@ EOF
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
     apply_parse_highlighted_lean "$game_dir/cardarea.lua"
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
+    apply_empty_pool_guard "$game_dir/functions/common_events.lua"
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
     # apply_ces_sign_fast "$game_dir/functions/common_events.lua"
     # ^ TALISMAN-ERA: Talisman's lovely patches wrapped the card_eval sign
@@ -3612,6 +3613,58 @@ PYEOF
         log_success "CRY_VANILLA_GAMESET applied (4th gameset: all Cryptid content off)"
     else
         log_error "CRY_VANILLA_GAMESET did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# EMPTY_POOL_GUARD: SMODS create_card rolls a center key from
+# get_current_pool and resamples while it draws 'UNAVAILABLE' — but an
+# EMPTY pool makes pseudorandom_element return nil, the resample loop
+# passes nil through, G.P_CENTERS[nil] silently yields a nil center, and
+# Card crashes three frames later in Cryptid's set_ability wrapper
+# ("attempt to index field 'ability'", on-device 2026-06-12: The Soul at
+# ante 3 on profile M2 rolled a legendary from an empty pool — heavy
+# disable interplay). Guard at the creation site (covers every caller and
+# both unguarded Cryptid wrappers downstream) with the type-appropriate
+# fallback, and ATLOG the pool key so the field names WHY it was empty.
+apply_empty_pool_guard() {
+    local f="$1"
+    if grep -q "EMPTY_POOL_GUARD" "$f"; then
+        log_info "EMPTY_POOL_GUARD already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "        center = G.P_CENTERS[center]\n"
+new = """        center = G.P_CENTERS[center]
+        -- EMPTY_POOL_GUARD: see build.sh applier comment
+        if not center then
+            if ATLOG then ATLOG("EMPTY_POOL", { type = _type, pool = tostring(_pool_key), legendary = legendary and 1 or 0 }) end
+            center = G.P_CENTERS[_type == 'Joker' and 'j_joker'
+                or _type == 'Tarot' and 'c_fool'
+                or _type == 'Planet' and 'c_pluto'
+                or _type == 'Spectral' and 'c_incantation'
+                or 'c_base'] or G.P_CENTERS['c_base']
+        end
+"""
+
+if old not in text:
+    print("ERROR: P_CENTERS lookup anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: P_CENTERS lookup anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("EMPTY_POOL_GUARD applied")
+PYEOF
+    if grep -q "EMPTY_POOL_GUARD" "$f"; then
+        log_success "EMPTY_POOL_GUARD applied (nil center falls back, pool key logged)"
+    else
+        log_error "EMPTY_POOL_GUARD did not apply — check common_events anchor"
         exit 1
     fi
 }
