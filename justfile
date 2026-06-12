@@ -76,6 +76,12 @@ resize:
 uio:
     test/ui-o-dims/run.sh
 
+# NUGC v2 regression — heap >200MB + breath-state entry must full-collect
+# (debounced 30s), keeping the 300MB mid-hand emergency cliff unreachable.
+# Needs nix-shell. ~30 s.
+nugc:
+    test/nugc/run.sh
+
 # EventManager differential soak — original vs EVQ_COMPACT implementation,
 # mirrored random event scripts; pure luajit, no love needed. ~1 min.
 evq-diff:
@@ -95,7 +101,7 @@ emu-test:
     nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
 
 # All local tests (run before deploying to the phone)
-test: evq-diff test-controller smoke telgate gameset resize uio collapse
+test: evq-diff test-controller smoke telgate gameset resize uio nugc collapse
 
 # Push only mod files (no APK reinstall)
 push-mods:

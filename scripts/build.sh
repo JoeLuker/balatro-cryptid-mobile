@@ -3297,6 +3297,15 @@ PYEOF
 # linearly to a 4ms cap by ~174MB, with the step cap scaled to match so the
 # time budget is the binding limit. At the frame times where this matters the
 # extra milliseconds are invisible; while healthy nothing changes.
+#
+# v2 (field data 2026-06-12: heap 153->201->259MB during play, 316MB burst
+# crossed the ceiling for a multi-second 1fps hitch): two additions —
+# (1) the budget keeps escalating past 4ms above 174MB (to a 10ms cap by
+# ~254MB; at that pressure frames are churn-bound anyway and 10ms of GC
+# beats a 3s emergency collect), and (2) above 200MB a FULL collect runs
+# opportunistically when the game enters a breath state (SHOP, BLIND_SELECT,
+# ROUND_EVAL, MENU — already a pause), never mid-scoring, debounced 30s, so
+# the 300MB mid-hand cliff is never reached. ATLOG NUGC_FULL logs each one.
 apply_nugc_adaptive() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -3320,12 +3329,41 @@ old = (
 new = (
     "\t-- NUGC_ADAPTIVE: scale the default budget with heap pressure so steady\n"
     "\t-- collection keeps pace with allocation churn instead of riding the\n"
-    "\t-- memory_ceiling emergency full-collect (a multi-second hitch)\n"
+    "\t-- memory_ceiling emergency full-collect (a multi-second hitch).\n"
+    "\t-- v2: budget escalates past 4ms above 174MB (10ms cap by ~254MB), and\n"
+    "\t-- above 200MB a full collect runs when the game enters a breath state\n"
+    "\t-- (already a pause; never mid-scoring; debounced 30s) so the 300MB\n"
+    "\t-- mid-hand cliff is never reached.\n"
+    "\tlocal nugc_mb = collectgarbage(\"count\") / 1024\n"
     "\tif not time_budget then\n"
-    "\t\tlocal mb = collectgarbage(\"count\") / 1024\n"
-    "\t\ttime_budget = mb < 100 and 3e-4 or math.min(4e-3, 3e-4 + (mb - 100) * 5e-5)\n"
+    "\t\tif nugc_mb < 100 then time_budget = 3e-4\n"
+    "\t\telseif nugc_mb < 174 then time_budget = 3e-4 + (nugc_mb - 100) * 5e-5\n"
+    "\t\telse time_budget = math.min(10e-3, 4e-3 + (nugc_mb - 174) * 7.5e-5) end\n"
     "\tend\n"
     "\tmemory_ceiling = memory_ceiling or 300\n"
+    "\tNUGC_ST = NUGC_ST or { prev = nil, last_full = -1e9 }\n"
+    "\tlocal nugc_state = G and G.STATE\n"
+    "\tif nugc_state ~= NUGC_ST.prev then\n"
+    "\t\tNUGC_ST.prev = nugc_state\n"
+    "\t\tlocal breath = G.STATES and (nugc_state == G.STATES.SHOP\n"
+    "\t\t\tor nugc_state == G.STATES.BLIND_SELECT\n"
+    "\t\t\tor nugc_state == G.STATES.ROUND_EVAL\n"
+    "\t\t\tor nugc_state == G.STATES.MENU)\n"
+    "\t\tlocal nugc_now = love.timer.getTime()\n"
+    "\t\tif breath and nugc_mb > 200\n"
+    "\t\t\tand not (Talisman and Talisman.scoring_coroutine)\n"
+    "\t\t\tand nugc_now - NUGC_ST.last_full > 30 then\n"
+    "\t\t\tcollectgarbage(\"collect\")\n"
+    "\t\t\tNUGC_ST.last_full = nugc_now\n"
+    "\t\t\tif ATLOG then ATLOG(\"NUGC_FULL\", {\n"
+    "\t\t\t\tmb = math.floor(nugc_mb),\n"
+    "\t\t\t\tafter = math.floor(collectgarbage(\"count\") / 1024),\n"
+    "\t\t\t\tms = math.floor((love.timer.getTime() - nugc_now) * 1000),\n"
+    "\t\t\t}) end\n"
+    "\t\t\tif disable_otherwise then collectgarbage(\"stop\") end\n"
+    "\t\t\treturn\n"
+    "\t\tend\n"
+    "\tend\n"
     "\tlocal max_steps = math.max(1000, math.ceil(time_budget * 3.4e6))\n"
 )
 
@@ -3340,7 +3378,7 @@ open(path, 'w').write(text.replace(old, new, 1))
 print("NUGC_ADAPTIVE applied")
 PYEOF
     if grep -q "NUGC_ADAPTIVE" "$f"; then
-        log_success "NUGC_ADAPTIVE applied (GC budget scales 0.3ms -> 4ms with heap pressure)"
+        log_success "NUGC_ADAPTIVE v2 applied (budget 0.3ms -> 10ms with pressure + breath-state full collects above 200MB)"
     else
         log_error "NUGC_ADAPTIVE did not apply — check nuGC anchor"
         exit 1
