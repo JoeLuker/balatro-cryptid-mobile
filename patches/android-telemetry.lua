@@ -637,6 +637,10 @@ function Game:update(dt)
                         if type(stage) == 'table' then visited[stage] = true end
                     end
                 end
+                -- G.DRAW_HASH: per-frame array of drawn objects (in-place
+                -- emptied each frame) — another pure alias; absorbed 111k as
+                -- a root on 2026-06-12 once STAGE_OBJECTS was marked
+                if type(G.DRAW_HASH) == 'table' then visited[G.DRAW_HASH] = true end
                 local function subtree_count(root)
                     if type(root) ~= 'table' or visited[root] then return 0 end
                     visited[root] = true
