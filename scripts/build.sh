@@ -213,6 +213,9 @@ patch_mods_dir() {
         "$mods_dir/Cryptid/lib/gameset.lua" \
         "$mods_dir/Cryptid/Cryptid.lua" \
         "$mods_dir/Cryptid/localization/en-us.lua"
+    apply_cry_blind_choice_guard \
+        "$mods_dir/Cryptid/lib/overrides.lua" \
+        "$mods_dir/Cryptid/lib/gameset.lua"
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
 }
 
@@ -3608,6 +3611,79 @@ PYEOF
         log_success "CRY_VANILLA_GAMESET applied (4th gameset: all Cryptid content off)"
     else
         log_error "CRY_VANILLA_GAMESET did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# CRY_BLIND_CHOICE_GUARD: Cryptid's disable machinery REMOVES blinds from
+# G.P_BLINDS (SMODS.Blind._disable, gameset.lua:1066), but a live run's
+# G.GAME.round_resets.blind_choices can already reference a removed blind —
+# twelve unguarded P_BLINDS[blind_choices] index sites in the per-frame
+# Game:update block (overrides.lua:478-502) plus the baked blind-select UI
+# then crash on nil (hit on-device 2026-06-11 seconds after a mid-run
+# gameset switch; also reproducible in stock Cryptid by per-item-disabling
+# an upcoming blind). Two layers, both upstreamable:
+#   1. sanitize at the source: after the top-level registry sweep
+#      (Cryptid.update_obj_registry), re-roll any live blind_choices entry
+#      whose blind no longer exists (Small/Big -> vanilla constants,
+#      Boss -> get_new_boss(), which under vanilla rolls vanilla bosses);
+#   2. defensive guard in the per-frame condition chain.
+apply_cry_blind_choice_guard() {
+    local overrides_f="$1"
+    local gameset_f="$2"
+    if grep -q "CRY_BLIND_CHOICE_GUARD" "$overrides_f"; then
+        log_info "CRY_BLIND_CHOICE_GUARD already applied"
+        return 0
+    fi
+    python3 - "$overrides_f" "$gameset_f" <<'PYEOF'
+import sys
+overrides_path, gameset_path = sys.argv[1], sys.argv[2]
+
+otext = open(overrides_path).read()
+old_cond = """\t\t\tand G.GAME.round_resets.blind_choices[c]
+\t\t\tand G.P_BLINDS[G.GAME.round_resets.blind_choices[c]].cry_ante_base_mod"""
+new_cond = """\t\t\tand G.GAME.round_resets.blind_choices[c]
+\t\t\tand G.P_BLINDS[G.GAME.round_resets.blind_choices[c]] -- CRY_BLIND_CHOICE_GUARD
+\t\t\tand G.P_BLINDS[G.GAME.round_resets.blind_choices[c]].cry_ante_base_mod"""
+if otext.count(old_cond) != 1:
+    print("ERROR: blind-choice condition anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(overrides_path, 'w').write(otext.replace(old_cond, new_cond, 1))
+print("CRY_BLIND_CHOICE_GUARD: overrides.lua guarded")
+
+gtext = open(gameset_path).read()
+anchor = "function Cryptid.index_items(func, m)"
+if gtext.count(anchor) != 1:
+    print("ERROR: index_items anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+wrapper = """-- CRY_BLIND_CHOICE_GUARD: after the top-level registry sweep, a live run
+-- may hold blind_choices rolled before this sweep removed those blinds from
+-- G.P_BLINDS (mid-run gameset switch, per-item disable of an upcoming
+-- blind). Re-roll stale choices so the per-frame P_BLINDS[blind_choices]
+-- consumers and the blind-select UI never index nil. Inner recursive calls
+-- pass m ~= nil and skip this.
+local _cry_uor_ref = Cryptid.update_obj_registry
+function Cryptid.update_obj_registry(m, force_enable)
+\t_cry_uor_ref(m, force_enable)
+\tif not m and G.GAME and G.GAME.round_resets and G.GAME.round_resets.blind_choices and G.P_BLINDS then
+\t\tlocal bc = G.GAME.round_resets.blind_choices
+\t\tif bc.Small and not G.P_BLINDS[bc.Small] then bc.Small = "bl_small" end
+\t\tif bc.Big and not G.P_BLINDS[bc.Big] then bc.Big = "bl_big" end
+\t\tif bc.Boss and not G.P_BLINDS[bc.Boss] then
+\t\t\tlocal _ok_nb, _nb = pcall(get_new_boss)
+\t\t\tbc.Boss = (_ok_nb and _nb) or "bl_hook"
+\t\tend
+\tend
+end
+
+"""
+open(gameset_path, 'w').write(gtext.replace(anchor, wrapper + anchor, 1))
+print("CRY_BLIND_CHOICE_GUARD: gameset.lua sweep sanitize added")
+PYEOF
+    if grep -q "CRY_BLIND_CHOICE_GUARD" "$overrides_f" && grep -q "CRY_BLIND_CHOICE_GUARD" "$gameset_f"; then
+        log_success "CRY_BLIND_CHOICE_GUARD applied (stale blind_choices sanitized + guarded)"
+    else
+        log_error "CRY_BLIND_CHOICE_GUARD did not apply — check anchors"
         exit 1
     fi
 }
