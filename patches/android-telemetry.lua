@@ -146,6 +146,52 @@ local function reset_draw_stats()
     TEL.cnv_sum = 0
 end
 
+-- forward declaration: tel is ASSIGNED below (after the gates), but the
+-- early-defined collectors reference it — without this the references
+-- compile as a nil global (the scoping trap, caught a third time 2026-06-12
+-- via shsw_frame_end; runtime-only call paths hide it until they fire)
+local tel
+
+-- SHSW attribution (Tier-2a targeting): getStats says shader switches track
+-- UI element count (455-830/frame at blind select), but not WHO issues them.
+-- Wrap love.graphics.setShader: while telemetry collects, count raw calls
+-- per frame (vs getStats' actual switches — the delta is redundant binds,
+-- i.e. elision potential); and on ONE armed frame per PERF window, bucket
+-- every call by caller source:line (~800 debug.getinfo calls once per 5s).
+-- Idle cost: one upvalue boolean check per setShader call.
+local shsw_on = false           -- mirrors (log_on or home_on); set in apply_gates
+local shsw_attr_armed = false   -- one-frame attribution, armed per PERF window
+local shsw_calls = 0            -- raw calls this frame
+TEL.shsw_calls_sum = 0          -- summed per window (drained with draw stats)
+local shsw_sites = {}
+local _setShader = love.graphics.setShader
+love.graphics.setShader = function(...)
+    if shsw_on then
+        shsw_calls = shsw_calls + 1
+        if shsw_attr_armed then
+            local fi = debug.getinfo(2, "Sl")
+            local key = fi and ((fi.short_src or "?") .. ":" .. (fi.currentline or 0)) or "?"
+            shsw_sites[key] = (shsw_sites[key] or 0) + 1
+        end
+    end
+    return _setShader(...)
+end
+local function shsw_frame_end()
+    -- called from the Game:draw wrapper each sampled frame
+    TEL.shsw_calls_sum = TEL.shsw_calls_sum + shsw_calls
+    shsw_calls = 0
+    if shsw_attr_armed then
+        shsw_attr_armed = false
+        local top = {}
+        for k, n in pairs(shsw_sites) do top[#top + 1] = { k = k, n = n } end
+        table.sort(top, function(a, b) return a.n > b.n end)
+        for i = 1, math.min(#top, 8) do
+            tel("SHSW_AT", { src = top[i].k:gsub("[%s=]", "_"), n = top[i].n })
+        end
+        if next(shsw_sites) then shsw_sites = {} end
+    end
+end
+
 -- JIT trace-abort visibility: every abort leaves that path interpreted (the
 -- bimodal frame-time cliff measured on-device). Aggregate aborts per
 -- (source:line, reason) and flush a summary with each PERF_SNAPSHOT.
@@ -235,6 +281,7 @@ local function apply_gates(want_log, want_home)
         -- and JIT engine pay nothing while telemetry is off
         EVQ_PROF = nil
         set_jit_hook(false)
+        shsw_on = false
     end
     if (want_log or want_home) and not (log_on or home_on) then
         -- activation edge: start the reporting windows now, not at t=0
@@ -248,6 +295,8 @@ local function apply_gates(want_log, want_home)
         EVQ_PROF = evq_prof_new()
         set_jit_hook(true)
         reset_draw_stats()
+        shsw_on = true
+        TEL.shsw_calls_sum = 0
         -- resync the STATE baseline: a re-enable mid-game would otherwise
         -- emit a transition whose 'from' is the stale pre-disable state.
         -- (Gesture baselines are left alone — their events carry no 'from',
@@ -268,7 +317,8 @@ local function apply_gates(want_log, want_home)
     end
 end
 
-local function tel(event, data)
+-- assigns the forward-declared local (see SHSW block above)
+function tel(event, data)
     if log_on == false and home_on == false then return end
     local parts = {"[TEL]", event}
     if data then
@@ -488,8 +538,15 @@ function Game:update(dt)
             snap.shsw_avg = math.floor(TEL.shsw_sum / n + 0.5)
             snap.shsw_max = TEL.shsw_max
             snap.cnv_avg = math.floor(TEL.cnv_sum / n + 0.5)
+            -- raw setShader CALLS vs actual switches: the gap is redundant
+            -- binds (elision potential for Tier-2a)
+            snap.shsw_set_avg = math.floor(TEL.shsw_calls_sum / n + 0.5)
+            TEL.shsw_calls_sum = 0
             reset_draw_stats()
         end
+        -- Tier-2a: attribute every setShader call of ONE upcoming frame to
+        -- its caller (SHSW_AT events emitted from the draw wrapper)
+        shsw_attr_armed = true
         -- Tier-0a: event-handler totals for the window
         local _ep = EVQ_PROF
         if _ep then
@@ -720,6 +777,7 @@ function Game:draw(...)
         TEL.shsw_sum = TEL.shsw_sum + ss
         if ss > TEL.shsw_max then TEL.shsw_max = ss end
         TEL.cnv_sum = TEL.cnv_sum + (_gstats.canvasswitches or 0)
+        shsw_frame_end()
     end
     return r
 end
