@@ -24,7 +24,8 @@ def patch_main_lua(filepath):
     already_istouch_move = 'HID_ISTOUCH_MOVE_FIX' in content
     already_jitopt = 'JIT_OPT_RAISE' in content
     already_amulet = 'AMULET_ROOT_MOUNT' in content or '_mod_dir_amulet' not in content
-    if already_android and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_jitopt and already_amulet:
+    already_resize = 'ANDROID_RESIZE_CONTAIN' in content
+    if already_android and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_jitopt and already_amulet and already_resize:
         print("Already patched")
         return
 
@@ -79,6 +80,50 @@ assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Faile
             content = content.replace(mount_block, mount_replacement, 1)
         else:
             print("WARNING: Amulet mount block anchor not found — AMULET_ROOT_MOUNT NOT applied")
+
+    # 0c. ANDROID_RESIZE_CONTAIN: love.resize refuses portrait — `if w/h < 1
+    # then h = w/1` — computing layout, canvas size and WINDOWTRANS for a
+    # square w×w region while the surface stays w×H (canvas presents at
+    # origin: dead band fills the rest). On the foldable, portrait and
+    # split-screen surfaces are NORMAL (inner screen portrait is ratio 0.83),
+    # so screen switches feel broken. The scale math itself is sound absolute
+    # contain (window_prev algebraically cancels), so the fix is narrow:
+    # on Android allow any aspect down to 0.6 (real height flows into layout,
+    # canvas and touch geometry; the room centers via the existing formula),
+    # keeping a far rarer clamp for extreme slivers. Trade-off: tall surfaces
+    # can show card staging pop-in above/below the room (the clamp's original
+    # purpose) — cosmetic, versus a dead fifth of the screen. Also: open
+    # overlay menus get the same recalculate() that buttons/HUD already get,
+    # or a screen switch with a menu open leaves it on stale geometry.
+    if 'ANDROID_RESIZE_CONTAIN' not in content:
+        old_clamp = """function love.resize(w, h)
+	if w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
+		h = w/1
+	end"""
+        new_clamp = """function love.resize(w, h)
+	-- ANDROID_RESIZE_CONTAIN: see scripts/patch_main_lua.py section 0c
+	if love.system.getOS() == 'Android' then
+		if w/h < 0.6 then h = w/0.6 end
+	elseif w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
+		h = w/1
+	end"""
+        if old_clamp in content and content.count(old_clamp) == 1:
+            content = content.replace(old_clamp, new_clamp, 1)
+        else:
+            print("WARNING: resize clamp anchor not found — ANDROID_RESIZE_CONTAIN NOT applied")
+
+        old_recalc = """		if G.buttons then G.buttons:recalculate() end
+		if G.HUD then G.HUD:recalculate() end"""
+        new_recalc = """		if G.buttons then G.buttons:recalculate() end
+		if G.HUD then G.HUD:recalculate() end
+		-- ANDROID_RESIZE_CONTAIN: open overlays must re-layout too (pcall:
+		-- a mid-removal overlay must not crash the resize handler)
+		if G.OVERLAY_MENU then pcall(function() G.OVERLAY_MENU:recalculate() end) end
+		if G.OVERLAY_TUTORIAL and G.OVERLAY_TUTORIAL.recalculate then pcall(function() G.OVERLAY_TUTORIAL:recalculate() end) end"""
+        if old_recalc in content and content.count(old_recalc) == 1:
+            content = content.replace(old_recalc, new_recalc, 1)
+        else:
+            print("WARNING: resize recalc anchor not found — overlay recalc NOT applied")
 
     # 1. Add require path fix and package.preload before SMODS = {}
     smods_init = "SMODS = {}"
