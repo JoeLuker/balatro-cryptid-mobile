@@ -984,12 +984,62 @@ end
 -- Hook error handler to log crashes with context
 local _original_errorhandler = love.errorhandler
 love.errorhandler = function(msg)
+    -- the handler runs on top of the erroring stack (xpcall handler), so
+    -- debug.traceback here sees the real error frames — same trick the
+    -- vanilla crash screen uses. Keep it compact: strip the header and the
+    -- C/boot frames, one line per frame joined with " | ".
+    local trace = ""
+    pcall(function()
+        trace = debug.traceback("", 2) or ""
+        trace = trace:gsub("stack traceback:%s*", "")
+            :gsub("%s*\n%s*", " | ")
+            :gsub("%[C%]: in [^|]*|? ?", "")
+            :sub(1, 600)
+    end)
+    -- the erroring frames are still live under this handler, so pull `self`
+    -- out of the innermost method frame (debug.getlocal) and identify the
+    -- object that died — the traceback alone is the same per-frame update
+    -- chain no matter which moveable crashed.
+    local who = ""
+    pcall(function()
+        for lvl = 2, 24 do
+            if not debug.getinfo(lvl, "f") then break end
+            local name, val = debug.getlocal(lvl, 1)
+            if name == "self" and type(val) == "table" then
+                local parts = {}
+                for _, cls in ipairs({ "Card", "CardArea", "UIBox", "UIElement",
+                    "DynaText", "AnimatedSprite", "Sprite", "Particles", "Blind",
+                    "Moveable", "Node" }) do
+                    local c = rawget(_G, cls)
+                    local ok, r = pcall(function() return c and val.is and val:is(c) end)
+                    if ok and r then parts[#parts + 1] = cls; break end
+                end
+                if val.config and val.config.id then parts[#parts + 1] = "id:" .. tostring(val.config.id) end
+                if val.label then parts[#parts + 1] = "label:" .. tostring(val.label) end
+                if val.config and val.config.object then parts[#parts + 1] = "obj:" .. tostring(val.config.object) end
+                if val.UIBox and val.UIBox.config and val.UIBox.config.id then
+                    parts[#parts + 1] = "uibox:" .. tostring(val.UIBox.config.id)
+                end
+                if val.T then
+                    parts[#parts + 1] = string.format("T(%s,%s,%s,%s)",
+                        tostring(val.T.x), tostring(val.T.y), tostring(val.T.w), tostring(val.T.h))
+                end
+                if val.VT then
+                    parts[#parts + 1] = string.format("VT(%s,%s)", tostring(val.VT.w), tostring(val.VT.h))
+                end
+                who = table.concat(parts, " "):sub(1, 300)
+                break
+            end
+        end
+    end)
     tel("CRASH", {
         state = get_state_name(G and G.STATE),
         stage = STAGE_NAMES[G and G.STAGE] or "unknown",
         ante = G and G.GAME and G.GAME.round_resets and G.GAME.round_resets.ante or 0,
         round = G and G.GAME and G.GAME.round or 0,
-        error = tostring(msg):sub(1, 200):gsub("\n", " | ")
+        error = tostring(msg):sub(1, 200):gsub("\n", " | "),
+        trace = trace,
+        who = who
     })
     pcall(flush)  -- dying words must reach the file
     if _original_errorhandler then
