@@ -226,3 +226,76 @@ Per-frame allocation hotspots are measured via an autorun Lua bench wired throug
 ### Warp artifact regression window
 User reported shader warp artifacts that were NOT present "earlier today at ~3pm" but appear now when moving cards around — pointing to a regression introduced by commits between 3pm and the session. Recent commits in the window touch shader range reduction (`glitched.fs` MALI_RANGE_FIX), DynaText glyph cache, and released_on liveness guards — these are the prime suspects for a future bisect.
 <!-- session:2026-06-10-8b8b54c2 | commit:4b9164d06f5b5620cb9e09483d276ec37f701841 | files:shaders/glitched.fs,build/game/main.lua | area:shaders | date:2026-06-10 -->
+
+### released_on lifecycle contract (root cause of two device bugs): sticky-fingers' per-drag buy-target nodes are destroyed by drag-end cleanup BEFORE the controller's released_on dispatch runs in the same frame. Node:remove nils G.CONTROLLER.released_on.target on removal — so the dispatch either crashed on nil (the SMODS_BOOSTER_OPENED Pull crash) or, once nil-guarded, silently swallowed buys (voucher drag-to-buy 'not working'). Fix RELEASED_ON_PENDING_KEEP (b0ba883): Node:remove leaves released_on.target alone while a dispatch is pending (handled==false); dispatching on a just-removed node is correct because the release callback acts on the CARD. Diagnosed entirely via phone-home telemetry: G_REL_SKIP events with card key proved the swallow in two drag attempts. Confirmed working on device by Joe.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:scripts/build.sh,docs/PERF-FINDINGS.md,scripts/telemetry-home.py,patches/android-telemetry.lua,justfile,/tmp/stale-pos-probe.lua,test/controller/run.lua,test/controller/fuzz.lua,/tmp/overlap-probe.lua,test/perf/alloc-bench-autorun.lua | area:test | date:2026-06-10 -->
+
+### Provenance logging is essential for input debugging
+Three consecutive failed fix attempts on the slide/tap bug were broken by the user pointing out "not enough provenance in the logs." Adding `src=<file:line>` call-site tags, click counts (`cl=`), and tap timing (`tap=`) to G_DSEL/G_HL/G_CLICK telemetry events revealed the actual gesture state machine flow. Without call-site provenance, the gesture traces were ambiguous about which code path triggered highlight add/remove.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:patches/android-telemetry.lua | area:patches | date:2026-06-10 -->
+
+### Touch gesture state machine signals
+Device gesture traces emit G_DSEL (drag-select state s=highlight/select/sc), G_HL (highlight add/rem with source + count n=), G_CLICK (area+card+src), G_HOVER/G_HOVER_IS, G_POPUP (description up/down), G_DRAG, G_STOPHOVER. Highlight operations originate from cardarea.lua:104 (remove), controller.lua:422 and card.lua:5180 (add). Card click routing goes through gameset.lua:645.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:patches/android-telemetry.lua | area:patches | date:2026-06-10 -->
+
+### Phone-home beats local watcher for device telemetry
+Replaced a polling watcher with the device POSTing telemetry directly (telemetry-home.py receiver). User explicitly questioned why a watcher was needed when the device could phone home — phone-home is the cleaner pattern for pulling device-side traces back to the dev machine.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:scripts/telemetry-home.py,patches/android-telemetry.lua,justfile | area:scripts | date:2026-06-10 -->
+
+### Android mod-config persistence maze, fully mapped 2026-06-10
+(1) love save dir = files/save/game/ — files/save/Mods is the deploy overlay, INVISIBLE to love.filesystem; the deploy config-preservation that backs up files/save/Mods/**/config.lua protects files the game never reads or writes (mods load from the embedded game.love archive; runtime Talisman code is the lovely-merged copy inside main.lua, NOT Mods/Talisman/talisman.lua). (2) love.filesystem.write fails silently when parent dirs are missing AND createDirectory does not recurse on this device — fixed in android-nativefs shim (ensure_parent_dirs) which un-breaks ALL SMODS mod config saves. (3) Talisman score-type UI persists break_infinity='' (vanilla scoring) which crash-loops boot since this pack requires omeganum (Big nil -> number_format indexes a plain number, main.lua:1633); clamped at config read (TAL_BREAKINF_CLAMP) + pcall'd STR_UNPACK (TAL_CFG_SAFE_UNPACK) since love.filesystem.write isn't atomic. (4) apply_android_smods_path_fix in build.sh is defined but NEVER CALLED — patch_main_lua.py superseded it; don't add patches there. (5) Quit button: vanilla never sets F_QUIT_BUTTON=false on Android (Switch/PS do) — quit gave a black lingering activity and dropped sub-30s settings changes (F_SAVE_TIMER=30 on Android, quit path never flushed FILE_HANDLER); fixed by hiding the button + QUIT_FLUSH (parallel session, 577e89e).
+<!-- session:2026-06-10-20d898da | commit:72617555988b19873ad71d55ef4dec99af5b4723 | files:scripts/build.sh,patches/android-nativefs.lua,scripts/patch_main_lua.py | area:scripts | date:2026-06-10 -->
+
+### Telemetry/logging default-off
+Telemetry and general logging are now opt-in via in-game consent toggles, defaulting OFF. Motivation is distribution to non-developer users (sibling) where file generation on their device should be minimal until explicitly consented.
+<!-- session:2026-06-10-64ffe7b7 | commit:b0ba883aac15cc64e1e41f2856f120e5512b96fb | files:patches/android-telemetry.lua,test/telemetry-gate-autorun.lua | area:patches | date:2026-06-10 -->
+
+### PATCH TARGETING RULE for this pack
+Talisman (and any lovely-injected mod) code exists in TWO copies — Mods/<mod>/<file>.lua (dead code on Android) and the lovely-merged copy inside main.lua (what actually executes). Any applier patching Talisman behavior MUST target build/game/main.lua (or both). Bitten twice on 2026-06-10: TAL_CONFIG_PERSIST (config writes) and NF_BIG_CACHE (heap churn fix inert on-device until re-applied to main.lua).
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:docs/PERF-FINDINGS.md,scripts/build.sh | area:docs | date:2026-06-11 -->
+
+### Telemetry patch uses undefined globals at risk of nil-call crashes
+`android-telemetry.lua:376` called `card_key_of`, a global that doesn't exist in this build, crashing inside the Cryptid `gameset.lua` update chain. Telemetry helpers must be locally defined or nil-guarded before call.
+<!-- session:2026-06-11-5c5d19d5 | commit:544afafbf05dc2a15b8d40a11d1a173af3adff33 | files:patches/android-telemetry.lua | area:patches | date:2026-06-11 -->
+
+### PERF_SNAPSHOT telemetry schema
+Performance snapshots emit `fps`, `gc_kb`, `dt_avg_ms`, `dt_max_ms`, object counts (`n_node`, `n_mov`, `n_ui`, `n_card`), `n_moves`, and `state`. Observed `SELECTING_HAND` at ~28-36 fps with `n_mov`/`n_card` in the 120-165 range and `n_moves` 700-800 — high moveable/card counts correlate with the framerate dip.
+<!-- session:2026-06-11-5c5d19d5 | commit:544afafbf05dc2a15b8d40a11d1a173af3adff33 | files:patches/android-telemetry.lua | area:patches | date:2026-06-11 -->
+
+### Deploy is gated
+Deploying to the phone requires `BALATRO_DEPLOY_PHONE=1 ./scripts/build.sh deploy` — the phone is Joe's device, not CI.
+<!-- session:2026-06-11-5c5d19d5 | commit:544afafbf05dc2a15b8d40a11d1a173af3adff33 | files:scripts/build.sh | area:scripts | date:2026-06-11 -->
+
+### Move-pass cost dominates update time
+Live PERF_SNAPSHOT telemetry consistently shows `move` (~4-7ms) and `update` (~3-6ms) as the largest contributors to per-frame update time, with `n_mov` (moveables) in the 180-240 range and FPS in the 30-44 band. The MOVEABLE_SLEEP optimization (settled moveables sleeping through the move pass) targets exactly this.
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:test/perf/moveable-bench-autorun.lua,patches/android-telemetry.lua | area:test | date:2026-06-11 -->
+
+### Heap census roots
+Repeated CENSUS telemetry shows `G.STAGE_OBJECTS` (~108k-146k objects) and `G.DRAW_HASH` (~131k-138k) as the dominant heap roots, with `G.MOVEABLES`, `G.P_CENTER_POOLS`, and `G.P_JOKER_RARITY_POOLS` as secondary contributors. Heap climbs into the 130-225MB range during play.
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:docs/PERF-FINDINGS.md,scripts/build.sh,scripts/build.sh,scripts/build.sh,scripts/build.sh | area:scripts | date:2026-06-11 -->
+
+### Telemetry is the source of truth, not snapshots
+The developer explicitly wants analysis driven by live telemetry (PERF_SNAPSHOT, CENSUS, CRASH, G_HOVER/DRAG/USE events) streamed from the phone via monitors, not from static heap snapshots, which he considers useless.
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:docs/PERF-FINDINGS.md,scripts/build.sh,scripts/build.sh,scripts/build.sh,scripts/build.sh | area:scripts | date:2026-06-11 -->
+
+### Build stamp confirms running version
+The build-stamp system exists specifically so the developer can visually confirm on the phone's home screen which build is live; the version already displays on the home screen (no separate version display should be created).
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:docs/PERF-FINDINGS.md,scripts/build.sh,scripts/build.sh,scripts/build.sh,scripts/build.sh | area:scripts | date:2026-06-11 -->
+
+### WebSearch 400 'tool_choice forces tool use is not compatible with this model' on fable sessions: fable-class models categorically reject forced tool_choice (verified vs live API, independent of thinking). Claude Code's WebSearch sub-request forces the web_search tool on the session model — broken upstream through 2.1.173. Fixed locally in claude-cache-proxy (/etc/nixos/packages/claude-cache-proxy, commit dc976c8): downgrades forced tool_choice to auto on fable models; metric tool_choice_downgrades on :11801/metrics.
+<!-- session:2026-06-11-78ee74c8 | commit:846251ffafbe938f483a019cedca5a8c7cfcab3a | files:scripts/build.sh,test/event/diff.lua | area:scripts | date:2026-06-11 -->
+
+### draw-call baseline 2026-06-11
+shsw_avg=455 at settled BLIND_SELECT (n_card=213, n_ui=11). shsw scales linearly with n_ui — each UIElement issues its own shader-bound draw. uiboxes cost is 0.03ms/ui-element. This is the Tier-1 SpriteBatch target: batch UI elements sharing the same atlas/shader to collapse shsw_avg from 455→~20. game.lua:3521 = create_UIBox_blind_select() = 260ms (Cryptid-overloaded blind screen). EVQ_BURST_ATTRIB working: first EV_SLOW events confirm per-handler attribution is live.
+<!-- session:2026-06-11-a9a3a8a9 | commit:24cfd8bc95a6247fa012c4dd8e38e977b5124246 | files:docs/PERF-FINDINGS.md | area:docs | date:2026-06-11 -->
+
+### n_ui telemetry was n_ui_total (#G.I.UIBOX) which includes attention_text animation boxes excluded from the uiboxes draw loop (game.lua:3011 filter). The 88->11 settling sequence at BLIND_SELECT is almost entirely these transient attention_text boxes expiring, not structural draw roots. uiboxes ms barely moves (2.56->1.72) because those boxes don't go through the measured codepath. Fixed 2026-06-11: telemetry now emits n_ui_s (structural, matching the draw loop filter) and n_ui_total separately. Old 'linear scaling at ~0.03ms/element' claim is an artifact — actual shape is large fixed floor ~1.7ms from a few heavy roots plus ~0.01ms marginal per structural element.
+<!-- session:2026-06-11-3389ebda | commit:53f0e07828558114782bd1c0d2d03b9d2de13f63 | files:mods/Cryptid/items/epic.lua,mods/Cryptid/items/misc_joker.lua,patches/android-telemetry.lua,scripts/build.sh,build/game/android-telemetry.lua,/etc/nixos/packages/claude-cache-proxy/main.go,docs/PERF-FINDINGS.md | area:mods | date:2026-06-11 -->
+
+### Cryptid disable architecture (2026-06-11/12 session)
+SMODS toggle is a footgun on this APK (lovely half baked into game files; STRUCTURAL_MODS_LOCK ignores .lovelyignore for Cryptid/Amulet/sticky-fingers). Sanctioned switch = CRY_VANILLA_GAMESET (4th gameset, every center resolves 'disabled' through Cryptid.enabled's 62 consumers; switcher added to Cryptid config tab — upstream has none). Mid-run disables remove blinds from G.P_BLINDS → stale blind_choices crash (CRY_BLIND_CHOICE_GUARD sanitizes after the registry sweep). Forcetrigger recursion bounded centrally at depth 20 (CRY_FORCETRIGGER_DEPTH_GUARD, ATLOG names culprit). All four upstreamable to Cryptid.
+<!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,/home/jluker/.claude/plans/declarative-launching-origami.md,patches/android-telemetry.lua,scripts/regen-dump.sh,scripts/build.sh,scripts/patch_main_lua.py,test/gameset/vanilla-autorun.lua,test/gameset/run.sh | area:scripts | date:2026-06-12 -->
+
+### NUGC_ADAPTIVE limit found (2026-06-12, deep-run session)
+burst peaks grow with run depth (187/229/215/316MB across one session); at 316MB the 300MB emergency full-collect fired = multi-second 1fps hitch, then clean recovery to 93MB. Churn is NOT OmegaNum (cdata post-Amulet) — suspects: scoring-overlay string.format per co.update, eval-table turnover at GAMESPEED 4. Next perf item (ahead of Tier-2a on UX): NUGC v2 — budget cap scales past 4ms under pressure + opportunistic full-collect at state transitions when heap >200MB (hide the big collect in natural pauses).
+<!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,/home/jluker/.claude/plans/declarative-launching-origami.md,patches/android-telemetry.lua,scripts/regen-dump.sh,scripts/build.sh,scripts/patch_main_lua.py,test/gameset/vanilla-autorun.lua,test/gameset/run.sh,test/resize/resize-autorun.lua | area:scripts | date:2026-06-12 -->

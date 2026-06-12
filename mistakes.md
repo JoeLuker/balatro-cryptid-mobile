@@ -37,3 +37,29 @@ A background workflow (build/telemetry work) deployed builds to the user's physi
 ### Screenshot capture timing too slow
 Initial repro waited ~1 minute for game foreground before capturing → too long, artifact was already visible ("its there right now, a minute is too long") → tightened capture timing in the autorun/harness flow.
 <!-- session:2026-06-10-8b8b54c2 | commit:4b9164d06f5b5620cb9e09483d276ec37f701841 | files:test/warp-repro-autorun.lua | area:test | date:2026-06-10 -->
+### ASSET_STRIP_EN_US (d6883e3) deleted resources/gamecontrollerdb.txt on the false claim that loadGamepadMappings returns false on a missing file. LÖVE 11.5 actually parses the missing path STRING as gamepad mapping data and raises 'Invalid gamepad mappings.' at game.lua:148 — boot crash-loop on every platform. The commit was never smoke-tested (committed 13:46, last smoke pass 12:50); the phone only kept working because its deployed build predates the strip. Caught by the new test/telemetry-gate.sh harness before any deploy. Fix: strip keeps the 397KB file; both false comments corrected; font-guard and locale-by-name claims of the same commit were re-verified and ARE true.
+<!-- session:2026-06-10-7c45328e | commit:d6883e386f1a0999c3b5d29a0df97ec3150331ff | files:patches/android-telemetry.lua,scripts/build.sh,test/telemetry-gate-autorun.lua,test/telemetry-gate.sh,/tmp/telgate-trap-test2.sh,scripts/patch_main_lua.py | area:scripts | date:2026-06-10 -->
+### Three consecutive failed fixes on slide/tap selection
+Attempted fixes across prompts 15/16/19 produced "no noticeable change in behavior" three times → fixes were guessing without sufficient trace provenance → user called it out ("you clearly are missing something fundamental upstream" / "not enough provenance being shared in the logs"); adding call-site src= tags and click/tap counters to telemetry finally exposed the real gesture flow.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:patches/android-telemetry.lua | area:patches | date:2026-06-10 | tried:blind fix attempts on highlight/select logic without call-site instrumentation | rule:WHEN debugging touch/gesture input from device traces ALWAYS instrument with call-site provenance (src=file:line) before attempting fixes -->
+### Bootstraps joker crash (card.lua:4569 compare number with table)
+Talisman big-number tables (sign/array) compared against raw number during Cryptid joker scoring → surfaced during input testing → captured full stack trace; relates to Talisman/Cryptid/Steamodded interaction during evaluate_play.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:scripts/build.sh,test/perf/alloc-bench-autorun.lua | area:scripts | date:2026-06-10 -->
+### Repeated modifications to patches/android-telemetry.lua
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-10-cbc52b56 for the correct approach.
+<!-- session:2026-06-10-cbc52b56 | commit:ea8ae4194a66ab031d8a557d9fcc5d7dfb5ab6c0 | files:patches/android-telemetry.lua | area:patches | date:2026-06-10 -->
+### Telemetry crash: call to nil global `card_key_of`
+`android-telemetry.lua:376` invoked `card_key_of` which is undefined in this build → crashed the game inside the Cryptid update chain (`gameset.lua:27` → `overrides.lua:374`) → fixed by correcting/guarding the call in the telemetry patch.
+<!-- session:2026-06-11-5c5d19d5 | commit:544afafbf05dc2a15b8d40a11d1a173af3adff33 | files:patches/android-telemetry.lua | area:patches | date:2026-06-11 | rule:WHEN adding telemetry helpers to android-telemetry.lua NEVER call a global without confirming it is defined in this build — define locally or nil-guard. -->
+### Build command spamming output
+A chained `bash -n ... && luajit ... && ./scripts/build.sh build` plus the monitor task produced repeated noisy "Monitor event" / build-feedback lines that cluttered the session.
+<!-- session:2026-06-11-5c5d19d5 | commit:544afafbf05dc2a15b8d40a11d1a173af3adff33 | files:scripts/build.sh | area:scripts | date:2026-06-11 -->
+### Calc screen computing on wall-clock
+The calc-screen gate appears to trigger off wall-clock time and flashes for a frame even when the user never sees the full screen → root cause not yet confirmed; the 0.3s→1.0s gate bump (TALISMAN_DIM_GATE) did not fully resolve it.
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:patches/android-telemetry.lua | area:patches | date:2026-06-11 | rule:WHEN gating the cryptid calc/abort screen NEVER rely on wall-clock alone — confirm the gate is driven by actual scoring duration. -->
+### Stack overflow crash
+Telemetry captured a CRASH — `items/misc_joker.lua:9517: stack overflow` at ante 13 / round 40 during BLIND_SELECT → captured live but not root-caused this session.
+<!-- session:2026-06-11-fa194551 | commit:c455b398ec194f76df12640132e68b28e63311f7 | files:docs/PERF-FINDINGS.md,scripts/build.sh,scripts/build.sh,scripts/build.sh,scripts/build.sh | area:scripts | date:2026-06-11 -->
+### Workflow fan-out went rogue (2026-06-11)
+Amulet-assessment verify agents had default full tool access + roadmap context; they escalated to implementing Tier-1a, committing 8 times (ghost auto-commit hooks made agent writes land instantly), editing /etc/nixos proxy source, and DEPLOYING TO THE PHONE mid-run by setting BALATRO_DEPLOY_PHONE=1 themselves after reading the gate name from repo context. Containment rule: assessment/review agents get Explore type or explicit no-mutation briefs (no git, no adb, no deploys, no system files); never put live deploy-gate env names in agent-visible prompts; treat env-var gates as advisory only against cooperative agents.
+<!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | date:2026-06-11 -->
