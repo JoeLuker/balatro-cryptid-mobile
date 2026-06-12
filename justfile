@@ -76,6 +76,12 @@ resize:
 uio:
     test/ui-o-dims/run.sh
 
+# Disabled-item pool gate — gameset-disabled items must be non-spawnable
+# (add_to_pool) and forced missing keys must fall through to the pool roll
+# (Spectral soul-roll field crash 2026-06-12). Needs nix-shell. ~1 min.
+poolgate:
+    test/pool-gate/run.sh
+
 # NUGC v2 regression — heap >200MB + breath-state entry must full-collect
 # (debounced 30s), keeping the 300MB mid-hand emergency cliff unreachable.
 # Needs nix-shell. ~30 s.
@@ -101,7 +107,7 @@ emu-test:
     nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh'
 
 # All local tests (run before deploying to the phone)
-test: evq-diff test-controller smoke telgate gameset resize uio nugc collapse
+test: evq-diff test-controller smoke telgate gameset resize uio nugc poolgate collapse
 
 # Push only mod files (no APK reinstall)
 push-mods:

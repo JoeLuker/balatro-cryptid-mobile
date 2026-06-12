@@ -204,6 +204,7 @@ patch_mods_dir() {
     apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
+    apply_smods_disabled_pool_gate "$mods_dir/Steamodded/src/utils.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
@@ -438,6 +439,7 @@ EOF
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     patch_mods_dir "$game_dir/Mods"
     apply_shake_trig_guard "$game_dir/functions/common_events.lua"
+    apply_forced_key_guard "$game_dir/functions/common_events.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_self_drop_exclude "$game_dir/engine/controller.lua"
@@ -838,6 +840,93 @@ PYEOF
         log_success "Cryptid events guard applied (SMODS.Events loops skip-guarded via next(G.GAME.events))"
     else
         log_warn "Cryptid events guard did not apply — check calculate.lua anchors"
+    fi
+}
+
+# CRY_DISABLED_POOL_GATE: Cryptid's gameset machinery (SMODS.Center._disable)
+# nils G.P_CENTERS[key] for disabled items but leaves them in side registries
+# like SMODS.Consumable.legendaries. SMODS's modded-souls roll in create_card
+# iterates that list gated only by SMODS.add_to_pool — which never checks
+# cry_disabled — so on the modest gameset a Spectral card generation could
+# force-roll the disabled c_cry_gateway and crash indexing the missing center
+# (field crash 2026-06-12, common_events.lua:2446, ~0.3%/spectral landmine).
+# Root fix: disabled prototypes are non-spawnable through add_to_pool, period.
+apply_smods_disabled_pool_gate() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "utils.lua not found at $f, skipping CRY_DISABLED_POOL_GATE"
+        return 0
+    fi
+    if grep -q "CRY_DISABLED_POOL_GATE" "$f"; then
+        log_info "CRY_DISABLED_POOL_GATE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """function SMODS.add_to_pool(prototype_obj, args)
+    if type(prototype_obj.in_pool) == "function" then"""
+new = """function SMODS.add_to_pool(prototype_obj, args)
+    if prototype_obj.cry_disabled then return false end -- CRY_DISABLED_POOL_GATE
+    if type(prototype_obj.in_pool) == "function" then"""
+
+if old not in text or text.count(old) != 1:
+    print("ERROR: add_to_pool anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("CRY_DISABLED_POOL_GATE applied")
+PYEOF
+    if grep -q "CRY_DISABLED_POOL_GATE" "$f"; then
+        log_success "CRY_DISABLED_POOL_GATE applied (disabled items non-spawnable via add_to_pool)"
+    else
+        log_error "CRY_DISABLED_POOL_GATE did not apply — check utils.lua anchor"
+        exit 1
+    fi
+}
+
+# FORCED_KEY_GUARD: create_card's forced_key path indexes G.P_CENTERS
+# blindly; any caller or roll that forces a key whose center is missing
+# (gameset-disabled item left in a side registry) crashes mid-spawn. Fall
+# through to the normal pool roll instead, loudly (ATLOG FORCED_KEY_MISSING)
+# — observability for registry inconsistencies, not a silent mask: the pool
+# gate above is the actual fix for the known source.
+apply_forced_key_guard() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "common_events.lua not found, skipping FORCED_KEY_GUARD"
+        return 0
+    fi
+    if grep -q "FORCED_KEY_GUARD" "$f"; then
+        log_info "FORCED_KEY_GUARD already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """    if forced_key and not G.GAME.banned_keys[forced_key] then \n        center = G.P_CENTERS[forced_key]
+        _type = (center.set ~= 'Default' and center.set or _type)"""
+new = """    if forced_key and not G.P_CENTERS[forced_key] then -- FORCED_KEY_GUARD
+        if ATLOG then ATLOG("FORCED_KEY_MISSING", { key = tostring(forced_key), t = tostring(_type) }) end
+        forced_key = nil
+    end
+    if forced_key and not G.GAME.banned_keys[forced_key] then \n        center = G.P_CENTERS[forced_key]
+        _type = (center.set ~= 'Default' and center.set or _type)"""
+
+if old not in text or text.count(old) != 1:
+    print("ERROR: forced_key anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("FORCED_KEY_GUARD applied")
+PYEOF
+    if grep -q "FORCED_KEY_GUARD" "$f"; then
+        log_success "FORCED_KEY_GUARD applied (missing forced centers fall through to pool, logged)"
+    else
+        log_error "FORCED_KEY_GUARD did not apply — check common_events.lua anchor"
+        exit 1
     fi
 }
 
