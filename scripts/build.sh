@@ -216,6 +216,7 @@ patch_mods_dir() {
     apply_cry_blind_choice_guard \
         "$mods_dir/Cryptid/lib/overrides.lua" \
         "$mods_dir/Cryptid/lib/gameset.lua"
+    apply_cry_forcetrigger_depth_guard "$mods_dir/Cryptid/lib/forcetrigger.lua"
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
 }
 
@@ -3611,6 +3612,54 @@ PYEOF
         log_success "CRY_VANILLA_GAMESET applied (4th gameset: all Cryptid content off)"
     else
         log_error "CRY_VANILLA_GAMESET did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# CRY_FORCETRIGGER_DEPTH_GUARD: Cryptid.forcetrigger -> eval_card with
+# context.forcetrigger=true -> the card's calculate -> which may call
+# Cryptid.forcetrigger again (chained / copied force-trigger jokers).
+# NOTHING enforces a bound centrally — each joker must individually respect
+# context.forcetrigger, and any pair that doesn't recurses to a C-stack
+# overflow with NO traceback ("stack overflow", no source location —
+# observed on-device 2026-06-11 ~1s after NEW_ROUND on the ante -20 grind
+# run; DEMICOLON_NO_CHAIN fixed one instance of the class, this bounds the
+# class itself, upstreamably). Wrapper post-define: depth-bounded, pcall'd
+# so the counter survives errors, ATLOG names the culprit card when the
+# bound trips (20 levels is far beyond any legitimate cascade).
+apply_cry_forcetrigger_depth_guard() {
+    local f="$1"
+    if grep -q "CRY_FORCETRIGGER_DEPTH_GUARD" "$f"; then
+        log_info "CRY_FORCETRIGGER_DEPTH_GUARD already applied"
+        return 0
+    fi
+    cat >> "$f" <<'LUAEOF'
+
+-- CRY_FORCETRIGGER_DEPTH_GUARD: see build.sh applier comment. Central bound
+-- on the forcetrigger -> eval_card -> calculate -> forcetrigger recursion
+-- class (per-joker context.forcetrigger checks are opt-in and incomplete).
+local _cry_ft_ref = Cryptid.forcetrigger
+local _cry_ft_depth = 0
+function Cryptid.forcetrigger(card, context)
+	if _cry_ft_depth >= 20 then
+		if ATLOG then
+			ATLOG("CRY_FT_DEPTH", { card = card and card.ability and card.ability.name or "?" })
+		end
+		return {}
+	end
+	_cry_ft_depth = _cry_ft_depth + 1
+	local _ok, _results = pcall(_cry_ft_ref, card, context)
+	_cry_ft_depth = _cry_ft_depth - 1
+	if not _ok then
+		error(_results, 0)
+	end
+	return _results
+end
+LUAEOF
+    if grep -q "CRY_FORCETRIGGER_DEPTH_GUARD" "$f"; then
+        log_success "CRY_FORCETRIGGER_DEPTH_GUARD applied (forcetrigger chains bounded at 20)"
+    else
+        log_error "CRY_FORCETRIGGER_DEPTH_GUARD did not apply"
         exit 1
     fi
 }
