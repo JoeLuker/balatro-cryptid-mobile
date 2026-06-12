@@ -91,6 +91,22 @@ fetch_sources() {
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
     fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
 
+    # CardSleeves (deck sleeves; its lovely patches — seed-gen reorder in
+    # Game:start_run, priority-ordered after Cryptid — are baked via
+    # scripts/regen-dump.sh). Release assets are version-named, so pin the
+    # tag explicitly.
+    if [[ ! -d "$MODS_DIR/CardSleeves" ]]; then
+        log_info "Fetching CardSleeves v1.9.2..."
+        curl -fL -o "$MODS_DIR/CardSleeves.zip" \
+            "https://github.com/larswijn/CardSleeves/releases/download/v1.9.2/CardSleeves-1.9.2.zip"
+        unzip -q -o "$MODS_DIR/CardSleeves.zip" -d "$MODS_DIR/"
+        rm "$MODS_DIR/CardSleeves.zip"
+        if [[ ! -d "$MODS_DIR/CardSleeves" ]]; then
+            mv "$MODS_DIR"/CardSleeves-* "$MODS_DIR/CardSleeves"
+        fi
+        log_success "CardSleeves fetched"
+    fi
+
     # Apply config overrides
     apply_config_overrides
 
@@ -205,6 +221,7 @@ patch_mods_dir() {
     apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
     apply_smods_disabled_pool_gate "$mods_dir/Steamodded/src/utils.lua"
+    apply_mod_toggle_removed      "$mods_dir/Steamodded/src/ui.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
@@ -381,7 +398,7 @@ build_apk() {
     # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Amulet sticky-fingers; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
             rm -rf "$game_dir/Mods/$mod/lovely"
@@ -926,6 +943,68 @@ PYEOF
         log_success "FORCED_KEY_GUARD applied (missing forced centers fall through to pool, logged)"
     else
         log_error "FORCED_KEY_GUARD did not apply — check common_events.lua anchor"
+        exit 1
+    fi
+}
+
+# MOD_TOGGLE_REMOVED: every mod on this build is structurally baked (lovely
+# patches compiled into the dump; STRUCTURAL_MODS_LOCK already makes the
+# SMODS mods-menu toggle a no-op for them). A toggle that writes
+# .lovelyignore but changes nothing is a lie — replace the control with an
+# inert "baked" label.
+apply_mod_toggle_removed() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "ui.lua not found at $f, skipping MOD_TOGGLE_REMOVED"
+        return 0
+    fi
+    if grep -q "MOD_TOGGLE_REMOVED" "$f"; then
+        log_info "MOD_TOGGLE_REMOVED already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """                                    create_toggle({
+                                    label = '',
+                                    ref_table = modInfo,
+                                    ref_value = 'should_enable',
+                                    col = true,
+                                    hide_label = true,
+                                    w = 0,
+                                    h = 0.2,
+                                    scale = 1,
+                                    callback = (
+                                        function(_set_toggle)
+                                            if not modInfo.should_enable then
+                                                NFS.write(modInfo.path .. '.lovelyignore', '')
+                                            else
+                                                NFS.remove(modInfo.path .. '.lovelyignore')
+                                            end
+                                            local toChange = 1
+                                            if modInfo.should_enable == not modInfo.disabled then
+                                                toChange = -1
+                                            end
+                                            SMODS.full_restart = SMODS.full_restart + toChange
+                                        end)
+                                    })"""
+new = """                                    -- MOD_TOGGLE_REMOVED: all mods on this build are
+                                    -- structurally baked; the enable toggle could only
+                                    -- half-unload them (proven crash 2026-06-11)
+                                    { n = G.UIT.T, config = { text = "baked", scale = 0.25, colour = G.C.UI.TEXT_INACTIVE } }"""
+
+if old not in text or text.count(old) != 1:
+    print("ERROR: mod toggle anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("MOD_TOGGLE_REMOVED applied")
+PYEOF
+    if grep -q "MOD_TOGGLE_REMOVED" "$f"; then
+        log_success "MOD_TOGGLE_REMOVED applied (mods-menu toggle replaced with inert baked label)"
+    else
+        log_error "MOD_TOGGLE_REMOVED did not apply — check ui.lua anchor"
         exit 1
     fi
 }
@@ -2459,7 +2538,7 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
-    for mod in Steamodded Cryptid Amulet sticky-fingers; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
             rm -rf "$transfer_dir/Mods/$mod/lovely"
@@ -4163,7 +4242,7 @@ table_def = """-- STRUCTURAL_MODS_LOCK: these mods' lovely patches are baked int
 -- shipped game files; the runtime toggle cannot remove that half, so
 -- disabling them only breaks the baked references (nil calls). The loader
 -- ignores their .lovelyignore markers.
-local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['eramdam.sticky-fingers'] = true }
+local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['eramdam.sticky-fingers'] = true, CardSleeves = true }
 
 """
 
