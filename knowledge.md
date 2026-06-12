@@ -299,3 +299,27 @@ SMODS toggle is a footgun on this APK (lovely half baked into game files; STRUCT
 ### NUGC_ADAPTIVE limit found (2026-06-12, deep-run session)
 burst peaks grow with run depth (187/229/215/316MB across one session); at 316MB the 300MB emergency full-collect fired = multi-second 1fps hitch, then clean recovery to 93MB. Churn is NOT OmegaNum (cdata post-Amulet) — suspects: scoring-overlay string.format per co.update, eval-table turnover at GAMESPEED 4. Next perf item (ahead of Tier-2a on UX): NUGC v2 — budget cap scales past 4ms under pressure + opportunistic full-collect at state transitions when heap >200MB (hide the big collect in natural pauses).
 <!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,/home/jluker/.claude/plans/declarative-launching-origami.md,patches/android-telemetry.lua,scripts/regen-dump.sh,scripts/build.sh,scripts/patch_main_lua.py,test/gameset/vanilla-autorun.lua,test/gameset/run.sh,test/resize/resize-autorun.lua | area:scripts | date:2026-06-12 -->
+
+### Heap census telemetry output
+The on-phone census emits `CENSUS root=<name> n=<count> at_mb=<heap_mb>` lines terminating in `CENSUS_DONE budget_left=<n>`. At 157 MB heap, the largest object-count roots were G.GAME (35156), G.CONTROLLER (32688), G.culled_table (25355), and G.P_CENTERS (21911), pointing at where retained Lua objects concentrate.
+<!-- session:2026-06-11-f4626447 | commit:79c3ad9efc1b02a5dae8c923e0d1038632937613 | files:docs/PERF-FINDINGS.md,patches/android-telemetry.lua | area:docs | date:2026-06-11 -->
+
+### Overlay geometry probing
+UIBox trees with major=G.ROOM_ATTACH lay out in ROOM-relative coords (ROOM_ATTACH is T={0,0,TILE_W,TILE_H} with container=ROOM); G.ROOM.T is canvas-space. Comparing UIElement.T against G.ROOM.T mixes spaces and gives false off-screen verdicts — visible room interior in tree-space is [0,TILE_W]x[0,TILE_H]. (Bit the AMULET_OVERLAY_FIT probe twice before the room-space verdict.)
+<!-- session:2026-06-12-820ab7f7 | commit:6953fbdb51dfcadb15d3a18c0667d66dd9ea1024 | files:scripts/build.sh,/tmp/ovp/overlay-probe.lua | area:scripts | date:2026-06-12 -->
+
+### Balatro UI engine
+UIT.O nodes with detached config.object (mid-teardown overlays) break UIBox:recalculate twice — calculate_xywh computes nil w/h and set_values writes T.w/T.h=nil, then set_values role wiring derefs the nil object and errors. If the recalculate caller pcalls (our resize handler), the error is swallowed and the half-mutated tree crashes move_wh a frame later with 'arithmetic on field w (nil)'. Fixed by UI_O_DETACHED applier (0x0 layout + role-wiring guard); regression test: just uio. General lesson: pcall around tree-mutating UI ops converts loud failures into delayed corruption — guard inside the mutation instead.
+<!-- session:2026-06-12-820ab7f7 | commit:6953fbdb51dfcadb15d3a18c0667d66dd9ea1024 | files:scripts/build.sh,/tmp/ovp/overlay-probe.lua,scripts/patch_main_lua.py,/tmp/foldcrash/fold-repro.lua,patches/android-telemetry.lua,test/resize/resize-autorun.lua,test/ui-o-dims/run.sh,justfile | area:scripts | date:2026-06-12 -->
+
+### Cryptid is prebaked into the build
+The mod cannot be functionally disabled at runtime by toggling it on a profile — mods are baked into the build artifact, so turning Cryptid off on a profile breaks things (its overrides/modifiers still load and then index nil values). Disabling must happen at the gameset/build layer, not runtime profile toggles.
+<!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:scripts/build.sh,scripts/patch_main_lua.py | area:scripts | date:2026-06-11 -->
+
+### Cryptid crash signatures
+Disabling Cryptid via profile produced `lib/overrides.lua:480: attempt to index a nil value` (SELECTING_HAND) and `lib/modifiers.lua:287: attempt to index field 'ability' (a nil value)` (PLAY_TAROT) — symptoms of partially-loaded Cryptid state.
+<!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,/home/jluker/.claude/plans/declarative-launching-origami.md,patches/android-telemetry.lua,patches/android-telemetry.lua | area:memory | date:2026-06-11 -->
+
+### Heap census interpretation
+Census telemetry roots shift with game state; `G.STAGE_OBJECTS`, `G.DRAW_HASH`, `G.localization`, `G.P_CENTER_POOLS`, and `G.MOVEABLES*` are dominant object holders. `G.DRAW_HASH` ballooned to 100k+ entries in some samples, flagging it as a growth area.
+<!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:patches/android-telemetry.lua | area:patches | date:2026-06-11 -->
