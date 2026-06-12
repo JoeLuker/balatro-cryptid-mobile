@@ -392,6 +392,15 @@ end
 -- (lib/overrides.lua:1385), clobbering any chunk-load-time wrap. That is why
 -- G_PRESS never fired from any prior build. Installing on the first
 -- Game:update frame wraps Cryptid's version instead.
+-- HAND_CALCS accumulator (filled by the calculate_joker wrap in
+-- install_late_hooks, emitted by the update hook at scoring-run end).
+-- hits = calls that returned an effect; the complement is the no-op
+-- fraction — the direct measure of how much of the jokers×contexts×reps
+-- sweep is wasted work.
+local CALC_ATTR = { total = 0, nhit = 0, joks = {}, hits = {}, ctx = {},
+    t0 = 0, tc0_runs = 0, tc0_coll = 0 }
+local calc_run_active = false
+
 local late_hooks_done = false
 local function install_late_hooks()
     late_hooks_done = true
@@ -420,6 +429,41 @@ local function install_late_hooks()
             return _qp(self, x, y, ...)
         end
     end
+    -- HAND_CALCS attribution: Amulet's "calculations" counter is one
+    -- increment per Card:calculate_joker call inside the scoring coroutine
+    -- (talisman/coroutine.lua) — a flat count with no memory of which joker
+    -- or which context. Wrap the same chokepoint (we load after Amulet, so
+    -- this is the outermost wrap and counts 1:1 with its counter) and
+    -- accumulate per-joker-key and per-context-kind tallies, scoped to the
+    -- coroutine exactly like Amulet's count. Emitted as HAND_CALCS by the
+    -- update hook when the scoring run ends.
+    if Card and Card.calculate_joker then
+        local _cj = Card.calculate_joker
+        function Card:calculate_joker(context)
+            if not (Talisman and Talisman.scoring_coroutine) then
+                return _cj(self, context)
+            end
+            local A = CALC_ATTR
+            A.total = A.total + 1
+            local key = self.config and self.config.center and self.config.center.key or '?'
+            A.joks[key] = (A.joks[key] or 0) + 1
+            local c = context
+            local ck = (c.repetition and 'rep') or (c.retrigger_joker and 'retrig')
+                or (c.other_joker and 'copy') or (c.individual and 'individual')
+                or (c.joker_main and 'main') or (c.before and 'before')
+                or (c.after and 'after') or (c.end_of_round and 'eor')
+                or (c.setting_blind and 'blind')
+                or (c.cardarea == G.play and 'play_pass')
+                or (c.cardarea == G.hand and 'hand_pass') or 'other'
+            A.ctx[ck] = (A.ctx[ck] or 0) + 1
+            local ret, trig = _cj(self, context)
+            if ret then
+                A.nhit = A.nhit + 1
+                A.hits[key] = (A.hits[key] or 0) + 1
+            end
+            return ret, trig
+        end
+    end
 end
 
 -- Hook Game:update to track state transitions and exp_recompute rate
@@ -440,6 +484,17 @@ function Game:update(dt)
         return _original_game_update(self, dt)
     end
 
+    -- HAND_CALCS baseline: a scoring run can start AND collapse inside the
+    -- update call below, so the collapse-stats baseline must be taken
+    -- pre-update while no run is active (a post-detection snapshot reads
+    -- counters the run already bumped).
+    if not calc_run_active then
+        local tcs = TRIGGER_COLLAPSE and TRIGGER_COLLAPSE.stats_total
+        CALC_ATTR.tc0_runs = tcs and tcs.runs or 0
+        CALC_ATTR.tc0_coll = tcs and tcs.collapsed_reps or 0
+        CALC_ATTR.t0 = love.timer.getTime()
+    end
+
     local exp_dt_before = self._exp_dt
     local result = _original_game_update(self, dt)
 
@@ -453,6 +508,52 @@ function Game:update(dt)
     TEL.frame_count = TEL.frame_count + 1
     TEL.frame_dt_sum = TEL.frame_dt_sum + rdt
     if rdt > TEL.frame_dt_max then TEL.frame_dt_max = rdt end
+
+    -- HAND_CALCS: emit the per-scoring-run calc attribution when the Amulet
+    -- coroutine winds down (truthy -> nil transition). One line per scored
+    -- hand: total calls, hit count (returned an effect), top jokers as
+    -- key:calls:hits, context-kind histogram, and the collapse engine's
+    -- delta for this run (runs/collapsed must explain — or indict — the
+    -- rep volume).
+    do
+        local sc = Talisman and Talisman.scoring_coroutine
+        if sc and not calc_run_active then
+            calc_run_active = true  -- baseline already captured pre-update
+        elseif not sc and calc_run_active then
+            calc_run_active = false
+            local A = CALC_ATTR
+            if A.total > 0 then
+                local top = {}
+                for k, n in pairs(A.joks) do top[#top + 1] = { k = k, n = n } end
+                table.sort(top, function(a, b) return a.n > b.n end)
+                local jparts = {}
+                for i = 1, math.min(#top, 10) do
+                    local t = top[i]
+                    jparts[i] = t.k .. ':' .. t.n .. ':' .. (A.hits[t.k] or 0)
+                end
+                local cparts = {}
+                for k, n in pairs(A.ctx) do cparts[#cparts + 1] = k .. ':' .. n end
+                table.sort(cparts)
+                local tcs = TRIGGER_COLLAPSE and TRIGGER_COLLAPSE.stats_total
+                tel("HAND_CALCS", {
+                    total = A.total,
+                    hits = A.nhit,
+                    noop_pct = string.format("%.1f", 100 * (A.total - A.nhit) / A.total),
+                    -- Amulet's own run clock (co.finish stamps it just before
+                    -- the coroutine winds down); wall t0 as fallback
+                    secs = string.format("%.2f", (G.GAME and G.GAME.LAST_CALC_TIME)
+                        or (love.timer.getTime() - A.t0)),
+                    njok = #top,
+                    amulet_calcs = (G.GAME and G.GAME.LAST_CALCS) or -1,
+                    tc_runs = tcs and (tcs.runs - A.tc0_runs) or -1,
+                    tc_collapsed = tcs and (tcs.collapsed_reps - A.tc0_coll) or -1,
+                    joks = table.concat(jparts, ","),
+                    ctx = table.concat(cparts, ","),
+                })
+            end
+            A.total, A.nhit, A.joks, A.hits, A.ctx = 0, 0, {}, {}, {}
+        end
+    end
 
     -- Emit summary every EXP_REPORT_INTERVAL seconds of real time
     local now = self.TIMERS and self.TIMERS.UPTIME or 0
