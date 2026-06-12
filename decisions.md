@@ -51,3 +51,6 @@ User rejected a runtime functional-disable as "a cheat" and wanted to fundamenta
 ### Generic trigger-facade collapse
 Rather than special-casing one joker, build a generic run-length-style collapse for repeated triggers spanning tags, jokers, cards, and money (Perkeo/Observatory, Blueprint/Baron/Mime).
 <!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:patches/trigger-collapse.lua,test/collapse/ | area:patches | date:2026-06-11 -->
+### NUGC v2 shipped
+budget escalates past v1's 4ms cap above 174MB (10ms by ~254MB), and above 200MB a full collect runs on breath-state entry (SHOP/BLIND_SELECT/ROUND_EVAL/MENU), never mid-scoring, debounced 30s, ATLOG NUGC_FULL. Gotchas: SMODS claims state id 999 (SMODS_BOOSTER_OPENED) so sentinel states must be negative; escalated stepping drains DEAD garbage fast enough to mask full-collect behavior in harnesses — assert on NUGC_ST.last_full, not heap level. Field validation pending: watch NUGC_FULL lines + burst amplitude vs 187/229/316MB baselines.
+<!-- session:2026-06-12-59860283 | commit:981274557789fab6a5ea1662f4ed8d3595339108 | files:scripts/build.sh,test/nugc/nugc-autorun.lua,test/nugc/run.sh,justfile | area:test | date:2026-06-12 -->
