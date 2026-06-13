@@ -21,7 +21,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RIG="$ROOT/build/dump-rig"
 LOVELY_SO="$ROOT/tools/lovely-src/target/release/liblovely.so"
-MODS=(Steamodded Cryptid Amulet sticky-fingers CardSleeves)
+MODS=(Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus)
 BOOT_SECONDS="${BOOT_SECONDS:-90}"
 
 if [[ ! -f "$LOVELY_SO" ]]; then

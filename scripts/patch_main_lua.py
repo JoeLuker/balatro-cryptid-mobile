@@ -142,7 +142,10 @@ if love.system.getOS() == 'Android' then
     package.preload['SMODS.release'] = function() return love.filesystem.load('Mods/Steamodded/release.lua')() end
     -- Add paths for mod requires including Steamodded libs (json, nativefs, https)
     -- LÖVE uses love.filesystem require path, not Lua package.path
-    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'
+    -- DebugPlus's entrypoint does require('debugplus.config') etc.; its folder is
+    -- Mods/DebugPlus/ (capitalised, with a nested debugplus/ subdir), so the generic
+    -- Mods/?.lua entry can't resolve it. Add the mod root explicitly, as with Steamodded.
+    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
     love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
 end
 
@@ -553,6 +556,23 @@ if love.system.getOS() == 'Android' then
     if not tel_ok then print('[TEL] LOAD_FAILED error=' .. tostring(tel_err)) end
 end
 """
+
+    # 12. DEBUGPLUS_CONSOLE_DISABLED: DebugPlus bakes a console render hook
+    # (console.doConsoleRender) after G:draw(), but its logger init —
+    # lovelyLoadModule.lua -> logger.registerLogHandler() — is a lovely
+    # module-load directive that does NOT bake into the Android dump. So the
+    # console renders against an uninitialised log buffer and crashes on the
+    # first frame (logger.lua:112 table.insert(nil,...)). registerLogHandler
+    # would also hijack global print, which would break the telemetry that
+    # relies on print('LONG DT...') reaching logcat. The console is keyboard-only
+    # (Tab/'/'), useless on a touch device, so skip the render entirely; debug
+    # mode + the touch-reachable debug-tools UI (debug-enhancements) stay intact.
+    if 'console.doConsoleRender()' in content and 'DEBUGPLUS_CONSOLE_DISABLED' not in content:
+        content = content.replace(
+            'console.doConsoleRender()',
+            'do end -- DEBUGPLUS_CONSOLE_DISABLED: keyboard-only console; logger init not baked, would crash + hijack print',
+            1)
+        print("DEBUGPLUS_CONSOLE_DISABLED applied")
 
     with open(filepath, 'w') as f:
         f.write(content)

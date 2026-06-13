@@ -107,6 +107,21 @@ fetch_sources() {
         log_success "CardSleeves fetched"
     fi
 
+    # DebugPlus (better debug tools; re-enables Balatro's built-in debug mode +
+    # adds a Steamodded config tab). Release zip is FLAT (smods.json/lovely/
+    # debugplus/ at the archive root, no wrapping folder), so unlike fetch_mod
+    # it must extract into mods/DebugPlus/ directly. Pinned to v1.5.2.
+    # NOTE: its interactive menu (Tab) and console (/) need a hardware keyboard,
+    # so on the touch build only the debug toggles + config tab are reachable.
+    if [[ ! -d "$MODS_DIR/DebugPlus" ]]; then
+        log_info "Fetching DebugPlus v1.5.2..."
+        curl -fL -o "$MODS_DIR/DebugPlus.zip" \
+            "https://github.com/WilsontheWolf/DebugPlus/releases/download/v1.5.2/DebugPlus.zip"
+        unzip -q -o "$MODS_DIR/DebugPlus.zip" -d "$MODS_DIR/DebugPlus/"
+        rm "$MODS_DIR/DebugPlus.zip"
+        log_success "DebugPlus fetched"
+    fi
+
     # Apply config overrides
     apply_config_overrides
 
@@ -398,7 +413,7 @@ build_apk() {
     # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
             rm -rf "$game_dir/Mods/$mod/lovely"
@@ -450,13 +465,14 @@ EOF
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
     apply_android_quit_fix "$game_dir/functions/button_callbacks.lua"
     apply_drag_reject_feedback "$game_dir/functions/button_callbacks.lua"
-    apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
-    apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
+    apply_settings_debug_tab "$game_dir/functions/UI_definitions.lua"
+    apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     patch_mods_dir "$game_dir/Mods"
     apply_shake_trig_guard "$game_dir/functions/common_events.lua"
     apply_forced_key_guard "$game_dir/functions/common_events.lua"
+    apply_disabled_center_skip "$game_dir/cardarea.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_self_drop_exclude "$game_dir/engine/controller.lua"
@@ -464,6 +480,7 @@ EOF
     apply_ui_o_detached_guard "$game_dir/engine/ui.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_telemetry_toggles "$game_dir/functions/UI_definitions.lua" "$game_dir/game.lua"
+    apply_overlay_menu_fit "$game_dir/functions/UI_definitions.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
     apply_card_to_big_elim "$game_dir/card.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
@@ -513,9 +530,13 @@ EOF
     cp "$PATCHES_DIR/lazy-shader.lua" "$game_dir/lazy-shader.lua"
     log_success "Lazy-shader module embedded"
 
-    # Patch conf.lua
+    # Patch conf.lua. This authoritative heredoc (not the desktop dump's conf.lua)
+    # owns the Android love.conf — window dims must be 0 for Android fullscreen.
+    # _RELEASE_MODE = false enables Balatro's built-in debug mode, which is what
+    # makes DebugPlus's debug-tools UI + console reachable on the build; without
+    # it the dump's flip is clobbered here and DebugPlus is inert.
     cat > "$game_dir/conf.lua" << 'EOF'
-_RELEASE_MODE = true
+_RELEASE_MODE = false
 _DEMO = false
 
 function love.conf(t)
@@ -903,6 +924,58 @@ PYEOF
     fi
 }
 
+# DISABLED_CENTER_SKIP: CardArea:load rebuilds saved cards by looking up each
+# card's center in G.P_CENTERS, but disabling content (a Cryptid gameset, a mod
+# toggle) NILs those centers — so loading a run that still references a now-disabled
+# card crashes Card:load at "obj = G.P_CENTERS[center_key]" (nil index). Skip any
+# saved card whose center is gone, loudly (ATLOG), so the run loads minus the
+# disabled cards instead of being unopenable. The card simply isn't there — which
+# is the only sane outcome for content the player has turned off.
+apply_disabled_center_skip() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "cardarea.lua not found, skipping DISABLED_CENTER_SKIP"
+        return 0
+    fi
+    if grep -q "DISABLED_CENTER_SKIP" "$f"; then
+        log_info "DISABLED_CENTER_SKIP already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+# Two clean anchors that bracket the load-loop body — chosen to avoid the
+# "if card.highlighted then " line, which carries a trailing space in the dump.
+open_old = "    for i = 1, #cardAreaTable.cards do\n        loading = true"
+open_new = (
+    "    for i = 1, #cardAreaTable.cards do\n"
+    "        local _dcs_ck = cardAreaTable.cards[i].save_fields and cardAreaTable.cards[i].save_fields.center -- DISABLED_CENTER_SKIP\n"
+    "        if _dcs_ck and not G.P_CENTERS[_dcs_ck] then\n"
+    "            if ATLOG then ATLOG(\"LOAD_CENTER_MISSING_SKIP\", { key = tostring(_dcs_ck) }) end\n"
+    "        else\n"
+    "        loading = true"
+)
+close_old = "        card:set_card_area(self)\n    end\n    self:set_ranks()"
+close_new = "        card:set_card_area(self)\n        end\n    end\n    self:set_ranks()"
+
+for label, o in (("open", open_old), ("close", close_old)):
+    if text.count(o) != 1:
+        print("ERROR: cardarea %s anchor not found/unique (%d)" % (label, text.count(o)), file=sys.stderr)
+        sys.exit(1)
+text = text.replace(open_old, open_new, 1).replace(close_old, close_new, 1)
+open(path, 'w').write(text)
+print("DISABLED_CENTER_SKIP applied")
+PYEOF
+    if grep -q "DISABLED_CENTER_SKIP" "$f"; then
+        log_success "DISABLED_CENTER_SKIP applied (saved cards with disabled centers are skipped on load, not crashed on)"
+    else
+        log_error "DISABLED_CENTER_SKIP did not apply — check cardarea.lua load loop anchor"
+        exit 1
+    fi
+}
+
 # FORCED_KEY_GUARD: create_card's forced_key path indexes G.P_CENTERS
 # blindly; any caller or roll that forces a key whose center is missing
 # (gameset-disabled item left in a side registry) crashes mid-spawn. Fall
@@ -1062,26 +1135,36 @@ PYEOF
     fi
 }
 
-# Add an in-game FPS counter toggle. The base game only draws FPS behind a debug
-# flag that never runs in release builds. This adds a simple counter gated on
-# G.SETTINGS.show_fps, plus a "Show FPS" toggle in Settings > Game.
-apply_fps_toggle() {
-    local game_lua="$1"
-    local ui_file="$2"
-    if [[ ! -f "$game_lua" || ! -f "$ui_file" ]]; then
-        log_warn "game.lua / UI_definitions.lua not found, skipping FPS toggle"
+# SETTINGS_DEBUG_TAB: the build adds several diagnostic toggles (Debug HUD,
+# Debug Logging, Phone Home Telemetry, Trigger Collapsing). Cramming them into
+# the vanilla Game tab pushes its content well past create_tabs' tab_h, which
+# balloons the menu frame past OVERLAY_MENU_FIT's maxh and shrinks the whole
+# menu (tabs + text) to fit — unreadably small. Give them their own "Debug" tab
+# so every tab's content fits at full scale. The Debug HUD toggle (perf_mode)
+# is the single merged FPS+perf overlay: the vanilla perf block it drives
+# already prints "Current FPS" above the timing graphs, so there is no separate
+# Show FPS toggle (it was a redundant second FPS readout that overlapped this).
+apply_settings_debug_tab() {
+    local ui_file="$1"
+    if [[ ! -f "$ui_file" ]]; then
+        log_warn "UI_definitions.lua not found, skipping SETTINGS_DEBUG_TAB"
         return 0
     fi
-    if grep -q "show_fps" "$game_lua"; then
-        log_info "FPS toggle already applied"
+    if grep -q "tab == 'Debug'" "$ui_file"; then
+        log_info "SETTINGS_DEBUG_TAB already applied"
         return 0
     fi
-    sed -i "s|    timer_checkpoint('canvas', 'draw')|    timer_checkpoint('canvas', 'draw')\n    if G.SETTINGS.show_fps then love.graphics.push('all'); love.graphics.origin(); love.graphics.setColor(0,1,0,1); love.graphics.print('FPS: '..love.timer.getFPS(), 15, 15); love.graphics.pop() end|" "$game_lua"
-    sed -i "s|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),\n      create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|" "$ui_file"
-    if grep -q "show_fps" "$game_lua" && grep -q "show_fps" "$ui_file"; then
-        log_success "FPS toggle added (Settings > Game > Show FPS)"
+    # 1. Prepend a 'Debug' branch to G.UIDEF.settings_tab (in front of the Game branch).
+    sed -i "s|  if tab == 'Game' then|  if tab == 'Debug' then\n    return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.05, colour = G.C.CLEAR}, nodes={\n      create_toggle({label = \"Debug HUD (FPS + perf)\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      create_toggle({label = \"Trigger Collapsing\", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},\n    }}\n  elseif tab == 'Game' then|" "$ui_file"
+    # 2. Register the Debug tab in create_UIBox_settings' tab list (last tab).
+    sed -i "s|  local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(|  tabs[#tabs+1] = { label = \"Debug\", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }\n  local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(|" "$ui_file"
+    if grep -q "tab == 'Debug'" "$ui_file" && grep -q "tab_definition_function_args = 'Debug'" "$ui_file" && grep -q "telemetry_home" "$ui_file"; then
+        log_success "SETTINGS_DEBUG_TAB applied (Debug tab: Debug HUD + Logging + Phone Home + Trigger Collapsing)"
     else
-        log_warn "FPS toggle did not fully apply — check anchors"
+        # hard failure: telemetry_home/telemetry_log toggles live here now; if the
+        # tab didn't materialise they're unreachable and consent can't be given.
+        log_error "SETTINGS_DEBUG_TAB did not apply — check settings_tab / create_UIBox_settings anchors"
+        exit 1
     fi
 }
 
@@ -1093,24 +1176,31 @@ apply_fps_toggle() {
 apply_debug_overlay() {
     local game_lua="$1"
     local misc="$2"
-    local ui_file="$3"
-    if [[ ! -f "$game_lua" || ! -f "$misc" || ! -f "$ui_file" ]]; then
+    if [[ ! -f "$game_lua" || ! -f "$misc" ]]; then
         log_warn "files for debug overlay not found, skipping"
         return 0
     fi
-    if grep -q "Debug Overlay" "$ui_file"; then
+    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua"; then
         log_info "Debug overlay already applied"
         return 0
     fi
+    # The on-screen "Debug HUD" toggle (perf_mode) lives in the Debug settings tab
+    # (apply_settings_debug_tab); this only wires the draw + collection paths.
     # collection runs with EITHER toggle: Debug Logging alone gives headless
     # per-checkpoint timing through telemetry (no on-screen overlay — the
-    # draw stays gated on perf_mode below)
+    # draw stays gated on perf_mode below). The vanilla perf block already prints
+    # "Current FPS" above its timing graphs, so this IS the merged FPS+perf HUD.
     sed -i 's|if not G.F_ENABLE_PERF_OVERLAY then return end|if not (G.SETTINGS.perf_mode or G.SETTINGS.telemetry_log) then return end|' "$misc"
-    sed -i 's|if not _RELEASE_MODE and G.DEBUG and not G.video_control and G.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
+    # Anchor on the stable "...G.F_VERBOSE then" suffix, not the full vanilla
+    # condition: DebugPlus's bake rewrites the prefix of this exact line from
+    # "not _RELEASE_MODE and G.DEBUG" to its own "require('debugplus.config').getValue('showHUD')"
+    # (it drives the same perf overlay via its showHUD config). Replacing the whole
+    # condition with G.SETTINGS.perf_mode makes our Debug HUD toggle own the overlay
+    # regardless of DebugPlus's prefix. "G.F_VERBOSE then" is unique in game.lua.
+    sed -i 's|if .*G\.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
     sed -i 's|        love.graphics.setColor(0, 1, 1,1)|        love.graphics.origin()\n        love.graphics.setColor(0, 1, 1,1)|' "$game_lua"
-    sed -i "s|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),\n      create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|" "$ui_file"
-    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua" && grep -q "Debug Overlay" "$ui_file"; then
-        log_success "Debug overlay added (Settings > Game > Debug Overlay)"
+    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua"; then
+        log_success "Debug HUD (FPS + perf graphs) wired to G.SETTINGS.perf_mode"
     else
         log_warn "Debug overlay did not fully apply — check anchors"
     fi
@@ -1118,34 +1208,71 @@ apply_debug_overlay() {
 
 # Telemetry & debug logging are OFF by default so the APK is shareable — on a
 # phone that never flips the toggles the game prints nothing, writes no
-# telemetry.log, and never starts the phone-home thread. Two toggles in
-# Settings > Game (persisted in settings.jkr like every other setting):
+# telemetry.log, and never starts the phone-home thread. The two consent toggles
 #   "Debug Logging"        -> G.SETTINGS.telemetry_log
 #   "Phone Home Telemetry" -> G.SETTINGS.telemetry_home
-# patches/android-telemetry.lua reads both live each frame. This applier adds
-# the toggles (anchored on the Slide-to-select toggle, so it must run after
-# apply_drag_select) and gates the vanilla LONG DT logcat print behind
-# telemetry_log — the PERF-FINDINGS LONG_DT entry, realized as a gate.
+# now live in the Debug settings tab (apply_settings_debug_tab); android-telemetry.lua
+# reads both live each frame. This applier only gates the vanilla LONG DT logcat
+# print behind telemetry_log — the PERF-FINDINGS LONG_DT entry, realized as a gate.
 apply_telemetry_toggles() {
     local ui_file="$1"
     local game_lua="$2"
-    if [[ ! -f "$ui_file" || ! -f "$game_lua" ]]; then
-        log_warn "UI_definitions.lua / game.lua not found, skipping telemetry toggles"
+    if [[ ! -f "$game_lua" ]]; then
+        log_warn "game.lua not found, skipping telemetry LONG DT gate"
         return 0
     fi
-    if ! grep -q "telemetry_log" "$ui_file"; then
-        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      create_toggle({label = \"Trigger Collapsing\", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},|" "$ui_file"
-    fi
     if ! grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
-        sed -i "s|    if self.real_dt > 0.05 then print('LONG DT|    if G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"
+        # Anchor on the stable "self.real_dt > 0.05 then print('LONG DT'" predicate,
+        # not the whole "if ... then" clause: DebugPlus's lovely bake prepends its
+        # own "require('debugplus.config').getValue('enableLongDT') and " condition
+        # ahead of self.real_dt, so a "    if self.real_dt" anchor no longer matches.
+        # Inserting the consent gate immediately before self.real_dt composes with
+        # any such prepended condition (both gates AND together) and keeps the
+        # success grep ("G.SETTINGS.telemetry_log and self.real_dt") valid.
+        sed -i "s|self.real_dt > 0.05 then print('LONG DT|G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"
     fi
-    if grep -q "telemetry_home" "$ui_file" && grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
-        log_success "Telemetry toggles added (Settings > Game — both default OFF; LONG DT print gated)"
+    if grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
+        log_success "Telemetry LONG DT logcat print gated on G.SETTINGS.telemetry_log"
     else
-        # hard failure: a silent anchor miss here ships an APK whose telemetry
-        # can never be enabled (or whose LONG DT print is ungated) — the whole
-        # point of the gating is consent, so a broken gate fails the build
-        log_error "Telemetry toggles did not fully apply — check anchors"
+        # hard failure: a silent anchor miss here ships an APK whose LONG DT print
+        # is ungated — the whole point of the gating is consent, so it fails the build
+        log_error "Telemetry LONG DT gate did not apply — check anchor"
+        exit 1
+    fi
+}
+
+# OVERLAY_MENU_FIT: make every options overlay (Settings, run info, etc.) fit the
+# screen vertically. Balatro letterboxes the game ROOM so it is always fully
+# visible, but overlay menus are content-sized and uncapped — on a phone's
+# wide-but-short landscape aspect the visible vertical span is only ~the ROOM
+# height (G.ROOM.T.h tiles), so a tall menu (vanilla Settings + Cryptid's extra
+# rows + the telemetry toggles above) overflows off top/bottom; you only see it
+# all by unfolding to a squarer screen with more vertical tiles. The engine's
+# create_UIBox_generic_options menu frame already supports maxh — UIBox:calculate_xywh
+# scales a node's whole subtree by maxh/content_h when content exceeds maxh — but
+# the frame never sets one. Cap the menu frame at the ROOM height so any overflowing
+# menu auto-scales down to fit; it is a no-op for menus that already fit (desktop,
+# unfolded), so behaviour only changes where it was broken.
+apply_overlay_menu_fit() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "UI_definitions.lua not found, skipping OVERLAY_MENU_FIT"
+        return 0
+    fi
+    local anchor='{align = "cm", minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour or G.C.JOKER_GREY, emboss = 0.1}'
+    if grep -qF 'maxh = G.ROOM.T.h, minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour' "$f"; then
+        log_info "OVERLAY_MENU_FIT already applied"
+        return 0
+    fi
+    if ! grep -qF "$anchor" "$f"; then
+        log_error "OVERLAY_MENU_FIT: generic_options menu-frame anchor not found — check UI_definitions.lua"
+        exit 1
+    fi
+    sed -i 's|{align = "cm", minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour or G.C.JOKER_GREY, emboss = 0.1}|{align = "cm", maxh = G.ROOM.T.h, minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour or G.C.JOKER_GREY, emboss = 0.1}|' "$f"
+    if grep -qF 'maxh = G.ROOM.T.h, minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour' "$f"; then
+        log_success "OVERLAY_MENU_FIT applied (options overlays scale down to fit G.ROOM.T.h — no more off-screen settings)"
+    else
+        log_error "OVERLAY_MENU_FIT did not apply — check generic_options anchor"
         exit 1
     fi
 }
@@ -1487,7 +1614,10 @@ apply_drag_select() {
     #    when over limit).
     sed -i 's|    --Cursor is currently hovering over something|    if (self.HID.touch or self.HID.touch_env) and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        local _start = self.dragSelectActive.start_card\n        if closest and _start and not self.dragSelectActive.mode and closest ~= _start then -- DRAG_SELECT_CARD_START sweep begins\n            self.dragSelectActive.mode = _start.highlighted and "deselect" or "select"\n            if _start.highlighted then _start.area:remove_from_highlighted(_start) else _start.area:add_to_highlighted(_start) end\n        end\n        if closest and (closest ~= _start or self.dragSelectActive.mode) and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
     # 6) toggle in Settings > Game (after the Debug Overlay toggle)
-    sed -i "s|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
+    # Slide-to-select is a gameplay control, so it stays in the Game tab — anchored
+    # on the vanilla Reduced Motion toggle (the debug toggles it used to chain off
+    # moved to the Debug tab; see apply_settings_debug_tab).
+    sed -i "s|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
     if grep -q "DRAG_SELECT_LOOP" "$ctrl" && grep -q "DRAG_SELECT_ACTIVATE" "$ctrl" && grep -q "DRAG_SELECT_CARD_START" "$ctrl" && grep -q "DRAG_SELECT_HOLD_REORDER" "$ctrl" && grep -q "enable_drag_select" "$ui_file"; then
         log_success "Drag-select (slide to select, incl. card-start sweeps + hold-to-reorder) applied"
     else
@@ -2538,7 +2668,7 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
-    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
             rm -rf "$transfer_dir/Mods/$mod/lovely"
