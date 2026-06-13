@@ -90,6 +90,14 @@ local function install_jokers()
         end
     end
 
+    -- Suppress the edition lottery that create_card() runs for every joker
+    -- (poll_edition advances G.GAME.pseudorandom state, so each successive
+    -- call to create_card with the same key yields a different edition roll;
+    -- for seed AAAAAAAA/ante-1 the second joker lands on Foil (+50 chips)
+    -- which makes multi-joker scores seed-dependent in a surprising way).
+    -- With bypass set, jokers are created plain — only their explicit
+    -- ability fires, giving deterministic oracle results.
+    SMODS.bypass_create_card_edition = true
     for _, key in ipairs(JOKER_KEYS) do
         -- create_card(type, area, legendary, rarity, skip_materialize,
         --             soulable, forced_key)
@@ -100,6 +108,7 @@ local function install_jokers()
         G.jokers:emplace(card)
         print('ORC: joker added ' .. key)
     end
+    SMODS.bypass_create_card_edition = nil
     print('ORC: jokers installed ' .. table.concat(JOKER_KEYS, ','))
     return true
 end

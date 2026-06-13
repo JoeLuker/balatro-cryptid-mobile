@@ -33,10 +33,18 @@ BBBBBBBB  S_A,H_A,D_A,C_A,S_K  (none)                     728   FourOfAKind    8
 # j_greedy_joker: +3 mult per Diamond scored.  All-diamond flush: 5 diamonds in
 #   scoring hand → +15 mult.  (35+50)*(4+15) = 85*19 = 1615 ✓
 #   Card chips: A=11 K=10 Q=10 J=10 9=9, sum=50.
-# Two/three j_jokers: Cryptid ascend() applies non-linear scaling to hand base
-#   values; the oracle records the authoritative output.
+# N j_jokers (plain, no edition): (10+22) * (2 + 4*N) = 32*(2+4N)
+#   N=1 → 192, N=2 → 320, N=3 → 448, N=4 → 576  ✓
+#
+# NOTE — edition suppression: install_jokers() sets SMODS.bypass_create_card_edition=true
+#   before calling create_card(), preventing the edition lottery that runs on every
+#   joker creation.  Without this, create_card() calls poll_edition('edi'..ante) for
+#   each joker; pseudoseed('edi1') advances its LCG state between calls, so the 2nd
+#   joker lands on Foil (+50 chips) for seed AAAAAAAA/ante-1, giving anomalous scores
+#   (2×j_joker→820, 3×j_joker→1148).  The bypass makes results depend only on the
+#   jokers' explicit abilities — which is what these baselines are testing.
 
 AAAAAAAA  S_A,H_A               j_joker                    192   Pair           1
 AAAAAAAA  D_A,D_K,D_Q,D_J,D_9  j_greedy_joker            1615   Flush          8
-AAAAAAAA  S_A,H_A               j_joker,j_joker            820   Pair           1
-AAAAAAAA  S_A,H_A               j_joker,j_joker,j_joker   1148   Pair           1
+AAAAAAAA  S_A,H_A               j_joker,j_joker            320   Pair           8
+AAAAAAAA  S_A,H_A               j_joker,j_joker,j_joker    448   Pair           8
