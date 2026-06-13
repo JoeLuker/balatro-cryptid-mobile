@@ -1,48 +1,59 @@
 -- SCORE-ORACLE autorun: record the exact chip score produced by a specific
--- hand on a specific seed from the CURRENT build.
+-- hand (with optional jokers) on a specific seed from the CURRENT build.
 --
 -- Environment variables (all optional):
---   ORACLE_SEED  (default: AAAAAAAA) — 8-char run seed; passed to start_run
---                so G.GAME.seeded=true (no leaderboard writes, no tutorial)
---   ORACLE_HAND  (default: S_A,H_A,D_A,C_A,S_K) — comma-separated P_CARDS
---                keys for the cards to force into hand slots 1..N and play.
---                Keys use the game's own notation: S_A, H_K, D_T, C_2, etc.
+--   ORACLE_SEED   (default: AAAAAAAA) — 8-char run seed; passed to start_run
+--                 so G.GAME.seeded=true (no leaderboard writes, no tutorial)
+--   ORACLE_HAND   (default: S_A,H_A,D_A,C_A,S_K) — comma-separated P_CARDS
+--                 keys for the cards to force into hand slots 1..N and play.
+--                 Keys use the game's own notation: S_A, H_K, D_T, C_2, etc.
+--   ORACLE_JOKERS (default: empty) — comma-separated P_CENTERS keys for
+--                 jokers to instantiate before playing the hand.
+--                 e.g. j_joker,j_greedy_joker,j_mult
+--                 Jokers are created with skip_materialize=true (no animation)
+--                 and emplaced in order. The joker area auto-expands past the
+--                 default 5-slot limit if needed (same as ingame-autorun.lua).
 --
 -- Protocol (all lines prefixed ORC: for easy grepping):
---   ORC: loaded seed=<S> hand=<H>
+--   ORC: loaded seed=<S> hand=<H> jokers=<J>
 --   ORC: reached menu
 --   ORC: start_run ok
 --   ORC: blind selected
+--   ORC: joker added <key>           (one line per joker)
+--   ORC: jokers installed <keys>
 --   ORC: hand shaped <cards>
 --   ORC: chips_before=<N>
 --   ORC: played hand ok
 --   ORC: settled state=<N> chips_after=<N> delta=<N>
 --   ORC: score=<N>          ← THE ORACLE VALUE — grep this line
---   ORC: PASS seed=<S> hand=<H> score=<N>
+--   ORC: PASS seed=<S> hand=<H> jokers=<J> score=<N>
 --   ORC: FAIL <reason>      → exit 1
 --
 -- Run via test/score-oracle.sh. ~60-90 s inside nix-shell.
 
-local SEED = os.getenv('ORACLE_SEED') or 'AAAAAAAA'
-local HAND_ENV = os.getenv('ORACLE_HAND') or 'S_A,H_A,D_A,C_A,S_K'
+local SEED       = os.getenv('ORACLE_SEED')   or 'AAAAAAAA'
+local HAND_ENV   = os.getenv('ORACLE_HAND')   or 'S_A,H_A,D_A,C_A,S_K'
+local JOKERS_ENV = os.getenv('ORACLE_JOKERS') or ''
 
--- parse comma-separated card keys into a list
-local function parse_hand(s)
+-- parse comma-separated tokens into a list (trims whitespace, drops empty)
+local function parse_list(s)
     local t = {}
     for k in s:gmatch('[^,]+') do
-        k = k:match('^%s*(.-)%s*$') -- trim whitespace
+        k = k:match('^%s*(.-)%s*$')
         if k ~= '' then t[#t + 1] = k end
     end
     return t
 end
 
-local HAND_KEYS = parse_hand(HAND_ENV)
+local HAND_KEYS   = parse_list(HAND_ENV)
+local JOKER_KEYS  = parse_list(JOKERS_ENV)
 
-print('ORC: loaded seed=' .. SEED .. ' hand=' .. HAND_ENV)
+print('ORC: loaded seed=' .. SEED
+    .. ' hand=' .. HAND_ENV
+    .. ' jokers=' .. (JOKERS_ENV ~= '' and JOKERS_ENV or '(none)'))
 
 local phase, elapsed, phase_t = 'boot', 0, 0
 local chips_before = nil
-local fails = {}
 
 local function orc_fail(msg)
     print('ORC: FAIL ' .. tostring(msg))
@@ -58,6 +69,39 @@ love.errorhandler = function(msg)
     print(debug.traceback())
     if game_errorhandler then pcall(game_errorhandler, msg) end
     os.exit(70)
+end
+
+-- Install the requested jokers into G.jokers.
+-- Must be called after SELECTING_HAND is reached (G.jokers is live).
+-- Mirrors the pattern in test/collapse/ingame-autorun.lua:21-26.
+local function install_jokers()
+    if #JOKER_KEYS == 0 then return true end
+
+    -- Validate all keys first
+    for _, key in ipairs(JOKER_KEYS) do
+        if not G.P_CENTERS[key] then
+            orc_fail('unknown P_CENTERS key for joker: ' .. tostring(key))
+            return false
+        end
+        if G.P_CENTERS[key].set ~= 'Joker' then
+            orc_fail('center ' .. key .. ' is not a Joker (set='
+                .. tostring(G.P_CENTERS[key].set) .. ')')
+            return false
+        end
+    end
+
+    for _, key in ipairs(JOKER_KEYS) do
+        -- create_card(type, area, legendary, rarity, skip_materialize,
+        --             soulable, forced_key)
+        -- skip_materialize=true suppresses the deal-in animation so the
+        -- joker is available synchronously before the hand is played.
+        local card = create_card('Joker', G.jokers, nil, nil, true, nil, key)
+        card:add_to_deck()
+        G.jokers:emplace(card)
+        print('ORC: joker added ' .. key)
+    end
+    print('ORC: jokers installed ' .. table.concat(JOKER_KEYS, ','))
+    return true
 end
 
 local original_update = love.update
@@ -128,14 +172,18 @@ love.update = function(dt, ...)
     end
 
     -- ----------------------------------------------------------- wait_hand
-    -- Wait until cards are dealt. Then overwrite the first N hand slots with
-    -- the requested card identities and play them. We need at least as many
-    -- cards in hand as HAND_KEYS requests.
+    -- Wait until cards are dealt. Install jokers (if any), then overwrite
+    -- the first N hand slots with the requested card identities and play.
+    -- We need at least as many cards in hand as HAND_KEYS requests.
     if phase == 'wait_hand' then
         if G.STATE == G.STATES.SELECTING_HAND and G.hand and G.hand.cards
             and #G.hand.cards >= #HAND_KEYS and elapsed - phase_t > 2 then
 
-            -- Validate all requested keys before touching anything
+            -- Install jokers before validating / shaping hand cards so that
+            -- any joker-dependent on_hand_played hooks fire during scoring.
+            if not install_jokers() then return end
+
+            -- Validate all requested card keys before touching anything
             for i, key in ipairs(HAND_KEYS) do
                 if not G.P_CARDS[key] then
                     orc_fail('unknown P_CARDS key: ' .. tostring(key)
@@ -180,13 +228,9 @@ love.update = function(dt, ...)
     end
 
     -- ---------------------------------------------------------- wait_scored
-    -- State leaves SELECTING_HAND while scoring animates, then returns to
-    -- SELECTING_HAND when the draw is complete and the next hand is ready.
-    -- We wait for that return, with a generous settle buffer so the ease
-    -- animation on G.GAME.chips has finished before we read it.
+    -- State leaves SELECTING_HAND while scoring animates. Wait for that.
     if phase == 'wait_scored' then
         if G.STATE ~= G.STATES.SELECTING_HAND then
-            -- Scoring kicked off — wait for it to settle back
             phase, phase_t = 'wait_return', elapsed
         elseif elapsed - phase_t > 60 then
             orc_fail('timeout: state never left SELECTING_HAND after play')
@@ -195,16 +239,15 @@ love.update = function(dt, ...)
     end
 
     if phase == 'wait_return' then
-        -- Accept any post-HAND_PLAYED state: G.GAME.chips is updated by a
+        -- Accept any post-HAND_PLAYED state. G.GAME.chips is updated by a
         -- non-blocking ease (delay=0.5 s, state_events.lua:1025) queued
         -- during HAND_PLAYED, so chips are at their final value by the time
-        -- any of these states are reached:
+        -- any of these states are reached. Give 4 s real-time regardless.
         --   SELECTING_HAND (1) : didn't beat the blind; more hands this round
         --   NEW_ROUND     (19) : beat blind; end_of_round event chain running
         --   ROUND_EVAL    ( 8) : end_of_round done, cashout screen
         --   SHOP          ( 5) : advanced past cashout
         --   GAME_OVER     ( 4) : lost (hands_left == 0 without beating blind)
-        -- Give 4 s real-time for the chips ease to complete regardless.
         local settled = G.STATE == G.STATES.SELECTING_HAND
             or G.STATE == G.STATES.NEW_ROUND
             or G.STATE == G.STATES.ROUND_EVAL
@@ -217,8 +260,10 @@ love.update = function(dt, ...)
                 .. ' chips_after=' .. tostring(chips_after)
                 .. ' delta=' .. tostring(delta))
             print('ORC: score=' .. tostring(delta))
-            print(string.format('ORC: PASS seed=%s hand=%s score=%s',
-                SEED, HAND_ENV, tostring(delta)))
+            print(string.format('ORC: PASS seed=%s hand=%s jokers=%s score=%s',
+                SEED, HAND_ENV,
+                (JOKERS_ENV ~= '' and JOKERS_ENV or '(none)'),
+                tostring(delta)))
             love.event.quit(0)
             phase = 'done'
         elseif elapsed - phase_t > 120 then
