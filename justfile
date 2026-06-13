@@ -216,6 +216,13 @@ edit-steamodded:
 page-cycle:
     test/page-cycle.sh
 
+# Lazy-shader elision regression — DRAW_SHADER_NIL_RESET + LAZY_SHADER must
+# produce >= 30 % GPU shader-bind elision at SELECTING_HAND on seed AAAAAAAA.
+# Also asserts the DRAW_SHADER_NIL_RESET sentinel in engine/sprite.lua.
+# Needs nix-shell. ~90 s.
+lazy-shader-elision:
+    test/lazy-shader-elision.sh
+
 # Score oracle — boot build/game headless on a fixed seed, shape a specific
 # hand, play it, and print the exact chip score the current build produces.
 # Use to record "seed X + hand Y -> exact score N" baselines for parity tests.
