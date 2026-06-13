@@ -927,7 +927,7 @@ function Cryptid.item_toggle_UI(content_set)
 					config = { align = "tl", padding = 0.05, colour = G.C.CLEAR },
 					nodes = cry_build_toggle_page(items, p, item_states),
 				},
-				config = { offset = { x = 0, y = 0 } },
+				config = { offset = { x = 0, y = 0 }, parent = toggle_area },
 			})
 		end
 	end
