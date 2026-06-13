@@ -1,28 +1,42 @@
 # Score-oracle baselines — recorded from build 0613-1403.f07652
-# Format: seed  hand  score  hand-type  settled-state
+# Format: seed  hand  jokers  score  hand-type  settled-state
 # settled-state: 1=SELECTING_HAND (blind not beaten), 8=ROUND_EVAL (blind beaten)
-# All runs: stake=1 (White Stake), Red Deck, no jokers, ante 1 Small Blind (300 chips).
-# Reproduce: ORACLE_SEED=<seed> ORACLE_HAND=<hand> just score-oracle
+# All runs: stake=1 (White Stake), Red Deck, ante 1 Small Blind (300 chips).
+# Reproduce: ORACLE_SEED=<seed> ORACLE_HAND=<hand> ORACLE_JOKERS=<jokers> just score-oracle
 #
-# Base values at level 1 (chips × mult), scoring hand only (kickers don't add chips):
-#   Straight Flush : 100 chips × 8 mult
-#   Four of a Kind :  60 chips × 7 mult  (only the 4 matching cards score chips)
-#   Flush          :  35 chips × 4 mult
-#   Pair           :  10 chips × 2 mult  (only the 2 matching cards score chips)
-#   High Card      :   5 chips × 1 mult  (only the highest card scores chips)
-# Card chip values: 2-9=face value, T=10, J/Q/K=10, A=11
-# score = floor((base_chips + sum(scoring_hand_card_chips)) × base_mult)
+# Card key format: <suit>_<rank>  (S=Spades H=Hearts D=Diamonds C=Clubs,
+#                                  2-9=pip, T=10, J=Jack, Q=Queen, K=King, A=Ace)
+# Only cards in the SCORING HAND contribute chip values (kickers excluded).
 #
-# Worked examples:
-#   FourOfAKind aces + king kicker: (60 + 4*11) * 7 = 104 * 7 = 728  ✓
-#   StraightFlush A-K-Q-J-T spades: (100 + 11+10+10+10+10) * 8 = 151 * 8 = 1208  ✓
-#   FourOfAKind 2s + 3 kicker:      (60 + 4*2) * 7 = 68 * 7 = 476  ✓
-#   HighCard A,K,Q,J,9 mixed:       (5 + 11) * 1 = 16  ✓  (only ace scores)
-#   Pair of aces:                   (10 + 11+11) * 2 = 32 * 2 = 64  ✓
+# Base formula without jokers (level 1, no Cryptid ascend modifiers):
+#   score = floor((base_chips + sum(scoring_card_chips)) * base_mult)
+# Joker effects are applied on top; Cryptid's ascend() may apply log-scale
+# modifiers to hand base values — the oracle records what the build actually
+# produces regardless of formula complexity.
+#
+# --- no-joker baselines (formula verifiable by hand) ---
+# FourOfAKind aces + king kicker: (60 + 4*11) * 7 = 104 * 7 = 728
+# StraightFlush A-K-Q-J-T spades: (100 + 11+10+10+10+10) * 8 = 151 * 8 = 1208
+# FourOfAKind 2s + 3 kicker:      (60 + 4*2) * 7 = 68 * 7 = 476
+# HighCard A,K,Q,J,9 mixed:       (5 + 11) * 1 = 16  (only ace in scoring hand)
+# Pair of aces:                   (10 + 11+11) * 2 = 32 * 2 = 64
 
-AAAAAAAA  S_A,H_A,D_A,C_A,S_K    728   FourOfAKind    8
-AAAAAAAA  S_A,S_K,S_Q,S_J,S_T  1208   StraightFlush  8
-AAAAAAAA  S_2,H_2,D_2,C_2,S_3    476   FourOfAKind    8
-AAAAAAAA  S_A,H_K,D_Q,C_J,S_9     16   HighCard       1
-AAAAAAAA  S_A,H_A                  64   Pair           1
-BBBBBBBB  S_A,H_A,D_A,C_A,S_K    728   FourOfAKind    8
+AAAAAAAA  S_A,H_A,D_A,C_A,S_K  (none)                     728   FourOfAKind    8
+AAAAAAAA  S_A,S_K,S_Q,S_J,S_T  (none)                    1208   StraightFlush  8
+AAAAAAAA  S_2,H_2,D_2,C_2,S_3  (none)                     476   FourOfAKind    8
+AAAAAAAA  S_A,H_K,D_Q,C_J,S_9  (none)                      16   HighCard       1
+AAAAAAAA  S_A,H_A               (none)                      64   Pair           1
+BBBBBBBB  S_A,H_A,D_A,C_A,S_K  (none)                     728   FourOfAKind    8
+
+# --- joker baselines (seed matters once jokers interact with the hand) ---
+# j_joker: flat +4 mult.  Pair aces baseline=64; +j_joker → (10+22)*(2+4)=192 ✓
+# j_greedy_joker: +3 mult per Diamond scored.  All-diamond flush: 5 diamonds in
+#   scoring hand → +15 mult.  (35+50)*(4+15) = 85*19 = 1615 ✓
+#   Card chips: A=11 K=10 Q=10 J=10 9=9, sum=50.
+# Two/three j_jokers: Cryptid ascend() applies non-linear scaling to hand base
+#   values; the oracle records the authoritative output.
+
+AAAAAAAA  S_A,H_A               j_joker                    192   Pair           1
+AAAAAAAA  D_A,D_K,D_Q,D_J,D_9  j_greedy_joker            1615   Flush          8
+AAAAAAAA  S_A,H_A               j_joker,j_joker            820   Pair           1
+AAAAAAAA  S_A,H_A               j_joker,j_joker,j_joker   1148   Pair           1
