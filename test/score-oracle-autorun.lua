@@ -16,7 +16,7 @@
 --   ORC: hand shaped <cards>
 --   ORC: chips_before=<N>
 --   ORC: played hand ok
---   ORC: settled chips_after=<N> delta=<N>
+--   ORC: settled state=<N> chips_after=<N> delta=<N>
 --   ORC: score=<N>          ← THE ORACLE VALUE — grep this line
 --   ORC: PASS seed=<S> hand=<H> score=<N>
 --   ORC: FAIL <reason>      → exit 1
@@ -195,15 +195,21 @@ love.update = function(dt, ...)
     end
 
     if phase == 'wait_return' then
-        -- Accept any state that means scoring has settled:
-        --   SELECTING_HAND : more hands remain this round
-        --   ROUND_EVAL (8)  : blind beaten on this hand -> cashout screen
-        --   SHOP             : same but transition already advanced
-        -- The ease on G.GAME.chips has delay=0.5 and blocking=false; give it
-        -- 4 s of real time regardless of which settled state we land in.
+        -- Accept any post-HAND_PLAYED state: G.GAME.chips is updated by a
+        -- non-blocking ease (delay=0.5 s, state_events.lua:1025) queued
+        -- during HAND_PLAYED, so chips are at their final value by the time
+        -- any of these states are reached:
+        --   SELECTING_HAND (1) : didn't beat the blind; more hands this round
+        --   NEW_ROUND     (19) : beat blind; end_of_round event chain running
+        --   ROUND_EVAL    ( 8) : end_of_round done, cashout screen
+        --   SHOP          ( 5) : advanced past cashout
+        --   GAME_OVER     ( 4) : lost (hands_left == 0 without beating blind)
+        -- Give 4 s real-time for the chips ease to complete regardless.
         local settled = G.STATE == G.STATES.SELECTING_HAND
+            or G.STATE == G.STATES.NEW_ROUND
             or G.STATE == G.STATES.ROUND_EVAL
             or G.STATE == G.STATES.SHOP
+            or G.STATE == G.STATES.GAME_OVER
         if settled and elapsed - phase_t > 4 then
             local chips_after = G.GAME.chips
             local delta = chips_after - chips_before
