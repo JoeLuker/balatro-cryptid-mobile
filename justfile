@@ -209,3 +209,9 @@ edit-cryptid:
 # Edit Steamodded config
 edit-steamodded:
     ${EDITOR:-vim} config-overrides/Steamodded/config.lua
+
+# Page-cycle regression — cycling the PAGE option-cycle in Cryptid's per-item
+# toggle screen must keep the overlay open (parent = toggle_area fix).
+# Needs nix-shell. ~30 s.
+page-cycle:
+    test/page-cycle.sh
