@@ -215,3 +215,11 @@ edit-steamodded:
 # Needs nix-shell. ~30 s.
 page-cycle:
     test/page-cycle.sh
+
+# Score oracle — boot build/game headless on a fixed seed, shape a specific
+# hand, play it, and print the exact chip score the current build produces.
+# Use to record "seed X + hand Y -> exact score N" baselines for parity tests.
+# Env vars: ORACLE_SEED (default: AAAAAAAA), ORACLE_HAND (default: S_A,H_A,D_A,C_A,S_K)
+# Needs nix-shell. ~60-90 s.
+score-oracle:
+    test/score-oracle.sh
