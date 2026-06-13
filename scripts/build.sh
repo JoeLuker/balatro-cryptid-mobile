@@ -517,6 +517,15 @@ EOF
     apply_ui_func_throttle     "$game_dir/engine/ui.lua"
     apply_blind_select_defer   "$game_dir/game.lua"
     apply_blind_select_tall    "$game_dir/functions/UI_definitions.lua"
+    # Consolidate shader nil-resets so LAZY_SHADER can collapse same-shader runs.
+    # draw_shader() no longer resets to nil after each draw; callers issue one
+    # setShader() per object (card/blind/stake) instead of one per draw_shader call.
+    apply_draw_shader_nil_reset \
+        "$game_dir/engine/sprite.lua" \
+        "$game_dir/SMODS/_/src/card_draw.lua" \
+        "$game_dir/card.lua" \
+        "$game_dir/blind.lua" \
+        "$game_dir/functions/misc_functions.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
@@ -4048,6 +4057,189 @@ apply_blind_select_tall() {
         log_success "BLIND_SELECT_TALL applied (select button 0.6 -> 1.0 units tall)"
     else
         log_error "BLIND_SELECT_TALL did not apply — check select_blind_button lines"
+        exit 1
+    fi
+}
+
+# DRAW_SHADER_NIL_RESET: Balatro's draw_shader() ends with love.graphics.setShader()
+# (sprite.lua), resetting to nil after every single sprite draw.  Consecutive cards
+# sharing the same shader therefore ping-pong  S -> nil -> S -> nil -> S  instead of
+# holding S across the run.  LAZY_SHADER (patches/lazy-shader.lua) defers the GPU
+# bind until the next draw call, but it can only elide the nil->S re-bind when the
+# nil write from the previous draw_shader call does not intervene — i.e. only when
+# the reset is NOT inside draw_shader.
+#
+# This patch moves responsibility for the nil-reset from draw_shader to its callers:
+#   - sprite.lua:   remove the setShader() after the draw call
+#   - SMODS Card:draw: add one setShader() at the end of the draw step loop
+#   - dump Card:draw: add one setShader() closing each draw path (card + shadow-only)
+#   - Blind:draw:   add one setShader() after both draw_shader calls
+#   - get_stake_sprite closure: add one setShader() after both draw_shader calls
+#
+# Semantics are identical without LAZY_SHADER (same number of GPU calls, just
+# consolidated).  With LAZY_SHADER, 20 dissolve-only cards go from 120 real GPU
+# shader-bind operations to 2 (one bind to dissolve, one reset at the end).
+apply_draw_shader_nil_reset() {
+    local sprite_lua="$1"
+    local card_draw_lua="$2"
+    local card_lua="$3"
+    local blind_lua="$4"
+    local misc_lua="$5"
+
+    if grep -q "DRAW_SHADER_NIL_RESET" "$sprite_lua" 2>/dev/null; then
+        log_info "DRAW_SHADER_NIL_RESET already applied"
+        return 0
+    fi
+
+    python3 - "$sprite_lua" "$card_draw_lua" "$card_lua" "$blind_lua" "$misc_lua" <<'PYEOF'
+import sys
+
+sprite_f, card_draw_f, card_f, blind_f, misc_f = sys.argv[1:6]
+
+for path in [sprite_f, card_draw_f, card_f, blind_f, misc_f]:
+    import os
+    if not os.path.exists(path):
+        print(f"DRAW_SHADER_NIL_RESET: {path} not found, skipping")
+        sys.exit(0)
+
+# --- sprite.lua: remove the nil-reset from draw_shader ---
+text = open(sprite_f).read()
+OLD = """    if other_obj then 
+        self:draw_from(other_obj, ms, mr, mx, my)
+    else 
+        self:draw_self()
+    end
+
+    love.graphics.setShader()
+
+    if _shadow_height then"""
+NEW = """    if other_obj then 
+        self:draw_from(other_obj, ms, mr, mx, my)
+    else 
+        self:draw_self()
+    end
+    -- DRAW_SHADER_NIL_RESET: nil-reset removed; callers (Card:draw, Blind:draw,
+    -- stake closure) issue one setShader() after their last draw_shader call,
+    -- letting LAZY_SHADER collapse same-shader runs without the S->nil->S ping-pong.
+
+    if _shadow_height then"""
+if OLD not in text:
+    print(f"DRAW_SHADER_NIL_RESET: sprite.lua anchor not found — check draw_shader body")
+    sys.exit(1)
+text = text.replace(OLD, NEW, 1)
+open(sprite_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: sprite.lua patched")
+
+# --- SMODS card_draw.lua: one reset at end of Card:draw ---
+text = open(card_draw_f).read()
+OLD2 = """function Card:draw(layer)
+    layer = layer or 'both'
+    self.hover_tilt = 1
+    if not self.states.visible then return end
+    for _, k in ipairs(SMODS.DrawStep.obj_buffer) do
+        if SMODS.DrawSteps[k]:check_conditions(self, layer) then SMODS.DrawSteps[k].func(self, layer) end
+    end
+end"""
+NEW2 = """function Card:draw(layer)
+    layer = layer or 'both'
+    self.hover_tilt = 1
+    if not self.states.visible then return end
+    for _, k in ipairs(SMODS.DrawStep.obj_buffer) do
+        if SMODS.DrawSteps[k]:check_conditions(self, layer) then SMODS.DrawSteps[k].func(self, layer) end
+    end
+    love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per card
+end"""
+if OLD2 not in text:
+    print(f"DRAW_SHADER_NIL_RESET: card_draw.lua Card:draw anchor not found")
+    sys.exit(1)
+text = text.replace(OLD2, NEW2, 1)
+open(card_draw_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: SMODS card_draw.lua patched")
+
+# --- card.lua: shadow-only reset + card-block reset ---
+text = open(card_f).read()
+OLD3A = """        G.shared_shadow:draw_shader('dissolve', self.shadow_height)
+    end
+
+    if (layer == 'card' or layer == 'both') and self.area ~= G.hand then"""
+NEW3A = """        G.shared_shadow:draw_shader('dissolve', self.shadow_height)
+    end
+    -- DRAW_SHADER_NIL_RESET: cover shadow draw when layer == 'shadow' (card block skipped)
+    if layer == 'shadow' then love.graphics.setShader() end
+
+    if (layer == 'card' or layer == 'both') and self.area ~= G.hand then"""
+if OLD3A not in text:
+    print(f"DRAW_SHADER_NIL_RESET: card.lua shadow anchor not found")
+    sys.exit(1)
+text = text.replace(OLD3A, NEW3A, 1)
+
+OLD3B = """        add_to_drawhash(self)
+        self:draw_boundingrect()
+    end
+end
+
+function Card:release(dragged)"""
+NEW3B = """        add_to_drawhash(self)
+        self:draw_boundingrect()
+        love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per card
+    end
+end
+
+function Card:release(dragged)"""
+if OLD3B not in text:
+    print(f"DRAW_SHADER_NIL_RESET: card.lua Card:draw close anchor not found")
+    sys.exit(1)
+text = text.replace(OLD3B, NEW3B, 1)
+open(card_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: card.lua patched")
+
+# --- blind.lua: one reset after both draw_shader calls ---
+text = open(blind_f).read()
+OLD4 = """    self.children.animatedSprite.role.draw_major = self
+    self.children.animatedSprite:draw_shader('dissolve', 0.1)
+    self.children.animatedSprite:draw_shader('dissolve')    
+
+    for k, v in pairs(self.children) do"""
+NEW4 = """    self.children.animatedSprite.role.draw_major = self
+    self.children.animatedSprite:draw_shader('dissolve', 0.1)
+    self.children.animatedSprite:draw_shader('dissolve')
+    love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per blind
+
+    for k, v in pairs(self.children) do"""
+if OLD4 not in text:
+    print(f"DRAW_SHADER_NIL_RESET: blind.lua anchor not found")
+    sys.exit(1)
+text = text.replace(OLD4, NEW4, 1)
+open(blind_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: blind.lua patched")
+
+# --- misc_functions.lua: one reset in get_stake_sprite custom draw ---
+text = open(misc_f).read()
+OLD5 = """      Sprite.draw_shader(_sprite, 'dissolve')
+      Sprite.draw_shader(_sprite, 'voucher', nil, _sprite.ARGS.send_to_shader)
+    end
+  end
+  return stake_sprite
+end"""
+NEW5 = """      Sprite.draw_shader(_sprite, 'dissolve')
+      Sprite.draw_shader(_sprite, 'voucher', nil, _sprite.ARGS.send_to_shader)
+      love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET
+    end
+  end
+  return stake_sprite
+end"""
+if OLD5 not in text:
+    print(f"DRAW_SHADER_NIL_RESET: misc_functions.lua stake closure anchor not found")
+    sys.exit(1)
+text = text.replace(OLD5, NEW5, 1)
+open(misc_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: misc_functions.lua patched")
+PYEOF
+    local exit_code=$?
+    if [[ $exit_code -eq 0 ]] && grep -q "DRAW_SHADER_NIL_RESET" "$sprite_lua" 2>/dev/null; then
+        log_success "DRAW_SHADER_NIL_RESET applied (draw_shader nil-reset consolidated to call sites)"
+    elif [[ $exit_code -ne 0 ]]; then
+        log_error "DRAW_SHADER_NIL_RESET Python patcher failed"
         exit 1
     fi
 }
