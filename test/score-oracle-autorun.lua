@@ -100,20 +100,26 @@ love.update = function(dt, ...)
     end
 
     -- ---------------------------------------------------------- wait_blind
-    -- Fresh runs open at BLIND_SELECT. Select the on-deck blind directly
-    -- (same synthetic-event pattern as vanilla-autorun.lua lines 88-91).
+    -- Fresh runs open at BLIND_SELECT. select_blind requires a live UIBox on
+    -- its event arg (button_callbacks.lua:2765 indexes e.UIBox). Use the real
+    -- Select button from G.blind_select — same approach as ingame-autorun.lua.
     if phase == 'wait_blind' then
-        if G.STATE == G.STATES.BLIND_SELECT and G.GAME
-            and G.GAME.blind_on_deck and elapsed - phase_t > 2 then
-            local key = G.GAME.round_resets.blind_choices[G.GAME.blind_on_deck]
-            local sel_ok, sel_err = pcall(G.FUNCS.select_blind,
-                { config = { ref_table = G.P_BLINDS[key] } })
-            if not sel_ok then
-                orc_fail('select_blind failed: ' .. tostring(sel_err))
-                return
+        if G.STATE == G.STATES.BLIND_SELECT and G.blind_select
+            and elapsed - phase_t > 3 then
+            local btn = G.blind_select.get_UIE_by_ID
+                and G.blind_select:get_UIE_by_ID('select_blind_button')
+            if btn then
+                local sel_ok, sel_err = pcall(G.FUNCS.select_blind, btn)
+                if not sel_ok then
+                    orc_fail('select_blind failed: ' .. tostring(sel_err))
+                    return
+                end
+                print('ORC: blind selected')
+                phase, phase_t = 'wait_hand', elapsed
+            elseif elapsed - phase_t > 40 then
+                orc_fail('select_blind_button not found in G.blind_select'
+                    .. ' state=' .. tostring(G.STATE))
             end
-            print('ORC: blind selected key=' .. tostring(key))
-            phase, phase_t = 'wait_hand', elapsed
         elseif elapsed - phase_t > 60 then
             orc_fail('timeout waiting for BLIND_SELECT state='
                 .. tostring(G.STATE))
@@ -189,13 +195,20 @@ love.update = function(dt, ...)
     end
 
     if phase == 'wait_return' then
-        -- Back to SELECTING_HAND + a small settle so the ease on G.GAME.chips
-        -- has finished (the ease event has delay=0.5 and is blocking=false, so
-        -- we give it an extra couple of seconds of real time).
-        if G.STATE == G.STATES.SELECTING_HAND and elapsed - phase_t > 4 then
+        -- Accept any state that means scoring has settled:
+        --   SELECTING_HAND : more hands remain this round
+        --   ROUND_EVAL (8)  : blind beaten on this hand -> cashout screen
+        --   SHOP             : same but transition already advanced
+        -- The ease on G.GAME.chips has delay=0.5 and blocking=false; give it
+        -- 4 s of real time regardless of which settled state we land in.
+        local settled = G.STATE == G.STATES.SELECTING_HAND
+            or G.STATE == G.STATES.ROUND_EVAL
+            or G.STATE == G.STATES.SHOP
+        if settled and elapsed - phase_t > 4 then
             local chips_after = G.GAME.chips
             local delta = chips_after - chips_before
-            print('ORC: settled chips_after=' .. tostring(chips_after)
+            print('ORC: settled state=' .. tostring(G.STATE)
+                .. ' chips_after=' .. tostring(chips_after)
                 .. ' delta=' .. tostring(delta))
             print('ORC: score=' .. tostring(delta))
             print(string.format('ORC: PASS seed=%s hand=%s score=%s',
@@ -203,7 +216,7 @@ love.update = function(dt, ...)
             love.event.quit(0)
             phase = 'done'
         elseif elapsed - phase_t > 120 then
-            orc_fail('timeout waiting for state to return to SELECTING_HAND'
+            orc_fail('timeout waiting for settled state after scoring'
                 .. ' (state=' .. tostring(G.STATE) .. ')')
         end
         return
