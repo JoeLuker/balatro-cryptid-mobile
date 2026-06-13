@@ -215,3 +215,10 @@ edit-steamodded:
 # Needs nix-shell. ~30 s.
 page-cycle:
     test/page-cycle.sh
+
+# Lazy-shader elision regression — DRAW_SHADER_NIL_RESET + LAZY_SHADER must
+# produce >= 30 % GPU shader-bind elision at SELECTING_HAND on seed AAAAAAAA.
+# Also asserts the DRAW_SHADER_NIL_RESET sentinel in engine/sprite.lua.
+# Needs nix-shell. ~90 s.
+lazy-shader-elision:
+    test/lazy-shader-elision.sh
