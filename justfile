@@ -230,3 +230,11 @@ lazy-shader-elision:
 # Needs nix-shell. ~60-90 s.
 score-oracle:
     test/score-oracle.sh
+
+# Oracle regression check — runs every baseline in test/score-oracle-baselines.txt
+# through score-oracle and fails if any score drifts. Use after scoring-pipeline
+# changes to verify no regressions.
+# Pass --fast to stop at first failure.
+# Needs nix-shell. ~10-15 min for all 10 baselines.
+oracle-check *args:
+    test/oracle-check.sh {{args}}
