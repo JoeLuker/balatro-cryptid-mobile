@@ -38,6 +38,7 @@ import systems.balatro.game.*
 class MainActivity : ComponentActivity() {
 
     private data class Joke(val name: String, val col: Int, val row: Int)
+    private data class BootState(val pass: Int, val total: Int, val score: Double, val jokes: List<Joke>)
 
     private fun board(n: Int): Pair<Double, List<Joke>> {
         val engine = Engine(); val effects = Effects()
@@ -68,18 +69,25 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Telemetry.event("ACTIVITY", "stage" to "onCreate")
-        // On-device oracle self-check: run the parity harness on the phone's ART/ARM runtime.
-        // pass<total here (but =total on the JVM) would flag a device-specific scoring divergence.
-        val (oraclePass, oracleTotal) = Oracle.run()
-        Telemetry.event("ORACLE", "pass" to oraclePass, "total" to oracleTotal)
         val n = 120
-        val (score, jokes) = board(n)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val ctx = LocalContext.current
-                // cropping happens on Dispatchers.Default -> the UI thread never blocks
+                // Boot work — the on-device oracle self-check (parity harness on the phone's
+                // ART/ARM runtime) + 120-joker board scoring — runs OFF the main thread, so the
+                // first frame is never blocked (this was a ~2s cold-start hitch in onCreate).
+                val boot by produceState<BootState?>(null) {
+                    value = withContext(Dispatchers.Default) {
+                        val (pass, total) = Oracle.run()
+                        Telemetry.event("ORACLE", "pass" to pass, "total" to total)
+                        val (sc, jk) = board(n)
+                        BootState(pass, total, sc, jk)
+                    }
+                }
+                val jokes = boot?.jokes ?: emptyList()
+                // atlas cropping also off the main thread, keyed on the (eventual) jokes
                 val cells by produceState(initialValue = emptyMap<Pair<Int, Int>, ImageBitmap>(), jokes) {
-                    value = withContext(Dispatchers.Default) { buildCellCache(ctx, jokes) }
+                    value = withContext(Dispatchers.Default) { if (jokes.isEmpty()) emptyMap() else buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
                 var showLab by remember { mutableStateOf(false) }
@@ -96,10 +104,10 @@ class MainActivity : ComponentActivity() {
                                 cells[0 to 0]?.let { Image(it, "Joker", Modifier.size(56.dp, 75.dp)); Spacer(Modifier.width(14.dp)) }
                                 Column {
                                     Text("$n jokers scored on-device · art reused", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("score = $score", fontFamily = FontFamily.Monospace, fontSize = 20.sp)
-                                    Text("oracle parity: $oraclePass/$oracleTotal on-device",
+                                    Text("score = ${boot?.score?.toString() ?: "running…"}", fontFamily = FontFamily.Monospace, fontSize = 20.sp)
+                                    Text("oracle parity: ${boot?.let { "${it.pass}/${it.total}" } ?: "…"} on-device",
                                         fontFamily = FontFamily.Monospace, fontSize = 13.sp,
-                                        color = if (oraclePass == oracleTotal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                                        color = if (boot == null || boot!!.pass == boot!!.total) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                                     Text("10 Cryptid archetypes ported · scores like the original", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
                                 }
                             }
