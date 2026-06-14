@@ -876,4 +876,115 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
     BButton("Next  →  ${s.blindName} (Ante ${s.ante})", Balatro.Green, modifier = Modifier.fillMaxWidth()) { s.nextBlind() }
 }
 
+/**
+ * Port of create_UIBox_blind_select (UI_definitions.lua:1417).
+ * Shows three blind-choice columns (Small, Big, Boss) in a horizontal row;
+ * tapping a blind calls s.selectBlind() to start the round.
+ *
+ * Deferred: G.blind_prompt_box DynaText prompt ("ph_choose_blind_1/2"), blind_tag extras,
+ * AnimatedSprite for each blind (B placeholder holds the 1.4u×1.4u footprint),
+ * disabled state, run_info view, reroll-boss voucher button.
+ */
+@Composable
+private fun BlindSelectScreen(s: RunState) {
+    Column(
+        Modifier.fillMaxSize().padding(12.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        BTxt("Choose Blind", Balatro.White, 20.sp)
+        Spacer(Modifier.height(12.dp))
+        // R(align="cm", padding=0.5) containing up to 3 O(UIBox{blind_choice}) nodes
+        // Rendered as a horizontal row since each blind card is a C column node.
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.Top
+        ) {
+            for (slotIdx in 0..2) {
+                Box(Modifier.weight(1f)) {
+                    RenderUI(blindChoiceCard(s, slotIdx) { s.selectBlind() })
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Port of create_UIBox_blind_choice (UI_definitions.lua:1485) for one blind slot.
+ * slotIdx: 0=Small, 1=Big, 2=Boss. onSelect called when the "Select" button is tapped.
+ *
+ * Structure (simplified — faithfully follows source tree shape):
+ *   R(align="tm", minh=10, r=0.1, padding=0.05)        ← outer card
+ *     R(align="cm", colour=darkPanel, r=0.1)
+ *       R(align="cm", padding=0.2)
+ *         R[select button](align="cm", colour=ORANGE, minh=0.6, minw=2.7, r=0.1, shadow, onClick)
+ *           T(blindState label, scale=0.45, TEXT_LIGHT)
+ *         R[blind_name](align="cm", padding=0.07)
+ *           R(align="cm", r=0.1, outline_colour=blindCol, colour=darken(blindCol), minw=2.9, emboss=0.1)
+ *             O(DynaT(blindName, WHITE, scale=0.45, maxw=2.8))
+ *         R[blind_desc](align="cm", padding=0.05)
+ *           R(align="cm", minh=1.5)   ← blind animation placeholder (B)
+ *           R(align="cm", minh=0.7, minw=2.9)  ← description lines
+ *             R(maxw=2.8) T(desc line 1, scale=0.32, WHITE)
+ *         R[score_target](align="cm", r=0.1, colour=BLACK, minw=3.1, emboss=0.05)
+ *           R(maxw=3) T("Score at least", scale=0.3, WHITE)
+ *           R(minh=0.6) B(stake_placeholder) B(0.1) T(amount, scale=0.9*sc, RED)
+ *           R T("Reward: ", WHITE) T("$$$+", MONEY, scale=0.35)
+ *
+ * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
+ */
+private fun blindChoiceCard(s: RunState, slotIdx: Int, onSelect: () -> Unit): UI {
+    val light = Balatro.White
+    val darkPanel = Color(0xFF1A2526)     // mix(BLACK, L_BLACK, 0.5) ≈ panel darker than Panel
+    val blindCol = when (slotIdx) { 0 -> Balatro.Chips; 1 -> Balatro.Orange; else -> Balatro.Mult }
+    // darken(blindCol, 0.3): approximate by mixing with BLACK at 0.3 weight
+    val blindColDark = when (slotIdx) {
+        0 -> Color(0xFF006BB2); 1 -> Color(0xFFB26C00); else -> Color(0xFFB24139)
+    }
+    val blindName = s.nameForSlot(slotIdx)
+    val blindDesc = s.descForSlot(slotIdx)
+    val amount = s.targetForSlot(slotIdx)
+    val reward = s.rewardForSlot(slotIdx)
+    val dollarStr = "$".repeat(reward) + "+"
+
+    return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
+        R(Cfg(align = "cm", colour = darkPanel, r = 0.1f),
+            R(Cfg(align = "cm", padding = 0.2f),
+                // ── select button ──
+                R(Cfg(align = "cm", colour = Balatro.Orange, minh = 0.6f, minw = 2.7f,
+                      padding = 0.07f, r = 0.1f, emboss = 0.05f, onClick = onSelect),
+                    T(Cfg(scale = 0.45f, textColour = light, shadow = true), "Select")),
+                // ── blind name band ──
+                R(Cfg(align = "cm", padding = 0.07f),
+                    R(Cfg(align = "cm", r = 0.1f, colour = blindColDark,
+                          minw = 2.9f, emboss = 0.1f, padding = 0.07f),
+                        O(Cfg(), DynaT(seg({ blindName }, light, scale = 0.45f), shadow = true)))),
+                // ── blind art + description ──
+                R(Cfg(align = "cm", padding = 0.05f),
+                    R(Cfg(align = "cm"),
+                        // Blind animation sprite placeholder (AnimatedSprite deferred: B holds 1.4u×1.4u)
+                        R(Cfg(align = "cm", minh = 1.5f),
+                            B(Cfg(minw = 1.4f, minh = 1.4f, colour = blindCol))),
+                        if (blindDesc.isNotEmpty())
+                            R(Cfg(align = "cm", minh = 0.7f, padding = 0.05f, minw = 2.9f),
+                                R(Cfg(align = "cm", maxw = 2.8f),
+                                    T(Cfg(scale = 0.32f, textColour = light, shadow = true), blindDesc)))
+                        else
+                            B(Cfg(minw = 0.1f, minh = 0.1f)))),
+                // ── score target panel ──
+                R(Cfg(align = "cm", r = 0.1f, padding = 0.05f, minw = 3.1f,
+                      colour = Balatro.Panel, emboss = 0.05f),
+                    R(Cfg(align = "cm", maxw = 3f),
+                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
+                    R(Cfg(align = "cm", minh = 0.6f),
+                        // stake sprite placeholder
+                        B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
+                        B(Cfg(minw = 0.1f, minh = 0.1f)),
+                        T(Cfg(scale = 0.9f, textColour = Balatro.Mult, shadow = true), fmtR(amount))),
+                    R(Cfg(align = "cm"),
+                        T(Cfg(scale = 0.35f, textColour = light, shadow = true), "Reward: "),
+                        T(Cfg(scale = 0.35f, textColour = Balatro.Money, shadow = true), dollarStr))))))
+}
+
 private fun fmtR(v: Double): String = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
