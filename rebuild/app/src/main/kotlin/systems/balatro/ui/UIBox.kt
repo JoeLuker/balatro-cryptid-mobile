@@ -17,8 +17,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -34,8 +37,38 @@ import androidx.compose.ui.unit.sp
 /** Balatro UI unit -> dp / sp. Calibrated against the headless reference: the HUD's real
  *  computed width is 3.23 units (tools/uiref/hud_geometry.ref.txt), so U*3.23 ~= the 175dp
  *  sidebar. FONT pairs with it (Balatro text height in units = scale*0.83). */
+// Balatro UI unit -> dp / sp. The HUD is scaled to the device by FitToHeight (Balatro scales the
+// whole HUD to the screen), so U is the NATURAL unit, not a device-fit value: it just has to be big
+// enough that the full create_UIBox_HUD overflows and gets shrunk to fit (never scaled up). FONT
+// pairs with it (text height in units = scale*0.83).
 const val U = 54f      // dp per Balatro UI unit
 const val FONT = 36f   // sp per text scale=1
+
+/**
+ * Scale [content] down uniformly (never up) so its natural height fits the incoming max height —
+ * Balatro scales the whole HUD to the screen rather than letting it overflow. The content is
+ * measured at the incoming (fixed) width and unbounded height, then both dimensions shrink by the
+ * fit factor and the result is drawn from the top-left. This decouples "how big the HUD wants to
+ * be" (its unit math) from "does it fit the device", so the unit calibration never has to be
+ * re-guessed per screen size.
+ */
+@Composable
+fun FitToHeight(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    SubcomposeLayout(modifier) { constraints ->
+        val measurable = subcompose(Unit, content).first()
+        val natural = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+        val maxH = constraints.maxHeight
+        val scale = if (maxH in 1 until natural.height) maxH.toFloat() / natural.height else 1f
+        val w = (natural.width * scale).toInt().coerceAtMost(constraints.maxWidth)
+        val h = (natural.height * scale).toInt().coerceIn(0, if (maxH > 0) maxH else natural.height)
+        layout(w, h) {
+            natural.placeWithLayer(0, 0) {
+                scaleX = scale; scaleY = scale
+                transformOrigin = TransformOrigin(0f, 0f)
+            }
+        }
+    }
+}
 
 data class Cfg(
     val align: String = "cm",       // <v><h>: t/c/b + l/m/r

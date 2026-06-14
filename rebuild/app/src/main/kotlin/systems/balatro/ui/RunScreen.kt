@@ -386,7 +386,12 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(Balatro.Felt)) {                       // the green felt table
         Row(Modifier.fillMaxSize().padding(10.dp)) {
-            HudColumn(s, Modifier.width(180.dp).fillMaxHeight(), onClose, stakeBmp)  // Balatro's left sidebar
+            // Balatro's left sidebar: rendered at natural unit-size, then scaled to fit the screen
+            // height by FitToHeight (like Balatro scaling the HUD to the device). Width = the HUD's
+            // widest row (contents.hand ≈ 4.7u); the scaled result is ~the same on every screen.
+            FitToHeight(Modifier.width((4.7f * U).dp).fillMaxHeight()) {
+                HudColumn(s, Modifier.fillMaxWidth(), onClose, stakeBmp)
+            }
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
                 when (s.phase) {
@@ -449,6 +454,10 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
         RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale))
         // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
         RenderUI(hudDollarsChips(s, stakeBmp))
+        // Hand readout: Balatro's contents.hand (hand name + chips X mult). In create_UIBox_HUD it
+        // sits in the sidebar between dollars_chips and row_round (UI_definitions.lua:1407), NOT in
+        // the play area. Blank when idle; live during/after scoring.
+        RenderUI(hudHand(s))
         // Row-round: Balatro's R(id='row_round') containing C{buttons} + C{round} (source line 1408-1411).
         // hudButtons (C column) and hudRound (C column) are siblings inside a wrapping R row.
         RenderUI(R(Cfg(align = "cm"),
@@ -863,12 +872,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
 
-        // centre: hand name + chips X mult readout (Balatro's contents.hand through the UIBox
-        // interpreter), and the played cards popping while scoring.
+        // centre: the played cards popping while scoring. The hand-name + chips X mult readout
+        // (contents.hand) lives in the LEFT HUD sidebar per create_UIBox_HUD, NOT here.
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // contents.hand tree: always rendered — shows blank when idle, live during/after scoring
-                RenderUI(hudHand(s))
                 if (!s.scoring && s.lastResult == null) {
                     Spacer(Modifier.height(4.dp))
                     BTxt("select up to 5 cards, then Play", Balatro.White, 13.sp)
