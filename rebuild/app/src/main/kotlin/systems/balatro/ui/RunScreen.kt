@@ -379,6 +379,19 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
  *  - Ante value row: O(ante) + T(" ", 0.3*sc) + T("/ ", 0.7*sc, shadow) + T("8", sc, shadow).
  *  - Round value row: O(round) DynaText, no extra suffix nodes.
  */
+
+/**
+ * Port of create_UIBox_HUD's contents.dollars_chips (UI_definitions.lua:1365).
+ * Replaces the hand-wired round-score Panel in HudColumn.
+ *
+ * Structure: R(panel, r=0.1, emboss=0.05) → C(padding=0.1)
+ *   → C(minw=1.3) [ R"Round" / R"Score" ]
+ *   → C(minw=3.3, minh=0.7, r=0.1, dark) [ O stake_sprite | B | T chips_text ]
+ *
+ * G.GAME.chips_text (ref_table=G.GAME, ref_value='chips_text') → s.chipsText = fmtR(roundScore).
+ * stake sprite O (w=0.5, h=0.5) → B placeholder until stake atlas is wired.
+ * G.C.DYN_UI.BOSS_MAIN / .BOSS_DARK → Balatro.Panel / Balatro.FeltDark.
+ */
 private fun hudRound(s: RunState): UI {
     val tc = Balatro.Panel; val tc2 = Balatro.FeltDark; val light = Balatro.White
     val sp = 0.13f
