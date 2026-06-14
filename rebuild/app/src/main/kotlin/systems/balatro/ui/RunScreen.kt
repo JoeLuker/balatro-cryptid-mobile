@@ -1,5 +1,10 @@
 package systems.balatro.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -24,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.content.Content
@@ -122,6 +129,16 @@ private class RunState {
     var lastResult by mutableStateOf<ScoreResult?>(null)
     var lastSteps by mutableStateOf<List<ScoreStep>>(emptyList())
 
+    // --- scoring animation state ---
+    var scoring by mutableStateOf(false); private set        // the score sequence is playing out
+    var scoreCards by mutableStateOf<List<PlayingCard>>(emptyList()); private set  // played cards, held on screen
+    var popIndex by mutableStateOf(-1)                       // which played card is currently popping
+    var displayChips by mutableStateOf(0.0)                  // the readout, counting up through the cascade
+    var displayMult by mutableStateOf(0.0)
+    private var pending: ScoreResult? = null
+    private var pendingSel: List<PlayingCard> = emptyList()
+    private var pendingHeld: List<PlayingCard> = emptyList()
+
     val target: Double get() {
         val base = 300.0 * ante
         return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
@@ -153,26 +170,45 @@ private class RunState {
 
     fun toggle(i: Int) { if (phase == Phase.ROUND) selected = if (i in selected) selected - i else selected + i }
 
+    /** Score the selection now (the engine), but resolve it as an ANIMATION — the UI drives
+     *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
     fun play() {
-        if (phase != Phase.ROUND || selected.isEmpty()) return
+        if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
         val sel = hand.filterIndexed { i, _ -> i in selected }
-        val held = hand.filterIndexed { i, _ -> i !in selected }       // steel held cards score x1.5
+        val held = hand.filterIndexed { i, _ -> i !in selected }
         val trace = ArrayList<ScoreStep>()
         val r = scorer.scoreDetailed(world, sel, trace, boss?.scoringDebuff ?: Debuff.None, held)
-        roundScore += r.score; handsLeft -= 1
-        money += sel.count { it.seal == Seal.GOLD } * 3                 // gold seal: +$3 per played gold-sealed card
         lastResult = r; lastSteps = trace
-        Telemetry.event("ROUND_HAND", "blind" to blindName, "type" to r.handType, "score" to r.score, "total" to roundScore)
+        pending = r; pendingSel = sel; pendingHeld = held
+        scoreCards = sel; popIndex = -1
+        displayChips = trace.firstOrNull()?.chips ?: r.chips    // start at the hand base
+        displayMult = trace.firstOrNull()?.mult ?: r.mult
+        scoring = true                                          // LaunchedEffect picks it up
+        Telemetry.event("ROUND_HAND", "blind" to blindName, "type" to r.handType, "score" to r.score)
+    }
+
+    /** Advance the readout to cascade step `i` and pop that card (called on a timer by the UI). */
+    fun scoreStep(i: Int) {
+        val step = lastSteps.getOrNull(i) ?: return
+        displayChips = step.chips; displayMult = step.mult
+        popIndex = i - 1                                        // step 0 is the base; 1.. are cards
+    }
+
+    /** Commit the scored hand: bank the score, refill, advance the run. */
+    fun scoreCommit() {
+        val r = pending ?: return
+        roundScore += r.score; handsLeft -= 1
+        money += pendingSel.count { it.seal == Seal.GOLD } * 3
+        scoring = false; scoreCards = emptyList(); popIndex = -1
+        Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
         if (roundScore >= target) {
-            val gold = held.count { it.enhancement == Enhancement.GOLD }  // +$3 per gold held at round end
+            val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
             val reward = 4 + handsLeft + gold * 3
             money += reward
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
             blindIndex += 1
-            shop = rollShop(blindIndex)
-            shopPlanets = rollPlanets(blindIndex)
-            shopTarots = rollTarots(blindIndex)
+            shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
             phase = Phase.SHOP
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
@@ -294,7 +330,18 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 
 @Composable
 private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
-    // blind panel: target + boss debuff
+    // The scoring sequence: walk the cascade trace on a timer so chips/mult tick up and the
+    // played cards pop one at a time, then bank the score.
+    LaunchedEffect(s.scoring) {
+        if (s.scoring) {
+            val steps = s.lastSteps
+            for (i in steps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
+            delay(450L)
+            s.scoreCommit()
+        }
+    }
+    val animRound by animateFloatAsState(s.roundScore.toFloat(), tween(700, easing = FastOutSlowInEasing), label = "round")
+
     Panel(Modifier.fillMaxWidth()) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -307,11 +354,10 @@ private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
         }
     }
     Spacer(Modifier.height(8.dp))
-    // round score
     Panel(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             BTxt("Round score", Balatro.White, 11.sp)
-            BTxt(fmtR(s.roundScore), Balatro.White, 30.sp)
+            BTxt(fmtR(animRound.toDouble()), Balatro.White, 30.sp)   // ticks up after a hand banks
         }
     }
     Spacer(Modifier.height(6.dp))
@@ -321,13 +367,30 @@ private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
         Pill("\$${s.money}", "Money", Balatro.Money)
     }
 
-    // the chips X mult readout for the last hand
-    s.lastResult?.let { r ->
-        Spacer(Modifier.height(12.dp))
+    // the chips X mult readout — live count-up while scoring, last result otherwise
+    Spacer(Modifier.height(12.dp))
+    if (s.scoring) {
+        ScoreReadout(handName(s.lastResult?.handType ?: HandType.NONE), fmtR(s.displayChips), fmtR(s.displayMult), Modifier.fillMaxWidth())
+        // the played cards, popping one by one as the cascade resolves
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().height(86.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom) {
+            s.scoreCards.forEachIndexed { i, card ->
+                val active = i == s.popIndex
+                val popped = i <= s.popIndex
+                val scale by animateFloatAsState(if (active) 1.3f else if (popped) 1.04f else 0.9f,
+                    spring(Spring.DampingRatioMediumBouncy, 520f), label = "pop$i")
+                val lift by animateFloatAsState(if (active) -22f else 0f, spring(Spring.DampingRatioMediumBouncy, 520f), label = "poplift$i")
+                Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { scaleX = scale; scaleY = scale; translationY = lift }) {
+                    cells[card]?.let { Image(it, card.label, Modifier.size(46.dp, 62.dp).clip(RoundedCornerShape(5.dp))) }
+                        ?: Box(Modifier.size(46.dp, 62.dp).clip(RoundedCornerShape(5.dp)).background(Balatro.FeltDark))
+                }
+            }
+        }
+    } else s.lastResult?.let { r ->
         ScoreReadout(handName(r.handType), fmtR(r.chips), fmtR(r.mult), Modifier.fillMaxWidth())
     }
 
-    // the hand — alive: each card idly wobbles, springs up when selected (see JuicyCard)
+    // the hand — alive (wobble + spring select). Frozen during the scoring sequence.
     Spacer(Modifier.height(12.dp))
     LazyRow(
         Modifier.fillMaxWidth().height(126.dp),
@@ -335,7 +398,7 @@ private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
         verticalAlignment = Alignment.Bottom,
     ) {
         itemsIndexed(s.hand) { i, card ->
-            JuicyCard(cells[card], card.label, i in s.selected, i, 62.dp, onClick = { s.toggle(i) }) {
+            JuicyCard(cells[card], card.label, i in s.selected, i, 62.dp, onClick = { if (!s.scoring) s.toggle(i) }) {
                 if (card.enhancement != Enhancement.NONE) {
                     BTxt(card.enhancement.badge, Balatro.White, 9.sp,
                         Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
@@ -349,8 +412,8 @@ private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
     }
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        BButton("Play Hand", Balatro.Chips, enabled = s.selected.isNotEmpty() && cells.isNotEmpty(), modifier = Modifier.weight(1f)) { s.play() }
-        BButton("Discard", Balatro.Mult, enabled = s.selected.isNotEmpty() && s.discardsLeft > 0, modifier = Modifier.weight(1f)) { s.discard() }
+        BButton("Play Hand", Balatro.Chips, enabled = !s.scoring && s.selected.isNotEmpty() && cells.isNotEmpty(), modifier = Modifier.weight(1f)) { s.play() }
+        BButton("Discard", Balatro.Mult, enabled = !s.scoring && s.selected.isNotEmpty() && s.discardsLeft > 0, modifier = Modifier.weight(1f)) { s.discard() }
     }
 }
 
