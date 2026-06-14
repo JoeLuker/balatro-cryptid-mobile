@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
                 var showManager by remember { mutableStateOf(false) }
                 var showLab by remember { mutableStateOf(false) }
                 var showRound by remember { mutableStateOf(false) }
+                var showRun by remember { mutableStateOf(false) }
 
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(20.dp)) {
@@ -118,6 +119,11 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth()) {
                             Text("Play a Round  (beat the blind)")
                         }
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = { showRun = true; Telemetry.event("UI", "open" to "run") },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text("Play a Run  (blinds + shop)")
+                        }
                         Spacer(Modifier.weight(1f))
                         Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
                             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -145,6 +151,9 @@ class MainActivity : ComponentActivity() {
                     }
                     if (showRound) {
                         Surface(Modifier.fillMaxSize()) { RoundScreen(onClose = { showRound = false }) }
+                    }
+                    if (showRun) {
+                        Surface(Modifier.fillMaxSize()) { RunScreen(onClose = { showRun = false }) }
                     }
                 }
             }
