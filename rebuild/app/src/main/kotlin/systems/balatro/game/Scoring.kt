@@ -34,10 +34,11 @@ enum class Ctx { BEFORE, INDIVIDUAL_SCORED, INDIVIDUAL_HELD, JOKER_MAIN, RETRIGG
  */
 class Context {
     lateinit var phase: Ctx
-    var scoredCard: Entity = 0      // the playing card being scored (INDIVIDUAL_*)
-    var self: Entity = 0            // the joker whose handler is running
+    var scoredCard: Entity = 0          // the playing card entity being scored (INDIVIDUAL_*)
+    var scoredPlaying: PlayingCard? = null  // its data (suit/rank/chips)
+    var self: Entity = 0                // the joker whose handler is running
     val tally = Tally()
-    var retriggers: Int = 0         // an effect may request repeats of the current card
+    var retriggers: Int = 0             // an effect may request repeats of the current card
 }
 
 /** A joker's contribution. Pure: reads the context, mutates the tally, returns nothing. */
@@ -76,22 +77,21 @@ class Effects {
 class ScoreRun(private val effects: Effects) {
     private val ctx = Context()
 
-    fun scoreHand(world: World, playedCards: List<Entity>): BigValue {
+    fun scoreHand(world: World, played: List<PlayingCard>): BigValue {
+        val (handType, scoring) = Hands.evaluate(played)   // base chips/mult + the scoring cards
         ctx.tally.reset()
+        ctx.tally.chips = BigValue.of(handType.baseChips)
+        ctx.tally.mult = BigValue.of(handType.baseMult)
         effects.dispatch(world, ctx, Ctx.BEFORE)
-        for (card in playedCards) {
-            ctx.scoredCard = card
-            var repeats = 1
-            // retrigger pass: subscribers may add repeats of this card
-            ctx.retriggers = 0
+        for (card in scoring) {
+            ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)  // card adds its chips
+            ctx.scoredPlaying = card
+            ctx.retriggers = 0                                          // subscribers may add repeats
             effects.dispatch(world, ctx, Ctx.RETRIGGER)
-            repeats += ctx.retriggers
-            repeat(repeats) {
-                effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
-            }
+            repeat(1 + ctx.retriggers) { effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED) }
         }
         effects.dispatch(world, ctx, Ctx.JOKER_MAIN)
         effects.dispatch(world, ctx, Ctx.AFTER)
-        return ctx.tally.score()
+        return BigValue.of(kotlin.math.floor(ctx.tally.score().v))      // Balatro floors the final
     }
 }

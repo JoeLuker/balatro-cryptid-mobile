@@ -23,7 +23,7 @@ object Demo {
         val base = engine.world.create()
         effects.register(base, setOf(Ctx.BEFORE)) { _, ctx -> ctx.tally.chips = BigValue.of(10) }
 
-        val score = run.scoreHand(engine.world, playedCards = emptyList())
+        val score = run.scoreHand(engine.world, played = emptyList())
 
         // mult: 1 -> (+4) 5 -> (x1.5) 7.5 ; chips 10 ; score = 10 * 7.5 = 75
         val expected = 75.0
