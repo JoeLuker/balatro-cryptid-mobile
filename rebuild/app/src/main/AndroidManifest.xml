@@ -6,6 +6,7 @@
         android:allowBackup="true"
         android:label="Balatro Native"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.BalatroNative">
         <activity
             android:name="systems.balatro.ui.MainActivity"
