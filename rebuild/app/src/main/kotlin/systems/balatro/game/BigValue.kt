@@ -15,6 +15,7 @@ value class BigValue(val v: Double) {
     operator fun plus(o: BigValue) = BigValue(v + o.v)
     operator fun times(o: BigValue) = BigValue(v * o.v)
     operator fun compareTo(o: BigValue): Int = v.compareTo(o.v)
+    fun pow(e: Double) = BigValue(Math.pow(v, e))   // Talisman Emult: mult = mult ^ Emult
 
     companion object {
         val ZERO = BigValue(0.0)

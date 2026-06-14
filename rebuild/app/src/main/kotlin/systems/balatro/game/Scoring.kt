@@ -36,7 +36,8 @@ class Context {
     lateinit var phase: Ctx
     var scoredCard: Entity = 0          // the playing card entity being scored (INDIVIDUAL_*)
     var scoredPlaying: PlayingCard? = null  // its data (suit/rank/chips)
-    var scoringCards: List<PlayingCard> = emptyList()  // the whole scoring hand (for shape-aware jokers)
+    var scoringCards: List<PlayingCard> = emptyList()  // the scoring cards only (kickers excluded)
+    var playedCards: List<PlayingCard> = emptyList()   // the whole played hand (incl. non-scoring)
     var self: Entity = 0                // the joker whose handler is running
     var otherJoker: Entity = 0          // the board joker being offered (OTHER_JOKER pass)
     val tally = Tally()
@@ -102,7 +103,8 @@ class ScoreRun(private val effects: Effects) {
         ctx.tally.reset()
         ctx.tally.chips = BigValue.of(handType.baseChips)
         ctx.tally.mult = BigValue.of(handType.baseMult)
-        ctx.scoringCards = scoring                                      // shape-aware jokers inspect the whole hand
+        ctx.scoringCards = scoring                                      // shape-aware jokers inspect the scoring cards
+        ctx.playedCards = played                                        // ...or the full played hand (primus prime-check)
         effects.dispatch(world, ctx, Ctx.BEFORE)
         for (card in scoring) {
             ctx.scoredPlaying = card

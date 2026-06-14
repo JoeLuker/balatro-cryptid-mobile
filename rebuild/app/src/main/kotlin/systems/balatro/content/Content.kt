@@ -78,9 +78,27 @@ object Content {
             w.add(j, RankMod { r -> if (r in 2..10) 10 else if (r in 11..13) 13 else r })
             j
         },
+        // exponential (Talisman Emult): if the WHOLE played hand is prime-ranked, the
+        // joker's Emult scales +0.17 (before), then at joker_main mult = mult ^ Emult.
+        // "prime" = rank not composite per Cryptid's set (so A counts as prime, 10 does not).
+        "j_cry_primus" to { w: World, e: Effects ->
+            val j = newJoker(w)
+            w.add(j, Scaling(1.01))
+            e.register(j, setOf(Ctx.BEFORE)) { world, c ->
+                if (c.playedCards.all { it.rank !in PRIMUS_COMPOSITES }) world.get<Scaling>(c.self)!!.x += 0.17
+            }
+            e.register(j, setOf(Ctx.JOKER_MAIN)) { world, c ->
+                val emult = world.get<Scaling>(c.self)!!.x
+                if (emult > 1.0) c.tally.mult = c.tally.mult.pow(emult)
+            }
+            j
+        },
     )
 
-    /** Mutable per-joker scaling accumulator, stored as a component on the joker entity. */
+    /** Composite ranks per Cryptid's primus check — everything else (incl. Ace=14) is "prime". */
+    private val PRIMUS_COMPOSITES = setOf(4, 6, 8, 9, 10, 11, 12, 13)
+
+    /** Mutable per-joker scalar accumulator on the joker entity (krusty x_mult, primus Emult). */
     private class Scaling(var x: Double) : Component
 
     /** Every joker enters the board (ordered slot store) on creation. */
