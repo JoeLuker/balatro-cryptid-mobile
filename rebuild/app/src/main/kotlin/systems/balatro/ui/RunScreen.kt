@@ -955,8 +955,10 @@ private fun blindChoiceCard(s: RunState, slotIdx: Int, enabled: Boolean = true, 
     // Source uses G.C.UI.BACKGROUND_INACTIVE for disabled button; GREY approximates it.
     val btnColour = if (enabled) Balatro.Orange else Balatro.Grey
 
+    // Source: outer R has r=0.1; inner R has outline=1, outline_colour=G.C.L_BLACK (PanelLight).
     return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
-        R(Cfg(align = "cm", colour = darkPanel, r = 0.1f),
+        R(Cfg(align = "cm", colour = darkPanel, r = 0.1f,
+              outline = 1f, outlineColour = Balatro.PanelLight),
             R(Cfg(align = "cm", padding = 0.2f),
                 // ── select button (Orange if current slot, Grey for Upcoming) ──
                 R(Cfg(align = "cm", colour = btnColour, minh = 0.6f, minw = 2.7f,
@@ -964,10 +966,11 @@ private fun blindChoiceCard(s: RunState, slotIdx: Int, enabled: Boolean = true, 
                       onClick = if (enabled) onSelect else null),
                     T(Cfg(scale = 0.45f, textColour = light, shadow = enabled),
                       if (enabled) "Select" else "Upcoming")),
-                // ── blind name band ──
+                // ── blind name band (outline=1, outline_colour=blindCol in source) ──
                 R(Cfg(align = "cm", padding = 0.07f),
                     R(Cfg(align = "cm", r = 0.1f, colour = blindColDark,
-                          minw = 2.9f, emboss = 0.1f, padding = 0.07f),
+                          minw = 2.9f, emboss = 0.1f, padding = 0.07f,
+                          outline = 1f, outlineColour = blindCol),
                         O(Cfg(), DynaT(seg({ blindName }, light, scale = 0.45f), shadow = true)))),
                 // ── blind art + description ──
                 R(Cfg(align = "cm", padding = 0.05f),

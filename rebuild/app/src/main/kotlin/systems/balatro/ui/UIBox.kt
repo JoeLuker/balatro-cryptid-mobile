@@ -48,7 +48,9 @@ data class Cfg(
     val scale: Float = 1f,          // text scale
     val textColour: Color = Balatro.White,
     val shadow: Boolean = false,    // T shadow: black 0.3a offset pass (config.shadow in ui.lua draw_self)
-    val emboss: Float = 0f,           // 3-D edge depth in units (G.C.emboss float, 0 = off)
+    val emboss: Float = 0f,         // 3-D edge depth in units (G.C.emboss float, 0 = off)
+    val outline: Float = 0f,        // border thickness in dp (config.outline in ui.lua; rendered outside the clip)
+    val outlineColour: Color = Color.Transparent,  // config.outline_colour
     val onClick: (() -> Unit)? = null,
 )
 
@@ -126,6 +128,12 @@ private fun Modifier.cfg(c: Cfg): Modifier {
         if (c.emboss > 0) m = m.border((c.emboss * U).dp, Color.Black.copy(alpha = 0.25f), shape)  // 3D edge: depth in units
         val fill = if (pressed) lighten(c.colour) else c.colour                   // ARGS.button_colours[2] HOVER
         m = m.clip(shape).background(fill)
+    }
+    // outline is a cosmetic border rendered at the clip boundary (config.outline / outline_colour).
+    // Thickness is in dp (Balatro's outline=1 ≈ 1dp — sub-unit, pixel-scale value).
+    if (c.outline > 0f && c.outlineColour != Color.Transparent) {
+        val shape = RoundedCornerShape((c.r * U).dp)
+        m = m.border(c.outline.dp, c.outlineColour, shape)
     }
     if (c.padding > 0) m = m.padding((c.padding * U).dp)
     return m
