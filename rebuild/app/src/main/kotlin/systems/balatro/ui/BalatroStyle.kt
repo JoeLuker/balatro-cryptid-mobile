@@ -41,6 +41,22 @@ object Balatro {
     val White = Color(0xFFFFFFFF)
     val Ink = Color(0xFF374244)          // dark text on light chips
 
+    /** G.C.HAND_LEVELS[1..7] — the 7 level-badge colours cycling from white through lavender.
+     *  Source uses HAND_LEVELS[min(7,lvl)]; index 0 is unused (RED for Lv0, a degenerate case). */
+    val HandLevels: List<Color> = listOf(
+        Mult,                        // [0] = RED — Lv0 degenerate
+        Color(0xFFEFEFEF),           // [1] = near white
+        Color(0xFF95ACFF),           // [2] = soft blue
+        Color(0xFF65EFAF),           // [3] = mint green
+        Color(0xFFFAE37E),           // [4] = pale gold
+        Color(0xFFFFC052),           // [5] = orange
+        Color(0xFFF87D75),           // [6] = salmon
+        Color(0xFFCAA0EF),           // [7] = lavender
+    )
+
+    /** Returns HAND_LEVELS[clamp(lvl, 0, 7)] — the level-badge fill colour for this hand level. */
+    fun handLevelColour(lvl: Int): Color = HandLevels[lvl.coerceIn(0, 7)]
+
     val font = FontFamily(Font(R.font.m6x11plus))
 }
 

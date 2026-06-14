@@ -1095,7 +1095,7 @@ private fun currentHandsUI(s: RunState): UI {
         val chips = h.baseChips + (lvl - 1) * h.lChips
         val mult  = h.baseMult  + (lvl - 1) * h.lMult
         val played = s.handPlayed(h)
-        val lvlColour = Balatro.Chips   // G.C.HAND_LEVELS[min(7,lvl)]: full palette deferred
+        val lvlColour = Balatro.handLevelColour(lvl)   // G.C.HAND_LEVELS[min(7,lvl)]
 
         return R(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = dark2, emboss = 0.05f),
             C(Cfg(align = "cl", padding = 0f, minw = 5f),
