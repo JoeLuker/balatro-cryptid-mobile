@@ -361,8 +361,11 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
         RenderUI(hudBlind(s, blindBmp = null, stakeBmp = null))
         // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
         RenderUI(hudDollarsChips(s))
-        // Balatro's actual HUD stat tree (create_UIBox_HUD), rendered through the UIBox interpreter
-        RenderUI(hudRound(s))
+        // Row-round: Balatro's R(id='row_round') containing C{buttons} + C{round} (source line 1408-1411).
+        // hudButtons (C column) and hudRound (C column) are siblings inside a wrapping R row.
+        RenderUI(R(Cfg(align = "cm"),
+            C(Cfg(align = "cm"), hudButtons()),
+            C(Cfg(align = "cm"), hudRound(s))))
     }
 }
 
@@ -469,7 +472,7 @@ private fun hudDollarsChips(s: RunState): UI {
                 R(Cfg(align = "cm", padding = 0f, maxw = 1.3f),
                     T(Cfg(scale = 0.42f, textColour = light, shadow = true), "Round")),
                 R(Cfg(align = "cm", padding = 0f, maxw = 1.3f),
-                    T(Cfg(scale = 0.42f, textColour = light, shadow = true), "Score"))),
+                    T(Cfg(scale = 0.42f, textColour = light, shadow = true), "score"))),
             C(Cfg(align = "cm", minw = 3.3f, minh = 0.7f, r = 0.1f, colour = panelDark),
                 // Stake sprite O: B spacer until BlindArt.cache is wired (same 0.5u×0.5u footprint)
                 B(Cfg(minw = 0.5f, minh = 0.5f)),
@@ -477,6 +480,32 @@ private fun hudDollarsChips(s: RunState): UI {
                 // chips_text T: G.GAME.chips_text = fmtR(roundScore); scale=0.85 (source line 1378)
                 O(Cfg(align = "cm"),
                     DynaT(seg({ fmtR(s.roundScore) }, light, scale = 0.85f), shadow = true)))))
+}
+
+/**
+ * Port of create_UIBox_HUD's contents.buttons (UI_definitions.lua:1383).
+ * Two sidebar buttons: Run Info (RED/Mult) and Options (ORANGE), stacked in C(CLEAR, padding=0.2).
+ *
+ * "Run Info" = two T nodes: "Run" (scale=1.2*0.4=0.48) / "Info" (scale=0.4) in separate Rs.
+ * "Options" = one T (scale=0.4) inside a C. shadow=true on T = text shadow pass.
+ * onRunInfo/onOptions: stubs for now; actions deferred until panels exist.
+ * Deferred: focus_args, func='set_button_pip', box-shadow on R containers.
+ */
+private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)? = null): UI {
+    val sc = 0.4f
+    val light = Balatro.White
+    return C(
+        Cfg(align = "cm", colour = Color.Transparent, padding = 0.2f),
+        R(Cfg(align = "cm", minh = 1.75f, minw = 1.5f, padding = 0.05f, r = 0.1f,
+              colour = Balatro.Mult, onClick = onRunInfo),
+            R(Cfg(align = "cm", padding = 0f, maxw = 1.4f),
+                T(Cfg(scale = 1.2f * sc, textColour = light, shadow = true), "Run")),
+            R(Cfg(align = "cm", padding = 0f, maxw = 1.4f),
+                T(Cfg(scale = sc, textColour = light, shadow = true), "Info"))),
+        R(Cfg(align = "cm", minh = 1.75f, minw = 1.5f, padding = 0.05f, r = 0.1f,
+              colour = Balatro.Orange, onClick = onOptions),
+            C(Cfg(align = "cm", maxw = 1.4f),
+                T(Cfg(scale = sc, textColour = light, shadow = true), "Options"))))
 }
 
 /**
