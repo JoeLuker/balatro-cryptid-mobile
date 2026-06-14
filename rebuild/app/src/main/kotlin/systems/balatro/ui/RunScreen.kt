@@ -47,7 +47,7 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-private enum class Phase { ROUND, SHOP, OVER }
+private enum class Phase { ROUND, BLIND_SELECT, SHOP, OVER }
 private data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 private data class Owned(val entity: Entity, val offer: Offer)
 private data class PlanetOffer(val planet: Planet, val cost: Int)
@@ -145,6 +145,24 @@ private class RunState {
         val base = 300.0 * ante
         return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
     }
+
+    /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
+     *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
+    fun targetForSlot(slotIdx: Int): Double {
+        val base = 300.0 * ante
+        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
+    }
+
+    /** Reward dollars for each blind slot (config.dollars in Lua: Small=$3, Big=$4, Boss=$5). */
+    fun rewardForSlot(slotIdx: Int): Int = 3 + slotIdx
+
+    /** Name label for the upcoming blind slot on the blind-select screen. */
+    fun nameForSlot(slotIdx: Int): String = when (slotIdx) {
+        0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind"
+    }
+
+    /** Description for the blind-select screen (boss ability line, or empty for Small/Big). */
+    fun descForSlot(slotIdx: Int): String = if (slotIdx == 2) boss?.desc ?: "" else ""
 
     /** Mirrors G.GAME.blind.chip_text — the chip target as a formatted string for the HUD_blind T node.
      *  scale=0.001 in the source means it starts invisible; blind_chip_UI_scale animates it in (deferred).
@@ -291,7 +309,10 @@ private class RunState {
 
     fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
 
-    fun nextBlind() { if (phase == Phase.SHOP) startRound() }
+    fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
+
+    /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
+    fun selectBlind() { if (phase == Phase.BLIND_SELECT) startRound() }
 
     /** config.button = "sort_hand_value" (byRank=true) or "sort_hand_suit" (byRank=false).
      *  Stable sort so cards with the same key stay in their original relative order. */
@@ -330,6 +351,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
             Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
                 when (s.phase) {
                     Phase.ROUND -> RoundPlay(s, cells, jokerCells)
+                    Phase.BLIND_SELECT -> BlindSelectScreen(s)
                     Phase.SHOP -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ShopPhase(s, jokerCells) }
                     Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Panel {
