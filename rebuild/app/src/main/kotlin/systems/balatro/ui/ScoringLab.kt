@@ -82,6 +82,9 @@ fun ScoringLab(onClose: () -> Unit) {
     val cells by produceState<Map<PlayingCard, ImageBitmap>>(emptyMap(), hand) {
         value = withContext(Dispatchers.Default) { CardArt.cache(ctx, hand) }
     }
+    val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, DEMO_LOADOUT.map { it.key }) }
+    }
 
     fun play() {
         val sel = hand.filterIndexed { i, _ -> i in selected }
@@ -105,10 +108,24 @@ fun ScoringLab(onClose: () -> Unit) {
             color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
 
         Spacer(Modifier.height(12.dp))
-        Text("Jokers", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text("Joker board", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Spacer(Modifier.height(4.dp))
+        // LOD board strip: jokers shrink to fit so the WHOLE board stays visible (the felt),
+        // never scrolls off. With 3 they're full size; with a huge stack they'd shrink, all shown.
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val n = DEMO_LOADOUT.size
+            val w = minOf(82.dp, (maxWidth - 6.dp * (n - 1).toFloat()) / n.toFloat())
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (j in DEMO_LOADOUT) {
+                    jokerCells[j.key]?.let { Image(it, j.label, Modifier.size(w, w * (190f / 142f))) }
+                        ?: Box(Modifier.size(w, w * (190f / 142f)).background(MaterialTheme.colorScheme.surfaceVariant))
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         for (j in DEMO_LOADOUT) {
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                Text(j.label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.width(130.dp))
+                Text(j.label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.width(140.dp))
                 Text(j.desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
