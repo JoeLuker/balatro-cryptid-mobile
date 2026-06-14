@@ -161,13 +161,16 @@ fun RenderUI(node: UI) {
     when (node) {
         is Tx -> {
             val size = (node.cfg.scale * FONT).sp
+            // config.vert=true: text rotated 90° CCW — Balatro's vertical sidebar labels.
+            // graphicsLayer rotates the drawing pass; wrapContentSize + rotate in place to avoid layout jump.
+            val vertMod = if (node.cfg.vert) Modifier.graphicsLayer { rotationZ = -90f } else Modifier
             if (node.cfg.shadow) {
-                Box {
+                Box(vertMod) {
                     BTxt(node.text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
                     BTxt(node.text, node.cfg.textColour, size)
                 }
             } else {
-                BTxt(node.text, node.cfg.textColour, size)
+                BTxt(node.text, node.cfg.textColour, size, vertMod)
             }
         }
         is Ro -> Container(node.cfg, node.kids)
