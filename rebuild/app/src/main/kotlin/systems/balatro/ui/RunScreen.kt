@@ -341,6 +341,17 @@ private class RunState {
         phase = Phase.SHOP
     }
 
+    /** Reroll the shop stock (button='reroll_shop'). Balatro charges a flat reroll cost ($5 base). */
+    var rerollCost by mutableStateOf(5)
+    private var rerolls = 0
+    fun reroll() {
+        if (money < rerollCost || phase != Phase.SHOP) return
+        money -= rerollCost
+        rerolls += 1
+        val seed = blindIndex + rerolls * 7
+        shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
+    }
+
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
     fun selectBlind() { if (phase == Phase.BLIND_SELECT) startRound() }
 
@@ -410,7 +421,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                 when (s.phase) {
                     Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase)
                     Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
-                    Phase.SHOP -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ShopPhase(s, jokerCells) }
+                    Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
                     Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                     Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Panel {
@@ -935,64 +946,109 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     }
 }
 
+/**
+ * Port of create_UIBox_shop (UI_definitions.lua:691-739): the dark shop panel holding the
+ * Next Round (RED) / Reroll (GREEN) buttons on the left and a row of card slots (L_BLACK inset)
+ * on the right, each card showing its price tag ($N, MONEY) above and a Buy tag (GOLD) below —
+ * create_shop_card_ui (lines 810-825). Vouchers + booster packs are out of scope (no engine
+ * support yet); the existing jokers/planets/tarots fill the slot row as real cards.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        BTxt("Shop", Balatro.Orange, 20.sp)
-        Spacer(Modifier.weight(1f))
-        Pill("\$${s.money}", "", Balatro.Money)
-    }
-    Spacer(Modifier.height(8.dp))
-    for (offer in s.shop) {
-        Panel(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                jokerCells[offer.key]?.let { Image(it, offer.name, Modifier.size(44.dp, 60.dp)); Spacer(Modifier.width(10.dp)) }
-                Column(Modifier.weight(1f)) {
-                    BTxt(offer.name, Balatro.White, 14.sp)
-                    BTxt(offer.desc, Balatro.Green, 11.sp)
+private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+    Box(Modifier.fillMaxSize().padding(8.dp)) {
+        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
+
+        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            // main shop panel: [ buttons column | card-slot inset ]. fillMaxWidth so the card inset
+            // is bounded and the slots WRAP (FlowRow) instead of overflowing the play area.
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Balatro.Panel).padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // next_round_button: G.C.RED (UI_definitions.lua:696); reroll: G.C.GREEN (:706)
+                    ShopActionButton("Next\nRound", Balatro.Mult, true) { s.nextBlind() }
+                    ShopActionButton("Reroll\n\$${s.rerollCost}", Balatro.Green, s.money >= s.rerollCost) { s.reroll() }
                 }
-                // Source UI_definitions.lua:881: buy button colour = G.C.GOLD = #EAC058 = Balatro.Gold
-                BButton("\$${offer.cost}", Balatro.Gold, enabled = s.money >= offer.cost) { s.buy(offer) }
+                Spacer(Modifier.width(10.dp))
+                // card-slot inset (G.C.L_BLACK); one ShopCard per stocked item, wrapping to a 2nd row
+                FlowRow(
+                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    s.shop.forEach { o ->
+                        ShopCard(o.name, jokerCells[o.key], cardBase, o.cost, o.desc, Balatro.Mult, s.money >= o.cost) { s.buy(o) }
+                    }
+                    s.shopPlanets.forEach { po ->
+                        ShopCard(po.planet.display, null, cardBase, po.cost, handName(po.planet.hand), Balatro.Chips, s.money >= po.cost) { s.buyPlanet(po) }
+                    }
+                    s.shopTarots.forEach { t ->
+                        val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
+                        ShopCard(t.name, null, cardBase, t.cost, fx, Balatro.Purple, s.money >= t.cost) { s.buyTarot(t) }
+                    }
+                }
+            }
+            // sell owned jokers — a compact strip under the shop (not a Balatro UIBox, but the
+            // only place to offload jokers until the joker row is interactive)
+            if (s.owned.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BTxt("Sell:", Balatro.White, 12.sp)
+                    s.owned.forEach { o ->
+                        BButton("${o.offer.name}  \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
+                    }
+                }
             }
         }
     }
+}
 
-    Spacer(Modifier.height(8.dp))
-    BTxt("Planets — level a hand", Balatro.Chips, 13.sp)
-    for (po in s.shopPlanets) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                BTxt("${po.planet.display} → ${handName(po.planet.hand)}", Balatro.White, 13.sp)
-                BTxt("now Lv${s.handLevel(po.planet.hand)}", Balatro.Green, 11.sp)
+/** A stacked two-line shop button (Next Round / Reroll), Balatro's 2.8u×1.5u rounded button. */
+@Composable
+private fun ShopActionButton(text: String, colour: Color, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.width(96.dp).clip(RoundedCornerShape(8.dp)).background(if (enabled) colour else Balatro.Grey)
+            .clickable(enabled = enabled) { onClick() }.padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) { BTxt(text, Balatro.White, 14.sp) }
+}
+
+/**
+ * One shop slot: the price tag ($N, MONEY in a dark chip) above the card, the card art (joker cell)
+ * or a name-on-base placeholder (planets/tarots have no atlas loaded), and a GOLD Buy tag below —
+ * create_shop_card_ui (UI_definitions.lua:810-825). `descColour` tints the effect line.
+ */
+@Composable
+private fun ShopCard(
+    name: String, art: ImageBitmap?, base: ImageBitmap?, cost: Int, desc: String,
+    descColour: Color, canBuy: Boolean, onBuy: () -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+        // price tag — darken(BLACK,0.2) chip, $cost in MONEY
+        Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
+            BTxt("\$$cost", Balatro.Money, 13.sp)
+        }
+        Spacer(Modifier.height(2.dp))
+        // the card: real joker art, or the white card base with the name as a placeholder
+        Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
+            if (art != null) {
+                Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+            } else {
+                base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
             }
-            BButton("\$${po.cost}", Balatro.Chips, enabled = s.money >= po.cost) { s.buyPlanet(po) }
         }
+        BTxt(desc, descColour, 8.sp, Modifier.padding(top = 1.dp))
+        Spacer(Modifier.height(3.dp))
+        // buy tag — G.C.GOLD (UI_definitions.lua:823)
+        Box(
+            Modifier.clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
+                .clickable(enabled = canBuy) { onBuy() }.padding(horizontal = 12.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center,
+        ) { BTxt("Buy", Balatro.White, 12.sp) }
     }
-
-    Spacer(Modifier.height(8.dp))
-    BTxt("Tarots — enhance a card (${s.enhancedCount})", Balatro.Mult, 13.sp)
-    for (t in s.shopTarots) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                BTxt(t.name, Balatro.White, 13.sp)
-                val effect = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
-                BTxt("random card → $effect", Balatro.Green, 11.sp)
-            }
-            BButton("\$${t.cost}", Balatro.Mult, enabled = s.money >= t.cost) { s.buyTarot(t) }
-        }
-    }
-
-    Spacer(Modifier.height(8.dp))
-    BTxt("Sell jokers", Balatro.White, 12.sp)
-    for (o in s.owned) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            BTxt(o.offer.name, Balatro.White, 13.sp, Modifier.weight(1f))
-            BButton("Sell \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
-        }
-    }
-    Spacer(Modifier.height(12.dp))
-    // Source UI_definitions.lua:745: next_round_button colour = G.C.RED = #FE5F55 = Balatro.Mult
-    BButton("Next  →  ${s.blindName} (Ante ${s.ante})", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { s.nextBlind() }
 }
 
 /**
