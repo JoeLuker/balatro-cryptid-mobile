@@ -397,19 +397,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
 
         // bottom: fanned hand + deck pile + play/discard
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            Box(Modifier.weight(1f).height(120.dp), contentAlignment = Alignment.BottomCenter) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    val center = (s.hand.size - 1) / 2f
-                    s.hand.forEachIndexed { i, card ->
-                        val d = i - center
-                        JuicyCard(cells[card], card.label, i in s.selected, i, 58.dp,
-                            onClick = { if (!s.scoring) s.toggle(i) },
-                            baseTilt = d * 3.5f, baseLift = d * d * 2.2f) {
-                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
-                                Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
-                                Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
-                        }
+            Box(Modifier.weight(1f)) {
+                SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 56.dp, onToggle = { s.toggle(it) }) { card ->
+                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Balatro.FeltDark)) {
+                        cells[card]?.let { Image(it, card.label, Modifier.fillMaxSize()) }
+                        if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
+                            Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                        if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
+                            Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
                     }
                 }
             }
