@@ -246,40 +246,47 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
         value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Ante ${s.ante} · ${s.blindName}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(12.dp))
-            Text("$${s.money}", fontFamily = FontFamily.Monospace, fontSize = 18.sp,
-                color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onClose) { Text("Close") }
-        }
+    Box(Modifier.fillMaxSize().background(Balatro.Felt)) {                       // the green felt table
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BTxt("Ante ${s.ante}", Balatro.White, 18.sp)
+                Spacer(Modifier.width(8.dp))
+                BTxt(s.blindName, Balatro.Orange, 15.sp)
+                Spacer(Modifier.weight(1f))
+                Pill("\$${s.money}", "", Balatro.Money)
+                Spacer(Modifier.width(8.dp))
+                BButton("X", Balatro.Mult) { onClose() }
+            }
 
-        // owned joker board (real art)
-        Spacer(Modifier.height(8.dp))
-        Text("Jokers (${s.owned.size})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-        Spacer(Modifier.height(4.dp))
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val n = maxOf(1, s.owned.size)
-            val w = minOf(68.dp, (maxWidth - 6.dp * (n - 1).toFloat()) / n.toFloat())
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (o in s.owned) {
-                    jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.size(w, w * (190f / 142f))) }
-                        ?: Box(Modifier.size(w, w * (190f / 142f)).background(MaterialTheme.colorScheme.surfaceVariant))
+            // owned jokers on the felt (LOD: shrink to fit)
+            Spacer(Modifier.height(10.dp))
+            BTxt("Jokers ${s.owned.size}", Balatro.White, 12.sp)
+            Spacer(Modifier.height(4.dp))
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val n = maxOf(1, s.owned.size)
+                val w = minOf(64.dp, (maxWidth - 6.dp * (n - 1).toFloat()) / n.toFloat())
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (o in s.owned) {
+                        jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.size(w, w * (190f / 142f))) }
+                            ?: Box(Modifier.size(w, w * (190f / 142f)).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                    }
                 }
             }
-        }
 
-        Spacer(Modifier.height(14.dp))
-        when (s.phase) {
-            Phase.ROUND -> RoundPhase(s, cells)
-            Phase.SHOP -> ShopPhase(s, jokerCells)
-            Phase.OVER -> {
-                Text("Run over — lost ${s.blindName} (Ante ${s.ante})", fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onRestart, modifier = Modifier.fillMaxWidth()) { Text("New Run") }
+            Spacer(Modifier.height(12.dp))
+            when (s.phase) {
+                Phase.ROUND -> RoundPhase(s, cells)
+                Phase.SHOP -> ShopPhase(s, jokerCells)
+                Phase.OVER -> {
+                    Panel(Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            BTxt("Game Over", Balatro.Mult, 22.sp)
+                            BTxt("lost ${s.blindName} · Ante ${s.ante}", Balatro.White, 13.sp)
+                            Spacer(Modifier.height(10.dp))
+                            BButton("New Run", Balatro.Orange, modifier = Modifier.fillMaxWidth()) { onRestart() }
+                        }
+                    }
+                }
             }
         }
     }
@@ -287,107 +294,122 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 
 @Composable
 private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
-    Text("Blind target ${fmtR(s.target)}  ·  score ${fmtR(s.roundScore)}", fontFamily = FontFamily.Monospace, fontSize = 15.sp)
-    s.boss?.let { Text("⚠ ${it.display}: ${it.desc}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error) }
-    LinearProgressIndicator(
-        progress = { (s.roundScore / s.target).toFloat().coerceIn(0f, 1f) },
-        modifier = Modifier.fillMaxWidth().height(8.dp).padding(top = 4.dp))
+    // blind panel: target + boss debuff
+    Panel(Modifier.fillMaxWidth()) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BTxt(s.blindName, Balatro.Orange, 16.sp)
+                Spacer(Modifier.weight(1f))
+                BTxt("score at least ", Balatro.White, 11.sp)
+                BTxt(fmtR(s.target), Balatro.Chips, 18.sp)
+            }
+            s.boss?.let { BTxt("⚠ ${it.display}: ${it.desc}", Balatro.Mult, 11.sp) }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    // round score
+    Panel(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            BTxt("Round score", Balatro.White, 11.sp)
+            BTxt(fmtR(s.roundScore), Balatro.White, 30.sp)
+        }
+    }
     Spacer(Modifier.height(6.dp))
-    Row { Text("Hands ${s.handsLeft}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-        Spacer(Modifier.width(18.dp)); Text("Discards ${s.discardsLeft}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Pill("${s.handsLeft}", "Hands", Balatro.Chips)
+        Pill("${s.discardsLeft}", "Discards", Balatro.Mult)
+        Pill("\$${s.money}", "Money", Balatro.Money)
+    }
 
+    // the chips X mult readout for the last hand
+    s.lastResult?.let { r ->
+        Spacer(Modifier.height(12.dp))
+        ScoreReadout(handName(r.handType), fmtR(r.chips), fmtR(r.mult), Modifier.fillMaxWidth())
+    }
+
+    // the hand — alive: each card idly wobbles, springs up when selected (see JuicyCard)
     Spacer(Modifier.height(12.dp))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    LazyRow(
+        Modifier.fillMaxWidth().height(126.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
         itemsIndexed(s.hand) { i, card ->
-            val isSel = i in s.selected
-            Box(Modifier.clip(RoundedCornerShape(6.dp))
-                .border(if (isSel) 3.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                .clickable { s.toggle(i) }.padding(3.dp)) {
-                cells[card]?.let { Image(it, card.label, Modifier.size(56.dp, 76.dp).alpha(if (isSel) 1f else 0.82f)) }
-                    ?: Box(Modifier.size(56.dp, 76.dp).background(MaterialTheme.colorScheme.surfaceVariant))
+            JuicyCard(cells[card], card.label, i in s.selected, i, 62.dp, onClick = { s.toggle(i) }) {
                 if (card.enhancement != Enhancement.NONE) {
-                    Text(card.enhancement.badge, fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.align(Alignment.TopStart)
-                            .background(MaterialTheme.colorScheme.primary).padding(horizontal = 2.dp))
+                    BTxt(card.enhancement.badge, Balatro.White, 9.sp,
+                        Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
                 }
                 if (card.seal != Seal.NONE) {
-                    Text(card.seal.badge, fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiary,
-                        modifier = Modifier.align(Alignment.TopEnd)
-                            .background(MaterialTheme.colorScheme.tertiary).padding(horizontal = 2.dp))
+                    BTxt(card.seal.badge, Balatro.Ink, 9.sp,
+                        Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
                 }
             }
         }
     }
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Button(onClick = { s.play() }, enabled = s.selected.isNotEmpty() && cells.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("Play") }
-        OutlinedButton(onClick = { s.discard() }, enabled = s.selected.isNotEmpty() && s.discardsLeft > 0, modifier = Modifier.weight(1f)) { Text("Discard") }
-    }
-    s.lastResult?.let { r ->
-        Spacer(Modifier.height(12.dp))
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp)) {
-                Text("last · ${handName(r.handType)}  +${fmtR(r.score)}", fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.primary)
-            }
-        }
+        BButton("Play Hand", Balatro.Chips, enabled = s.selected.isNotEmpty() && cells.isNotEmpty(), modifier = Modifier.weight(1f)) { s.play() }
+        BButton("Discard", Balatro.Mult, enabled = s.selected.isNotEmpty() && s.discardsLeft > 0, modifier = Modifier.weight(1f)) { s.discard() }
     }
 }
 
 @Composable
 private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
-    Text("Shop · $${s.money}", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        BTxt("Shop", Balatro.Orange, 20.sp)
+        Spacer(Modifier.weight(1f))
+        Pill("\$${s.money}", "", Balatro.Money)
+    }
     Spacer(Modifier.height(8.dp))
     for (offer in s.shop) {
-        ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                jokerCells[offer.key]?.let { Image(it, offer.name, Modifier.size(46.dp, 62.dp)); Spacer(Modifier.width(10.dp)) }
+        Panel(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                jokerCells[offer.key]?.let { Image(it, offer.name, Modifier.size(44.dp, 60.dp)); Spacer(Modifier.width(10.dp)) }
                 Column(Modifier.weight(1f)) {
-                    Text(offer.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text(offer.desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    BTxt(offer.name, Balatro.White, 14.sp)
+                    BTxt(offer.desc, Balatro.Green, 11.sp)
                 }
-                Button(onClick = { s.buy(offer) }, enabled = s.money >= offer.cost) { Text("$${offer.cost}") }
+                BButton("\$${offer.cost}", Balatro.Money, enabled = s.money >= offer.cost) { s.buy(offer) }
             }
         }
     }
-    Spacer(Modifier.height(10.dp))
-    Text("Planets — level up a hand", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+
+    Spacer(Modifier.height(8.dp))
+    BTxt("Planets — level a hand", Balatro.Chips, 13.sp)
     for (po in s.shopPlanets) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("${po.planet.display} → ${handName(po.planet.hand)}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text("now Lv${s.handLevel(po.planet.hand)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                BTxt("${po.planet.display} → ${handName(po.planet.hand)}", Balatro.White, 13.sp)
+                BTxt("now Lv${s.handLevel(po.planet.hand)}", Balatro.Green, 11.sp)
             }
-            Button(onClick = { s.buyPlanet(po) }, enabled = s.money >= po.cost) { Text("$${po.cost}") }
+            BButton("\$${po.cost}", Balatro.Chips, enabled = s.money >= po.cost) { s.buyPlanet(po) }
         }
     }
 
-    Spacer(Modifier.height(10.dp))
-    Text("Tarots — enhance a deck card (${s.enhancedCount} enhanced)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    Spacer(Modifier.height(8.dp))
+    BTxt("Tarots — enhance a card (${s.enhancedCount})", Balatro.Mult, 13.sp)
     for (t in s.shopTarots) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(t.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                val effect = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal (${t.seal.badge})"
-                    else "${t.enhancement.name.lowercase()} (${t.enhancement.badge})"
-                Text("a random card -> $effect", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                BTxt(t.name, Balatro.White, 13.sp)
+                val effect = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
+                BTxt("random card → $effect", Balatro.Green, 11.sp)
             }
-            Button(onClick = { s.buyTarot(t) }, enabled = s.money >= t.cost) { Text("$${t.cost}") }
+            BButton("\$${t.cost}", Balatro.Mult, enabled = s.money >= t.cost) { s.buyTarot(t) }
         }
     }
 
-    Spacer(Modifier.height(10.dp))
-    Text("Your jokers — sell for half", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    Spacer(Modifier.height(8.dp))
+    BTxt("Sell jokers", Balatro.White, 12.sp)
     for (o in s.owned) {
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(o.offer.name, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = { s.sell(o) }, enabled = s.owned.size > 1) { Text("Sell $${maxOf(1, o.offer.cost / 2)}") }
+            BTxt(o.offer.name, Balatro.White, 13.sp, Modifier.weight(1f))
+            BButton("Sell \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
         }
     }
     Spacer(Modifier.height(12.dp))
-    Button(onClick = { s.nextBlind() }, modifier = Modifier.fillMaxWidth()) { Text("Next: ${s.blindName}  (Ante ${s.ante})") }
+    BButton("Next  →  ${s.blindName} (Ante ${s.ante})", Balatro.Green, modifier = Modifier.fillMaxWidth()) { s.nextBlind() }
 }
 
 private fun fmtR(v: Double): String = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
