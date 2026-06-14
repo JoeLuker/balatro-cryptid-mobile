@@ -155,6 +155,23 @@ private class RunState {
      *  Balatro formula: 4 + hands_left (+ gold cards, deferred). Matches scoreCommit's reward calc. */
     val dollarsToBeEarned: Int get() = 4 + handsLeft
 
+    // ── contents.hand bindings — mirror current_round.current_hand ──────────────
+    // These feed the DynaText Os in hudHand(). Compose recomposes when the mutableStateOf
+    // fields they read (scoring, displayChips, displayMult, lastResult) change.
+
+    /** Mirrors current_hand.handname_text — shown in the hand-name DynaText. */
+    val handNameText: String get() = if (scoring || lastResult != null)
+        handName(lastResult?.handType ?: HandType.NONE) else ""
+
+    /** Mirrors current_hand.chip_total_text — the chip_total_text DynaText (blank when idle). */
+    val chipTotalText: String get() = if (scoring || lastResult != null) fmtR(displayChips) else ""
+
+    /** Mirrors current_hand.mult_text — the mult DynaText (blank when idle). */
+    val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else ""
+
+    /** Mirrors current_hand.hand_level — the Lv badge T node. */
+    val currentHandLevel: Int get() = lastResult?.let { handLevel(it.handType) } ?: 0
+
     init {
         Telemetry.event("RUN_START")
         buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)   // start with a Joker
@@ -354,33 +371,72 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
 
 
 /**
- * Port of create_UIBox_HUD's `contents.round` tree (UI_definitions.lua): Hands/Discards row,
- * Money, Ante/Round row — each stat a column (outer box) with a light label over a dark inset
- * holding the coloured value. This is DATA (Balatro's tree), rendered by the generic interpreter.
+ * Port of create_UIBox_HUD's contents.round tree (UI_definitions.lua:1283).
+ * Three rows separated by spacing R nodes: [Hands|Discards], [Money], [Ante|Round].
+ *
+ * Source structure notes:
+ *  - All label T nodes have shadow=true (ui.lua text shadow pass).
+ *  - DynaText scale=2*scale (2*0.4=0.8); money uses 2.2*scale=0.88.
+ *  - Discards value row has an extra outer R{} wrapper vs Hands (source line 1298, kept faithful).
+ *  - Money: outer C minh=1.15, inner C minh=1 (source lines 1307/1309); money row wraps in R{C{O}}.
+ *  - Ante value row: O(ante) + T(" ", 0.3*sc) + T("/ ", 0.7*sc, shadow) + T("8", sc, shadow).
+ *  - Round value row: O(round) DynaText, no extra suffix nodes.
  */
 private fun hudRound(s: RunState): UI {
     val tc = Balatro.Panel; val tc2 = Balatro.FeltDark; val light = Balatro.White
     val sp = 0.13f
-    // a stat box: outer column (label over value). The value is a live-bound DynaText O node — the
-    // faithful port of UI_definitions.lua's HUD counters ({n=UIT.O, object=DynaText({ref_table=…})}).
-    // `value` is a provider so the binding stays live: reading RunState's mutableStateOf inside it
-    // makes Compose recompose on change, exactly as Balatro's update_text polls ref_table/ref_value.
+    val sc = 0.4f       // local scale — G.scale local in create_UIBox_HUD
+
+    // Stat box for Hands (canonical form, lines 1285-1292). value provider reads live RunState.
     fun stat(label: String, value: () -> String, color: Color): UI =
         C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = 0.05f, r = 0.1f),
-            R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f), T(Cfg(scale = 0.34f, textColour = light), label)),
+            R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f),
+                T(Cfg(scale = 0.85f * sc, textColour = light, shadow = true), label)),
             R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2),
-                O(Cfg(align = "cm"), DynaT(seg(value, color, scale = 0.8f)))))
-    fun vSpace() = R(Cfg(minh = sp))          // Balatro's vertical spacers are R nodes
-    fun hSpace() = C(Cfg(minw = sp))          // ...horizontal spacers are C nodes
-    return C(Cfg(align = "cm"),               // all children are R -> stacks vertically
-        R(Cfg(align = "cm"), stat("Hands", { "${s.handsLeft}" }, Balatro.Chips), hSpace(), stat("Discards", { "${s.discardsLeft}" }, Balatro.Mult)),
+                O(Cfg(align = "cm"), DynaT(seg(value, color, scale = 2f * sc), shadow = true))))
+
+    // Discards has an extra outer R{} around the value row (source line 1298-1302 quirk).
+    fun discardsBox(): UI =
+        C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, colour = tc, emboss = 0.05f, r = 0.1f),
+            R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f),
+                T(Cfg(scale = 0.85f * sc, textColour = light, shadow = true), "Discards")),
+            R(Cfg(align = "cm"),
+                R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2),
+                    O(Cfg(align = "cm"), DynaT(seg({ "${s.discardsLeft}" }, Balatro.Mult, scale = 2f * sc), shadow = true)))))
+
+    fun vSpace() = R(Cfg(minh = sp))
+    fun hSpace() = C(Cfg(minw = sp))
+
+    // Ante: 4 nodes in value row (source lines 1321-1326). win_ante=8 (vanilla constant).
+    val anteBox = C(
+        Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = 0.05f, r = 0.1f),
+        R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f),
+            T(Cfg(scale = 0.85f * sc, textColour = light, shadow = true), "Ante")),
+        R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2),
+            O(Cfg(align = "cm"), DynaT(seg({ "${s.ante}" }, Balatro.Orange, scale = 2f * sc), shadow = true)),
+            T(Cfg(scale = 0.3f * sc, textColour = light), " "),
+            T(Cfg(scale = 0.7f * sc, textColour = light, shadow = true), "/ "),
+            T(Cfg(scale = sc, textColour = light, shadow = true), "8")))
+
+    // Round: label minh=0.33 is on the T node (source line 1331), not the R.
+    val roundBox = C(
+        Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = 0.05f, r = 0.1f),
+        R(Cfg(align = "cm", maxw = 1.35f),
+            T(Cfg(scale = 0.85f * sc, textColour = light, shadow = true, minh = 0.33f), "Round")),
+        R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2),
+            O(Cfg(align = "cm"), DynaT(seg({ "${s.blindIndex + 1}" }, Balatro.Orange, scale = 2f * sc), shadow = true))))
+
+    return C(Cfg(align = "cm"),
+        R(Cfg(align = "cm"), stat("Hands", { "${s.handsLeft}" }, Balatro.Chips), hSpace(), discardsBox()),
         vSpace(),
+        // Money row: outer C minh=1.15, wrapped in R, inner C minh=1 (source lines 1306-1314).
         R(Cfg(align = "cm"),
-            C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = 0.05f, r = 0.1f),
-                C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 0.9f, colour = tc2),
-                    O(Cfg(align = "cm"), DynaT(seg({ "\$${s.money}" }, Balatro.Money, scale = 0.88f)))))),
+            C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1.15f, colour = tc, emboss = 0.05f, r = 0.1f),
+                R(Cfg(align = "cm"),
+                    C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 1f, colour = tc2),
+                        O(Cfg(align = "cm"), DynaT(seg({ "\$${s.money}" }, Balatro.Money, scale = 2.2f * sc), shadow = true)))))),
         vSpace(),
-        R(Cfg(align = "cm"), stat("Ante", { "${s.ante}/8" }, Balatro.Orange), hSpace(), stat("Round", { "${s.blindIndex + 1}" }, Balatro.Orange)))
+        R(Cfg(align = "cm"), anteBox, hSpace(), roundBox))
 }
 
 /**
@@ -457,6 +513,73 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
                             DynaT(seg({ "\$${s.dollarsToBeEarned}" }, Balatro.Money, scale = 0.45f), shadow = true))
                     )
                 )
+            )
+        )
+    )
+}
+
+/**
+ * Port of create_UIBox_HUD's contents.hand (UI_definitions.lua:1340): the hand-name +
+ * Chips × Mult readout rendered through the UIBox interpreter.
+ *
+ * Source tree:
+ *   R(darken(BLACK,0.1), r=0.1, emboss=0.05, padding=0.03)   — dark inset
+ *     C(cm)
+ *       R(cm, minh=1.1)
+ *         O DynaText(handname_text, TEXT_LIGHT, scale=0.56)   — hand name
+ *         O DynaText(chip_total_text, TEXT_LIGHT, scale=0.56) — total chips (blank until scored)
+ *         T(hand_level, scale=0.4, TEXT_LIGHT, shadow=true)   — "Lv N"
+ *       R(cm, minh=1, padding=0.1)
+ *         C(cr, minw=2, minh=1, r=0.1, colour=UI_CHIPS=Chips, emboss=0.05)  — chip box
+ *           O DynaText(chip_text, TEXT_LIGHT, font=en-us, scale=0.92, shadow, float)
+ *           B(0.1u×0.1u)
+ *         C(cm)  "X"  TEXT_LIGHT shadow scale=0.8
+ *         C(cl, minw=2, minh=1, r=0.1, colour=UI_MULT=Mult, emboss=0.05)   — mult box
+ *           B(0.1u×0.1u)
+ *           O DynaText(mult_text, TEXT_LIGHT, font=en-us, scale=0.92, shadow, float)
+ *
+ * The flame_handler Moveable O nodes (w=0,h=0) are zero-size effects; omitted (no visual area).
+ * darken(G.C.BLACK, 0.1) → Panel darkened 10% = Color(0xFF2F3A3B).
+ * G.C.UI_CHIPS = G.C.BLUE = Balatro.Chips; G.C.UI_MULT = G.C.RED = Balatro.Mult.
+ * func='hand_text_UI_set'/'hand_chip_UI_set'/'hand_mult_UI_set' — always show (deferred).
+ * Blank strings when idle (no hand scored yet) — matches Balatro's init state.
+ */
+private fun hudHand(s: RunState): UI {
+    val scale = 0.4f
+    val panelDark = Color(0xFF2F3A3B)   // darken(G.C.BLACK, 0.1) — slightly darker than Panel
+    val light = Balatro.White            // G.C.UI.TEXT_LIGHT
+
+    val levelStr = if (s.currentHandLevel > 0) "Lv${s.currentHandLevel}" else ""
+
+    return R(
+        Cfg(align = "cm", colour = panelDark, r = 0.1f, emboss = 0.05f, padding = 0.03f),
+        C(Cfg(align = "cm"),
+            // top row: hand name + chip total text + level badge
+            R(Cfg(align = "cm", minh = 1.1f),
+                // hand name DynaText — func='hand_text_UI_set' deferred; always show
+                O(Cfg(),
+                    DynaT(seg({ s.handNameText }, light, scale = scale * 1.4f), shadow = true)),
+                // chip_total_text DynaText — shown once hand is scored
+                O(Cfg(),
+                    DynaT(seg({ s.chipTotalText }, light, scale = scale * 1.4f), shadow = true)),
+                // hand level T — "Lv N" when a hand result is present
+                T(Cfg(scale = scale, textColour = light, shadow = true), levelStr)
+            ),
+            // bottom row: [chips box] × [mult box]
+            R(Cfg(align = "cm", minh = 1f, padding = 0.1f),
+                // chips box — C(cr) so chip text is right-aligned inside the box
+                C(Cfg(align = "cr", minw = 2f, minh = 1f, r = 0.1f, colour = Balatro.Chips, emboss = 0.05f),
+                    O(Cfg(),
+                        DynaT(seg({ s.chipTotalText }, light, scale = scale * 2.3f), shadow = true)),
+                    B(Cfg(minw = 0.1f, minh = 0.1f))),
+                // × separator
+                C(Cfg(align = "cm"),
+                    T(Cfg(scale = scale * 2f, textColour = Balatro.Mult, shadow = true), "X")),
+                // mult box — C(cl) so mult text is left-aligned
+                C(Cfg(align = "cl", minw = 2f, minh = 1f, r = 0.1f, colour = Balatro.Mult, emboss = 0.05f),
+                    B(Cfg(minw = 0.1f, minh = 0.1f)),
+                    O(Cfg(),
+                        DynaT(seg({ s.multText }, light, scale = scale * 2.3f), shadow = true)))
             )
         )
     )
@@ -551,11 +674,17 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
 
-        // centre: hand name + chips X mult, and the played cards popping while scoring
+        // centre: hand name + chips X mult readout (Balatro's contents.hand through the UIBox
+        // interpreter), and the played cards popping while scoring.
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // contents.hand tree: always rendered — shows blank when idle, live during/after scoring
+                RenderUI(hudHand(s))
+                if (!s.scoring && s.lastResult == null) {
+                    Spacer(Modifier.height(4.dp))
+                    BTxt("select up to 5 cards, then Play", Balatro.White, 13.sp)
+                }
                 if (s.scoring) {
-                    ScoreReadout(handName(s.lastResult?.handType ?: HandType.NONE), fmtR(s.displayChips), fmtR(s.displayMult))
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
                         s.scoreCards.forEachIndexed { i, card ->
@@ -569,9 +698,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             }
                         }
                     }
-                } else s.lastResult?.let { r ->
-                    ScoreReadout(handName(r.handType), fmtR(r.chips), fmtR(r.mult))
-                } ?: BTxt("select up to 5 cards, then Play", Balatro.White, 13.sp)
+                }
             }
         }
 
