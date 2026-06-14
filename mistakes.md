@@ -69,3 +69,9 @@ Monitor/background agents triggered by a census-results event modified `scripts/
 ### Profile-level Cryptid disable broke the run
 Turning Cryptid off on a profile → crashes because the mod is prebaked and partially loads (nil indexing in overrides.lua/modifiers.lua) → must disable at build/gameset layer instead.
 <!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:scripts/build.sh | area:scripts | date:2026-06-11 | rule:WHEN a mod is baked into the build NEVER expose a runtime profile toggle that only half-unloads it -->
+### Crash on run start with DebugPlus bundle
+`card.lua:5245: attempt to index local 'obj' (a nil value)` during `game_start_run` (jokers cardarea load) on a Cryptid Wormhole deck → DebugPlus interacting with Cryptid/Steamodded card-load override (`smods_card_load`) hit a nil card object; the settings toggle for the new UI also wasn't appearing ("I ain't seeing nothing") → root cause not yet diagnosed; UI integration via build.sh was still in progress when crash was reported.
+<!-- session:2026-06-13-2b3359d0 | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:scripts/build.sh,scripts/patch_main_lua.py | area:scripts | date:2026-06-13 -->
+### Repeated modifications to .claude/worktrees/dp-head/scripts/build.sh
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-13-2b3359d0 for the correct approach.
+<!-- session:2026-06-13-2b3359d0 | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:.claude/worktrees/dp-head/scripts/build.sh | area:.claude | date:2026-06-13 -->

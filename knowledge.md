@@ -323,3 +323,11 @@ Disabling Cryptid via profile produced `lib/overrides.lua:480: attempt to index 
 ### Heap census interpretation
 Census telemetry roots shift with game state; `G.STAGE_OBJECTS`, `G.DRAW_HASH`, `G.localization`, `G.P_CENTER_POOLS`, and `G.MOVEABLES*` are dominant object holders. `G.DRAW_HASH` ballooned to 100k+ entries in some samples, flagging it as a growth area.
 <!-- session:2026-06-11-820859d2 | commit:e3fb1b97c2acf5a3fd5a6c159fe1e49f7d6bc73d | files:patches/android-telemetry.lua | area:patches | date:2026-06-11 -->
+
+### Mobile UI scaling is build-time injected
+The settings/debug UI sizing for Balatro mobile is handled through `scripts/build.sh` and `scripts/patch_main_lua.py` injection rather than in-game config — adapting UI to screen size means patching at build time.
+<!-- session:2026-06-13-2b3359d0 | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:scripts/build.sh,scripts/patch_main_lua.py | area:scripts | date:2026-06-13 -->
+
+### DebugPlus mod stack on Android
+DebugPlus v1.5.2 (by WilsontheWolf) loads under Steamodded alongside Cryptid, CardSleeves, Sticky Fingers, Amulet, and a Reserve Shim. The debug overlay can collide with the existing FPS/telemetry display, so integration (not just bundling) is required.
+<!-- session:2026-06-13-2b3359d0 | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:config.yaml,scripts/build.sh | area:scripts | date:2026-06-13 -->
