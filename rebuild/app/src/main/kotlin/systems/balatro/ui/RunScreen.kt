@@ -350,7 +350,6 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 /** Balatro's left sidebar: blind token + score target, round score, Hands/Discards, money, Ante/Round. */
 @Composable
 private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
-    val animRound by animateFloatAsState(s.roundScore.toFloat(), tween(700, easing = FastOutSlowInEasing), label = "round")
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BButton("✕", Balatro.Mult) { onClose() }
@@ -360,13 +359,8 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
         // Blind token + target: Balatro's create_UIBox_HUD_blind tree through the UIBox interpreter.
         // blindBmp/stakeBmp are null until BlindArt.cache is wired; B spacers hold the layout.
         RenderUI(hudBlind(s, blindBmp = null, stakeBmp = null))
-        // round score
-        Panel(Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                BTxt("Round score", Balatro.White, 9.sp)
-                BTxt(fmtR(animRound.toDouble()), Balatro.White, 26.sp)
-            }
-        }
+        // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
+        RenderUI(hudDollarsChips(s))
         // Balatro's actual HUD stat tree (create_UIBox_HUD), rendered through the UIBox interpreter
         RenderUI(hudRound(s))
     }
@@ -440,6 +434,36 @@ private fun hudRound(s: RunState): UI {
                         O(Cfg(align = "cm"), DynaT(seg({ "\$${s.money}" }, Balatro.Money, scale = 2.2f * sc), shadow = true)))))),
         vSpace(),
         R(Cfg(align = "cm"), anteBox, hSpace(), roundBox))
+}
+
+/**
+ * Port of create_UIBox_HUD's contents.dollars_chips (UI_definitions.lua:1365).
+ * Left column: two stacked labels ("Round" / "Score"); right column: stake sprite placeholder +
+ * B spacer + T(chips_text) which is the running round score (G.GAME.chips_text ref).
+ *
+ * G.C.DYN_UI.BOSS_MAIN = G.C.DYN_UI.MAIN = Panel; G.C.DYN_UI.BOSS_DARK = Panel.
+ * Stake sprite O (0.5u×0.5u): B spacer until BlindArt is wired.
+ * chips_text T: scale=0.85 (not scaled by local scale var), shadow=true, id='chip_UI_count'.
+ */
+private fun hudDollarsChips(s: RunState): UI {
+    val panel = Balatro.Panel      // G.C.DYN_UI.BOSS_MAIN
+    val panelDark = Balatro.Panel  // G.C.DYN_UI.BOSS_DARK (same colour in globals.lua)
+    val light = Balatro.White
+    return R(
+        Cfg(align = "cm", r = 0.1f, padding = 0f, colour = panel, emboss = 0.05f),
+        C(Cfg(align = "cm", padding = 0.1f),
+            C(Cfg(align = "cm", minw = 1.3f),
+                R(Cfg(align = "cm", padding = 0f, maxw = 1.3f),
+                    T(Cfg(scale = 0.42f, textColour = light, shadow = true), "Round")),
+                R(Cfg(align = "cm", padding = 0f, maxw = 1.3f),
+                    T(Cfg(scale = 0.42f, textColour = light, shadow = true), "Score"))),
+            C(Cfg(align = "cm", minw = 3.3f, minh = 0.7f, r = 0.1f, colour = panelDark),
+                // Stake sprite O: B spacer until BlindArt.cache is wired (same 0.5u×0.5u footprint)
+                B(Cfg(minw = 0.5f, minh = 0.5f)),
+                B(Cfg(minw = 0.1f, minh = 0.1f)),
+                // chips_text T: G.GAME.chips_text = fmtR(roundScore); scale=0.85 (source line 1378)
+                O(Cfg(align = "cm"),
+                    DynaT(seg({ fmtR(s.roundScore) }, light, scale = 0.85f), shadow = true)))))
 }
 
 /**
