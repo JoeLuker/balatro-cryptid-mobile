@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import systems.balatro.game.PlayingCard
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -136,8 +137,11 @@ fun SpringHand(
             val d = i - (n - 1) / 2f
             val sp = springs.getOrPut(i) { BalatroSpring(d * spacingU, 0f) }
             sp.tx = d * spacingU
-            sp.ty = (if (i in selected) -0.95f else 0f) + d * d * 0.085f   // arc + select lift
-            sp.tr = d * 0.05f                                              // gentle fan
+            // Balatro CardArea:align_cards (cardarea.lua:454,460) for a hand: a SHALLOW arc and fan,
+            // both normalized by card count so total spread is constant. Arc is abs(d) (a gentle V,
+            // depth ~0.22u), NOT d² — and rotation is 0.2*d/n (~±5° at the edges), not a fixed per-card tilt.
+            sp.ty = (if (i in selected) -0.95f else 0f) + 0.5f * abs(d) / n - 0.2f   // arc + select lift
+            sp.tr = 0.2f * d / n                                                     // gentle fan, normalized
             val px = centerXpx + sp.vx * unit - cardWpx / 2f
             val py = (cardHpx * 0.55f) + sp.vy * unit
             Box(
