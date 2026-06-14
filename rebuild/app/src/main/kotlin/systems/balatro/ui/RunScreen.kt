@@ -258,6 +258,9 @@ private class RunState {
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
             blindIndex += 1
             shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+            // Pre-seed boss so blind-select and shop screens show correct name/desc.
+            // startRound() re-derives the same deterministic value.
+            boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
             phase = Phase.SHOP
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
@@ -901,9 +904,11 @@ private fun BlindSelectScreen(s: RunState) {
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.Top
         ) {
+            val currentSlot = s.blindIndex % 3
             for (slotIdx in 0..2) {
                 Box(Modifier.weight(1f)) {
-                    RenderUI(blindChoiceCard(s, slotIdx) { s.selectBlind() })
+                    RenderUI(blindChoiceCard(s, slotIdx,
+                        enabled = (slotIdx == currentSlot)) { s.selectBlind() })
                 }
             }
         }
@@ -934,7 +939,7 @@ private fun BlindSelectScreen(s: RunState) {
  *
  * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
  */
-private fun blindChoiceCard(s: RunState, slotIdx: Int, onSelect: () -> Unit): UI {
+private fun blindChoiceCard(s: RunState, slotIdx: Int, enabled: Boolean = true, onSelect: () -> Unit): UI {
     val light = Balatro.White
     val darkPanel = Color(0xFF1A2526)     // mix(BLACK, L_BLACK, 0.5) ≈ panel darker than Panel
     val blindCol = when (slotIdx) { 0 -> Balatro.Chips; 1 -> Balatro.Orange; else -> Balatro.Mult }
@@ -947,14 +952,18 @@ private fun blindChoiceCard(s: RunState, slotIdx: Int, onSelect: () -> Unit): UI
     val amount = s.targetForSlot(slotIdx)
     val reward = s.rewardForSlot(slotIdx)
     val dollarStr = "$".repeat(reward) + "+"
+    // Source uses G.C.UI.BACKGROUND_INACTIVE for disabled button; GREY approximates it.
+    val btnColour = if (enabled) Balatro.Orange else Balatro.Grey
 
     return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
         R(Cfg(align = "cm", colour = darkPanel, r = 0.1f),
             R(Cfg(align = "cm", padding = 0.2f),
-                // ── select button ──
-                R(Cfg(align = "cm", colour = Balatro.Orange, minh = 0.6f, minw = 2.7f,
-                      padding = 0.07f, r = 0.1f, emboss = 0.05f, onClick = onSelect),
-                    T(Cfg(scale = 0.45f, textColour = light, shadow = true), "Select")),
+                // ── select button (Orange if current slot, Grey for Upcoming) ──
+                R(Cfg(align = "cm", colour = btnColour, minh = 0.6f, minw = 2.7f,
+                      padding = 0.07f, r = 0.1f, emboss = if (enabled) 0.05f else 0f,
+                      onClick = if (enabled) onSelect else null),
+                    T(Cfg(scale = 0.45f, textColour = light, shadow = enabled),
+                      if (enabled) "Select" else "Upcoming")),
                 // ── blind name band ──
                 R(Cfg(align = "cm", padding = 0.07f),
                     R(Cfg(align = "cm", r = 0.1f, colour = blindColDark,
