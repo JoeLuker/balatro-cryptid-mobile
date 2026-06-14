@@ -353,22 +353,26 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
 private fun hudRound(s: RunState): UI {
     val tc = Balatro.Panel; val tc2 = Balatro.FeltDark; val light = Balatro.White
     val sp = 0.13f
-    // a stat box: outer column (label over value), exactly as the source's C{ R{label}, R{value} }
-    fun stat(label: String, value: String, color: Color): UI =
+    // a stat box: outer column (label over value). The value is a live-bound DynaText O node — the
+    // faithful port of UI_definitions.lua's HUD counters ({n=UIT.O, object=DynaText({ref_table=…})}).
+    // `value` is a provider so the binding stays live: reading RunState's mutableStateOf inside it
+    // makes Compose recompose on change, exactly as Balatro's update_text polls ref_table/ref_value.
+    fun stat(label: String, value: () -> String, color: Color): UI =
         C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = true, r = 0.1f),
             R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f), T(Cfg(scale = 0.34f, textColour = light), label)),
-            R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2), T(Cfg(scale = 0.8f, textColour = color), value)))
+            R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2),
+                O(Cfg(align = "cm"), DynaT(seg(value, color, scale = 0.8f)))))
     fun vSpace() = R(Cfg(minh = sp))          // Balatro's vertical spacers are R nodes
     fun hSpace() = C(Cfg(minw = sp))          // ...horizontal spacers are C nodes
     return C(Cfg(align = "cm"),               // all children are R -> stacks vertically
-        R(Cfg(align = "cm"), stat("Hands", "${s.handsLeft}", Balatro.Chips), hSpace(), stat("Discards", "${s.discardsLeft}", Balatro.Mult)),
+        R(Cfg(align = "cm"), stat("Hands", { "${s.handsLeft}" }, Balatro.Chips), hSpace(), stat("Discards", { "${s.discardsLeft}" }, Balatro.Mult)),
         vSpace(),
         R(Cfg(align = "cm"),
             C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = true, r = 0.1f),
                 C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 0.9f, colour = tc2),
-                    T(Cfg(scale = 0.88f, textColour = Balatro.Money), "\$${s.money}")))),
+                    O(Cfg(align = "cm"), DynaT(seg({ "\$${s.money}" }, Balatro.Money, scale = 0.88f)))))),
         vSpace(),
-        R(Cfg(align = "cm"), stat("Ante", "${s.ante}/8", Balatro.Orange), hSpace(), stat("Round", "${s.blindIndex + 1}", Balatro.Orange)))
+        R(Cfg(align = "cm"), stat("Ante", { "${s.ante}/8" }, Balatro.Orange), hSpace(), stat("Round", { "${s.blindIndex + 1}" }, Balatro.Orange)))
 }
 
 /** The play area: jokers across the top, the hand-name + chips X mult readout in the centre,
