@@ -1080,7 +1080,7 @@ private fun currentHandsUI(s: RunState): UI {
     val dark = Color.Black.copy(alpha = 0.6f)
     val panelLight = Balatro.PanelLight
     val light = Balatro.White
-    val dark2 = Color(0xFF151C1D)  // darken(JOKER_GREY, 0.1) ≈ very dark grey
+    val dark2 = Color(0xFFABB3BF)  // darken(JOKER_GREY, 0.1): JOKER_GREY=#bfc7d5 * 0.9
 
     // Ordered list matching G.GAME.hands order: highest scoring hands first
     val visibleHands = listOf(
