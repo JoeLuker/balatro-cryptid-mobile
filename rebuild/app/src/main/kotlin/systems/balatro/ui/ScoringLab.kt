@@ -182,7 +182,7 @@ fun ScoringLab(onClose: () -> Unit) {
     }
 }
 
-private fun handName(h: HandType): String =
+internal fun handName(h: HandType): String =
     h.name.lowercase().split('_').joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
 private fun fmt(v: Double): String =
