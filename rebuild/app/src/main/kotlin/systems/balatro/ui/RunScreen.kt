@@ -423,14 +423,15 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
         ),
         // ── body panel (G.C.DYN_UI.DARK = panel) ──────────────────────────────
         R(Cfg(align = "cm", minh = 2.74f, r = 0.1f, colour = panel),
-            // debuff rows — func=HUD_blind_debuff_prefix / HUD_blind_debuff; static "" until wired
+            // debuff rows — loc_debuff_lines[1] = boss description; [2] = second line (unused in vanilla)
+            // HUD_blind_debuff_prefix T is always "" until the func system is wired
             R(Cfg(align = "cm", padding = 0.05f),
                 R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                    T(Cfg(scale = 0.36f, textColour = light), ""),   // HUD_blind_debuff_prefix
-                    T(Cfg(scale = 0.36f, textColour = light), "")    // HUD_blind_debuff line 1
+                    T(Cfg(scale = 0.36f, textColour = light), ""),              // HUD_blind_debuff_prefix
+                    T(Cfg(scale = 0.36f, textColour = light), s.boss?.desc ?: "") // loc_debuff_lines[1]
                 ),
                 R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                    T(Cfg(scale = 0.36f, textColour = light), "")    // HUD_blind_debuff line 2
+                    T(Cfg(scale = 0.36f, textColour = light), "")               // loc_debuff_lines[2]
                 )
             ),
             // blind sprite + chip-target card
