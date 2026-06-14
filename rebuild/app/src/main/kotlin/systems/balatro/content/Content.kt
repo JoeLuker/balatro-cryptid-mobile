@@ -55,8 +55,18 @@ object Content {
         "j_cry_weegaming" to reg(setOf(Ctx.RETRIGGER)) { c ->                             // +2 retriggers per scored rank 2
             if (c.scoredPlaying?.rank == 2) c.retriggers += 2
         },
-        "j_cry_brokenhome" to reg(setOf(Ctx.JOKER_MAIN)) { c ->                           // x11.4 Mult (self-destruct is end-of-round only)
-            c.tally.mult = c.tally.mult * BigValue.of(11.4)
+        // Broken Home: x11.4 Mult at JOKER_MAIN, self-destructs at END_OF_ROUND (round won).
+        // The factory registers two handlers on the same entity. dispatchEndOfRound sweeps
+        // world.store<SelfDestruct>() and destroys every marked entity after the pass.
+        "j_cry_brokenhome" to { w: World, e: Effects ->
+            val j = newJoker(w)
+            e.register(j, setOf(Ctx.JOKER_MAIN)) { _, c ->
+                c.tally.mult = c.tally.mult * BigValue.of(11.4)
+            }
+            e.register(j, setOf(Ctx.END_OF_ROUND)) { world, c ->
+                world.add(c.self, SelfDestruct())
+            }
+            j
         },
         // scaling: x_mult accumulates +0.02 per scored card during play, applied at joker_main.
         // The accumulator is DATA on the joker entity (a component), not a field on a subclass — the

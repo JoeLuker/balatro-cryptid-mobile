@@ -261,6 +261,13 @@ private class RunState {
             val reward = 4 + handsLeft + gold * 3
             money += reward
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
+            // END_OF_ROUND: fire joker self-destruct handlers (e.g. Broken Home). Remove destroyed
+            // entities from the owned list; they are already unregistered from effects by dispatchEndOfRound.
+            val destroyed = effects.dispatchEndOfRound(world)
+            if (destroyed.isNotEmpty()) {
+                owned.removeAll { it.entity in destroyed }
+                Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
+            }
             blindIndex += 1
             shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
             // Pre-seed boss so blind-select and shop screens show correct name/desc.

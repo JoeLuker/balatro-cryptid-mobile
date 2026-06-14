@@ -1,5 +1,6 @@
 package systems.balatro.game
 
+import systems.balatro.engine.Component
 import systems.balatro.engine.Entity
 import systems.balatro.engine.World
 
@@ -48,6 +49,13 @@ class Context {
 fun interface Effect { fun apply(world: World, ctx: Context) }
 
 /**
+ * Set by a joker's END_OF_ROUND handler to mark itself for destruction at round end.
+ * Effects.dispatchEndOfRound sweeps world.store<SelfDestruct>() after the pass completes
+ * and destroys every marked entity.
+ */
+class SelfDestruct : Component
+
+/**
  * The subscription index: ctx -> ordered list of (joker entity, effect). A context
  * dispatch walks ONE list, not every joker. Insertion order = board order =
  * deterministic, matching the original left-to-right scoring cascade.
@@ -82,6 +90,22 @@ class Effects {
         ctx.phase = phase
         for ((j, effect) in list) if (j == joker) { ctx.self = joker; effect.apply(world, ctx) }
         ctx.self = saved
+    }
+
+    /**
+     * Fire the END_OF_ROUND pass after the blind is beaten. Handlers that want to self-destruct
+     * call world.add(ctx.self, SelfDestruct). This method then sweeps, unregisters, and destroys
+     * all marked entities, returning the set of destroyed entities so the caller can
+     * clean up run-level state (owned list, UI). Uses a fresh Context so no stale scoring
+     * state bleeds into end-of-round handlers.
+     */
+    fun dispatchEndOfRound(world: World): Set<Entity> {
+        val eorCtx = Context()
+        dispatch(world, eorCtx, Ctx.END_OF_ROUND)
+        val destroyed = mutableSetOf<Entity>()
+        world.store<SelfDestruct>().each { e, _ -> destroyed.add(e) }
+        for (e in destroyed) { unregister(e); world.destroy(e) }
+        return destroyed
     }
 }
 
