@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -339,16 +340,33 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
                 BTxt(fmtR(animRound.toDouble()), Balatro.White, 26.sp)
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            HudBox("Hands", "${s.handsLeft}", Balatro.Chips, Modifier.weight(1f))
-            HudBox("Discards", "${s.discardsLeft}", Balatro.Mult, Modifier.weight(1f))
-        }
-        HudBox("Money", "\$${s.money}", Balatro.Money, Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            HudBox("Ante", "${s.ante}/8", Balatro.Orange, Modifier.weight(1f))
-            HudBox("Round", "${s.blindIndex + 1}", Balatro.Orange, Modifier.weight(1f))
-        }
+        // Balatro's actual HUD stat tree (create_UIBox_HUD), rendered through the UIBox interpreter
+        RenderUI(hudRound(s))
     }
+}
+
+/**
+ * Port of create_UIBox_HUD's `contents.round` tree (UI_definitions.lua): Hands/Discards row,
+ * Money, Ante/Round row — each stat a column (outer box) with a light label over a dark inset
+ * holding the coloured value. This is DATA (Balatro's tree), rendered by the generic interpreter.
+ */
+private fun hudRound(s: RunState): UI {
+    val tc = Balatro.Panel; val tc2 = Balatro.FeltDark; val light = Balatro.White
+    val sp = 0.13f
+    fun stat(label: String, value: String, color: Color): UI =
+        C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = true, r = 0.1f),
+            R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f), T(Cfg(scale = 0.34f, textColour = light), label)),
+            R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2), T(Cfg(scale = 0.8f, textColour = color), value)))
+    return C(Cfg(align = "cm"),
+        R(Cfg(align = "cm"),
+            stat("Hands", "${s.handsLeft}", Balatro.Chips), B(Cfg(minw = sp)), stat("Discards", "${s.discardsLeft}", Balatro.Mult)),
+        B(Cfg(minh = sp)),
+        C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = true, r = 0.1f),
+            C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 0.9f, colour = tc2),
+                T(Cfg(scale = 0.88f, textColour = Balatro.Money), "\$${s.money}"))),
+        B(Cfg(minh = sp)),
+        R(Cfg(align = "cm"),
+            stat("Ante", "${s.ante}/8", Balatro.Orange), B(Cfg(minw = sp)), stat("Round", "${s.blindIndex + 1}", Balatro.Orange)))
 }
 
 /** The play area: jokers across the top, the hand-name + chips X mult readout in the centre,
