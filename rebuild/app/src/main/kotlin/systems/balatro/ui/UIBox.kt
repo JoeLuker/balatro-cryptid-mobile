@@ -73,19 +73,32 @@ private fun Modifier.cfg(c: Cfg): Modifier {
     return m
 }
 
-/** Render a UIBox tree node — the whole interpreter. */
+/**
+ * Render a UIBox tree node — the whole interpreter. The layout rule is Balatro's, straight
+ * from calculate_xywh: a container stacks its R-children VERTICALLY and flows everything else
+ * (C/B/T/O) HORIZONTALLY. So direction is decided by the CHILDREN's type, not the node's own
+ * tag (the tag only says how the node sits in ITS parent: R = block line, C = inline).
+ */
 @Composable
 fun RenderUI(node: UI) {
     when (node) {
         is Tx -> BTxt(node.text, node.cfg.textColour, (node.cfg.scale * FONT).sp)
-        is Ro -> Row(Modifier.cfg(node.cfg), horizontalArrangement = hArr(node.cfg.align), verticalAlignment = vAlign(node.cfg.align)) {
-            node.kids.forEach { RenderUI(it) }
+        is Ro -> Container(node.cfg, node.kids)
+        is Co -> Container(node.cfg, node.kids)
+        is Bx -> Container(node.cfg, node.kids)
+    }
+}
+
+@Composable
+private fun Container(cfg: Cfg, kids: List<UI>) {
+    val vertical = kids.isNotEmpty() && kids.all { it is Ro }   // R children stack; otherwise flow across
+    if (vertical) {
+        Column(Modifier.cfg(cfg), verticalArrangement = vArr(cfg.align), horizontalAlignment = hAlign(cfg.align)) {
+            kids.forEach { RenderUI(it) }
         }
-        is Co -> Column(Modifier.cfg(node.cfg), verticalArrangement = vArr(node.cfg.align), horizontalAlignment = hAlign(node.cfg.align)) {
-            node.kids.forEach { RenderUI(it) }
-        }
-        is Bx -> Box(Modifier.cfg(node.cfg), contentAlignment = Alignment.Center) {
-            node.kids.forEach { RenderUI(it) }
+    } else {
+        Row(Modifier.cfg(cfg), horizontalArrangement = hArr(cfg.align), verticalAlignment = vAlign(cfg.align)) {
+            kids.forEach { RenderUI(it) }
         }
     }
 }

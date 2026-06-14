@@ -353,20 +353,22 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
 private fun hudRound(s: RunState): UI {
     val tc = Balatro.Panel; val tc2 = Balatro.FeltDark; val light = Balatro.White
     val sp = 0.13f
+    // a stat box: outer column (label over value), exactly as the source's C{ R{label}, R{value} }
     fun stat(label: String, value: String, color: Color): UI =
         C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = true, r = 0.1f),
             R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f), T(Cfg(scale = 0.34f, textColour = light), label)),
             R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2), T(Cfg(scale = 0.8f, textColour = color), value)))
-    return C(Cfg(align = "cm"),
+    fun vSpace() = R(Cfg(minh = sp))          // Balatro's vertical spacers are R nodes
+    fun hSpace() = C(Cfg(minw = sp))          // ...horizontal spacers are C nodes
+    return C(Cfg(align = "cm"),               // all children are R -> stacks vertically
+        R(Cfg(align = "cm"), stat("Hands", "${s.handsLeft}", Balatro.Chips), hSpace(), stat("Discards", "${s.discardsLeft}", Balatro.Mult)),
+        vSpace(),
         R(Cfg(align = "cm"),
-            stat("Hands", "${s.handsLeft}", Balatro.Chips), B(Cfg(minw = sp)), stat("Discards", "${s.discardsLeft}", Balatro.Mult)),
-        B(Cfg(minh = sp)),
-        C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = true, r = 0.1f),
-            C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 0.9f, colour = tc2),
-                T(Cfg(scale = 0.88f, textColour = Balatro.Money), "\$${s.money}"))),
-        B(Cfg(minh = sp)),
-        R(Cfg(align = "cm"),
-            stat("Ante", "${s.ante}/8", Balatro.Orange), B(Cfg(minw = sp)), stat("Round", "${s.blindIndex + 1}", Balatro.Orange)))
+            C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = true, r = 0.1f),
+                C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 0.9f, colour = tc2),
+                    T(Cfg(scale = 0.88f, textColour = Balatro.Money), "\$${s.money}")))),
+        vSpace(),
+        R(Cfg(align = "cm"), stat("Ante", "${s.ante}/8", Balatro.Orange), hSpace(), stat("Round", "${s.blindIndex + 1}", Balatro.Orange)))
 }
 
 /** The play area: jokers across the top, the hand-name + chips X mult readout in the centre,
