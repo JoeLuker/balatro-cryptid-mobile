@@ -90,8 +90,6 @@ class MainActivity : ComponentActivity() {
                     value = withContext(Dispatchers.Default) { if (jokes.isEmpty()) emptyMap() else buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
-                var showLab by remember { mutableStateOf(false) }
-                var showRound by remember { mutableStateOf(false) }
                 var showRun by remember { mutableStateOf(false) }
 
                 Surface(Modifier.fillMaxSize()) {
@@ -118,19 +116,9 @@ class MainActivity : ComponentActivity() {
                             Text(if (cells.isEmpty()) "Loading art…" else "Manage $n Jokers  (native grid)")
                         }
                         Spacer(Modifier.height(10.dp))
-                        Button(onClick = { showLab = true; Telemetry.event("UI", "open" to "scoring_lab") },
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text("Open Scoring Lab  (play a hand)")
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Button(onClick = { showRound = true; Telemetry.event("UI", "open" to "round") },
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text("Play a Round  (beat the blind)")
-                        }
-                        Spacer(Modifier.height(10.dp))
                         Button(onClick = { showRun = true; Telemetry.event("UI", "open" to "run") },
                             modifier = Modifier.fillMaxWidth()) {
-                            Text("Play a Run  (blinds + shop)")
+                            Text("Play  (the one game: blinds + shop)")
                         }
                         Spacer(Modifier.weight(1f))
                         Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
@@ -154,12 +142,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (showLab) {
-                        Surface(Modifier.fillMaxSize()) { ScoringLab(onClose = { showLab = false }) }
-                    }
-                    if (showRound) {
-                        Surface(Modifier.fillMaxSize()) { RoundScreen(onClose = { showRound = false }) }
-                    }
                     if (showRun) {
                         Surface(Modifier.fillMaxSize()) { RunScreen(onClose = { showRun = false }) }
                     }
