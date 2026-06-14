@@ -372,7 +372,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
             Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
                 when (s.phase) {
                     Phase.ROUND -> RoundPlay(s, cells, jokerCells)
-                    Phase.BLIND_SELECT -> BlindSelectScreen(s)
+                    Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                     Phase.SHOP -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ShopPhase(s, jokerCells) }
                     Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                     Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -935,7 +935,7 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
  * disabled state, run_info view, reroll-boss voucher button.
  */
 @Composable
-private fun BlindSelectScreen(s: RunState) {
+private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
     // Load all three blind sprites in one atlas pass. Re-fires when the boss changes (new ante).
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
@@ -962,7 +962,7 @@ private fun BlindSelectScreen(s: RunState) {
                     0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
                 }
                 Box(Modifier.weight(1f)) {
-                    RenderUI(blindChoiceCard(s, slotIdx, blindBmp = blindBmp,
+                    RenderUI(blindChoiceCard(s, slotIdx, blindBmp = blindBmp, stakeBmp = stakeBmp,
                         enabled = (slotIdx == currentSlot)) { s.selectBlind() })
                 }
             }
@@ -994,7 +994,7 @@ private fun BlindSelectScreen(s: RunState) {
  *
  * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
  */
-private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
+private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, stakeBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
     val light = Balatro.White
     val darkPanel = Color(0xFF1A2526)     // mix(BLACK, L_BLACK, 0.5) ≈ panel darker than Panel
     val blindCol = when (slotIdx) { 0 -> Balatro.Chips; 1 -> Balatro.Orange; else -> Balatro.Mult }
@@ -1047,8 +1047,9 @@ private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = 
                     R(Cfg(align = "cm", maxw = 3f),
                         T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
                     R(Cfg(align = "cm", minh = 0.6f),
-                        // stake sprite placeholder
-                        B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
+                        // stake sprite (White Chip from chips.png; B spacer while loading)
+                        if (stakeBmp != null) O(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
+                        else B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
                         B(Cfg(minw = 0.1f, minh = 0.1f)),
                         T(Cfg(scale = 0.9f, textColour = Balatro.Mult, shadow = true), fmtR(amount))),
                     R(Cfg(align = "cm"),
