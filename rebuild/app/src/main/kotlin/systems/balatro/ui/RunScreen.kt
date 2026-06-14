@@ -412,8 +412,9 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
         R(Cfg(align = "cm", minh = 0.6f),
             B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),  // stake sprite placeholder
             B(Cfg(minw = 0.1f, minh = 0.1f)),                           // G.UIT.B spacer
+            // Source scale=0.001 (blind_chip_UI_scale animates it to full); deferred — render at scale directly.
             O(Cfg(align = "cm"),
-                DynaT(seg({ s.chipText }, Balatro.Mult, scale = scale * (0.001f / 0.001f)),
+                DynaT(seg({ s.chipText }, Balatro.Mult, scale = scale),
                     shadow = true))),
         // reward row: "Reward" label + dollars_to_be_earned DynaText
         R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
@@ -424,8 +425,12 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
     )
 
     // ── body row ──────────────────────────────────────────────────────────────
+    // Source (line 1221): R(minh=2.74, DYN_UI.DARK) contains:
+    //   R(padding=0.05) with the two debuff T rows
+    //   R(padding=0.15) with the blind sprite O + score column C
     val body = R(
         Cfg(align = "cm", minh = 2.74f, r = 0.1f, colour = slotDark),
+        debuffRows,
         R(Cfg(align = "cm", padding = 0.15f),
             B(Cfg(minw = 1.5f, minh = 1.5f)),   // blind sprite placeholder (draw_layer=1 O node)
             scoreCol),
@@ -435,7 +440,6 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
     return R(
         Cfg(align = "cm", minw = 4.5f, r = 0.1f, colour = Balatro.Ink, emboss = 0.05f, padding = 0.05f),
         nameBand,
-        debuffRows,
         body,
     )
 }
