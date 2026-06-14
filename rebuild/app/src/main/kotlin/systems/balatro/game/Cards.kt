@@ -3,7 +3,10 @@ package systems.balatro.game
 /** A playing card. rank: 2..14 (T=10, J=11, Q=12, K=13, A=14). */
 enum class Suit { S, H, D, C }
 
-data class PlayingCard(val suit: Suit, val rank: Int) {
+/** A card enhancement (from tarots). Documented Balatro: Bonus +30 Chips, Mult +4 Mult, Glass x2 Mult. */
+enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2") }
+
+data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhancement = Enhancement.NONE) {
     /** Chip value: 2-9 = pip, T/J/Q/K = 10, A = 11. */
     val chips: Int get() = when {
         rank == 14 -> 11

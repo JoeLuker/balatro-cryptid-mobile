@@ -131,6 +131,12 @@ class ScoreRun(private val effects: Effects) {
             val triggers = 1 + ctx.retriggers
             repeat(triggers) {                                         // each trigger re-scores the card whole
                 ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)
+                when (card.enhancement) {                              // the card's own enhancement, then jokers react
+                    Enhancement.BONUS -> ctx.tally.chips = ctx.tally.chips + BigValue.of(30)
+                    Enhancement.MULT -> ctx.tally.mult = ctx.tally.mult + BigValue.of(4)
+                    Enhancement.GLASS -> ctx.tally.mult = ctx.tally.mult * BigValue.of(2)
+                    Enhancement.NONE -> {}
+                }
                 effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
             }
             step("+ ${card.label}" + if (triggers > 1) " ×$triggers" else "")

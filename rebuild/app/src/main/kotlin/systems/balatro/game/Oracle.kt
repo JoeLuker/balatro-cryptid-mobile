@@ -48,6 +48,10 @@ object Oracle {
         // planet cards: leveling a hand raises its base by (lChips, lMult). Pair: +15 chips, +1 mult per level.
         Case("Pair Lv2 of aces (Mercury x1)", PlayingCard.hand("S_A", "H_A"), 141.0) { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR) },
         Case("Pair Lv3 of aces (Mercury x2)", PlayingCard.hand("S_A", "H_A"), 248.0) { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR, 2) },
+        // card enhancements (tarots): one ace enhanced. Bonus (10+11+11+30)*2=124; Mult 32*(2+4)=192; Glass 32*(2*2)=128.
+        Case("Pair, Bonus ace (+30 Chips)", listOf(PlayingCard.parse("S_A").copy(enhancement = Enhancement.BONUS), PlayingCard.parse("H_A")), 124.0),
+        Case("Pair, Mult ace (+4 Mult)", listOf(PlayingCard.parse("S_A").copy(enhancement = Enhancement.MULT), PlayingCard.parse("H_A")), 192.0),
+        Case("Pair, Glass ace (x2 Mult)", listOf(PlayingCard.parse("S_A").copy(enhancement = Enhancement.GLASS), PlayingCard.parse("H_A")), 128.0),
     )
 
     fun run(): Pair<Int, Int> {

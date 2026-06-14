@@ -43,6 +43,7 @@ private enum class Phase { ROUND, SHOP, OVER }
 private data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 private data class Owned(val entity: Entity, val offer: Offer)
 private data class PlanetOffer(val planet: Planet, val cost: Int)
+private data class TarotOffer(val name: String, val enhancement: Enhancement, val cost: Int)
 
 private val CATALOG = listOf(
     Offer("j_joker", "Joker", "+4 Mult", 2),
@@ -72,6 +73,14 @@ private fun rollShop(blind: Int): List<Offer> {
 private fun rollPlanets(blind: Int): List<PlanetOffer> =
     Planet.values().toList().shuffled(Random(blind * 104729L)).take(2).map { PlanetOffer(it, 3) }
 
+private val TAROTS = listOf(
+    TarotOffer("The Hierophant", Enhancement.BONUS, 3),
+    TarotOffer("The Empress", Enhancement.MULT, 3),
+    TarotOffer("Justice", Enhancement.GLASS, 3),
+)
+/** 2 tarots per ante; each enhances a random deck card. */
+private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
+
 /** Compose-observable run state; mutations drive recomposition. The engine is persistent. */
 private class RunState {
     val world = World()
@@ -84,8 +93,10 @@ private class RunState {
     val owned = mutableStateListOf<Owned>()
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
+    var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
+    var enhancedCount by mutableStateOf(0)
 
-    private var deck = Deck(1L)
+    private val deck = Deck(20260614L)   // persistent across the run (tarot enhancements stick)
     var hand by mutableStateOf<List<PlayingCard>>(emptyList())
     var selected by mutableStateOf(setOf<Int>())
     var roundScore by mutableStateOf(0.0)
@@ -103,7 +114,7 @@ private class RunState {
     }
 
     private fun startRound() {
-        deck = Deck(blind * 7919L)        // deterministic per blind
+        deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(8); selected = emptySet()
         roundScore = 0.0; handsLeft = HANDS; discardsLeft = DISCARDS
         lastResult = null; lastSteps = emptyList()
@@ -135,6 +146,7 @@ private class RunState {
             blind += 1
             shop = rollShop(blind)
             shopPlanets = rollPlanets(blind)
+            shopTarots = rollTarots(blind)
             phase = Phase.SHOP
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
@@ -173,6 +185,15 @@ private class RunState {
         Levels.ensure(world).levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
         Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
+    }
+
+    fun buyTarot(t: TarotOffer) {
+        if (money < t.cost) return
+        money -= t.cost
+        val card = deck.enhanceRandom(t.enhancement)        // enhance a deck card; it persists
+        if (card != null) enhancedCount += 1
+        shopTarots = shopTarots.filterNot { it === t }
+        Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "card" to (card?.key ?: "none"), "money" to money)
     }
 
     fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
@@ -257,6 +278,12 @@ private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
                 .clickable { s.toggle(i) }.padding(3.dp)) {
                 cells[card]?.let { Image(it, card.label, Modifier.size(56.dp, 76.dp).alpha(if (isSel) 1f else 0.82f)) }
                     ?: Box(Modifier.size(56.dp, 76.dp).background(MaterialTheme.colorScheme.surfaceVariant))
+                if (card.enhancement != Enhancement.NONE) {
+                    Text(card.enhancement.badge, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.align(Alignment.TopStart)
+                            .background(MaterialTheme.colorScheme.primary).padding(horizontal = 2.dp))
+                }
             }
         }
     }
@@ -301,6 +328,19 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
                 Text("now Lv${s.handLevel(po.planet.hand)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(onClick = { s.buyPlanet(po) }, enabled = s.money >= po.cost) { Text("$${po.cost}") }
+        }
+    }
+
+    Spacer(Modifier.height(10.dp))
+    Text("Tarots — enhance a deck card (${s.enhancedCount} enhanced)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    for (t in s.shopTarots) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(t.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("a random card -> ${t.enhancement.name.lowercase()} (${t.enhancement.badge})", fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Button(onClick = { s.buyTarot(t) }, enabled = s.money >= t.cost) { Text("$${t.cost}") }
         }
     }
 
