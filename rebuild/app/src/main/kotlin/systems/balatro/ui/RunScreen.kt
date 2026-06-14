@@ -335,6 +335,12 @@ private class RunState {
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
 
+    /** Populate the shop and jump to it — for the --es screen shop parity-screenshot deep-link only. */
+    fun toShopForPreview() {
+        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        phase = Phase.SHOP
+    }
+
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
     fun selectBlind() { if (phase == Phase.BLIND_SELECT) startRound() }
 
@@ -358,15 +364,22 @@ private class RunState {
 }
 
 @Composable
-fun RunScreen(onClose: () -> Unit) {
+fun RunScreen(onClose: () -> Unit, startScreen: String? = null) {
     var runNo by remember { mutableStateOf(0) }
-    key(runNo) { RunBody(onClose = onClose, onRestart = { runNo++ }) }
+    key(runNo) { RunBody(onClose = onClose, onRestart = { runNo++ }, startScreen = startScreen) }
 }
 
 @Composable
-private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
+private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: String? = null) {
     val ctx = LocalContext.current
     val s = remember { RunState() }
+    // Deep-link parity screenshots: --es screen blind|shop jumps to that phase on first composition.
+    LaunchedEffect(Unit) {
+        when (startScreen) {
+            "blind" -> s.phase = Phase.BLIND_SELECT
+            "shop" -> s.toShopForPreview()
+        }
+    }
 
     val allCards = remember { Suit.values().flatMap { su -> (2..14).map { PlayingCard(su, it) } } }
     val cells by produceState<Map<PlayingCard, ImageBitmap>>(emptyMap()) {

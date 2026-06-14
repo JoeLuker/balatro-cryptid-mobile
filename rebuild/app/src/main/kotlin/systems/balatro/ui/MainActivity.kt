@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
         // Package-targeted, deterministic entry for parity screenshots (no blind tap through the
         // foldable's rotated display); absent the extra it boots to the menu as before.
         val bootRun = intent?.getBooleanExtra("run", false) == true
+        // Optional --es screen blind|shop|round to land on a specific phase for parity screenshots.
+        val bootScreen = intent?.getStringExtra("screen")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val ctx = LocalContext.current
@@ -94,7 +96,7 @@ class MainActivity : ComponentActivity() {
                     value = withContext(Dispatchers.Default) { if (jokes.isEmpty()) emptyMap() else buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
-                var showRun by remember { mutableStateOf(bootRun) }
+                var showRun by remember { mutableStateOf(bootRun || bootScreen != null) }
 
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(20.dp)) {
@@ -147,7 +149,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (showRun) {
-                        Surface(Modifier.fillMaxSize()) { RunScreen(onClose = { showRun = false }) }
+                        Surface(Modifier.fillMaxSize()) { RunScreen(onClose = { showRun = false }, startScreen = bootScreen) }
                     }
                 }
             }
