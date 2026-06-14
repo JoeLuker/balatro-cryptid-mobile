@@ -1,6 +1,8 @@
 package systems.balatro.game
 
 import systems.balatro.content.Content
+import systems.balatro.content.Edition
+import systems.balatro.content.Editions
 import systems.balatro.engine.World
 
 /**
@@ -39,6 +41,10 @@ object Oracle {
         Case("Pair + j_cry_oldblueprint,j_joker (blueprint copy)", PlayingCard.hand("S_A", "H_A"), 320.0, jk("j_cry_oldblueprint", "j_joker")),
         Case("J,Q,K + j_cry_maximized (rank patch -> ToaK)", PlayingCard.hand("S_J", "H_Q", "D_K"), 180.0, jk("j_cry_maximized")),
         Case("Flush A-2-3-5-7 + j_cry_primus (Emult pow)", PlayingCard.hand("S_A", "S_2", "S_3", "S_5", "S_7"), 323.0, jk("j_cry_primus")),
+        // editions (documented Balatro constants; foil +50 chips is confirmed in the baselines doc's edition note)
+        Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.FOIL) },
+        Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.HOLO) },
+        Case("Pair + Poly Joker (x1.5 Mult)", PlayingCard.hand("S_A", "H_A"), 288.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.POLY) },
     )
 
     fun run(): Pair<Int, Int> {

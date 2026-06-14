@@ -27,6 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.content.Content
+import systems.balatro.content.Edition
+import systems.balatro.content.Editions
 import systems.balatro.engine.Entity
 import systems.balatro.engine.World
 import systems.balatro.game.*
@@ -38,7 +40,7 @@ import systems.balatro.game.*
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
 private enum class Phase { ROUND, SHOP, OVER }
-private data class Offer(val key: String, val name: String, val desc: String, val cost: Int)
+private data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 private data class Owned(val entity: Entity, val offer: Offer)
 
 private val CATALOG = listOf(
@@ -52,6 +54,18 @@ private val CATALOG = listOf(
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
+
+/** 3 shop offers, deterministic per ante; ~60% of the time the first slot rolls an edition (+3 cost). */
+private fun rollShop(blind: Int): List<Offer> {
+    val rng = Random(blind * 7919L + 13)
+    val base = CATALOG.shuffled(rng).take(3)
+    return base.mapIndexed { i, o ->
+        if (i == 0 && rng.nextInt(100) < 60) {
+            val ed = listOf(Edition.FOIL, Edition.HOLO, Edition.POLY).random(rng)
+            o.copy(edition = ed, name = "${ed.tag} ${o.name}", cost = o.cost + 3)
+        } else o
+    }
+}
 
 /** Compose-observable run state; mutations drive recomposition. The engine is persistent. */
 private class RunState {
@@ -113,7 +127,7 @@ private class RunState {
             money += reward
             Telemetry.event("ROUND_WIN", "blind" to blind, "total" to roundScore, "reward" to reward)
             blind += 1
-            shop = CATALOG.shuffled(Random(blind.toLong())).take(3)
+            shop = rollShop(blind)
             phase = Phase.SHOP
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
@@ -131,10 +145,10 @@ private class RunState {
     fun buy(offer: Offer, free: Boolean = false) {
         if (!free && money < offer.cost) return
         if (!free) money -= offer.cost
-        val e = Content.byKey.getValue(offer.key)(world, effects)   // register live
+        val e = Editions.spawn(world, effects, offer.key, offer.edition)   // register live, with edition
         owned.add(Owned(e, offer))
         shop = shop.filterNot { it === offer }
-        if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "cost" to offer.cost, "money" to money)
+        if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
     }
 
     fun sell(o: Owned) {
