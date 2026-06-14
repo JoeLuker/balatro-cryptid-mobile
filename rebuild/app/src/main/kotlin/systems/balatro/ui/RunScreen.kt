@@ -922,6 +922,12 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
  */
 @Composable
 private fun BlindSelectScreen(s: RunState) {
+    val ctx = LocalContext.current
+    // Load all three blind sprites in one atlas pass. Re-fires when the boss changes (new ante).
+    val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
+        Triple(null, null, null), s.boss
+    ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.boss) } }
+
     Column(
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.Center,
@@ -938,8 +944,11 @@ private fun BlindSelectScreen(s: RunState) {
         ) {
             val currentSlot = s.blindIndex % 3
             for (slotIdx in 0..2) {
+                val blindBmp: ImageBitmap? = when (slotIdx) {
+                    0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
+                }
                 Box(Modifier.weight(1f)) {
-                    RenderUI(blindChoiceCard(s, slotIdx,
+                    RenderUI(blindChoiceCard(s, slotIdx, blindBmp = blindBmp,
                         enabled = (slotIdx == currentSlot)) { s.selectBlind() })
                 }
             }
@@ -971,7 +980,7 @@ private fun BlindSelectScreen(s: RunState) {
  *
  * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
  */
-private fun blindChoiceCard(s: RunState, slotIdx: Int, enabled: Boolean = true, onSelect: () -> Unit): UI {
+private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
     val light = Balatro.White
     val darkPanel = Color(0xFF1A2526)     // mix(BLACK, L_BLACK, 0.5) ≈ panel darker than Panel
     val blindCol = when (slotIdx) { 0 -> Balatro.Chips; 1 -> Balatro.Orange; else -> Balatro.Mult }
@@ -1007,9 +1016,11 @@ private fun blindChoiceCard(s: RunState, slotIdx: Int, enabled: Boolean = true, 
                 // ── blind art + description ──
                 R(Cfg(align = "cm", padding = 0.05f),
                     R(Cfg(align = "cm"),
-                        // Blind animation sprite placeholder (AnimatedSprite deferred: B holds 1.4u×1.4u)
+                        // Blind sprite (frame-0 from BlindChips.png, 1.4u×1.4u).
+                        // B spacer preserves layout while atlas loads or when boss sprite is missing.
                         R(Cfg(align = "cm", minh = 1.5f),
-                            B(Cfg(minw = 1.4f, minh = 1.4f, colour = blindCol))),
+                            if (blindBmp != null) O(Cfg(minw = 1.4f, minh = 1.4f), Spr(blindBmp, 1.4f, 1.4f))
+                            else B(Cfg(minw = 1.4f, minh = 1.4f, colour = blindCol))),
                         if (blindDesc.isNotEmpty())
                             R(Cfg(align = "cm", minh = 0.7f, padding = 0.05f, minw = 2.9f),
                                 R(Cfg(align = "cm", maxw = 2.8f),
