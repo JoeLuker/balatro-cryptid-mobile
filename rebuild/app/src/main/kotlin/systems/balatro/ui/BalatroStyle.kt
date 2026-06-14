@@ -37,6 +37,7 @@ object Balatro {
     val Money = Color(0xFFF3B958)        // G.C.MONEY
     val Gold = Color(0xFFEAC058)         // G.C.GOLD
     val Orange = Color(0xFFFF9A00)       // G.C.FILTER / IMPORTANT
+    val OrangeTrue = Color(0xFFFDA200)   // G.C.ORANGE (globals.lua:365) — sort buttons, blind-select button
     val Green = Color(0xFF4BC292)        // G.C.GREEN
     val White = Color(0xFFFFFFFF)
     val Ink = Color(0xFF374244)          // dark text on light chips

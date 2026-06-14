@@ -591,7 +591,7 @@ private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)?
             R(Cfg(align = "cm", padding = 0f, maxw = 1.4f),
                 T(Cfg(scale = sc, textColour = light, shadow = true), "Info"))),
         R(Cfg(align = "cm", minh = 1.75f, minw = 1.5f, padding = 0.05f, r = 0.1f,
-              colour = Balatro.Orange, onClick = onOptions),
+              colour = Balatro.OrangeTrue, onClick = onOptions),   // G.C.ORANGE #FDA200, UI_definitions.lua:1573
             C(Cfg(align = "cm", maxw = 1.4f),
                 T(Cfg(scale = sc, textColour = light, shadow = true), "Options"))))
 }
@@ -761,6 +761,7 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
     val canPlay = !s.scoring && s.selected.isNotEmpty() && cells.isNotEmpty()
     val canDiscard = !s.scoring && s.selected.isNotEmpty() && s.discardsLeft > 0
 
+    // Source UI_definitions.lua:1052-1058: play button has two R rows — label + sub-label.
     val playButton = C(
         Cfg(
             align   = "tm",
@@ -772,8 +773,11 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
         ),
         R(Cfg(align = "bcm", padding = 0f),
             T(Cfg(scale = ts, textColour = Balatro.White), "Play Hand")),
+        R(Cfg(align = "bcm", padding = 0f),
+            T(Cfg(scale = ts * 0.65f, textColour = Balatro.White), "")),  // SMODS.hand_limit_strings.play stub
     )
 
+    // Source UI_definitions.lua:1061-1067: discard button has two R rows — label + sub-label.
     val discardButton = C(
         Cfg(
             align   = "tm",
@@ -786,19 +790,24 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
         ),
         R(Cfg(align = "cm", padding = 0f),
             T(Cfg(scale = ts, textColour = Balatro.White), "Discard")),
+        R(Cfg(align = "cm", padding = 0f),
+            T(Cfg(scale = ts * 0.65f, textColour = Balatro.White), "")),  // SMODS.hand_limit_strings.discard stub
     )
 
+    // Sort cluster: G.C.UI.TRANSPARENT_DARK fill + outline=1.5 in mix(WHITE,JOKER_GREY,0.7)=#D2D8E2
+    // Source: UI_definitions.lua:1074. Sort buttons use G.C.ORANGE=#FDA200 (not G.C.FILTER).
     val sortCluster = C(
-        Cfg(align = "cm", padding = 0.1f, r = 0.1f, colour = Color(0x22222222)),
+        Cfg(align = "cm", padding = 0.1f, r = 0.1f, colour = Color(0x22222222),
+            outline = 1.5f, outlineColour = Color(0xFFD2D8E2)),  // mix_colours(WHITE, JOKER_GREY, 0.7)
         R(Cfg(align = "cm", padding = 0f),
             R(Cfg(align = "cm", padding = 0f),
                 T(Cfg(scale = ts * 0.8f, textColour = Balatro.White), "Sort Hand")),
             R(Cfg(align = "cm", padding = 0.1f),
                 C(Cfg(align = "cm", minh = 0.7f, minw = 0.9f, padding = 0.1f, r = 0.1f,
-                    colour = Balatro.Orange, onClick = { s.sortHand(byRank = true) }),
+                    colour = Balatro.OrangeTrue, onClick = { s.sortHand(byRank = true) }),
                     T(Cfg(scale = ts * 0.7f, textColour = Balatro.White), "Rank")),
                 C(Cfg(align = "cm", minh = 0.7f, minw = 0.9f, padding = 0.1f, r = 0.1f,
-                    colour = Balatro.Orange, onClick = { s.sortHand(byRank = false) }),
+                    colour = Balatro.OrangeTrue, onClick = { s.sortHand(byRank = false) }),
                     T(Cfg(scale = ts * 0.7f, textColour = Balatro.White), "Suit")),
             ),
         ),
@@ -922,7 +931,8 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
                     BTxt(offer.name, Balatro.White, 14.sp)
                     BTxt(offer.desc, Balatro.Green, 11.sp)
                 }
-                BButton("\$${offer.cost}", Balatro.Money, enabled = s.money >= offer.cost) { s.buy(offer) }
+                // Source UI_definitions.lua:881: buy button colour = G.C.GOLD = #EAC058 = Balatro.Gold
+                BButton("\$${offer.cost}", Balatro.Gold, enabled = s.money >= offer.cost) { s.buy(offer) }
             }
         }
     }
@@ -961,7 +971,8 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
         }
     }
     Spacer(Modifier.height(12.dp))
-    BButton("Next  →  ${s.blindName} (Ante ${s.ante})", Balatro.Green, modifier = Modifier.fillMaxWidth()) { s.nextBlind() }
+    // Source UI_definitions.lua:745: next_round_button colour = G.C.RED = #FE5F55 = Balatro.Mult
+    BButton("Next  →  ${s.blindName} (Ante ${s.ante})", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { s.nextBlind() }
 }
 
 /**
@@ -1035,19 +1046,28 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
  */
 private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, stakeBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
     val light = Balatro.White
-    val darkPanel = Color(0xFF1A2526)     // mix(BLACK, L_BLACK, 0.5) ≈ panel darker than Panel
-    val blindCol = when (slotIdx) { 0 -> Balatro.Chips; 1 -> Balatro.Orange; else -> Balatro.Mult }
-    // darken(blindCol, 0.3): approximate by mixing with BLACK at 0.3 weight
+    // mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5) = mix(#374244, #4f6367, 0.5) = #435256
+    // Source: UI_definitions.lua:1761 `colour = mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5)`
+    val darkPanel = Color(0xFF435256)
+    // get_blind_main_colour: misc_functions.lua:396-407
+    // Small: mix_colours(G.C.BLUE, G.C.BLACK, 0.6)   = mix(#009DFF, #374244, 0.6) = #21668F
+    // Big:   mix_colours(G.C.ORANGE, G.C.BLACK, 0.6) = mix(#FDA200, #374244, 0.6) = #866829
+    // Boss:  G.P_BLINDS[boss].boss_colour (per-boss; Mult is a safe non-committed fallback)
+    val blindCol = when (slotIdx) { 0 -> Color(0xFF21668F); 1 -> Color(0xFF866829); else -> Balatro.Mult }
+    // darken(blindCol, 0.3) = blindCol * 0.7 per channel
+    // Small: #21668F * 0.7 = #174764
+    // Big:   #866829 * 0.7 = #5E491D
     val blindColDark = when (slotIdx) {
-        0 -> Color(0xFF006BB2); 1 -> Color(0xFFB26C00); else -> Color(0xFFB24139)
+        0 -> Color(0xFF174764); 1 -> Color(0xFF5E491D); else -> Color(0xFFB24139)
     }
     val blindName = s.nameForSlot(slotIdx)
     val blindDesc = s.descForSlot(slotIdx)
     val amount = s.targetForSlot(slotIdx)
     val reward = s.rewardForSlot(slotIdx)
     val dollarStr = "$".repeat(reward) + "+"
-    // Source uses G.C.UI.BACKGROUND_INACTIVE for disabled button; GREY approximates it.
-    val btnColour = if (enabled) Balatro.Orange else Balatro.Grey
+    // G.C.UI.BACKGROUND_INACTIVE = HEX("666666FF") = #666666 (globals.lua:417)
+    // Enabled colour = G.C.ORANGE = #FDA200 (not FILTER/IMPORTANT = #FF9A00)
+    val btnColour = if (enabled) Balatro.OrangeTrue else Color(0xFF666666)
 
     // Source: outer R has r=0.1; inner R has outline=1, outline_colour=G.C.L_BLACK (PanelLight).
     return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
