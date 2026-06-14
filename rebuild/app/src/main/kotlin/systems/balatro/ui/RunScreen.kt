@@ -467,7 +467,6 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
  *   → C(minw=3.3, minh=0.7, r=0.1, dark) [ O stake_sprite | B | T chips_text ]
  *
  * G.GAME.chips_text (ref_table=G.GAME, ref_value='chips_text') → s.chipsText = fmtR(roundScore).
- * stake sprite O (w=0.5, h=0.5) → B placeholder until stake atlas is wired.
  * G.C.DYN_UI.BOSS_MAIN / .BOSS_DARK → Balatro.Panel / Balatro.FeltDark.
  */
 private fun hudRound(s: RunState): UI {
@@ -529,11 +528,11 @@ private fun hudRound(s: RunState): UI {
 
 /**
  * Port of create_UIBox_HUD's contents.dollars_chips (UI_definitions.lua:1365).
- * Left column: two stacked labels ("Round" / "Score"); right column: stake sprite placeholder +
+ * Left column: two stacked labels ("Round" / "Score"); right column: stake sprite +
  * B spacer + T(chips_text) which is the running round score (G.GAME.chips_text ref).
  *
  * G.C.DYN_UI.BOSS_MAIN = G.C.DYN_UI.MAIN = Panel; G.C.DYN_UI.BOSS_DARK = Panel.
- * Stake sprite O (0.5u×0.5u): B spacer until BlindArt is wired.
+ * Stake sprite O (0.5u×0.5u): White Chip from chips.png (stake 1); B spacer while loading.
  * chips_text T: scale=0.85 (not scaled by local scale var), shadow=true, id='chip_UI_count'.
  */
 private fun hudDollarsChips(s: RunState, stakeBmp: ImageBitmap? = null): UI {
