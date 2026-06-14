@@ -45,11 +45,13 @@ data class Cfg(
     val minw: Float = 0f,
     val minh: Float = 0f,
     val maxw: Float = 0f,
+    val maxh: Float = 0f,           // max height constraint in units (config.maxh)
     val scale: Float = 1f,          // text scale
     val textColour: Color = Balatro.White,
     val shadow: Boolean = false,    // T shadow: black 0.3a offset pass (config.shadow in ui.lua draw_self)
+    val vert: Boolean = false,      // T rotated 90° (config.vert = true — vertical sidebar labels)
     val emboss: Float = 0f,         // 3-D edge depth in units (G.C.emboss float, 0 = off)
-    val outline: Float = 0f,        // border thickness in dp (config.outline in ui.lua; rendered outside the clip)
+    val outline: Float = 0f,        // border thickness in dp (config.outline; rendered at clip boundary)
     val outlineColour: Color = Color.Transparent,  // config.outline_colour
     val onClick: (() -> Unit)? = null,
 )
@@ -123,6 +125,7 @@ private fun Modifier.cfg(c: Cfg): Modifier {
     if (c.minw > 0) m = m.widthIn(min = (c.minw * U).dp)
     if (c.minh > 0) m = m.heightIn(min = (c.minh * U).dp)
     if (c.maxw > 0) m = m.widthIn(max = (c.maxw * U).dp)
+    if (c.maxh > 0) m = m.heightIn(max = (c.maxh * U).dp)
     if (c.colour != null) {
         val shape = RoundedCornerShape((c.r * U).dp)
         if (c.emboss > 0) m = m.border((c.emboss * U).dp, Color.Black.copy(alpha = 0.25f), shape)  // 3D edge: depth in units
