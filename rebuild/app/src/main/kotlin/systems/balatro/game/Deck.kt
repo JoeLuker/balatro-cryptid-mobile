@@ -37,5 +37,14 @@ class Deck(seed: Long) {
         return all[i]
     }
 
+    /** Put a seal on a random un-sealed card; returns it, or null if all are sealed. */
+    fun sealRandom(s: Seal): PlayingCard? {
+        val idxs = all.indices.filter { all[it].seal == Seal.NONE }
+        if (idxs.isEmpty()) return null
+        val i = idxs.random(rng)
+        all[i] = all[i].copy(seal = s)
+        return all[i]
+    }
+
     val remaining: Int get() = drawPile.size
 }

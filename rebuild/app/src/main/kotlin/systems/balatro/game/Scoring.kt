@@ -131,7 +131,10 @@ class ScoreRun(private val effects: Effects) {
             val debuffed = debuff is Debuff.DebuffSuit && card.suit == debuff.suit  // scores nothing, triggers nothing
             ctx.scoredPlaying = card
             ctx.retriggers = 0                                          // subscribers may add repeats
-            if (!debuffed) effects.dispatch(world, ctx, Ctx.RETRIGGER)
+            if (!debuffed) {
+                effects.dispatch(world, ctx, Ctx.RETRIGGER)
+                if (card.seal == Seal.RED) ctx.retriggers += 1         // red seal: one extra trigger
+            }
             val triggers = 1 + ctx.retriggers
             repeat(triggers) {                                         // each trigger re-scores the card whole
                 if (!debuffed) {

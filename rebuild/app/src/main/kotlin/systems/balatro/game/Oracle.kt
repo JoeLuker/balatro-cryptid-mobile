@@ -65,6 +65,8 @@ object Oracle {
         Case("4 hearts + wild spade = Flush", listOf(PlayingCard.parse("H_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_Q"), PlayingCard.parse("H_J"), PlayingCard.parse("S_9").copy(enhancement = Enhancement.WILD)), 340.0),
         // same hand, the spade NOT wild -> no flush -> High Card (ace only) -> (5 + 11) = 16.
         Case("4 hearts + plain spade = High Card", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "S_9"), 16.0),
+        // red seal retriggers the card: Pair, the H_A scores twice -> (10 + 11 + 11+11) * 2 = 43 * 2 = 86.
+        Case("Pair, red-seal ace retriggers", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A").copy(seal = Seal.RED)), 86.0),
     )
 
     fun run(): Pair<Int, Int> {

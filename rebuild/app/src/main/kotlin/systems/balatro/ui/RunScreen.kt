@@ -43,7 +43,7 @@ private enum class Phase { ROUND, SHOP, OVER }
 private data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 private data class Owned(val entity: Entity, val offer: Offer)
 private data class PlanetOffer(val planet: Planet, val cost: Int)
-private data class TarotOffer(val name: String, val enhancement: Enhancement, val cost: Int)
+private data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
 private val CATALOG = listOf(
     Offer("j_joker", "Joker", "+4 Mult", 2),
@@ -80,6 +80,8 @@ private val TAROTS = listOf(
     TarotOffer("The Tower", Enhancement.STEEL, 4),
     TarotOffer("The Devil", Enhancement.GOLD, 4),
     TarotOffer("The Star", Enhancement.WILD, 4),
+    TarotOffer("The Sun", cost = 4, seal = Seal.RED),     // red seal: retrigger
+    TarotOffer("The Moon", cost = 4, seal = Seal.GOLD),   // gold seal: +$3 when played
 )
 /** 2 tarots per ante; each enhances a random deck card. */
 private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
@@ -151,6 +153,7 @@ private class RunState {
         val trace = ArrayList<ScoreStep>()
         val r = scorer.scoreDetailed(world, sel, trace, boss?.scoringDebuff ?: Debuff.None, held)
         roundScore += r.score; handsLeft -= 1
+        money += sel.count { it.seal == Seal.GOLD } * 3                 // gold seal: +$3 per played gold-sealed card
         lastResult = r; lastSteps = trace
         Telemetry.event("ROUND_HAND", "blind" to blindName, "type" to r.handType, "score" to r.score, "total" to roundScore)
         refill()
@@ -206,10 +209,10 @@ private class RunState {
     fun buyTarot(t: TarotOffer) {
         if (money < t.cost) return
         money -= t.cost
-        val card = deck.enhanceRandom(t.enhancement)        // enhance a deck card; it persists
+        val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
         if (card != null) enhancedCount += 1
         shopTarots = shopTarots.filterNot { it === t }
-        Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "card" to (card?.key ?: "none"), "money" to money)
+        Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
     }
 
     fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
@@ -301,6 +304,12 @@ private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
                         modifier = Modifier.align(Alignment.TopStart)
                             .background(MaterialTheme.colorScheme.primary).padding(horizontal = 2.dp))
                 }
+                if (card.seal != Seal.NONE) {
+                    Text(card.seal.badge, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiary,
+                        modifier = Modifier.align(Alignment.TopEnd)
+                            .background(MaterialTheme.colorScheme.tertiary).padding(horizontal = 2.dp))
+                }
             }
         }
     }
@@ -354,8 +363,9 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(t.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text("a random card -> ${t.enhancement.name.lowercase()} (${t.enhancement.badge})", fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val effect = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal (${t.seal.badge})"
+                    else "${t.enhancement.name.lowercase()} (${t.enhancement.badge})"
+                Text("a random card -> $effect", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(onClick = { s.buyTarot(t) }, enabled = s.money >= t.cost) { Text("$${t.cost}") }
         }
