@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Balatro Native</string>
-    <style name="Theme.BalatroNative" parent="android:Theme.Material.NoActionBar"/>
-</resources>

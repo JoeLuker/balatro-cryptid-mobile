@@ -1,0 +1,10 @@
+# Android / Gradle build outputs — never tracked
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
