@@ -70,6 +70,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Telemetry.event("ACTIVITY", "stage" to "onCreate")
         val n = 120
+        // Deep-link straight into the in-run HUD: `am start -n …/.ui.MainActivity --ez run true`.
+        // Package-targeted, deterministic entry for parity screenshots (no blind tap through the
+        // foldable's rotated display); absent the extra it boots to the menu as before.
+        val bootRun = intent?.getBooleanExtra("run", false) == true
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val ctx = LocalContext.current
@@ -90,7 +94,7 @@ class MainActivity : ComponentActivity() {
                     value = withContext(Dispatchers.Default) { if (jokes.isEmpty()) emptyMap() else buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
-                var showRun by remember { mutableStateOf(false) }
+                var showRun by remember { mutableStateOf(bootRun) }
 
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(20.dp)) {
