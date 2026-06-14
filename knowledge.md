@@ -331,3 +331,19 @@ The settings/debug UI sizing for Balatro mobile is handled through `scripts/buil
 ### DebugPlus mod stack on Android
 DebugPlus v1.5.2 (by WilsontheWolf) loads under Steamodded alongside Cryptid, CardSleeves, Sticky Fingers, Amulet, and a Reserve Shim. The debug overlay can collide with the existing FPS/telemetry display, so integration (not just bundling) is required.
 <!-- session:2026-06-13-2b3359d0 | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:config.yaml,scripts/build.sh | area:scripts | date:2026-06-13 -->
+
+### Render-perf workflow watchdog pattern
+A long-running render-perf optimization runs as a background Workflow with per-agent journaling at `subagents/workflows/<runId>/journal.jsonl`. Recovery procedure for a hung run: inspect the journal for started-but-no-result agents, check orphaned boot processes via `pgrep love/xvfb/oracle-check`, stop the workflow, kill orphans, constrain the offending agent, and resume from the runId.
+<!-- session:2026-06-13-4671d5b8 | commit:dae9c2bf172ffc367e73a9fc26d791b585470556 | files:docs/PERF_RENDER_AND_REWRITE_FOUNDATION.md | area:docs | date:2026-06-13 -->
+
+### Cryptid gameset crash
+`lib/gameset.lua:812` calls global `cry_items_for_set` (nil value) via the `gameset_config_UI` → `ccl` chain originating from `items/code.lua` and `items/pointer.lua:141` click handlers. Crash surfaces when viewing items in a set from the collection/settings screen.
+<!-- session:2026-06-13-e247edbd | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:(Cryptid mod) lib/gameset.lua,items/code.lua,items/pointer.lua | area:items | date:2026-06-13 -->
+
+### Framerate degradation profile
+FPS tanks when jokers sit idle (not just during scoring), and tanks harder during scoring even with scoring animations off. This points at per-frame allocation/iteration over inactive effects rather than animation cost — the idle-joker case implicates the effect dispatch loop walking all jokers every frame. There is a `patches/idle-joker-perf.lua` patch present in the working tree.
+<!-- session:2026-06-13-e247edbd | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | files:patches/idle-joker-perf.lua | area:patches | date:2026-06-13 -->
+
+### Performance root-cause hypothesis
+The developer attributes slowdown to Lua's JIT overhead and GC pauses, plus effects authored in a poorly-performing patch-based style. Target architecture: non-allocating active-list effect dispatch (only iterate active effects), deterministic tick loop, data-oriented-design entity store — modeled on Factorio's deterministic, GC-free efficiency.
+<!-- session:2026-06-13-e247edbd | commit:6b16881ef78dbb20305da78ce7af5933a70277ba | date:2026-06-13 -->
