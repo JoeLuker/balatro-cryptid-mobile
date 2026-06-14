@@ -22,9 +22,11 @@ import androidx.compose.ui.unit.sp
  * Surface (measured across all of Balatro's UI defs): 8 node tags, ~15 config keys. Bounded.
  */
 
-/** Balatro UI unit -> dp / sp. The single tuning knob for overall scale (Balatro's `scale`). */
-const val U = 34f      // dp per Balatro UI unit
-const val FONT = 30f   // sp per text scale=1
+/** Balatro UI unit -> dp / sp. Calibrated against the headless reference: the HUD's real
+ *  computed width is 3.23 units (tools/uiref/hud_geometry.ref.txt), so U*3.23 ~= the 175dp
+ *  sidebar. FONT pairs with it (Balatro text height in units = scale*0.83). */
+const val U = 54f      // dp per Balatro UI unit
+const val FONT = 36f   // sp per text scale=1
 
 data class Cfg(
     val align: String = "cm",       // <v><h>: t/c/b + l/m/r
