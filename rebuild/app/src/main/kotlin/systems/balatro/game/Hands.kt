@@ -11,21 +11,25 @@ import systems.balatro.engine.Component
  */
 class RankMod(val map: (Int) -> Int) : Component
 
-/** Poker hand types with their level-1 base (chips, mult), matching Balatro. */
-enum class HandType(val baseChips: Int, val baseMult: Int) {
+/**
+ * Poker hand types with their level-1 base (chips, mult) and per-level increments
+ * (lChips, lMult) — all from Balatro's G.GAME.hands table. A planet card raises a hand's
+ * level; at level L the base is (baseChips + (L-1)*lChips, baseMult + (L-1)*lMult).
+ */
+enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, val lMult: Int = 0) {
     NONE(0, 1),
-    HIGH_CARD(5, 1),
-    PAIR(10, 2),
-    TWO_PAIR(20, 2),
-    THREE_OF_A_KIND(30, 3),
-    STRAIGHT(30, 4),
-    FLUSH(35, 4),
-    FULL_HOUSE(40, 4),
-    FOUR_OF_A_KIND(60, 7),
-    STRAIGHT_FLUSH(100, 8),
-    FIVE_OF_A_KIND(120, 12),
-    FLUSH_HOUSE(140, 14),
-    FLUSH_FIVE(160, 16),
+    HIGH_CARD(5, 1, 10, 1),
+    PAIR(10, 2, 15, 1),
+    TWO_PAIR(20, 2, 20, 1),
+    THREE_OF_A_KIND(30, 3, 20, 2),
+    STRAIGHT(30, 4, 30, 3),
+    FLUSH(35, 4, 15, 2),
+    FULL_HOUSE(40, 4, 25, 2),
+    FOUR_OF_A_KIND(60, 7, 30, 3),
+    STRAIGHT_FLUSH(100, 8, 40, 4),
+    FIVE_OF_A_KIND(120, 12, 35, 3),
+    FLUSH_HOUSE(140, 14, 40, 4),
+    FLUSH_FIVE(160, 16, 50, 3),
 }
 
 object Hands {

@@ -45,6 +45,9 @@ object Oracle {
         Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.FOIL) },
         Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.HOLO) },
         Case("Pair + Poly Joker (x1.5 Mult)", PlayingCard.hand("S_A", "H_A"), 288.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.POLY) },
+        // planet cards: leveling a hand raises its base by (lChips, lMult). Pair: +15 chips, +1 mult per level.
+        Case("Pair Lv2 of aces (Mercury x1)", PlayingCard.hand("S_A", "H_A"), 141.0) { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR) },
+        Case("Pair Lv3 of aces (Mercury x2)", PlayingCard.hand("S_A", "H_A"), 248.0) { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR, 2) },
     )
 
     fun run(): Pair<Int, Int> {

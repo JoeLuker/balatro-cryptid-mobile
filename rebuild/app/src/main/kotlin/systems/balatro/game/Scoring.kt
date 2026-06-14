@@ -115,8 +115,10 @@ class ScoreRun(private val effects: Effects) {
         val rankOf: (PlayingCard) -> Int = { c -> remaps.fold(c.rank) { r, m -> m(r) } }
         val (handType, scoring) = Hands.evaluate(played, rankOf)   // base chips/mult + the scoring cards
         ctx.tally.reset()
-        ctx.tally.chips = BigValue.of(handType.baseChips)
-        ctx.tally.mult = BigValue.of(handType.baseMult)
+        // Hand base, raised by its planet level (level 1 => unchanged).
+        val lvl = Levels.get(world)?.level(handType) ?: 1
+        ctx.tally.chips = BigValue.of(handType.baseChips + (lvl - 1) * handType.lChips)
+        ctx.tally.mult = BigValue.of(handType.baseMult + (lvl - 1) * handType.lMult)
         ctx.scoringCards = scoring                                      // shape-aware jokers inspect the scoring cards
         ctx.playedCards = played                                        // ...or the full played hand (primus prime-check)
         fun step(label: String) = trace?.add(ScoreStep(label, ctx.tally.chips.v, ctx.tally.mult.v))

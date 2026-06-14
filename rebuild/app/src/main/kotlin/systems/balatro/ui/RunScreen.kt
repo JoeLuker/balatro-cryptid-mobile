@@ -42,6 +42,7 @@ import systems.balatro.game.*
 private enum class Phase { ROUND, SHOP, OVER }
 private data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 private data class Owned(val entity: Entity, val offer: Offer)
+private data class PlanetOffer(val planet: Planet, val cost: Int)
 
 private val CATALOG = listOf(
     Offer("j_joker", "Joker", "+4 Mult", 2),
@@ -67,6 +68,10 @@ private fun rollShop(blind: Int): List<Offer> {
     }
 }
 
+/** 2 planet cards per ante, deterministic. Each levels up its hand type ($3). */
+private fun rollPlanets(blind: Int): List<PlanetOffer> =
+    Planet.values().toList().shuffled(Random(blind * 104729L)).take(2).map { PlanetOffer(it, 3) }
+
 /** Compose-observable run state; mutations drive recomposition. The engine is persistent. */
 private class RunState {
     val world = World()
@@ -78,6 +83,7 @@ private class RunState {
     var phase by mutableStateOf(Phase.ROUND)
     val owned = mutableStateListOf<Owned>()
     var shop by mutableStateOf<List<Offer>>(emptyList())
+    var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
 
     private var deck = Deck(1L)
     var hand by mutableStateOf<List<PlayingCard>>(emptyList())
@@ -128,6 +134,7 @@ private class RunState {
             Telemetry.event("ROUND_WIN", "blind" to blind, "total" to roundScore, "reward" to reward)
             blind += 1
             shop = rollShop(blind)
+            shopPlanets = rollPlanets(blind)
             phase = Phase.SHOP
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
@@ -159,6 +166,16 @@ private class RunState {
         money += refund
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
     }
+
+    fun buyPlanet(po: PlanetOffer) {
+        if (money < po.cost) return
+        money -= po.cost
+        Levels.ensure(world).levelUp(po.planet.hand)        // raises the hand's base for the whole run
+        shopPlanets = shopPlanets.filterNot { it === po }
+        Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
+    }
+
+    fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
 
     fun nextBlind() { if (phase == Phase.SHOP) startRound() }
 }
@@ -275,6 +292,18 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
             }
         }
     }
+    Spacer(Modifier.height(10.dp))
+    Text("Planets — level up a hand", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    for (po in s.shopPlanets) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("${po.planet.display} → ${handName(po.planet.hand)}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("now Lv${s.handLevel(po.planet.hand)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Button(onClick = { s.buyPlanet(po) }, enabled = s.money >= po.cost) { Text("$${po.cost}") }
+        }
+    }
+
     Spacer(Modifier.height(10.dp))
     Text("Your jokers — sell for half", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     for (o in s.owned) {
