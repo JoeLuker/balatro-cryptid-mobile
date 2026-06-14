@@ -112,6 +112,11 @@ private class RunState {
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
     var phase by mutableStateOf(Phase.ROUND)
 
+    /** Mirrors G.GAME.hands[h].played — cumulative times each hand type was played in the run. */
+    private val _handPlayed = mutableStateMapOf<HandType, Int>()
+    fun handPlayed(h: HandType): Int = _handPlayed[h] ?: 0
+    private fun recordHandPlayed(h: HandType) { _handPlayed[h] = handPlayed(h) + 1 }
+
     val ante: Int get() = blindIndex / 3 + 1
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
@@ -247,6 +252,7 @@ private class RunState {
     fun scoreCommit() {
         val r = pending ?: return
         roundScore += r.score; handsLeft -= 1
+        if (r.handType != HandType.NONE) recordHandPlayed(r.handType)
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
@@ -384,6 +390,18 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 /** Balatro's left sidebar: blind token + score target, round score, Hands/Discards, money, Ante/Round. */
 @Composable
 private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    // Load blind sprite for the current ante's boss (Small row=0, Big row=1, Boss->row from atlas).
+    // Re-runs when s.boss changes (next ante always changes the boss). Null while loading -> B spacer.
+    val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
+        Triple(null, null, null), s.boss
+    ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.boss) } }
+
+    val currentSlot = s.blindIndex % 3
+    val blindBmp: ImageBitmap? = when (currentSlot) {
+        0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
+    }
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BButton("✕", Balatro.Mult) { onClose() }
@@ -391,8 +409,8 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
             BTxt("Ante ${s.ante}/8", Balatro.White, 12.sp)
         }
         // Blind token + target: Balatro's create_UIBox_HUD_blind tree through the UIBox interpreter.
-        // blindBmp/stakeBmp are null until BlindArt.cache is wired; B spacers hold the layout.
-        RenderUI(hudBlind(s, blindBmp = null, stakeBmp = null))
+        // blindBmp = frame-0 cell from BlindChips.png for the current blind; null while loading.
+        RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = null))
         // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
         RenderUI(hudDollarsChips(s))
         // Row-round: Balatro's R(id='row_round') containing C{buttons} + C{round} (source line 1408-1411).
@@ -1076,6 +1094,7 @@ private fun currentHandsUI(s: RunState): UI {
         val lvl = s.handLevel(h)
         val chips = h.baseChips + (lvl - 1) * h.lChips
         val mult  = h.baseMult  + (lvl - 1) * h.lMult
+        val played = s.handPlayed(h)
         val lvlColour = Balatro.Chips   // G.C.HAND_LEVELS[min(7,lvl)]: full palette deferred
 
         return R(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = dark2, emboss = 0.05f),
@@ -1092,7 +1111,12 @@ private fun currentHandsUI(s: RunState): UI {
                 T(Cfg(scale = 0.45f, textColour = Balatro.Mult), "X"),
                 C(Cfg(align = "cl", padding = 0.01f, r = 0.1f, colour = Balatro.Mult, minw = 1.1f),
                     B(Cfg(minw = 0.08f, minh = 0.01f)),
-                    T(Cfg(scale = 0.45f, textColour = light), "$mult"))))
+                    T(Cfg(scale = 0.45f, textColour = light), "$mult"))),
+            // Play count column: T("  #") label + C(L_BLACK) with count (source lines 3065-3070)
+            C(Cfg(align = "cm"),
+                T(Cfg(scale = 0.45f, textColour = light, shadow = true), "  #")),
+            C(Cfg(align = "cm", padding = 0.05f, colour = panelLight, r = 0.1f, minw = 0.9f),
+                O(Cfg(), DynaT(seg({ "$played" }, Balatro.Orange, scale = 0.45f), shadow = true))))
     }
 
     return R(Cfg(align = "cm", minw = 3f, padding = 0.1f, r = 0.1f),
