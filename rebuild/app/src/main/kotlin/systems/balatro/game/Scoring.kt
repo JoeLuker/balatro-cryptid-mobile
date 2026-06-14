@@ -140,7 +140,7 @@ class ScoreRun(private val effects: Effects) {
                         Enhancement.BONUS -> ctx.tally.chips = ctx.tally.chips + BigValue.of(30)
                         Enhancement.MULT -> ctx.tally.mult = ctx.tally.mult + BigValue.of(4)
                         Enhancement.GLASS -> ctx.tally.mult = ctx.tally.mult * BigValue.of(2)
-                        Enhancement.STEEL, Enhancement.GOLD, Enhancement.NONE -> {}  // these act while HELD, not played
+                        Enhancement.STEEL, Enhancement.GOLD, Enhancement.WILD, Enhancement.NONE -> {}  // act while held / on hand-eval, not on score
                     }
                     effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
                 }

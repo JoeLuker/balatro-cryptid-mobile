@@ -79,6 +79,7 @@ private val TAROTS = listOf(
     TarotOffer("Justice", Enhancement.GLASS, 3),
     TarotOffer("The Tower", Enhancement.STEEL, 4),
     TarotOffer("The Devil", Enhancement.GOLD, 4),
+    TarotOffer("The Star", Enhancement.WILD, 4),
 )
 /** 2 tarots per ante; each enhances a random deck card. */
 private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)

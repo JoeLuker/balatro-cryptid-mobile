@@ -43,7 +43,8 @@ object Hands {
         val groups = cards.groupBy { rankOf(it) }.values.sortedByDescending { it.size }
         val top = groups[0].size
         val second = groups.getOrNull(1)?.size ?: 0
-        val isFlush = cards.size == 5 && cards.all { it.suit == cards[0].suit }
+        // Flush if some suit S covers every card — a Wild card counts as any suit.
+        val isFlush = cards.size == 5 && Suit.values().any { s -> cards.all { it.suit == s || it.enhancement == Enhancement.WILD } }
         val straight = straightCards(cards, rankOf)
 
         return when {

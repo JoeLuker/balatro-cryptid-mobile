@@ -7,7 +7,7 @@ enum class Suit { S, H, D, C }
  * A card enhancement (from tarots). Played-card effects: Bonus +30 Chips, Mult +4 Mult,
  * Glass x2 Mult. Held-in-hand effects: Steel x1.5 Mult while held, Gold +$3 held at round end.
  */
-enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$") }
+enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$"), WILD("wild") }
 
 data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhancement = Enhancement.NONE) {
     /** Chip value: 2-9 = pip, T/J/Q/K = 10, A = 11. */

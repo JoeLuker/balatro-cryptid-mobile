@@ -61,6 +61,10 @@ object Oracle {
             held = listOf(PlayingCard.parse("S_K").copy(enhancement = Enhancement.STEEL))),
         Case("Pair of aces + 2 steel held", PlayingCard.hand("S_A", "H_A"), 144.0,
             held = listOf(PlayingCard.parse("S_K").copy(enhancement = Enhancement.STEEL), PlayingCard.parse("D_K").copy(enhancement = Enhancement.STEEL))),
+        // wild card counts as any suit: 4 hearts + a wild spade form a Flush -> (35 + 11+10+10+10+9) * 4 = 340.
+        Case("4 hearts + wild spade = Flush", listOf(PlayingCard.parse("H_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_Q"), PlayingCard.parse("H_J"), PlayingCard.parse("S_9").copy(enhancement = Enhancement.WILD)), 340.0),
+        // same hand, the spade NOT wild -> no flush -> High Card (ace only) -> (5 + 11) = 16.
+        Case("4 hearts + plain spade = High Card", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "S_9"), 16.0),
     )
 
     fun run(): Pair<Int, Int> {
