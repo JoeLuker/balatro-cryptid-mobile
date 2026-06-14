@@ -107,7 +107,7 @@ class ScoreRun(private val effects: Effects) {
      * card -> jokers -> final) so the UI can show it building. trace=null => no overhead,
      * which is the oracle/hot path.
      */
-    fun scoreDetailed(world: World, played: List<PlayingCard>, trace: MutableList<ScoreStep>? = null): ScoreResult {
+    fun scoreDetailed(world: World, played: List<PlayingCard>, trace: MutableList<ScoreStep>? = null, debuff: Debuff = Debuff.None): ScoreResult {
         // Compose any active rank remaps (maximized &c.) into the effective rank hand
         // detection sees. Empty store => identity, so the no-remap path is unchanged.
         val remaps = ArrayList<(Int) -> Int>()
@@ -115,31 +115,37 @@ class ScoreRun(private val effects: Effects) {
         val rankOf: (PlayingCard) -> Int = { c -> remaps.fold(c.rank) { r, m -> m(r) } }
         val (handType, scoring) = Hands.evaluate(played, rankOf)   // base chips/mult + the scoring cards
         ctx.tally.reset()
-        // Hand base, raised by its planet level (level 1 => unchanged).
+        // Hand base, raised by its planet level (level 1 => unchanged), then halved by Flint.
         val lvl = Levels.get(world)?.level(handType) ?: 1
-        ctx.tally.chips = BigValue.of(handType.baseChips + (lvl - 1) * handType.lChips)
-        ctx.tally.mult = BigValue.of(handType.baseMult + (lvl - 1) * handType.lMult)
+        var baseChips = handType.baseChips + (lvl - 1) * handType.lChips
+        var baseMult = handType.baseMult + (lvl - 1) * handType.lMult
+        if (debuff is Debuff.Flint) { baseChips /= 2; baseMult /= 2 }
+        ctx.tally.chips = BigValue.of(baseChips)
+        ctx.tally.mult = BigValue.of(baseMult)
         ctx.scoringCards = scoring                                      // shape-aware jokers inspect the scoring cards
         ctx.playedCards = played                                        // ...or the full played hand (primus prime-check)
         fun step(label: String) = trace?.add(ScoreStep(label, ctx.tally.chips.v, ctx.tally.mult.v))
         effects.dispatch(world, ctx, Ctx.BEFORE)
         step("base · ${handType.name.lowercase().replace('_', ' ')}")
         for (card in scoring) {
+            val debuffed = debuff is Debuff.DebuffSuit && card.suit == debuff.suit  // scores nothing, triggers nothing
             ctx.scoredPlaying = card
             ctx.retriggers = 0                                          // subscribers may add repeats
-            effects.dispatch(world, ctx, Ctx.RETRIGGER)
+            if (!debuffed) effects.dispatch(world, ctx, Ctx.RETRIGGER)
             val triggers = 1 + ctx.retriggers
             repeat(triggers) {                                         // each trigger re-scores the card whole
-                ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)
-                when (card.enhancement) {                              // the card's own enhancement, then jokers react
-                    Enhancement.BONUS -> ctx.tally.chips = ctx.tally.chips + BigValue.of(30)
-                    Enhancement.MULT -> ctx.tally.mult = ctx.tally.mult + BigValue.of(4)
-                    Enhancement.GLASS -> ctx.tally.mult = ctx.tally.mult * BigValue.of(2)
-                    Enhancement.NONE -> {}
+                if (!debuffed) {
+                    ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)
+                    when (card.enhancement) {                          // the card's own enhancement, then jokers react
+                        Enhancement.BONUS -> ctx.tally.chips = ctx.tally.chips + BigValue.of(30)
+                        Enhancement.MULT -> ctx.tally.mult = ctx.tally.mult + BigValue.of(4)
+                        Enhancement.GLASS -> ctx.tally.mult = ctx.tally.mult * BigValue.of(2)
+                        Enhancement.NONE -> {}
+                    }
+                    effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
                 }
-                effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
             }
-            step("+ ${card.label}" + if (triggers > 1) " ×$triggers" else "")
+            step("+ ${card.label}" + if (debuffed) " (debuffed)" else if (triggers > 1) " ×$triggers" else "")
         }
         effects.dispatch(world, ctx, Ctx.JOKER_MAIN)
         // The for-each-other-joker pass: every board joker is offered to the OTHER_JOKER

@@ -13,7 +13,7 @@ import systems.balatro.engine.World
  * As real jokers are ported, add cases here against their recorded goldens.
  */
 object Oracle {
-    private data class Case(val name: String, val hand: List<PlayingCard>, val expected: Double, val jokers: (World, Effects) -> Unit = { _, _ -> })
+    private data class Case(val name: String, val hand: List<PlayingCard>, val expected: Double, val jokers: (World, Effects) -> Unit = { _, _ -> }, val debuff: Debuff = Debuff.None)
 
     /** Instantiate ported jokers by original key, in board order — the exact loadout a baseline recorded. */
     private fun jk(vararg keys: String): (World, Effects) -> Unit =
@@ -42,26 +42,30 @@ object Oracle {
         Case("J,Q,K + j_cry_maximized (rank patch -> ToaK)", PlayingCard.hand("S_J", "H_Q", "D_K"), 180.0, jk("j_cry_maximized")),
         Case("Flush A-2-3-5-7 + j_cry_primus (Emult pow)", PlayingCard.hand("S_A", "S_2", "S_3", "S_5", "S_7"), 323.0, jk("j_cry_primus")),
         // editions (documented Balatro constants; foil +50 chips is confirmed in the baselines doc's edition note)
-        Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.FOIL) },
-        Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.HOLO) },
-        Case("Pair + Poly Joker (x1.5 Mult)", PlayingCard.hand("S_A", "H_A"), 288.0) { w, e -> Editions.spawn(w, e, "j_joker", Edition.POLY) },
+        Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0, jokers = { w, e -> Editions.spawn(w, e, "j_joker", Edition.FOIL) }),
+        Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0, jokers = { w, e -> Editions.spawn(w, e, "j_joker", Edition.HOLO) }),
+        Case("Pair + Poly Joker (x1.5 Mult)", PlayingCard.hand("S_A", "H_A"), 288.0, jokers = { w, e -> Editions.spawn(w, e, "j_joker", Edition.POLY) }),
         // planet cards: leveling a hand raises its base by (lChips, lMult). Pair: +15 chips, +1 mult per level.
-        Case("Pair Lv2 of aces (Mercury x1)", PlayingCard.hand("S_A", "H_A"), 141.0) { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR) },
-        Case("Pair Lv3 of aces (Mercury x2)", PlayingCard.hand("S_A", "H_A"), 248.0) { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR, 2) },
+        Case("Pair Lv2 of aces (Mercury x1)", PlayingCard.hand("S_A", "H_A"), 141.0, jokers = { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR) }),
+        Case("Pair Lv3 of aces (Mercury x2)", PlayingCard.hand("S_A", "H_A"), 248.0, jokers = { w, _ -> Levels.ensure(w).levelUp(HandType.PAIR, 2) }),
         // card enhancements (tarots): one ace enhanced. Bonus (10+11+11+30)*2=124; Mult 32*(2+4)=192; Glass 32*(2*2)=128.
         Case("Pair, Bonus ace (+30 Chips)", listOf(PlayingCard.parse("S_A").copy(enhancement = Enhancement.BONUS), PlayingCard.parse("H_A")), 124.0),
         Case("Pair, Mult ace (+4 Mult)", listOf(PlayingCard.parse("S_A").copy(enhancement = Enhancement.MULT), PlayingCard.parse("H_A")), 192.0),
         Case("Pair, Glass ace (x2 Mult)", listOf(PlayingCard.parse("S_A").copy(enhancement = Enhancement.GLASS), PlayingCard.parse("H_A")), 128.0),
+        // boss debuffs. Flint halves base: Pair (10/2 + 22) * (2/2) = 27 * 1 = 27.
+        Case("Pair of aces + The Flint", PlayingCard.hand("S_A", "H_A"), 27.0, debuff = Boss.THE_FLINT.scoringDebuff),
+        // The Club: the club ace scores nothing -> (10 + 11) * 2 = 42.
+        Case("Pair S_A,C_A + The Club", PlayingCard.hand("S_A", "C_A"), 42.0, debuff = Boss.THE_CLUB.scoringDebuff),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
             val world = World(); val effects = Effects(); c.jokers(world, effects)
-            val score = ScoreRun(effects).scoreHand(world, c.hand)
-            val ok = score.v == c.expected
+            val score = ScoreRun(effects).scoreDetailed(world, c.hand, debuff = c.debuff).score
+            val ok = score == c.expected
             if (ok) pass++
-            println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got ${score.v} expected ${c.expected}")
+            println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")
         }
         println("oracle-parity: $pass/${cases.size}")
         return pass to cases.size

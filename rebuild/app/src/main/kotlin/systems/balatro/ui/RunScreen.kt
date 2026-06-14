@@ -88,8 +88,13 @@ private class RunState {
     private val scorer = ScoreRun(effects)
 
     var money by mutableStateOf(4)
-    var blind by mutableStateOf(1)
+    var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
+    var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
     var phase by mutableStateOf(Phase.ROUND)
+
+    val ante: Int get() = blindIndex / 3 + 1
+    private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
+    val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
     val owned = mutableStateListOf<Owned>()
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
@@ -105,7 +110,10 @@ private class RunState {
     var lastResult by mutableStateOf<ScoreResult?>(null)
     var lastSteps by mutableStateOf<List<ScoreStep>>(emptyList())
 
-    val target: Double get() = 300.0 * blind
+    val target: Double get() {
+        val base = 300.0 * ante
+        return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
+    }
 
     init {
         Telemetry.event("RUN_START")
@@ -114,12 +122,15 @@ private class RunState {
     }
 
     private fun startRound() {
+        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(8); selected = emptySet()
-        roundScore = 0.0; handsLeft = HANDS; discardsLeft = DISCARDS
+        roundScore = 0.0
+        handsLeft = boss?.hands(HANDS) ?: HANDS          // The Needle: 1 hand
+        discardsLeft = boss?.discards(DISCARDS) ?: DISCARDS  // The Water: 0 discards
         lastResult = null; lastSteps = emptyList()
         phase = Phase.ROUND
-        Telemetry.event("ROUND_START", "blind" to blind, "target" to target)
+        Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
     }
 
     private fun refill() {
@@ -134,23 +145,23 @@ private class RunState {
         if (phase != Phase.ROUND || selected.isEmpty()) return
         val sel = hand.filterIndexed { i, _ -> i in selected }
         val trace = ArrayList<ScoreStep>()
-        val r = scorer.scoreDetailed(world, sel, trace)
+        val r = scorer.scoreDetailed(world, sel, trace, boss?.scoringDebuff ?: Debuff.None)  // boss debuff applies
         roundScore += r.score; handsLeft -= 1
         lastResult = r; lastSteps = trace
-        Telemetry.event("ROUND_HAND", "blind" to blind, "type" to r.handType, "score" to r.score, "total" to roundScore)
+        Telemetry.event("ROUND_HAND", "blind" to blindName, "type" to r.handType, "score" to r.score, "total" to roundScore)
         refill()
         if (roundScore >= target) {
             val reward = 4 + handsLeft
             money += reward
-            Telemetry.event("ROUND_WIN", "blind" to blind, "total" to roundScore, "reward" to reward)
-            blind += 1
-            shop = rollShop(blind)
-            shopPlanets = rollPlanets(blind)
-            shopTarots = rollTarots(blind)
+            Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
+            blindIndex += 1
+            shop = rollShop(blindIndex)
+            shopPlanets = rollPlanets(blindIndex)
+            shopTarots = rollTarots(blindIndex)
             phase = Phase.SHOP
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
-            Telemetry.event("ROUND_LOSE", "blind" to blind, "total" to roundScore)
+            Telemetry.event("ROUND_LOSE", "blind" to blindName, "total" to roundScore)
         }
     }
 
@@ -222,7 +233,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Ante ${s.blind}", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Ante ${s.ante} · ${s.blindName}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(12.dp))
             Text("$${s.money}", fontFamily = FontFamily.Monospace, fontSize = 18.sp,
                 color = MaterialTheme.colorScheme.primary)
@@ -250,7 +261,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
             Phase.ROUND -> RoundPhase(s, cells)
             Phase.SHOP -> ShopPhase(s, jokerCells)
             Phase.OVER -> {
-                Text("Run over — lost Ante ${s.blind}", fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                Text("Run over — lost ${s.blindName} (Ante ${s.ante})", fontSize = 20.sp, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = onRestart, modifier = Modifier.fillMaxWidth()) { Text("New Run") }
@@ -262,6 +273,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 @Composable
 private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
     Text("Blind target ${fmtR(s.target)}  ·  score ${fmtR(s.roundScore)}", fontFamily = FontFamily.Monospace, fontSize = 15.sp)
+    s.boss?.let { Text("⚠ ${it.display}: ${it.desc}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error) }
     LinearProgressIndicator(
         progress = { (s.roundScore / s.target).toFloat().coerceIn(0f, 1f) },
         modifier = Modifier.fillMaxWidth().height(8.dp).padding(top = 4.dp))
@@ -353,7 +365,7 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>) {
         }
     }
     Spacer(Modifier.height(12.dp))
-    Button(onClick = { s.nextBlind() }, modifier = Modifier.fillMaxWidth()) { Text("Next Blind  (Ante ${s.blind})") }
+    Button(onClick = { s.nextBlind() }, modifier = Modifier.fillMaxWidth()) { Text("Next: ${s.blindName}  (Ante ${s.ante})") }
 }
 
 private fun fmtR(v: Double): String = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
