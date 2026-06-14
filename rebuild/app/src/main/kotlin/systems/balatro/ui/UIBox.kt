@@ -47,7 +47,8 @@ data class Cfg(
     val maxw: Float = 0f,
     val scale: Float = 1f,          // text scale
     val textColour: Color = Balatro.White,
-    val emboss: Boolean = false,
+    val shadow: Boolean = false,    // T shadow: black 0.3a offset pass (config.shadow in ui.lua draw_self)
+    val emboss: Float = 0f,           // 3-D edge depth in units (G.C.emboss float, 0 = off)
     val onClick: (() -> Unit)? = null,
 )
 
@@ -122,7 +123,7 @@ private fun Modifier.cfg(c: Cfg): Modifier {
     if (c.maxw > 0) m = m.widthIn(max = (c.maxw * U).dp)
     if (c.colour != null) {
         val shape = RoundedCornerShape((c.r * U).dp)
-        if (c.emboss) m = m.border(2.dp, Color.Black.copy(alpha = 0.25f), shape)  // the embossed 3D edge
+        if (c.emboss > 0) m = m.border((c.emboss * U).dp, Color.Black.copy(alpha = 0.25f), shape)  // 3D edge: depth in units
         val fill = if (pressed) lighten(c.colour) else c.colour                   // ARGS.button_colours[2] HOVER
         m = m.clip(shape).background(fill)
     }
@@ -147,7 +148,17 @@ private fun lighten(c: Color, amt: Float = 0.2f) = Color(
 @Composable
 fun RenderUI(node: UI) {
     when (node) {
-        is Tx -> BTxt(node.text, node.cfg.textColour, (node.cfg.scale * FONT).sp)
+        is Tx -> {
+            val size = (node.cfg.scale * FONT).sp
+            if (node.cfg.shadow) {
+                Box {
+                    BTxt(node.text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
+                    BTxt(node.text, node.cfg.textColour, size)
+                }
+            } else {
+                BTxt(node.text, node.cfg.textColour, size)
+            }
+        }
         is Ro -> Container(node.cfg, node.kids)
         is Co -> Container(node.cfg, node.kids)
         is Bx -> Container(node.cfg, node.kids)
@@ -212,7 +223,11 @@ private fun RenderDynaText(dt: DynaText) {
 
 @Composable
 private fun Container(cfg: Cfg, kids: List<UI>) {
-    val vertical = kids.isNotEmpty() && kids.all { it is Ro }   // R children stack; otherwise flow across
+    // Balatro's layout rule (calculate_xywh): a child with UIT==R advances Y (block line); everything
+    // else advances X (inline). Any R child in the list makes this container a vertical stack —
+    // `any` rather than `all` so a single R among C/T siblings still triggers Column layout,
+    // matching the Lua cursor behaviour exactly. Pure non-R children → Row (horizontal flow).
+    val vertical = kids.any { it is Ro }
     if (vertical) {
         Column(Modifier.cfg(cfg), verticalArrangement = vArr(cfg.align), horizontalAlignment = hAlign(cfg.align)) {
             kids.forEach { RenderUI(it) }

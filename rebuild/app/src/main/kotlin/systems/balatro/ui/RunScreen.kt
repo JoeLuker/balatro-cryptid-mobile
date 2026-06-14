@@ -263,6 +263,16 @@ private class RunState {
     fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
 
     fun nextBlind() { if (phase == Phase.SHOP) startRound() }
+
+    /** config.button = "sort_hand_value" (byRank=true) or "sort_hand_suit" (byRank=false).
+     *  Stable sort so cards with the same key stay in their original relative order. */
+    fun sortHand(byRank: Boolean) {
+        hand = if (byRank)
+            hand.sortedWith(compareByDescending { it.rank })
+        else
+            hand.sortedWith(compareBy { it.suit.ordinal })
+        selected = emptySet()
+    }
 }
 
 @Composable
@@ -358,7 +368,7 @@ private fun hudRound(s: RunState): UI {
     // `value` is a provider so the binding stays live: reading RunState's mutableStateOf inside it
     // makes Compose recompose on change, exactly as Balatro's update_text polls ref_table/ref_value.
     fun stat(label: String, value: () -> String, color: Color): UI =
-        C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = true, r = 0.1f),
+        C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f, minh = 1f, colour = tc, emboss = 0.05f, r = 0.1f),
             R(Cfg(align = "cm", minh = 0.33f, maxw = 1.35f), T(Cfg(scale = 0.34f, textColour = light), label)),
             R(Cfg(align = "cm", r = 0.1f, minw = 1.2f, colour = tc2),
                 O(Cfg(align = "cm"), DynaT(seg(value, color, scale = 0.8f)))))
@@ -368,11 +378,80 @@ private fun hudRound(s: RunState): UI {
         R(Cfg(align = "cm"), stat("Hands", { "${s.handsLeft}" }, Balatro.Chips), hSpace(), stat("Discards", { "${s.discardsLeft}" }, Balatro.Mult)),
         vSpace(),
         R(Cfg(align = "cm"),
-            C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = true, r = 0.1f),
+            C(Cfg(align = "cm", padding = 0.05f, minw = 1.45f * 2 + sp, minh = 1f, colour = tc, emboss = 0.05f, r = 0.1f),
                 C(Cfg(align = "cm", r = 0.1f, minw = 1.28f * 2 + sp, minh = 0.9f, colour = tc2),
                     O(Cfg(align = "cm"), DynaT(seg({ "\$${s.money}" }, Balatro.Money, scale = 0.88f)))))),
         vSpace(),
         R(Cfg(align = "cm"), stat("Ante", { "${s.ante}/8" }, Balatro.Orange), hSpace(), stat("Round", { "${s.blindIndex + 1}" }, Balatro.Orange)))
+}
+
+/**
+ * Port of create_UIBox_buttons (UI_definitions.lua): the action bar that lives below the hand.
+ * Three children flow horizontally — Play Hand (left), sort cluster (centre), Discard (right).
+ *
+ * Guards: config.func='can_play' / 'can_discard' + config.one_press are mapped to onClick=null
+ * when the action is unavailable, which makes cfg() skip the clickable modifier entirely.
+ * config.button='sort_hand_value'/'sort_hand_suit' sort the hand in-place (stable sort by rank/suit).
+ *
+ * play_button_pos: Balatro swaps play/discard when G.SETTINGS.play_button_pos==1; we default to
+ * pos=0 (play left, discard right) — no settings screen yet.
+ */
+private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
+    val ts = 0.45f    // text_scale
+    val bh = 1.3f     // button_height (minh on discard only)
+
+    val canPlay = !s.scoring && s.selected.isNotEmpty() && cells.isNotEmpty()
+    val canDiscard = !s.scoring && s.selected.isNotEmpty() && s.discardsLeft > 0
+
+    val playButton = C(
+        Cfg(
+            align   = "tm",
+            minw    = 2.5f,
+            padding = 0.3f,
+            r       = 0.1f,
+            colour  = if (canPlay) Balatro.Chips else Balatro.Grey,
+            onClick = if (canPlay) ({ s.play() }) else null,
+        ),
+        R(Cfg(align = "bcm", padding = 0f),
+            T(Cfg(scale = ts, textColour = Balatro.White), "Play Hand")),
+    )
+
+    val discardButton = C(
+        Cfg(
+            align   = "tm",
+            minw    = 2.5f,
+            minh    = bh,
+            padding = 0.3f,
+            r       = 0.1f,
+            colour  = if (canDiscard) Balatro.Mult else Balatro.Grey,
+            onClick = if (canDiscard) ({ s.discard() }) else null,
+        ),
+        R(Cfg(align = "cm", padding = 0f),
+            T(Cfg(scale = ts, textColour = Balatro.White), "Discard")),
+    )
+
+    val sortCluster = C(
+        Cfg(align = "cm", padding = 0.1f, r = 0.1f, colour = Color(0x22222222)),
+        R(Cfg(align = "cm", padding = 0f),
+            R(Cfg(align = "cm", padding = 0f),
+                T(Cfg(scale = ts * 0.8f, textColour = Balatro.White), "Sort Hand")),
+            R(Cfg(align = "cm", padding = 0.1f),
+                C(Cfg(align = "cm", minh = 0.7f, minw = 0.9f, padding = 0.1f, r = 0.1f,
+                    colour = Balatro.Orange, onClick = { s.sortHand(byRank = true) }),
+                    T(Cfg(scale = ts * 0.7f, textColour = Balatro.White), "Rank")),
+                C(Cfg(align = "cm", minh = 0.7f, minw = 0.9f, padding = 0.1f, r = 0.1f,
+                    colour = Balatro.Orange, onClick = { s.sortHand(byRank = false) }),
+                    T(Cfg(scale = ts * 0.7f, textColour = Balatro.White), "Suit")),
+            ),
+        ),
+    )
+
+    return R(
+        Cfg(align = "cm", minw = 1f, minh = 0.3f, padding = 0.15f, r = 0.1f, colour = Color.Transparent),
+        playButton,
+        sortCluster,
+        discardButton,
+    )
 }
 
 /** The play area: jokers across the top, the hand-name + chips X mult readout in the centre,
@@ -419,25 +498,27 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
 
-        // bottom: fanned hand + deck pile + play/discard
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            Box(Modifier.weight(1f)) {
-                SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 56.dp, onToggle = { s.toggle(it) }) { card ->
-                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Balatro.FeltDark)) {
-                        cells[card]?.let { Image(it, card.label, Modifier.fillMaxSize()) }
-                        if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
-                            Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                        if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
-                            Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+        // bottom: fanned hand + action bar (Play Hand / Sort / Discard)
+        // The action bar is Balatro's create_UIBox_buttons tree rendered through the UIBox interpreter.
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                Box(Modifier.weight(1f)) {
+                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 56.dp, onToggle = { s.toggle(it) }) { card ->
+                        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Balatro.FeltDark)) {
+                            cells[card]?.let { Image(it, card.label, Modifier.fillMaxSize()) }
+                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
+                                Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
+                                Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                        }
                     }
                 }
             }
-            Spacer(Modifier.width(8.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BButton("Play Hand", Balatro.Chips, enabled = !s.scoring && s.selected.isNotEmpty() && cells.isNotEmpty()) { s.play() }
-                BButton("Discard", Balatro.Mult, enabled = !s.scoring && s.selected.isNotEmpty() && s.discardsLeft > 0) { s.discard() }
-                BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally))
-            }
+            Spacer(Modifier.height(4.dp))
+            // Balatro's create_UIBox_buttons: play (left), sort cluster (centre), discard (right).
+            // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
+            RenderUI(buttonsRow(s, cells))
+            BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally).padding(top = 2.dp))
         }
     }
 }
