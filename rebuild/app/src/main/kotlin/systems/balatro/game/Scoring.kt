@@ -36,6 +36,7 @@ class Context {
     lateinit var phase: Ctx
     var scoredCard: Entity = 0          // the playing card entity being scored (INDIVIDUAL_*)
     var scoredPlaying: PlayingCard? = null  // its data (suit/rank/chips)
+    var scoringCards: List<PlayingCard> = emptyList()  // the whole scoring hand (for shape-aware jokers)
     var self: Entity = 0                // the joker whose handler is running
     val tally = Tally()
     var retriggers: Int = 0             // an effect may request repeats of the current card
@@ -82,13 +83,16 @@ class ScoreRun(private val effects: Effects) {
         ctx.tally.reset()
         ctx.tally.chips = BigValue.of(handType.baseChips)
         ctx.tally.mult = BigValue.of(handType.baseMult)
+        ctx.scoringCards = scoring                                      // shape-aware jokers inspect the whole hand
         effects.dispatch(world, ctx, Ctx.BEFORE)
         for (card in scoring) {
-            ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)  // card adds its chips
             ctx.scoredPlaying = card
             ctx.retriggers = 0                                          // subscribers may add repeats
             effects.dispatch(world, ctx, Ctx.RETRIGGER)
-            repeat(1 + ctx.retriggers) { effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED) }
+            repeat(1 + ctx.retriggers) {                               // each trigger re-scores the card whole
+                ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)
+                effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
+            }
         }
         effects.dispatch(world, ctx, Ctx.JOKER_MAIN)
         effects.dispatch(world, ctx, Ctx.AFTER)

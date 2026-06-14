@@ -31,6 +31,10 @@ object Oracle {
         Case("Flush diamonds + j_greedy_joker", PlayingCard.hand("D_A", "D_K", "D_Q", "D_J", "D_9"), 1615.0, jk("j_greedy_joker")),
         Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, jk("j_cry_cube")),
         Case("ThreeOfAKind 3s + j_cry_triplet_rhythm (x3 Mult)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, jk("j_cry_triplet_rhythm")),
+        Case("FourOfAKind 2s + j_cry_lightupthenight (x1.5 per 2/7)", PlayingCard.hand("S_2", "H_2", "D_2", "C_2", "S_3"), 2409.0, jk("j_cry_lightupthenight")),
+        Case("TwoPair 2s/As + j_cry_weegaming (retrigger 2s)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 108.0, jk("j_cry_weegaming")),
+        Case("FourOfAKind aces + j_cry_krustytheclown (scaling)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "S_K"), 786.0, jk("j_cry_krustytheclown")),
+        Case("Pair + j_cry_brokenhome (x11.4 Mult)", PlayingCard.hand("S_A", "H_A"), 729.0, jk("j_cry_brokenhome")),
     )
 
     fun run(): Pair<Int, Int> {
