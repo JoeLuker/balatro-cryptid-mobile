@@ -93,7 +93,12 @@ class ScoreRun(private val effects: Effects) {
     private val ctx = Context()
 
     fun scoreHand(world: World, played: List<PlayingCard>): BigValue {
-        val (handType, scoring) = Hands.evaluate(played)   // base chips/mult + the scoring cards
+        // Compose any active rank remaps (maximized &c.) into the effective rank hand
+        // detection sees. Empty store => identity, so the no-remap path is unchanged.
+        val remaps = ArrayList<(Int) -> Int>()
+        world.store<RankMod>().each { _, m -> remaps.add(m.map) }
+        val rankOf: (PlayingCard) -> Int = { c -> remaps.fold(c.rank) { r, m -> m(r) } }
+        val (handType, scoring) = Hands.evaluate(played, rankOf)   // base chips/mult + the scoring cards
         ctx.tally.reset()
         ctx.tally.chips = BigValue.of(handType.baseChips)
         ctx.tally.mult = BigValue.of(handType.baseMult)

@@ -1,5 +1,16 @@
 package systems.balatro.game
 
+import systems.balatro.engine.Component
+
+/**
+ * A pre-evaluation rank remap (Balatro patches Card:get_id()). Stored as a component on
+ * the joker that imposes it, so hand detection composes the active remaps as DATA — the
+ * extension surface for "this joker changes what hand the cards form", distinct from the
+ * tally Effects that fire mid-cascade. Maps an effective rank to an effective rank, so
+ * remaps chain. Chip values are NOT affected (they come from the card's nominal, not id).
+ */
+class RankMod(val map: (Int) -> Int) : Component
+
 /** Poker hand types with their level-1 base (chips, mult), matching Balatro. */
 enum class HandType(val baseChips: Int, val baseMult: Int) {
     NONE(0, 1),
@@ -18,14 +29,18 @@ enum class HandType(val baseChips: Int, val baseMult: Int) {
 }
 
 object Hands {
-    /** Best hand + the SCORING cards (kickers excluded — only these contribute chips). */
-    fun evaluate(cards: List<PlayingCard>): Pair<HandType, List<PlayingCard>> {
+    /**
+     * Best hand + the SCORING cards (kickers excluded — only these contribute chips).
+     * `rankOf` is the effective rank used for poker detection (identity by default; a
+     * RankMod joker like maximized makes face cards collide). Chip values are unaffected.
+     */
+    fun evaluate(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int = { it.rank }): Pair<HandType, List<PlayingCard>> {
         if (cards.isEmpty()) return HandType.NONE to emptyList()
-        val groups = cards.groupBy { it.rank }.values.sortedByDescending { it.size }
+        val groups = cards.groupBy { rankOf(it) }.values.sortedByDescending { it.size }
         val top = groups[0].size
         val second = groups.getOrNull(1)?.size ?: 0
         val isFlush = cards.size == 5 && cards.all { it.suit == cards[0].suit }
-        val straight = straightCards(cards)
+        val straight = straightCards(cards, rankOf)
 
         return when {
             top == 5 && isFlush -> HandType.FLUSH_FIVE to cards
@@ -39,13 +54,13 @@ object Hands {
             top == 3 -> HandType.THREE_OF_A_KIND to groups[0]
             top == 2 && second == 2 -> HandType.TWO_PAIR to (groups[0] + groups[1])
             top == 2 -> HandType.PAIR to groups[0]
-            else -> HandType.HIGH_CARD to listOf(cards.maxByOrNull { it.rank }!!)
+            else -> HandType.HIGH_CARD to listOf(cards.maxByOrNull { rankOf(it) }!!)
         }
     }
 
-    private fun straightCards(cards: List<PlayingCard>): List<PlayingCard>? {
+    private fun straightCards(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int): List<PlayingCard>? {
         if (cards.size != 5) return null
-        val ranks = cards.map { it.rank }.toSortedSet()
+        val ranks = cards.map { rankOf(it) }.toSortedSet()
         if (ranks.size != 5) return null
         if (ranks.last() - ranks.first() == 4) return cards          // normal run
         if (ranks == sortedSetOf(14, 2, 3, 4, 5)) return cards       // A-2-3-4-5

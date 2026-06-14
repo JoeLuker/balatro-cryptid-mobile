@@ -37,6 +37,7 @@ object Oracle {
         Case("Pair + j_cry_brokenhome (x11.4 Mult)", PlayingCard.hand("S_A", "H_A"), 729.0, jk("j_cry_brokenhome")),
         Case("Pair + j_joker,j_cry_waluigi (cross-joker x2.5^2)", PlayingCard.hand("S_A", "H_A"), 1200.0, jk("j_joker", "j_cry_waluigi")),
         Case("Pair + j_cry_oldblueprint,j_joker (blueprint copy)", PlayingCard.hand("S_A", "H_A"), 320.0, jk("j_cry_oldblueprint", "j_joker")),
+        Case("J,Q,K + j_cry_maximized (rank patch -> ToaK)", PlayingCard.hand("S_J", "H_Q", "D_K"), 180.0, jk("j_cry_maximized")),
     )
 
     fun run(): Pair<Int, Int> {

@@ -70,6 +70,14 @@ object Content {
             }
             j
         },
+        // hand-eval rank patch: face cards (J/Q/K) collide at 13, pips (2-10) at 10, so
+        // disparate face cards form a set. A RankMod component on the joker, not a tally
+        // Effect — it changes which hand the cards make, before any scoring fires.
+        "j_cry_maximized" to { w: World, _: Effects ->
+            val j = newJoker(w)
+            w.add(j, RankMod { r -> if (r in 2..10) 10 else if (r in 11..13) 13 else r })
+            j
+        },
     )
 
     /** Mutable per-joker scaling accumulator, stored as a component on the joker entity. */
