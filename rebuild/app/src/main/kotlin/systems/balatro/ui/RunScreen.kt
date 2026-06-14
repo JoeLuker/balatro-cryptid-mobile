@@ -77,6 +77,8 @@ private val TAROTS = listOf(
     TarotOffer("The Hierophant", Enhancement.BONUS, 3),
     TarotOffer("The Empress", Enhancement.MULT, 3),
     TarotOffer("Justice", Enhancement.GLASS, 3),
+    TarotOffer("The Tower", Enhancement.STEEL, 4),
+    TarotOffer("The Devil", Enhancement.GOLD, 4),
 )
 /** 2 tarots per ante; each enhances a random deck card. */
 private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
@@ -144,14 +146,16 @@ private class RunState {
     fun play() {
         if (phase != Phase.ROUND || selected.isEmpty()) return
         val sel = hand.filterIndexed { i, _ -> i in selected }
+        val held = hand.filterIndexed { i, _ -> i !in selected }       // steel held cards score x1.5
         val trace = ArrayList<ScoreStep>()
-        val r = scorer.scoreDetailed(world, sel, trace, boss?.scoringDebuff ?: Debuff.None)  // boss debuff applies
+        val r = scorer.scoreDetailed(world, sel, trace, boss?.scoringDebuff ?: Debuff.None, held)
         roundScore += r.score; handsLeft -= 1
         lastResult = r; lastSteps = trace
         Telemetry.event("ROUND_HAND", "blind" to blindName, "type" to r.handType, "score" to r.score, "total" to roundScore)
         refill()
         if (roundScore >= target) {
-            val reward = 4 + handsLeft
+            val gold = held.count { it.enhancement == Enhancement.GOLD }  // +$3 per gold held at round end
+            val reward = 4 + handsLeft + gold * 3
             money += reward
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
             blindIndex += 1

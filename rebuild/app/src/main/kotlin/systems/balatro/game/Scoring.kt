@@ -107,7 +107,7 @@ class ScoreRun(private val effects: Effects) {
      * card -> jokers -> final) so the UI can show it building. trace=null => no overhead,
      * which is the oracle/hot path.
      */
-    fun scoreDetailed(world: World, played: List<PlayingCard>, trace: MutableList<ScoreStep>? = null, debuff: Debuff = Debuff.None): ScoreResult {
+    fun scoreDetailed(world: World, played: List<PlayingCard>, trace: MutableList<ScoreStep>? = null, debuff: Debuff = Debuff.None, held: List<PlayingCard> = emptyList()): ScoreResult {
         // Compose any active rank remaps (maximized &c.) into the effective rank hand
         // detection sees. Empty store => identity, so the no-remap path is unchanged.
         val remaps = ArrayList<(Int) -> Int>()
@@ -140,7 +140,7 @@ class ScoreRun(private val effects: Effects) {
                         Enhancement.BONUS -> ctx.tally.chips = ctx.tally.chips + BigValue.of(30)
                         Enhancement.MULT -> ctx.tally.mult = ctx.tally.mult + BigValue.of(4)
                         Enhancement.GLASS -> ctx.tally.mult = ctx.tally.mult * BigValue.of(2)
-                        Enhancement.NONE -> {}
+                        Enhancement.STEEL, Enhancement.GOLD, Enhancement.NONE -> {}  // these act while HELD, not played
                     }
                     effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
                 }
@@ -151,7 +151,14 @@ class ScoreRun(private val effects: Effects) {
         // The for-each-other-joker pass: every board joker is offered to the OTHER_JOKER
         // subscribers once, in board order (no self-exclusion — a joker is offered itself too).
         for (other in Board.order(world)) { ctx.otherJoker = other; effects.dispatch(world, ctx, Ctx.OTHER_JOKER) }
+        // held-in-hand pass: Steel cards x1.5 Mult while held; jokers may also react (INDIVIDUAL_HELD).
+        for (card in held) {
+            ctx.scoredPlaying = card
+            if (card.enhancement == Enhancement.STEEL) ctx.tally.mult = ctx.tally.mult * BigValue.of(1.5)
+            effects.dispatch(world, ctx, Ctx.INDIVIDUAL_HELD)
+        }
         effects.dispatch(world, ctx, Ctx.AFTER)
+        if (held.any { it.enhancement == Enhancement.STEEL }) step("held steel")
         step("jokers")
         return ScoreResult(handType, ctx.tally.chips.v, ctx.tally.mult.v,
             kotlin.math.floor(ctx.tally.score().v))                     // Balatro floors the final

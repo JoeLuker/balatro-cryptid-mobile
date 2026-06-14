@@ -13,7 +13,7 @@ import systems.balatro.engine.World
  * As real jokers are ported, add cases here against their recorded goldens.
  */
 object Oracle {
-    private data class Case(val name: String, val hand: List<PlayingCard>, val expected: Double, val jokers: (World, Effects) -> Unit = { _, _ -> }, val debuff: Debuff = Debuff.None)
+    private data class Case(val name: String, val hand: List<PlayingCard>, val expected: Double, val jokers: (World, Effects) -> Unit = { _, _ -> }, val debuff: Debuff = Debuff.None, val held: List<PlayingCard> = emptyList())
 
     /** Instantiate ported jokers by original key, in board order — the exact loadout a baseline recorded. */
     private fun jk(vararg keys: String): (World, Effects) -> Unit =
@@ -56,13 +56,18 @@ object Oracle {
         Case("Pair of aces + The Flint", PlayingCard.hand("S_A", "H_A"), 27.0, debuff = Boss.THE_FLINT.scoringDebuff),
         // The Club: the club ace scores nothing -> (10 + 11) * 2 = 42.
         Case("Pair S_A,C_A + The Club", PlayingCard.hand("S_A", "C_A"), 42.0, debuff = Boss.THE_CLUB.scoringDebuff),
+        // steel cards held in hand: x1.5 Mult each. Pair 32 * (2*1.5) = 96; two steel 32 * (2*1.5*1.5) = 144.
+        Case("Pair of aces + 1 steel held", PlayingCard.hand("S_A", "H_A"), 96.0,
+            held = listOf(PlayingCard.parse("S_K").copy(enhancement = Enhancement.STEEL))),
+        Case("Pair of aces + 2 steel held", PlayingCard.hand("S_A", "H_A"), 144.0,
+            held = listOf(PlayingCard.parse("S_K").copy(enhancement = Enhancement.STEEL), PlayingCard.parse("D_K").copy(enhancement = Enhancement.STEEL))),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
             val world = World(); val effects = Effects(); c.jokers(world, effects)
-            val score = ScoreRun(effects).scoreDetailed(world, c.hand, debuff = c.debuff).score
+            val score = ScoreRun(effects).scoreDetailed(world, c.hand, debuff = c.debuff, held = c.held).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")
