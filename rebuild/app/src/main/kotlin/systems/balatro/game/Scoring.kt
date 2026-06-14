@@ -93,13 +93,21 @@ class Effects {
 /** A scored hand's breakdown, so UI can show the chips x mult = score cascade, not just the total. */
 data class ScoreResult(val handType: HandType, val chips: Double, val mult: Double, val score: Double)
 
+/** One visible step of the cascade — the running chips x mult after `label` resolved. */
+data class ScoreStep(val label: String, val chips: Double, val mult: Double)
+
 class ScoreRun(private val effects: Effects) {
     private val ctx = Context()
 
     /** The final score only (what the oracle asserts). Delegates to the detailed cascade. */
     fun scoreHand(world: World, played: List<PlayingCard>): BigValue = BigValue.of(scoreDetailed(world, played).score)
 
-    fun scoreDetailed(world: World, played: List<PlayingCard>): ScoreResult {
+    /**
+     * Score a hand, optionally recording the cascade into `trace` (base -> each scoring
+     * card -> jokers -> final) so the UI can show it building. trace=null => no overhead,
+     * which is the oracle/hot path.
+     */
+    fun scoreDetailed(world: World, played: List<PlayingCard>, trace: MutableList<ScoreStep>? = null): ScoreResult {
         // Compose any active rank remaps (maximized &c.) into the effective rank hand
         // detection sees. Empty store => identity, so the no-remap path is unchanged.
         val remaps = ArrayList<(Int) -> Int>()
@@ -111,21 +119,26 @@ class ScoreRun(private val effects: Effects) {
         ctx.tally.mult = BigValue.of(handType.baseMult)
         ctx.scoringCards = scoring                                      // shape-aware jokers inspect the scoring cards
         ctx.playedCards = played                                        // ...or the full played hand (primus prime-check)
+        fun step(label: String) = trace?.add(ScoreStep(label, ctx.tally.chips.v, ctx.tally.mult.v))
         effects.dispatch(world, ctx, Ctx.BEFORE)
+        step("base · ${handType.name.lowercase().replace('_', ' ')}")
         for (card in scoring) {
             ctx.scoredPlaying = card
             ctx.retriggers = 0                                          // subscribers may add repeats
             effects.dispatch(world, ctx, Ctx.RETRIGGER)
-            repeat(1 + ctx.retriggers) {                               // each trigger re-scores the card whole
+            val triggers = 1 + ctx.retriggers
+            repeat(triggers) {                                         // each trigger re-scores the card whole
                 ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)
                 effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
             }
+            step("+ ${card.label}" + if (triggers > 1) " ×$triggers" else "")
         }
         effects.dispatch(world, ctx, Ctx.JOKER_MAIN)
         // The for-each-other-joker pass: every board joker is offered to the OTHER_JOKER
         // subscribers once, in board order (no self-exclusion — a joker is offered itself too).
         for (other in Board.order(world)) { ctx.otherJoker = other; effects.dispatch(world, ctx, Ctx.OTHER_JOKER) }
         effects.dispatch(world, ctx, Ctx.AFTER)
+        step("jokers")
         return ScoreResult(handType, ctx.tally.chips.v, ctx.tally.mult.v,
             kotlin.math.floor(ctx.tally.score().v))                     // Balatro floors the final
     }

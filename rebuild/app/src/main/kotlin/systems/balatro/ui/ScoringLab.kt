@@ -10,7 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -75,6 +77,7 @@ fun ScoringLab(onClose: () -> Unit) {
     val hand = remember { PlayingCard.hand("S_3", "H_3", "D_3", "S_2", "H_7", "D_A", "C_K", "S_9") }
     var selected by remember { mutableStateOf(setOf<Int>()) }
     var result by remember { mutableStateOf<ScoreResult?>(null) }
+    var steps by remember { mutableStateOf<List<ScoreStep>>(emptyList()) }
 
     val cells by produceState<Map<PlayingCard, ImageBitmap>>(emptyMap(), hand) {
         value = withContext(Dispatchers.Default) { CardArt.cache(ctx, hand) }
@@ -85,13 +88,14 @@ fun ScoringLab(onClose: () -> Unit) {
         if (sel.isEmpty()) return
         val world = World(); val effects = Effects()
         Content.loadout(world, effects, DEMO_LOADOUT.map { it.key })
-        val r = ScoreRun(effects).scoreDetailed(world, sel)
-        result = r
+        val trace = ArrayList<ScoreStep>()
+        val r = ScoreRun(effects).scoreDetailed(world, sel, trace)
+        result = r; steps = trace
         Telemetry.event("PLAY", "cards" to sel.joinToString("") { it.key } ,
             "type" to r.handType, "chips" to r.chips, "mult" to r.mult, "score" to r.score)
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Scoring Lab", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
@@ -142,10 +146,16 @@ fun ScoringLab(onClose: () -> Unit) {
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text(handName(r.handType), fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Text("${fmt(r.chips)} chips  ×  ${fmt(r.mult)} mult",
-                        fontFamily = FontFamily.Monospace, fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    // the cascade, step by step — running chips x mult after each card/joker phase
+                    for (s in steps) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(s.label, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${fmt(s.chips)} × ${fmt(s.mult)}", fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text("= ${fmt(r.score)}", fontFamily = FontFamily.Monospace,
                         fontSize = 26.sp, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary)
