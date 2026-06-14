@@ -29,11 +29,13 @@ fun JuicyCard(
     index: Int,
     width: Dp,
     onClick: () -> Unit,
+    baseTilt: Float = 0f,   // static fan rotation
+    baseLift: Float = 0f,   // static fan arc (px)
     badges: @Composable BoxScope.() -> Unit = {},
 ) {
     val wobble = rememberInfiniteTransition(label = "wobble$index")
     val tilt by wobble.animateFloat(
-        initialValue = -2.2f, targetValue = 2.2f,
+        initialValue = -1.6f, targetValue = 1.6f,
         animationSpec = infiniteRepeatable(
             tween(1200 + (index % 5) * 140, easing = FastOutSlowInEasing), RepeatMode.Reverse
         ),
@@ -51,8 +53,8 @@ fun JuicyCard(
         Modifier
             .size(width, h)
             .graphicsLayer {
-                rotationZ = tilt + if (selected) -4f else 0f
-                translationY = lift
+                rotationZ = baseTilt + tilt + if (selected) -baseTilt - 4f else 0f
+                translationY = baseLift + lift
                 scaleX = scale; scaleY = scale
             }
             .clickable { onClick() }

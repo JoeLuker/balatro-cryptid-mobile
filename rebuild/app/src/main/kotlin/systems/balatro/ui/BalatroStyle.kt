@@ -97,3 +97,18 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
             .border(2.dp, Balatro.PanelLight, RoundedCornerShape(10.dp)).padding(10.dp)
     ) { content() }
 }
+
+/** A Balatro HUD stat box: a light label over a dark inset with the big coloured value (Hands/Discards/Ante/Round). */
+@Composable
+fun HudBox(label: String, value: String, valueColor: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier.clip(RoundedCornerShape(8.dp)).background(Balatro.Panel).padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        BTxt(label, Balatro.White, 10.sp)
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Balatro.FeltDark).padding(vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) { BTxt(value, valueColor, 20.sp) }
+    }
+}

@@ -121,6 +121,7 @@ private class RunState {
     var enhancedCount by mutableStateOf(0)
 
     private val deck = Deck(20260614L)   // persistent across the run (tarot enhancements stick)
+    val deckRemaining: Int get() = deck.remaining
     var hand by mutableStateOf<List<PlayingCard>>(emptyList())
     var selected by mutableStateOf(setOf<Int>())
     var roundScore by mutableStateOf(0.0)
@@ -283,43 +284,21 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
     }
 
     Box(Modifier.fillMaxSize().background(Balatro.Felt)) {                       // the green felt table
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BTxt("Ante ${s.ante}", Balatro.White, 18.sp)
-                Spacer(Modifier.width(8.dp))
-                BTxt(s.blindName, Balatro.Orange, 15.sp)
-                Spacer(Modifier.weight(1f))
-                Pill("\$${s.money}", "", Balatro.Money)
-                Spacer(Modifier.width(8.dp))
-                BButton("X", Balatro.Mult) { onClose() }
-            }
-
-            // owned jokers on the felt (LOD: shrink to fit)
-            Spacer(Modifier.height(10.dp))
-            BTxt("Jokers ${s.owned.size}", Balatro.White, 12.sp)
-            Spacer(Modifier.height(4.dp))
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val n = maxOf(1, s.owned.size)
-                val w = minOf(64.dp, (maxWidth - 6.dp * (n - 1).toFloat()) / n.toFloat())
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (o in s.owned) {
-                        jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.size(w, w * (190f / 142f))) }
-                            ?: Box(Modifier.size(w, w * (190f / 142f)).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            when (s.phase) {
-                Phase.ROUND -> RoundPhase(s, cells)
-                Phase.SHOP -> ShopPhase(s, jokerCells)
-                Phase.OVER -> {
-                    Panel(Modifier.fillMaxWidth()) {
-                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            BTxt("Game Over", Balatro.Mult, 22.sp)
-                            BTxt("lost ${s.blindName} · Ante ${s.ante}", Balatro.White, 13.sp)
-                            Spacer(Modifier.height(10.dp))
-                            BButton("New Run", Balatro.Orange, modifier = Modifier.fillMaxWidth()) { onRestart() }
+        Row(Modifier.fillMaxSize().padding(10.dp)) {
+            HudColumn(s, Modifier.width(180.dp).fillMaxHeight(), onClose)        // Balatro's left sidebar
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
+                when (s.phase) {
+                    Phase.ROUND -> RoundPlay(s, cells, jokerCells)
+                    Phase.SHOP -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ShopPhase(s, jokerCells) }
+                    Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Panel {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                BTxt("Game Over", Balatro.Mult, 24.sp)
+                                BTxt("lost ${s.blindName} · Ante ${s.ante}", Balatro.White, 13.sp)
+                                Spacer(Modifier.height(10.dp))
+                                BButton("New Run", Balatro.Orange) { onRestart() }
+                            }
                         }
                     }
                 }
@@ -328,92 +307,119 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
     }
 }
 
+/** Balatro's left sidebar: blind token + score target, round score, Hands/Discards, money, Ante/Round. */
 @Composable
-private fun RoundPhase(s: RunState, cells: Map<PlayingCard, ImageBitmap>) {
-    // The scoring sequence: walk the cascade trace on a timer so chips/mult tick up and the
-    // played cards pop one at a time, then bank the score.
+private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
+    val animRound by animateFloatAsState(s.roundScore.toFloat(), tween(700, easing = FastOutSlowInEasing), label = "round")
+    val slotColor = when (s.blindName) { "Small Blind" -> Balatro.Chips; "Big Blind" -> Balatro.Orange; else -> Balatro.Mult }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BButton("✕", Balatro.Mult) { onClose() }
+            Spacer(Modifier.weight(1f))
+            BTxt("Ante ${s.ante}/8", Balatro.White, 12.sp)
+        }
+        // blind token + target
+        Panel(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(34.dp).clip(RoundedCornerShape(50)).background(slotColor), contentAlignment = Alignment.Center) {}
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    BTxt(s.blindName, slotColor, 14.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BTxt("score ", Balatro.White, 9.sp); BTxt(fmtR(s.target), Balatro.Chips, 16.sp)
+                    }
+                    s.boss?.let { BTxt(it.desc, Balatro.Mult, 9.sp) }
+                }
+            }
+        }
+        // round score
+        Panel(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                BTxt("Round score", Balatro.White, 9.sp)
+                BTxt(fmtR(animRound.toDouble()), Balatro.White, 26.sp)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            HudBox("Hands", "${s.handsLeft}", Balatro.Chips, Modifier.weight(1f))
+            HudBox("Discards", "${s.discardsLeft}", Balatro.Mult, Modifier.weight(1f))
+        }
+        HudBox("Money", "\$${s.money}", Balatro.Money, Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            HudBox("Ante", "${s.ante}/8", Balatro.Orange, Modifier.weight(1f))
+            HudBox("Round", "${s.blindIndex + 1}", Balatro.Orange, Modifier.weight(1f))
+        }
+    }
+}
+
+/** The play area: jokers across the top, the hand-name + chips X mult readout in the centre,
+ *  the fanned hand + deck along the bottom. Landscape, like the real game. */
+@Composable
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>) {
     LaunchedEffect(s.scoring) {
         if (s.scoring) {
-            val steps = s.lastSteps
-            for (i in steps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
+            for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
             delay(450L)
             s.scoreCommit()
         }
     }
-    val animRound by animateFloatAsState(s.roundScore.toFloat(), tween(700, easing = FastOutSlowInEasing), label = "round")
-
-    Panel(Modifier.fillMaxWidth()) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BTxt(s.blindName, Balatro.Orange, 16.sp)
-                Spacer(Modifier.weight(1f))
-                BTxt("score at least ", Balatro.White, 11.sp)
-                BTxt(fmtR(s.target), Balatro.Chips, 18.sp)
-            }
-            s.boss?.let { BTxt("⚠ ${it.display}: ${it.desc}", Balatro.Mult, 11.sp) }
-        }
-    }
-    Spacer(Modifier.height(8.dp))
-    Panel(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            BTxt("Round score", Balatro.White, 11.sp)
-            BTxt(fmtR(animRound.toDouble()), Balatro.White, 30.sp)   // ticks up after a hand banks
-        }
-    }
-    Spacer(Modifier.height(6.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Pill("${s.handsLeft}", "Hands", Balatro.Chips)
-        Pill("${s.discardsLeft}", "Discards", Balatro.Mult)
-        Pill("\$${s.money}", "Money", Balatro.Money)
-    }
-
-    // the chips X mult readout — live count-up while scoring, last result otherwise
-    Spacer(Modifier.height(12.dp))
-    if (s.scoring) {
-        ScoreReadout(handName(s.lastResult?.handType ?: HandType.NONE), fmtR(s.displayChips), fmtR(s.displayMult), Modifier.fillMaxWidth())
-        // the played cards, popping one by one as the cascade resolves
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().height(86.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom) {
-            s.scoreCards.forEachIndexed { i, card ->
-                val active = i == s.popIndex
-                val popped = i <= s.popIndex
-                val scale by animateFloatAsState(if (active) 1.3f else if (popped) 1.04f else 0.9f,
-                    spring(Spring.DampingRatioMediumBouncy, 520f), label = "pop$i")
-                val lift by animateFloatAsState(if (active) -22f else 0f, spring(Spring.DampingRatioMediumBouncy, 520f), label = "poplift$i")
-                Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { scaleX = scale; scaleY = scale; translationY = lift }) {
-                    cells[card]?.let { Image(it, card.label, Modifier.size(46.dp, 62.dp).clip(RoundedCornerShape(5.dp))) }
-                        ?: Box(Modifier.size(46.dp, 62.dp).clip(RoundedCornerShape(5.dp)).background(Balatro.FeltDark))
-                }
+    Column(Modifier.fillMaxSize()) {
+        // jokers across the top
+        Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
+            s.owned.forEach { o ->
+                jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.padding(end = 4.dp).size(52.dp, 70.dp)) }
+                    ?: Box(Modifier.padding(end = 4.dp).size(52.dp, 70.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
             }
         }
-    } else s.lastResult?.let { r ->
-        ScoreReadout(handName(r.handType), fmtR(r.chips), fmtR(r.mult), Modifier.fillMaxWidth())
-    }
 
-    // the hand — alive (wobble + spring select). Frozen during the scoring sequence.
-    Spacer(Modifier.height(12.dp))
-    LazyRow(
-        Modifier.fillMaxWidth().height(126.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        itemsIndexed(s.hand) { i, card ->
-            JuicyCard(cells[card], card.label, i in s.selected, i, 62.dp, onClick = { if (!s.scoring) s.toggle(i) }) {
-                if (card.enhancement != Enhancement.NONE) {
-                    BTxt(card.enhancement.badge, Balatro.White, 9.sp,
-                        Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                }
-                if (card.seal != Seal.NONE) {
-                    BTxt(card.seal.badge, Balatro.Ink, 9.sp,
-                        Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
-                }
+        // centre: hand name + chips X mult, and the played cards popping while scoring
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (s.scoring) {
+                    ScoreReadout(handName(s.lastResult?.handType ?: HandType.NONE), fmtR(s.displayChips), fmtR(s.displayMult))
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        s.scoreCards.forEachIndexed { i, card ->
+                            val active = i == s.popIndex
+                            val popped = i <= s.popIndex
+                            val sc by animateFloatAsState(if (active) 1.3f else if (popped) 1.05f else 0.9f,
+                                spring(Spring.DampingRatioMediumBouncy, 520f), label = "pop$i")
+                            val lf by animateFloatAsState(if (active) -20f else 0f, spring(Spring.DampingRatioMediumBouncy, 520f), label = "pl$i")
+                            Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { scaleX = sc; scaleY = sc; translationY = lf }) {
+                                cells[card]?.let { Image(it, card.label, Modifier.size(44.dp, 60.dp).clip(RoundedCornerShape(5.dp))) }
+                            }
+                        }
+                    }
+                } else s.lastResult?.let { r ->
+                    ScoreReadout(handName(r.handType), fmtR(r.chips), fmtR(r.mult))
+                } ?: BTxt("select up to 5 cards, then Play", Balatro.White, 13.sp)
             }
         }
-    }
-    Spacer(Modifier.height(12.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        BButton("Play Hand", Balatro.Chips, enabled = !s.scoring && s.selected.isNotEmpty() && cells.isNotEmpty(), modifier = Modifier.weight(1f)) { s.play() }
-        BButton("Discard", Balatro.Mult, enabled = !s.scoring && s.selected.isNotEmpty() && s.discardsLeft > 0, modifier = Modifier.weight(1f)) { s.discard() }
+
+        // bottom: fanned hand + deck pile + play/discard
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Box(Modifier.weight(1f).height(120.dp), contentAlignment = Alignment.BottomCenter) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    val center = (s.hand.size - 1) / 2f
+                    s.hand.forEachIndexed { i, card ->
+                        val d = i - center
+                        JuicyCard(cells[card], card.label, i in s.selected, i, 58.dp,
+                            onClick = { if (!s.scoring) s.toggle(i) },
+                            baseTilt = d * 3.5f, baseLift = d * d * 2.2f) {
+                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
+                                Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
+                                Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                BButton("Play Hand", Balatro.Chips, enabled = !s.scoring && s.selected.isNotEmpty() && cells.isNotEmpty()) { s.play() }
+                BButton("Discard", Balatro.Mult, enabled = !s.scoring && s.selected.isNotEmpty() && s.discardsLeft > 0) { s.discard() }
+                BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally))
+            }
+        }
     }
 }
 
