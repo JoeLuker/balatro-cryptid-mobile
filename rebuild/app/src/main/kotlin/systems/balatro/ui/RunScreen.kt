@@ -163,8 +163,11 @@ private class RunState {
     val handNameText: String get() = if (scoring || lastResult != null)
         handName(lastResult?.handType ?: HandType.NONE) else ""
 
-    /** Mirrors current_hand.chip_total_text — the chip_total_text DynaText (blank when idle). */
-    val chipTotalText: String get() = if (scoring || lastResult != null) fmtR(displayChips) else ""
+    /** Mirrors current_hand.chip_text — live cascade counter for the chips box (blank when idle). */
+    val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else ""
+
+    /** Mirrors current_hand.chip_total_text — cumulative round score shown in the top-row readout. */
+    val chipTotalText: String get() = if (scoring || lastResult != null) fmtR(roundScore) else ""
 
     /** Mirrors current_hand.mult_text — the mult DynaText (blank when idle). */
     val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else ""
@@ -567,10 +570,10 @@ private fun hudHand(s: RunState): UI {
             ),
             // bottom row: [chips box] × [mult box]
             R(Cfg(align = "cm", minh = 1f, padding = 0.1f),
-                // chips box — C(cr) so chip text is right-aligned inside the box
+                // chips box — C(cr), chip_text = live cascade counter (chipText2)
                 C(Cfg(align = "cr", minw = 2f, minh = 1f, r = 0.1f, colour = Balatro.Chips, emboss = 0.05f),
                     O(Cfg(),
-                        DynaT(seg({ s.chipTotalText }, light, scale = scale * 2.3f), shadow = true)),
+                        DynaT(seg({ s.chipText2 }, light, scale = scale * 2.3f), shadow = true)),
                     B(Cfg(minw = 0.1f, minh = 0.1f))),
                 // × separator
                 C(Cfg(align = "cm"),
