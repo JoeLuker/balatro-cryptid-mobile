@@ -54,6 +54,7 @@ private data class PlanetOffer(val planet: Planet, val cost: Int)
 private data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
 private val CATALOG = listOf(
+    // --- vanilla ---
     Offer("j_joker", "Joker", "+4 Mult", 2),
     Offer("j_greedy_joker", "Greedy Joker", "+3 Mult / Diamond", 5),
     Offer("j_lusty_joker", "Lusty Joker", "+3 Mult / Heart", 5),
@@ -62,11 +63,17 @@ private val CATALOG = listOf(
     Offer("j_even_steven", "Even Steven", "+4 Mult / even card", 4),
     Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
     Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
+    // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
     Offer("j_cry_lightupthenight", "Light Up the Night", "x1.5 Mult / 2 or 7", 7),
+    Offer("j_cry_weegaming", "Wee Gaming", "+2 retriggers / 2", 6),
     Offer("j_cry_krustytheclown", "Krusty the Clown", "x_mult +0.02 / card", 7),
-    Offer("j_cry_brokenhome", "Broken Home", "x11.4 Mult", 8),
+    Offer("j_cry_brokenhome", "Broken Home", "x11.4 Mult (1 round)", 8),
+    Offer("j_cry_waluigi", "Waluigi", "x2.5 Mult / other joker", 8),
+    Offer("j_cry_oldblueprint", "Old Blueprint", "copy joker to right", 7),
+    Offer("j_cry_maximized", "Maximized", "face cards unify rank", 6),
+    Offer("j_cry_primus", "Primus", "Emult if all-prime hand", 9),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
