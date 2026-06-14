@@ -90,10 +90,16 @@ class Effects {
  * no overrides, no event queue of closures referencing torn-down state (the rewind
  * crash class is structurally gone), just ordered context dispatch over pooled state.
  */
+/** A scored hand's breakdown, so UI can show the chips x mult = score cascade, not just the total. */
+data class ScoreResult(val handType: HandType, val chips: Double, val mult: Double, val score: Double)
+
 class ScoreRun(private val effects: Effects) {
     private val ctx = Context()
 
-    fun scoreHand(world: World, played: List<PlayingCard>): BigValue {
+    /** The final score only (what the oracle asserts). Delegates to the detailed cascade. */
+    fun scoreHand(world: World, played: List<PlayingCard>): BigValue = BigValue.of(scoreDetailed(world, played).score)
+
+    fun scoreDetailed(world: World, played: List<PlayingCard>): ScoreResult {
         // Compose any active rank remaps (maximized &c.) into the effective rank hand
         // detection sees. Empty store => identity, so the no-remap path is unchanged.
         val remaps = ArrayList<(Int) -> Int>()
@@ -120,6 +126,7 @@ class ScoreRun(private val effects: Effects) {
         // subscribers once, in board order (no self-exclusion — a joker is offered itself too).
         for (other in Board.order(world)) { ctx.otherJoker = other; effects.dispatch(world, ctx, Ctx.OTHER_JOKER) }
         effects.dispatch(world, ctx, Ctx.AFTER)
-        return BigValue.of(kotlin.math.floor(ctx.tally.score().v))      // Balatro floors the final
+        return ScoreResult(handType, ctx.tally.chips.v, ctx.tally.mult.v,
+            kotlin.math.floor(ctx.tally.score().v))                     // Balatro floors the final
     }
 }

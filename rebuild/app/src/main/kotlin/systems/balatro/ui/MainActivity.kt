@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     value = withContext(Dispatchers.Default) { buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
+                var showLab by remember { mutableStateOf(false) }
 
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(20.dp)) {
@@ -106,6 +107,11 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth(), enabled = cells.isNotEmpty()) {
                             Text(if (cells.isEmpty()) "Loading art…" else "Manage $n Jokers  (native grid)")
                         }
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = { showLab = true; Telemetry.event("UI", "open" to "scoring_lab") },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text("Open Scoring Lab  (play a hand)")
+                        }
                         Spacer(Modifier.weight(1f))
                         Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
                             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -126,6 +132,10 @@ class MainActivity : ComponentActivity() {
                             }
                             Spacer(Modifier.height(24.dp))
                         }
+                    }
+
+                    if (showLab) {
+                        Surface(Modifier.fillMaxSize()) { ScoringLab(onClose = { showLab = false }) }
                     }
                 }
             }
