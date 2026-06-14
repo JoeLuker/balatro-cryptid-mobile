@@ -170,8 +170,7 @@ private class RunState {
     fun descForSlot(slotIdx: Int): String = if (slotIdx == 2) boss?.desc ?: "" else ""
 
     /** Mirrors G.GAME.blind.chip_text — the chip target as a formatted string for the HUD_blind T node.
-     *  scale=0.001 in the source means it starts invisible; blind_chip_UI_scale animates it in (deferred).
-     *  We render at scale=0.001 faithfully; the string itself must still be correct. */
+     *  scale=0.001 in source; blind_chip_UI_scale springs to 0.5 on round start (implemented in HudColumn). */
     val chipText: String get() = fmtR(target)
 
     /** Mirrors G.GAME.current_round.dollars_to_be_earned — reward payout shown on the blind panel.
@@ -586,9 +585,9 @@ private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)?
  * Both are nullable; when null the O node is replaced by a B spacer of the same footprint so the
  * layout is identical to what the real engine produces (sizes are locked in the tree, not the art).
  *
- * Deferred: func='HUD_blind_visible' (always shown), func='blind_chip_UI_scale' (chip T stays at
- * scale=0.001 — essentially invisible until animated in), func='HUD_blind_reward' (always shown),
+ * Deferred: func='HUD_blind_visible' (always shown), func='HUD_blind_reward' (always shown),
  * debuff func callbacks (empty strings). Animate flags (rotate, float, y_offset) on DynaText Os.
+ * blind_chip_UI_scale: implemented — chipTargetScale springs in via HudColumn animateFloatAsState.
  */
 private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?, chipTargetScale: Float = 0.001f): UI {
     val panel = Balatro.Panel   // G.C.BLACK = G.C.DYN_UI.MAIN = G.C.DYN_UI.DARK = #374244
@@ -637,7 +636,7 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
                     R(Cfg(align = "cm", maxw = 2.8f),
                         T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")
                     ),
-                    // stake sprite + 0.1u spacer + chip target (scale=0.001: blind_chip_UI_scale deferred)
+                    // stake sprite + 0.1u spacer + chip target (chipTargetScale springs in on ROUND start)
                     R(Cfg(align = "cm", minh = 0.6f),
                         stakeO,
                         B(Cfg(minw = 0.1f, minh = 0.1f)),
