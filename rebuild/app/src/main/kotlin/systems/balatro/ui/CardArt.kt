@@ -33,6 +33,18 @@ object CardArt {
         }
         return out
     }
+
+    /**
+     * The plain white card stock (Balatro's c_base center, Enhancers.png cell {x=1,y=0}). 8BitDeck
+     * is a TRANSPARENT rank/suit overlay — without a base under it cards render as floating pips on
+     * the felt. Every card draws this base first, then its 8BitDeck overlay on top. Cached once.
+     */
+    fun base(ctx: Context): ImageBitmap? {
+        val atlas = try {
+            ctx.assets.open("textures/Enhancers.png").use { BitmapFactory.decodeStream(it) }
+        } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString()); return null }
+        return Bitmap.createBitmap(atlas, 1 * 142, 0 * 190, 142, 190).asImageBitmap()
+    }
 }
 
 /** "FOUR_OF_A_KIND" -> "Four Of A Kind". */

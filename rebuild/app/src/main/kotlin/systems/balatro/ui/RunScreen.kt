@@ -22,8 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -370,6 +372,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
     val cells by produceState<Map<PlayingCard, ImageBitmap>>(emptyMap()) {
         value = withContext(Dispatchers.Default) { CardArt.cache(ctx, allCards) }
     }
+    // The white card-stock base (c_base) drawn under every 8BitDeck rank/suit overlay.
+    val cardBase by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { CardArt.base(ctx) }
+    }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
         value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
@@ -384,7 +390,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
                 when (s.phase) {
-                    Phase.ROUND -> RoundPlay(s, cells, jokerCells)
+                    Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase)
                     Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                     Phase.SHOP -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ShopPhase(s, jokerCells) }
                     Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
@@ -808,8 +814,30 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
 
 /** The play area: jokers across the top, the hand-name + chips X mult readout in the centre,
  *  the fanned hand + deck along the bottom. Landscape, like the real game. */
+/**
+ * One playing card: the white c_base card stock with the 8BitDeck rank/suit overlay on top. Both
+ * are nearest-neighbour (FilterQuality.None) like LÖVE — pixel art is never blurred — and FillBounds
+ * so base and overlay co-register exactly in the card's slot. 8BitDeck is a TRANSPARENT overlay, so
+ * without the base a card is just floating pips on the felt (the bug this fixes). `badges` overlays
+ * enhancement/seal markers.
+ */
 @Composable
-private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>) {
+private fun CardFace(
+    card: PlayingCard,
+    face: ImageBitmap?,
+    base: ImageBitmap?,
+    modifier: Modifier = Modifier,
+    badges: @Composable BoxScope.() -> Unit = {},
+) {
+    Box(modifier) {
+        base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+        face?.let { Image(it, card.label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+        badges()
+    }
+}
+
+@Composable
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null) {
     LaunchedEffect(s.scoring) {
         if (s.scoring) {
             for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
@@ -846,7 +874,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                                 spring(Spring.DampingRatioMediumBouncy, 520f), label = "pop$i")
                             val lf by animateFloatAsState(if (active) -20f else 0f, spring(Spring.DampingRatioMediumBouncy, 520f), label = "pl$i")
                             Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { scaleX = sc; scaleY = sc; translationY = lf }) {
-                                cells[card]?.let { Image(it, card.label, Modifier.size(44.dp, 60.dp).clip(RoundedCornerShape(5.dp))) }
+                                CardFace(card, cells[card], cardBase, Modifier.size(44.dp, 60.dp))
                             }
                         }
                     }
@@ -860,8 +888,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Box(Modifier.weight(1f)) {
                     SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 56.dp, onToggle = { s.toggle(it) }) { card ->
-                        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Balatro.FeltDark)) {
-                            cells[card]?.let { Image(it, card.label, Modifier.fillMaxSize()) }
+                        CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
                             if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
                                 Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
                             if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
