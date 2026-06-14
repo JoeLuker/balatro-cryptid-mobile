@@ -406,6 +406,18 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
         0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
     }
 
+    // Chip target scale animation — mirrors blind_chip_UI_scale in Balatro.
+    // Springs from 0.001 → 0.5 when entering ROUND, resets to 0.001 on blind change.
+    val chipTargetVisible = s.phase == Phase.ROUND
+    val chipTargetScale by animateFloatAsState(
+        targetValue = if (chipTargetVisible) 0.5f else 0.001f,
+        animationSpec = if (chipTargetVisible)
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 400f)
+        else
+            tween(durationMillis = 0),   // instant reset on blind change
+        label = "chipTargetScale"
+    )
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BButton("✕", Balatro.Mult) { onClose() }
@@ -414,7 +426,8 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
         }
         // Blind token + target: Balatro's create_UIBox_HUD_blind tree through the UIBox interpreter.
         // blindBmp = frame-0 cell from BlindChips.png for the current blind; null while loading.
-        RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp))
+        // chipTargetScale springs in when the round starts (blind_chip_UI_scale animation).
+        RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale))
         // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
         RenderUI(hudDollarsChips(s, stakeBmp))
         // Row-round: Balatro's R(id='row_round') containing C{buttons} + C{round} (source line 1408-1411).
@@ -577,7 +590,7 @@ private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)?
  * scale=0.001 — essentially invisible until animated in), func='HUD_blind_reward' (always shown),
  * debuff func callbacks (empty strings). Animate flags (rotate, float, y_offset) on DynaText Os.
  */
-private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?): UI {
+private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?, chipTargetScale: Float = 0.001f): UI {
     val panel = Balatro.Panel   // G.C.BLACK = G.C.DYN_UI.MAIN = G.C.DYN_UI.DARK = #374244
     val light = Balatro.White   // G.C.UI.TEXT_LIGHT
 
@@ -628,8 +641,9 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
                     R(Cfg(align = "cm", minh = 0.6f),
                         stakeO,
                         B(Cfg(minw = 0.1f, minh = 0.1f)),
-                        // chip_text T: scale=0.001 intentional — pop-in animation deferred; shadow=true
-                        T(Cfg(scale = 0.001f, textColour = Balatro.Mult, shadow = true), s.chipText)
+                        // chip_text T: springs from 0.001 → 0.5 when round starts (blind_chip_UI_scale).
+                        // chipTargetScale driven by animateFloatAsState in HudColumn.
+                        T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)
                     ),
                     // reward row — func=HUD_blind_reward (always show until wired)
                     // "Reward: " has NO shadow per source; DynaText has shadow=true
