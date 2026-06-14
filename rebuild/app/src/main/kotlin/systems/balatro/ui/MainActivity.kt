@@ -68,6 +68,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Telemetry.event("ACTIVITY", "stage" to "onCreate")
+        // On-device oracle self-check: run the parity harness on the phone's ART/ARM runtime.
+        // pass<total here (but =total on the JVM) would flag a device-specific scoring divergence.
+        val (oraclePass, oracleTotal) = Oracle.run()
+        Telemetry.event("ORACLE", "pass" to oraclePass, "total" to oracleTotal)
         val n = 120
         val (score, jokes) = board(n)
         setContent {
@@ -90,7 +94,10 @@ class MainActivity : ComponentActivity() {
                                 Column {
                                     Text("$n jokers scored on-device · art reused", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     Text("score = $score", fontFamily = FontFamily.Monospace, fontSize = 20.sp)
-                                    Text("engine handled $n jokers deterministically", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                                    Text("oracle parity: $oraclePass/$oracleTotal on-device",
+                                        fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                                        color = if (oraclePass == oracleTotal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                                    Text("10 Cryptid archetypes ported · scores like the original", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
                                 }
                             }
                         }
