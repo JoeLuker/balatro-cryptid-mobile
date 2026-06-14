@@ -22,15 +22,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.content.Jokers
 import systems.balatro.engine.Engine
 import systems.balatro.game.*
 
 /**
- * Native chrome over the composition engine. A 120-joker board is scored by the engine
- * and managed in a native ModalBottomSheet + virtualized LazyVerticalGrid with the real
- * reused art — the huge-stack UI LÖVE could not do, at native scroll speed.
+ * Native chrome over the composition engine: a 120-joker board scored on-device and
+ * managed in a native ModalBottomSheet + virtualized LazyVerticalGrid with the real
+ * reused art. Atlas cells are decoded+cropped ONCE off the main thread into a cache,
+ * so opening the grid stays at ~120fps (no synchronous per-cell cropping hitch).
  */
 class MainActivity : ComponentActivity() {
 
@@ -43,10 +46,22 @@ class MainActivity : ComponentActivity() {
         effects.register(base, setOf(Ctx.BEFORE)) { _, c -> c.tally.chips = BigValue.of(10) }
         val score = ScoreRun(effects).scoreHand(engine.world, emptyList())
         Telemetry.event("BOARD", "n" to n, "score" to score.v)
-        // varied real sprites across the 10x16 atlas so the grid shows distinct cards
         val names = listOf("Joker", "Green Joker", "Scaler")
         val jokes = (0 until n).map { Joke(names[it % 3], it % 10, (it / 10) % 16) }
         return score.v to jokes
+    }
+
+    /** Decode the reused atlas and crop every distinct cell ONCE, off the main thread. */
+    private fun buildCellCache(ctx: Context, jokes: List<Joke>): Map<Pair<Int, Int>, ImageBitmap> {
+        val atlas = try {
+            ctx.assets.open("textures/Jokers.png").use { BitmapFactory.decodeStream(it) }
+        } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString()); return emptyMap() }
+        val out = HashMap<Pair<Int, Int>, ImageBitmap>()
+        for (key in (jokes.map { it.col to it.row } + (0 to 0)).toSet()) {
+            out[key] = Bitmap.createBitmap(atlas, key.first * 142, key.second * 190, 142, 190).asImageBitmap()
+        }
+        Telemetry.event("CELLCACHE", "cells" to out.size)
+        return out
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -58,7 +73,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val ctx = LocalContext.current
-                val atlas = remember { loadAtlas(ctx) }
+                // cropping happens on Dispatchers.Default -> the UI thread never blocks
+                val cells by produceState(initialValue = emptyMap<Pair<Int, Int>, ImageBitmap>(), jokes) {
+                    value = withContext(Dispatchers.Default) { buildCellCache(ctx, jokes) }
+                }
                 var showManager by remember { mutableStateOf(false) }
 
                 Surface(Modifier.fillMaxSize()) {
@@ -68,7 +86,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(16.dp))
                         ElevatedCard(Modifier.fillMaxWidth()) {
                             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                atlas?.let { Image(cell(it, 0, 0), "Joker", Modifier.size(56.dp, 75.dp)); Spacer(Modifier.width(14.dp)) }
+                                cells[0 to 0]?.let { Image(it, "Joker", Modifier.size(56.dp, 75.dp)); Spacer(Modifier.width(14.dp)) }
                                 Column {
                                     Text("$n jokers scored on-device · art reused", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     Text("score = $score", fontFamily = FontFamily.Monospace, fontSize = 20.sp)
@@ -78,8 +96,8 @@ class MainActivity : ComponentActivity() {
                         }
                         Spacer(Modifier.height(20.dp))
                         Button(onClick = { showManager = true; Telemetry.event("UI", "open" to "manager", "n" to n) },
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text("Manage $n Jokers  (native grid)")
+                            modifier = Modifier.fillMaxWidth(), enabled = cells.isNotEmpty()) {
+                            Text(if (cells.isEmpty()) "Loading art…" else "Manage $n Jokers  (native grid)")
                         }
                         Spacer(Modifier.weight(1f))
                         Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
@@ -97,9 +115,7 @@ class MainActivity : ComponentActivity() {
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                items(jokes) { j ->
-                                    atlas?.let { Image(cell(it, j.col, j.row), j.name, Modifier.size(60.dp, 80.dp)) }
-                                }
+                                items(jokes) { j -> cells[j.col to j.row]?.let { Image(it, j.name, Modifier.size(60.dp, 80.dp)) } }
                             }
                             Spacer(Modifier.height(24.dp))
                         }
@@ -108,11 +124,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun loadAtlas(ctx: Context): Bitmap? = try {
-        ctx.assets.open("textures/Jokers.png").use { BitmapFactory.decodeStream(it) }
-    } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString()); null }
-
-    private fun cell(atlas: Bitmap, col: Int, row: Int): ImageBitmap =
-        Bitmap.createBitmap(atlas, col * 142, row * 190, 142, 190).asImageBitmap()
 }
