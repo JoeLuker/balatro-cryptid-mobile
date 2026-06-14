@@ -146,6 +146,15 @@ private class RunState {
         return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
     }
 
+    /** Mirrors G.GAME.blind.chip_text — the chip target as a formatted string for the HUD_blind T node.
+     *  scale=0.001 in the source means it starts invisible; blind_chip_UI_scale animates it in (deferred).
+     *  We render at scale=0.001 faithfully; the string itself must still be correct. */
+    val chipText: String get() = fmtR(target)
+
+    /** Mirrors G.GAME.current_round.dollars_to_be_earned — reward payout shown on the blind panel.
+     *  Balatro formula: 4 + hands_left (+ gold cards, deferred). Matches scoreCommit's reward calc. */
+    val dollarsToBeEarned: Int get() = 4 + handsLeft
+
     init {
         Telemetry.event("RUN_START")
         buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)   // start with a Joker
