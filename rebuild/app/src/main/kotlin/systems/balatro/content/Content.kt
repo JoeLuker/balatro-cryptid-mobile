@@ -44,7 +44,7 @@ object Content {
         // The accumulator is DATA on the joker entity (a component), not a field on a subclass — the
         // composition-faithful home for per-instance perpetual state.
         "j_cry_krustytheclown" to { w: World, e: Effects ->
-            val j = w.create()
+            val j = newJoker(w)
             w.add(j, Scaling(1.0))
             e.register(j, setOf(Ctx.INDIVIDUAL_SCORED)) { world, c -> world.get<Scaling>(c.self)!!.x += 0.02 }
             e.register(j, setOf(Ctx.JOKER_MAIN)) { world, c ->
@@ -53,13 +53,33 @@ object Content {
             }
             j
         },
+        // cross-joker: x2.5 Mult once per joker on the board (incl. itself — no self-exclusion).
+        // Fires in the OTHER_JOKER pass that runs after joker_main, so flat +Mult jokers land first.
+        "j_cry_waluigi" to reg(setOf(Ctx.OTHER_JOKER)) { c ->
+            c.tally.mult = c.tally.mult * BigValue.of(2.5)
+        },
+        // blueprint: re-apply the joker immediately to the right, for whatever context is
+        // firing — the copy reads the COPIED joker's own state (self = the target). Needs the
+        // Effects instance to invoke one joker's handler, so it captures `e` from the factory.
+        "j_cry_oldblueprint" to { w: World, e: Effects ->
+            val j = newJoker(w)
+            val copyCtxs = setOf(Ctx.BEFORE, Ctx.INDIVIDUAL_SCORED, Ctx.JOKER_MAIN, Ctx.RETRIGGER, Ctx.AFTER)
+            e.register(j, copyCtxs) { world, c ->
+                val target = Board.next(world, c.self) ?: return@register
+                e.dispatchJoker(world, c, c.phase, target)
+            }
+            j
+        },
     )
 
     /** Mutable per-joker scaling accumulator, stored as a component on the joker entity. */
     private class Scaling(var x: Double) : Component
 
+    /** Every joker enters the board (ordered slot store) on creation. */
+    private fun newJoker(w: World): Entity = w.create().also { Board.add(w, it) }
+
     private fun reg(contexts: Set<Ctx>, effect: (Context) -> Unit): (World, Effects) -> Entity =
-        { w, e -> val j = w.create(); e.register(j, contexts) { _, c -> effect(c) }; j }
+        { w, e -> val j = newJoker(w); e.register(j, contexts) { _, c -> effect(c) }; j }
 
     /** Instantiate a loadout by keys, in board order. */
     fun loadout(world: World, effects: Effects, keys: List<String>) =

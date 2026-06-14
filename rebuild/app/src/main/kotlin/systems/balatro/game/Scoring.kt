@@ -25,7 +25,7 @@ class Tally {
 }
 
 /** The contexts a joker can react to. Closed set => a subscription is just a bitmask. */
-enum class Ctx { BEFORE, INDIVIDUAL_SCORED, INDIVIDUAL_HELD, JOKER_MAIN, RETRIGGER, AFTER, END_OF_ROUND }
+enum class Ctx { BEFORE, INDIVIDUAL_SCORED, INDIVIDUAL_HELD, JOKER_MAIN, OTHER_JOKER, RETRIGGER, AFTER, END_OF_ROUND }
 
 /**
  * The single, reused dispatch context. One instance per scoring run; its fields are
@@ -38,6 +38,7 @@ class Context {
     var scoredPlaying: PlayingCard? = null  // its data (suit/rank/chips)
     var scoringCards: List<PlayingCard> = emptyList()  // the whole scoring hand (for shape-aware jokers)
     var self: Entity = 0                // the joker whose handler is running
+    var otherJoker: Entity = 0          // the board joker being offered (OTHER_JOKER pass)
     val tally = Tally()
     var retriggers: Int = 0             // an effect may request repeats of the current card
 }
@@ -68,6 +69,19 @@ class Effects {
         ctx.phase = phase
         for ((joker, effect) in list) { ctx.self = joker; effect.apply(world, ctx) }
     }
+
+    /**
+     * Run ONLY `joker`'s effect(s) for `phase`, with self set to it — the copy primitive
+     * a blueprint joker uses to re-apply the joker beside it. Self is saved/restored so the
+     * caller (whose own handler is mid-dispatch) sees no change to the reused ctx.
+     */
+    fun dispatchJoker(world: World, ctx: Context, phase: Ctx, joker: Entity) {
+        val list = byCtx[phase] ?: return
+        val saved = ctx.self
+        ctx.phase = phase
+        for ((j, effect) in list) if (j == joker) { ctx.self = joker; effect.apply(world, ctx) }
+        ctx.self = saved
+    }
 }
 
 /**
@@ -95,6 +109,9 @@ class ScoreRun(private val effects: Effects) {
             }
         }
         effects.dispatch(world, ctx, Ctx.JOKER_MAIN)
+        // The for-each-other-joker pass: every board joker is offered to the OTHER_JOKER
+        // subscribers once, in board order (no self-exclusion — a joker is offered itself too).
+        for (other in Board.order(world)) { ctx.otherJoker = other; effects.dispatch(world, ctx, Ctx.OTHER_JOKER) }
         effects.dispatch(world, ctx, Ctx.AFTER)
         return BigValue.of(kotlin.math.floor(ctx.tally.score().v))      // Balatro floors the final
     }

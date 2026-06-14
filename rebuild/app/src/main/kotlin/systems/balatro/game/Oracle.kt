@@ -35,6 +35,8 @@ object Oracle {
         Case("TwoPair 2s/As + j_cry_weegaming (retrigger 2s)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 108.0, jk("j_cry_weegaming")),
         Case("FourOfAKind aces + j_cry_krustytheclown (scaling)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "S_K"), 786.0, jk("j_cry_krustytheclown")),
         Case("Pair + j_cry_brokenhome (x11.4 Mult)", PlayingCard.hand("S_A", "H_A"), 729.0, jk("j_cry_brokenhome")),
+        Case("Pair + j_joker,j_cry_waluigi (cross-joker x2.5^2)", PlayingCard.hand("S_A", "H_A"), 1200.0, jk("j_joker", "j_cry_waluigi")),
+        Case("Pair + j_cry_oldblueprint,j_joker (blueprint copy)", PlayingCard.hand("S_A", "H_A"), 320.0, jk("j_cry_oldblueprint", "j_joker")),
     )
 
     fun run(): Pair<Int, Int> {
