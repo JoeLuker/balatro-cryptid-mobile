@@ -70,6 +70,13 @@ object Oracle {
         // stone card: no rank/suit (the pair is still just the two aces), but ALWAYS scores +50 ->
         // Pair base 10 + 11 + 11 + 50 = 82, mult 2 -> 164.
         Case("Pair of aces + a stone card", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A"), PlayingCard.parse("D_5").copy(enhancement = Enhancement.STONE)), 164.0),
+        // vanilla per-scored-card jokers (documented flat values, no 'contains' edge cases)
+        Case("Heart flush + Lusty (+3 Mult/Heart)", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "H_9"), 1615.0, jk("j_lusty_joker")),
+        Case("Spade flush + Wrathful (+3 Mult/Spade)", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_9"), 1615.0, jk("j_wrathful_joker")),
+        Case("Club flush + Gluttonous (+3 Mult/Club)", PlayingCard.hand("C_A", "C_K", "C_Q", "C_J", "C_9"), 1615.0, jk("j_gluttenous_joker")),
+        Case("Pair of 2s + Even Steven (+4 Mult/even)", PlayingCard.hand("S_2", "H_2"), 140.0, jk("j_even_steven")),       // (10+2+2)*(2+4+4)=14*10
+        Case("Pair of 3s + Odd Todd (+31 Chips/odd)", PlayingCard.hand("S_3", "H_3"), 156.0, jk("j_odd_todd")),           // (10+3+3+31+31)*2=78*2
+        Case("Pair of aces + Scholar (Ace +20c +4m)", PlayingCard.hand("S_A", "H_A"), 720.0, jk("j_scholar")),           // (10+11+11+20+20)*(2+4+4)=72*10
     )
 
     fun run(): Pair<Int, Int> {

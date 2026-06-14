@@ -48,6 +48,12 @@ private data class TarotOffer(val name: String, val enhancement: Enhancement = E
 private val CATALOG = listOf(
     Offer("j_joker", "Joker", "+4 Mult", 2),
     Offer("j_greedy_joker", "Greedy Joker", "+3 Mult / Diamond", 5),
+    Offer("j_lusty_joker", "Lusty Joker", "+3 Mult / Heart", 5),
+    Offer("j_wrathful_joker", "Wrathful Joker", "+3 Mult / Spade", 5),
+    Offer("j_gluttenous_joker", "Gluttonous Joker", "+3 Mult / Club", 5),
+    Offer("j_even_steven", "Even Steven", "+4 Mult / even card", 4),
+    Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
+    Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
     Offer("j_cry_lightupthenight", "Light Up the Night", "x1.5 Mult / 2 or 7", 7),

@@ -18,6 +18,12 @@ object JokerArt {
     private val MAP: Map<String, Triple<String, Int, Int>> = mapOf(
         "j_joker" to Triple("Jokers.png", 0, 0),
         "j_greedy_joker" to Triple("Jokers.png", 6, 1),
+        "j_lusty_joker" to Triple("Jokers.png", 7, 1),
+        "j_wrathful_joker" to Triple("Jokers.png", 8, 1),
+        "j_gluttenous_joker" to Triple("Jokers.png", 9, 1),
+        "j_even_steven" to Triple("Jokers.png", 8, 3),
+        "j_odd_todd" to Triple("Jokers.png", 9, 3),
+        "j_scholar" to Triple("Jokers.png", 0, 4),
         "j_cry_cube" to Triple("atlasone.png", 5, 4),
         "j_cry_triplet_rhythm" to Triple("atlastwo.png", 0, 4),
         "j_cry_lightupthenight" to Triple("atlasone.png", 1, 1),

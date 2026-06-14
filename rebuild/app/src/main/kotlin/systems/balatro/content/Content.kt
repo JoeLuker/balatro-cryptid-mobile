@@ -23,6 +23,24 @@ object Content {
         "j_greedy_joker" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                      // +3 Mult per scored Diamond
             if (c.scoredPlaying?.suit == Suit.D) c.tally.mult = c.tally.mult + BigValue.of(3)
         },
+        "j_lusty_joker" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                       // +3 Mult per scored Heart
+            if (c.scoredPlaying?.suit == Suit.H) c.tally.mult = c.tally.mult + BigValue.of(3)
+        },
+        "j_wrathful_joker" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                    // +3 Mult per scored Spade
+            if (c.scoredPlaying?.suit == Suit.S) c.tally.mult = c.tally.mult + BigValue.of(3)
+        },
+        "j_gluttenous_joker" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                  // +3 Mult per scored Club (base-game spelling)
+            if (c.scoredPlaying?.suit == Suit.C) c.tally.mult = c.tally.mult + BigValue.of(3)
+        },
+        "j_even_steven" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                       // +4 Mult per scored even rank (2,4,6,8,10)
+            if (c.scoredPlaying?.rank in setOf(2, 4, 6, 8, 10)) c.tally.mult = c.tally.mult + BigValue.of(4)
+        },
+        "j_odd_todd" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                          // +31 Chips per scored odd rank (A,3,5,7,9)
+            val r = c.scoredPlaying?.rank; if (r == 14 || r in setOf(3, 5, 7, 9)) c.tally.chips = c.tally.chips + BigValue.of(31)
+        },
+        "j_scholar" to reg(setOf(Ctx.INDIVIDUAL_SCORED)) { c ->                           // +20 Chips & +4 Mult per scored Ace
+            if (c.scoredPlaying?.rank == 14) { c.tally.chips = c.tally.chips + BigValue.of(20); c.tally.mult = c.tally.mult + BigValue.of(4) }
+        },
         // --- Cryptid (misc_joker.lua) ---
         "j_cry_cube" to reg(setOf(Ctx.JOKER_MAIN)) { c ->                                 // +6 Chips
             c.tally.chips = c.tally.chips + BigValue.of(6)
