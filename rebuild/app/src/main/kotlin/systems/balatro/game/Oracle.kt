@@ -1,5 +1,6 @@
 package systems.balatro.game
 
+import systems.balatro.content.Content
 import systems.balatro.engine.World
 
 /**
@@ -7,16 +8,29 @@ import systems.balatro.engine.World
  * Runs scenarios through the Kotlin engine and asserts the score equals the value the
  * original LÖVE build recorded (test/score-oracle-baselines.txt). Runnable standalone:
  *   kotlinc <game+engine> -include-runtime -d o.jar && kotlin -cp o.jar systems.balatro.game.Oracle
- * As real jokers are ported, add ORACLE_JOKERS cases here against their recorded goldens.
+ * As real jokers are ported, add cases here against their recorded goldens.
  */
 object Oracle {
     private data class Case(val name: String, val hand: List<PlayingCard>, val expected: Double, val jokers: (World, Effects) -> Unit = { _, _ -> })
+
+    /** Instantiate ported jokers by original key, in board order — the exact loadout a baseline recorded. */
+    private fun jk(vararg keys: String): (World, Effects) -> Unit =
+        { w, e -> keys.forEach { Content.byKey.getValue(it)(w, e) } }
 
     private val cases = listOf(
         // --- no-joker baselines (verifiable by hand, from the oracle file header) ---
         Case("FourOfAKind aces + K kicker", PlayingCard.hand("H_A", "S_A", "D_A", "C_A", "H_K"), 728.0),
         Case("StraightFlush A-K-Q-J-T spades", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 1208.0),
         Case("FourOfAKind 2s + 3 kicker", PlayingCard.hand("H_2", "S_2", "D_2", "C_2", "H_3"), 476.0),
+        Case("HighCard A (K Q J 9 kickers)", PlayingCard.hand("S_A", "H_K", "D_Q", "C_J", "S_9"), 16.0),
+        Case("Pair of aces", PlayingCard.hand("S_A", "H_A"), 64.0),
+        // --- ported jokers, each against its recorded golden ---
+        Case("Pair + j_joker (+4 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, jk("j_joker")),
+        Case("Pair + 2x j_joker", PlayingCard.hand("S_A", "H_A"), 320.0, jk("j_joker", "j_joker")),
+        Case("Pair + 3x j_joker", PlayingCard.hand("S_A", "H_A"), 448.0, jk("j_joker", "j_joker", "j_joker")),
+        Case("Flush diamonds + j_greedy_joker", PlayingCard.hand("D_A", "D_K", "D_Q", "D_J", "D_9"), 1615.0, jk("j_greedy_joker")),
+        Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, jk("j_cry_cube")),
+        Case("ThreeOfAKind 3s + j_cry_triplet_rhythm (x3 Mult)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, jk("j_cry_triplet_rhythm")),
     )
 
     fun run(): Pair<Int, Int> {
