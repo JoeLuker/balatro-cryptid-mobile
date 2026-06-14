@@ -67,6 +67,9 @@ object Oracle {
         Case("4 hearts + plain spade = High Card", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "S_9"), 16.0),
         // red seal retriggers the card: Pair, the H_A scores twice -> (10 + 11 + 11+11) * 2 = 43 * 2 = 86.
         Case("Pair, red-seal ace retriggers", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A").copy(seal = Seal.RED)), 86.0),
+        // stone card: no rank/suit (the pair is still just the two aces), but ALWAYS scores +50 ->
+        // Pair base 10 + 11 + 11 + 50 = 82, mult 2 -> 164.
+        Case("Pair of aces + a stone card", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A"), PlayingCard.parse("D_5").copy(enhancement = Enhancement.STONE)), 164.0),
     )
 
     fun run(): Pair<Int, Int> {

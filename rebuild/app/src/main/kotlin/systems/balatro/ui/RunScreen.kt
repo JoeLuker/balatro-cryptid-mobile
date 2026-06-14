@@ -77,9 +77,10 @@ private val TAROTS = listOf(
     TarotOffer("The Hierophant", Enhancement.BONUS, 3),
     TarotOffer("The Empress", Enhancement.MULT, 3),
     TarotOffer("Justice", Enhancement.GLASS, 3),
-    TarotOffer("The Tower", Enhancement.STEEL, 4),
+    TarotOffer("The Chariot", Enhancement.STEEL, 4),      // steel (corrects the earlier mislabel)
     TarotOffer("The Devil", Enhancement.GOLD, 4),
     TarotOffer("The Star", Enhancement.WILD, 4),
+    TarotOffer("The Tower", Enhancement.STONE, 4),        // stone: +50 chips, no rank/suit
     TarotOffer("The Sun", cost = 4, seal = Seal.RED),     // red seal: retrigger
     TarotOffer("The Moon", cost = 4, seal = Seal.GOLD),   // gold seal: +$3 when played
 )

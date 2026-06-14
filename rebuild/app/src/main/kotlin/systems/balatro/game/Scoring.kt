@@ -138,12 +138,13 @@ class ScoreRun(private val effects: Effects) {
             val triggers = 1 + ctx.retriggers
             repeat(triggers) {                                         // each trigger re-scores the card whole
                 if (!debuffed) {
-                    ctx.tally.chips = ctx.tally.chips + BigValue.of(card.chips)
+                    val cardChips = if (card.enhancement == Enhancement.STONE) 50 else card.chips  // stone: flat 50, no rank
+                    ctx.tally.chips = ctx.tally.chips + BigValue.of(cardChips)
                     when (card.enhancement) {                          // the card's own enhancement, then jokers react
                         Enhancement.BONUS -> ctx.tally.chips = ctx.tally.chips + BigValue.of(30)
                         Enhancement.MULT -> ctx.tally.mult = ctx.tally.mult + BigValue.of(4)
                         Enhancement.GLASS -> ctx.tally.mult = ctx.tally.mult * BigValue.of(2)
-                        Enhancement.STEEL, Enhancement.GOLD, Enhancement.WILD, Enhancement.NONE -> {}  // act while held / on hand-eval, not on score
+                        Enhancement.STEEL, Enhancement.GOLD, Enhancement.WILD, Enhancement.STONE, Enhancement.NONE -> {}  // held / hand-eval / handled above
                     }
                     effects.dispatch(world, ctx, Ctx.INDIVIDUAL_SCORED)
                 }

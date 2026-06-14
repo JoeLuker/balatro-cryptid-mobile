@@ -40,6 +40,15 @@ object Hands {
      */
     fun evaluate(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int = { it.rank }): Pair<HandType, List<PlayingCard>> {
         if (cards.isEmpty()) return HandType.NONE to emptyList()
+        // Stone cards have no rank/suit: excluded from poker detection, but they ALWAYS score.
+        val stones = cards.filter { it.enhancement == Enhancement.STONE }
+        val normal = cards.filter { it.enhancement != Enhancement.STONE }
+        if (normal.isEmpty()) return HandType.HIGH_CARD to stones
+        val (type, scoring) = classify(normal, rankOf)
+        return type to (scoring + stones)
+    }
+
+    private fun classify(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int): Pair<HandType, List<PlayingCard>> {
         val groups = cards.groupBy { rankOf(it) }.values.sortedByDescending { it.size }
         val top = groups[0].size
         val second = groups.getOrNull(1)?.size ?: 0
