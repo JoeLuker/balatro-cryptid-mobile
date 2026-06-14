@@ -360,10 +360,14 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
         value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
+    // Stake sprite (White Chip, stake 1 — always-active). chips.png 2x: 58×58px, pos={x=0,y=0}.
+    val stakeBmp by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { StakeArt.whiteChip(ctx) }
+    }
 
     Box(Modifier.fillMaxSize().background(Balatro.Felt)) {                       // the green felt table
         Row(Modifier.fillMaxSize().padding(10.dp)) {
-            HudColumn(s, Modifier.width(180.dp).fillMaxHeight(), onClose)        // Balatro's left sidebar
+            HudColumn(s, Modifier.width(180.dp).fillMaxHeight(), onClose, stakeBmp)  // Balatro's left sidebar
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
                 when (s.phase) {
@@ -389,7 +393,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit) {
 
 /** Balatro's left sidebar: blind token + score target, round score, Hands/Discards, money, Ante/Round. */
 @Composable
-private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
+private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
     // Load blind sprite for the current ante's boss (Small row=0, Big row=1, Boss->row from atlas).
     // Re-runs when s.boss changes (next ante always changes the boss). Null while loading -> B spacer.
@@ -410,9 +414,9 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit) {
         }
         // Blind token + target: Balatro's create_UIBox_HUD_blind tree through the UIBox interpreter.
         // blindBmp = frame-0 cell from BlindChips.png for the current blind; null while loading.
-        RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = null))
+        RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp))
         // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
-        RenderUI(hudDollarsChips(s))
+        RenderUI(hudDollarsChips(s, stakeBmp))
         // Row-round: Balatro's R(id='row_round') containing C{buttons} + C{round} (source line 1408-1411).
         // hudButtons (C column) and hudRound (C column) are siblings inside a wrapping R row.
         RenderUI(R(Cfg(align = "cm"),
@@ -513,7 +517,7 @@ private fun hudRound(s: RunState): UI {
  * Stake sprite O (0.5u×0.5u): B spacer until BlindArt is wired.
  * chips_text T: scale=0.85 (not scaled by local scale var), shadow=true, id='chip_UI_count'.
  */
-private fun hudDollarsChips(s: RunState): UI {
+private fun hudDollarsChips(s: RunState, stakeBmp: ImageBitmap? = null): UI {
     val panel = Balatro.Panel      // G.C.DYN_UI.BOSS_MAIN
     val panelDark = Balatro.Panel  // G.C.DYN_UI.BOSS_DARK (same colour in globals.lua)
     val light = Balatro.White
@@ -526,8 +530,9 @@ private fun hudDollarsChips(s: RunState): UI {
                 R(Cfg(align = "cm", padding = 0f, maxw = 1.3f),
                     T(Cfg(scale = 0.42f, textColour = light, shadow = true), "score"))),
             C(Cfg(align = "cm", minw = 3.3f, minh = 0.7f, r = 0.1f, colour = panelDark),
-                // Stake sprite O: B spacer until BlindArt.cache is wired (same 0.5u×0.5u footprint)
-                B(Cfg(minw = 0.5f, minh = 0.5f)),
+                // Stake sprite O: White Chip (0.5u×0.5u) from chips.png; B spacer while loading.
+                if (stakeBmp != null) O(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
+                else B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
                 B(Cfg(minw = 0.1f, minh = 0.1f)),
                 // chips_text T: G.GAME.chips_text = fmtR(roundScore); scale=0.85 (source line 1378)
                 O(Cfg(align = "cm"),
