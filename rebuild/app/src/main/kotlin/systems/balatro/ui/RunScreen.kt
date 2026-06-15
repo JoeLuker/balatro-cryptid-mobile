@@ -888,11 +888,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
     }
     Column(Modifier.fillMaxSize()) {
-        // jokers across the top
-        Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
+        // jokers across the top — CENTERED, like Balatro's G.jokers CardArea (a flat centered row,
+        // not an arc). Cards at G.CARD_W aspect (142x190), nearest-neighbour so the art stays crisp.
+        Row(Modifier.fillMaxWidth().height(84.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             s.owned.forEach { o ->
-                jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.padding(end = 4.dp).size(52.dp, 70.dp)) }
-                    ?: Box(Modifier.padding(end = 4.dp).size(52.dp, 70.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                jokerCells[o.offer.key]?.let {
+                    Image(it, o.offer.name, Modifier.padding(horizontal = 3.dp).size(56.dp, 76.dp),
+                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                } ?: Box(Modifier.padding(horizontal = 3.dp).size(56.dp, 76.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
             }
         }
 
