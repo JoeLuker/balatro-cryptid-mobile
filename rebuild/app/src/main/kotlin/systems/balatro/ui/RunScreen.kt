@@ -49,11 +49,11 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-private enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
-private data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
-private data class Owned(val entity: Entity, val offer: Offer)
-private data class PlanetOffer(val planet: Planet, val cost: Int)
-private data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
+internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
+internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
+internal data class Owned(val entity: Entity, val offer: Offer)
+internal data class PlanetOffer(val planet: Planet, val cost: Int)
+internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
 private val CATALOG = listOf(
     // --- vanilla ---
@@ -111,7 +111,7 @@ private val TAROTS = listOf(
 private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
 
 /** Compose-observable run state; mutations drive recomposition. The engine is persistent. */
-private class RunState {
+internal class RunState {
     val world = World()
     val effects = Effects()
     private val scorer = ScoreRun(effects)
@@ -195,6 +195,8 @@ private class RunState {
         handName(lastResult?.handType ?: HandType.NONE) else ""
 
     /** Mirrors current_hand.chip_text — live cascade counter for the chips box (blank when idle). */
+    /** contents.dollars_chips round-score readout (G.GAME.chips_text); always shown ("0" at start). */
+    val chipsText: String get() = fmtR(roundScore)
     val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else ""
 
     /** Mirrors current_hand.chip_total_text — cumulative round score shown in the top-row readout. */
@@ -474,21 +476,16 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
             Spacer(Modifier.weight(1f))
             BTxt("Ante ${s.ante}/8", Balatro.White, 12.sp)
         }
-        // Blind token + target: Balatro's create_UIBox_HUD_blind tree through the UIBox interpreter.
-        // blindBmp = frame-0 cell from BlindChips.png for the current blind; null while loading.
-        // chipTargetScale springs in when the round starts (blind_chip_UI_scale animation).
-        RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale))
-        // Round score: Balatro's contents.dollars_chips through the UIBox interpreter.
-        RenderUI(hudDollarsChips(s, stakeBmp))
-        // Hand readout: Balatro's contents.hand (hand name + chips X mult). In create_UIBox_HUD it
-        // sits in the sidebar between dollars_chips and row_round (UI_definitions.lua:1407), NOT in
-        // the play area. Blank when idle; live during/after scoring.
-        RenderUI(hudHand(s))
-        // Row-round: Balatro's R(id='row_round') containing C{buttons} + C{round} (source line 1408-1411).
-        // hudButtons (C column) and hudRound (C column) are siblings inside a wrapping R row.
-        RenderUI(R(Cfg(align = "cm"),
-            C(Cfg(align = "cm"), hudButtons(onRunInfo = { s.openRunInfo() })),
-            C(Cfg(align = "cm"), hudRound(s))))
+        // The HUD body is Balatro's ACTUAL create_UIBox_HUD tree, loaded from hud_tree.json
+        // (tools/uiref/extract.sh) — NO hand-transcription. Descriptors bind to live RunState via
+        // HudBind; the blind token UIBox is injected into the (source-empty) row_blind node.
+        val root = remember { HudSpec.root(ctx) }
+        if (root != null) {
+            val bind = HudBind(s, stakeBmp).apply {
+                blindContent = hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale)
+            }
+            RenderUI(HudSpec.build(root, bind))
+        }
     }
 }
 
