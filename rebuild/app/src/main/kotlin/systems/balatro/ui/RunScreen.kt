@@ -384,11 +384,13 @@ fun RunScreen(onClose: () -> Unit, startScreen: String? = null) {
 private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: String? = null) {
     val ctx = LocalContext.current
     val s = remember { RunState() }
-    // Deep-link parity screenshots: --es screen blind|shop jumps to that phase on first composition.
+    // Deep-link parity screenshots: --es screen blind|shop|play jumps to that phase (play auto-runs
+    // a hand so the scoring cascade can be captured) on first composition.
     LaunchedEffect(Unit) {
         when (startScreen) {
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
+            "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
         }
     }
 
