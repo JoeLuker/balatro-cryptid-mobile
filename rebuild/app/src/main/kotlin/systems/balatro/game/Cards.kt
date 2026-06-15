@@ -27,6 +27,9 @@ data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhanceme
     /** Card:get_nominal() ordering for High Card — highest rank wins; stones rank lowest. */
     val nominal: Int get() = if (enhancement == Enhancement.STONE) -1000 else rank
 
+    /** Card:is_face() — J/Q/K (id 11..13). Pareidolia (all cards face) is a joker hook, off here. */
+    val isFace: Boolean get() = id in 11..13
+
     /** Card:is_suit(flush_calc) — Stone never, Wild any, Smeared makes red/black collide, else exact. */
     fun isSuit(suit: Suit, smeared: Boolean = false): Boolean = when {
         enhancement == Enhancement.STONE -> false

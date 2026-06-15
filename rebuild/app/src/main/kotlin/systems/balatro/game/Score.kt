@@ -75,10 +75,29 @@ object Score {
             "j_even_steven"      -> if (oc.id in setOf(2, 4, 6, 8, 10)) return Fx().apply { mult = 4.0 }
             "j_odd_todd"         -> if (oc.id == 14 || oc.id in setOf(3, 5, 7, 9)) return Fx().apply { chips = 31.0 }
             "j_scholar"          -> if (oc.id == 14) return Fx().apply { chips = 20.0; mult = 4.0 }
+            // --- vanilla individual jokers, faithful from calculate_joker (port-vanilla-jokers workflow) ---
+            "j_arrowhead"        -> if (oc.isSuit(Suit.S)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
+            "j_onyx_agate"       -> if (oc.isSuit(Suit.C)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
+            "j_fibonacci"        -> if (oc.id in setOf(2, 3, 5, 8, 14)) return Fx().apply { mult = 8.0 }  // +8 Mult per A/2/3/5/8
+            "j_scary_face"       -> if (oc.isFace) return Fx().apply { chips = 30.0 }              // +30 Chips/face
+            "j_smiley"           -> if (oc.isFace) return Fx().apply { mult = 5.0 }                // +5 Mult/face
+            "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
+            "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
+            "j_photograph"       -> if (oc.isFace && ctx.scoringHand.firstOrNull { it.isFace } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
-            "j_joker" -> return Fx().apply { multMod = 4.0 }
+            "j_joker"     -> return Fx().apply { multMod = 4.0 }
+            // --- vanilla joker_main, self-contained (computed from the played/scoring hand) ---
+            "j_half"      -> if (ctx.fullHand.size <= 3) return Fx().apply { multMod = 20.0 }       // +20 Mult if <=3 cards
+            "j_stuntman"  -> return Fx().apply { chipMod = 250.0 }                                  // +250 Chips
+            "j_seeing_double" -> {                                                                  // X2 if a Club + a non-Club score
+                val club = ctx.scoringHand.any { it.isSuit(Suit.C) }
+                val other = ctx.scoringHand.any { it.enhancement != Enhancement.STONE && !it.isSuit(Suit.C) }
+                if (club && other) return Fx().apply { xMultMod = 2.0 }
+            }
+            "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s) } })  // X3 if all 4 suits score
+                return Fx().apply { xMultMod = 3.0 }
         }
         return null
     }
