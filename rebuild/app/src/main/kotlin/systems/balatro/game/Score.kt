@@ -14,8 +14,21 @@ import kotlin.math.floor
  * later pass — parity first.
  */
 
-/** A joker on the board: its key + the ability params its calculate_joker branch reads. */
-class FJoker(val key: String, val mult: Double = 0.0, val edition: String = "", var x: Double = 1.0)
+/**
+ * A joker on the board: its key + the per-instance ability state its calculate_joker branch reads.
+ * Scaling jokers accumulate in non-scoring events (the run loop owns that); at score time they read
+ * the current value. Zero-defaults make every scaling joker a no-op (multMod 0 / xMultMod 1 /
+ * chipMod 0), so an un-wired joker never perturbs the oracle.
+ *   mult  — accumulated +Mult (green/trousers/swashbuckler)
+ *   x     — accumulated Xmult (obelisk/hologram/ramen/loyalty/throwback), 1.0 = none
+ *   chips — accumulated +Chips (square/runner/castle)
+ *   n     — a count the joker scales by (steel: steel cards; stone: stone cards; banner: discards;
+ *           abstract: jokers; supernova: hand-type plays; blue: deck size; drivers: enhanced cards)
+ */
+class FJoker(
+    val key: String, val mult: Double = 0.0, val edition: String = "", var x: Double = 1.0,
+    var chips: Double = 0.0, var n: Int = 0, val rarity: Int = 0,
+)
 
 /** Balatro's `context` table — the flags a calculate_joker / eval_card branch inspects. */
 class Sctx {
@@ -30,6 +43,10 @@ class Sctx {
     var before = false
     var repetition = false
     var edition = false
+    var held = false                       // held-in-hand pass (cardarea == G.hand)
+    var heldHand: List<PlayingCard> = emptyList()
+    var handsLeft = -1                      // hands remaining this round (-1 = unknown; acrobat: ==0 last hand)
+    var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -98,6 +115,36 @@ object Score {
             }
             "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
+            // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
+            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card" ->
+                if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
+            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback" ->
+                if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
+            "j_square", "j_runner", "j_castle", "j_wee" ->
+                if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
+            "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
+            "j_stone"       -> if (j.n > 0) return Fx().apply { chipMod = 25.0 * j.n }         // +25 / stone card
+            "j_blue_joker"  -> if (j.n > 0) return Fx().apply { chipMod = 2.0 * j.n }          // +2 / deck card
+            "j_banner"      -> if (j.n > 0) return Fx().apply { chipMod = 30.0 * j.n }         // +30 / remaining discard
+            "j_supernova"   -> if (j.n > 0) return Fx().apply { multMod = j.n.toDouble() }     // +1 / this hand-type play
+            "j_abstract"    -> if (j.n > 0) return Fx().apply { multMod = 3.0 * j.n }          // +3 / joker on board
+            "j_drivers_license" -> if (j.n >= 16) return Fx().apply { xMultMod = 3.0 }         // X3 if >=16 enhanced
+            "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
+            "j_mystic_summit" -> if (ctx.discardsLeft == 0) return Fx().apply { multMod = 15.0 } // +15 at 0 discards
+        }
+        // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
+        if (ctx.held && oc != null) when (j.key) {
+            "j_baron"          -> if (oc.id == 13) return Fx().apply { xMult = 1.5 }           // King held: X1.5
+            "j_shoot_the_moon" -> if (oc.id == 12) return Fx().apply { mult = 13.0 }           // Queen held: +13 Mult
+            "j_raised_fist"    -> {                                                            // +2x nominal of LOWEST held card
+                val low = ctx.heldHand.filter { it.enhancement != Enhancement.STONE }.minByOrNull { it.nominal }
+                if (low != null && oc == low) return Fx().apply { mult = 2.0 * low.chips }
+            }
+        }
+        // OTHER_JOKER: a joker reacting to each board joker (context.other_joker)
+        val oj = ctx.otherJoker
+        if (oj != null) when (j.key) {
+            "j_baseball" -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
         }
         return null
     }
@@ -134,15 +181,18 @@ object Score {
             }
         }
 
-        // held-in-hand pass: steel x1.5 etc.
+        // held-in-hand pass: the card's own held effect (steel x1.5) + each joker reacting to held cards
+        ctx.heldHand = held
         for (card in held) {
-            ctx.cardarea = "hand"; ctx.otherCard = card
-            val fx = evalCard(card, ctx)
-            if (fx.xMult != 0.0) mult *= fx.xMult
-            if (fx.hMult != 0.0) mult += fx.hMult
+            ctx.cardarea = "hand"; ctx.held = true; ctx.otherCard = card
+            val effects = ArrayList<Fx>()
+            effects.add(evalCard(card, ctx))
+            for (j in jokers) calcJoker(j, ctx)?.let { effects.add(it) }
+            for (fx in effects) { if (fx.xMult != 0.0) mult *= fx.xMult; if (fx.mult != 0.0) mult += fx.mult; if (fx.hMult != 0.0) mult += fx.hMult }
+            ctx.held = false
         }
 
-        // JOKER MAIN pass: each joker's main effect (+ joker-on-joker, edition) — applied in board order
+        // JOKER MAIN pass: each joker's main effect — applied in board order
         for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
             calcJoker(j, ctx)?.let { fx ->
@@ -152,6 +202,17 @@ object Score {
             }
             ctx.jokerMain = false
         }
+
+        // OTHER_JOKER pass: every board joker offered to each joker once (joker-on-joker), board order
+        for (other in jokers) {
+            ctx.otherJoker = other; ctx.cardarea = "jokers"
+            for (j in jokers) calcJoker(j, ctx)?.let { fx ->
+                if (fx.multMod != 0.0) mult += fx.multMod
+                if (fx.chipMod != 0.0) chips += fx.chipMod
+                if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            }
+        }
+        ctx.otherJoker = null
 
         return floor(chips * mult)
     }
