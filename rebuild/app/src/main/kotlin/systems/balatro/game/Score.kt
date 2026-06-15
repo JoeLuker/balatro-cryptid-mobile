@@ -1,6 +1,7 @@
 package systems.balatro.game
 
 import kotlin.math.floor
+import kotlin.math.pow
 
 /**
  * FAITHFUL 1:1 port of Balatro's scoring cascade — evaluate_play (state_events.lua:571),
@@ -60,6 +61,9 @@ class Fx {
 }
 
 object Score {
+    /** Composite ranks per Cryptid's primus prime-check — everything else (incl. Ace=14) is "prime". */
+    private val PRIMUS_COMPOSITES = setOf(4, 6, 8, 9, 10, 11, 12, 13)
+
     // --- card scoring helpers (Card:get_chip_*), the played-card's own contribution -------------
     private fun chipBonus(c: PlayingCard): Double = when (c.enhancement) {   // get_chip_bonus
         Enhancement.STONE -> 50.0
@@ -101,6 +105,13 @@ object Score {
             "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
             "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
             "j_photograph"       -> if (oc.isFace && ctx.scoringHand.firstOrNull { it.isFace } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
+            // --- Cryptid individual ---
+            "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
+            "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
+        }
+        // REPETITION: jokers that retrigger a scored card (context.repetition)
+        if (ctx.repetition && oc != null) when (j.key) {
+            "j_cry_weegaming" -> if (oc.id == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -118,7 +129,7 @@ object Score {
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
-            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback" ->
+            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             "j_square", "j_runner", "j_castle", "j_wee" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
@@ -131,6 +142,10 @@ object Score {
             "j_drivers_license" -> if (j.n >= 16) return Fx().apply { xMultMod = 3.0 }         // X3 if >=16 enhanced
             "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
             "j_mystic_summit" -> if (ctx.discardsLeft == 0) return Fx().apply { multMod = 15.0 } // +15 at 0 discards
+            // --- Cryptid joker_main ---
+            "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
+            "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
+            "j_cry_triplet_rhythm" -> if (ctx.scoringHand.count { it.id == 3 } == 3) return Fx().apply { xMultMod = 3.0 }  // X3 iff exactly 3 threes
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
@@ -144,20 +159,33 @@ object Score {
         // OTHER_JOKER: a joker reacting to each board joker (context.other_joker)
         val oj = ctx.otherJoker
         if (oj != null) when (j.key) {
-            "j_baseball" -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
+            "j_baseball"     -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
+            "j_cry_waluigi"  -> return Fx().apply { xMultMod = 2.5 }                                  // X2.5 once per board joker (incl self)
         }
         return null
     }
 
     /** evaluate_play (state_events.lua:571) — the cascade, score only (animation stripped). */
-    fun score(played: List<PlayingCard>, jokers: List<FJoker>, held: List<PlayingCard> = emptyList()): Double {
-        val (handType, handCards) = Hands.evaluate(played)
+    fun score(
+        played: List<PlayingCard>, jokers: List<FJoker>, held: List<PlayingCard> = emptyList(),
+        level: Int = 1, debuff: Debuff = Debuff.None,
+    ): Double {
+        // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
+        val rankOf: (PlayingCard) -> Int =
+            if (jokers.any { it.key == "j_cry_maximized" }) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } }
+            else { c -> c.id }
+        val (handType, handCards) = Hands.evaluate(played, rankOf)
         // scoring_hand = hand cards + stones (always score), in played order (Splash would add all)
         val scoringHand = played.filter { it in handCards || it.enhancement == Enhancement.STONE }
 
-        var chips = handType.baseChips.toDouble()
-        var mult = handType.baseMult.toDouble()
+        // hand base, raised by planet level (lvl 1 = unchanged), then halved by Flint (base only).
+        var chips = (handType.baseChips + (level - 1) * handType.lChips).toDouble()
+        var mult = (handType.baseMult + (level - 1) * handType.lMult).toDouble()
+        if (debuff is Debuff.Flint) { chips = floor(chips / 2); mult = floor(mult / 2) }
         val ctx = Sctx().apply { fullHand = played; this.scoringHand = scoringHand; scoringName = handType }
+
+        // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
+        for (j in jokers) if (j.key == "j_cry_primus" && played.all { it.id !in PRIMUS_COMPOSITES }) j.x += 0.17
 
         fun apply(fx: Fx) {                         // the effects[ii] application block (lines 702-777)
             if (fx.chips != 0.0) chips += fx.chips
@@ -167,8 +195,10 @@ object Score {
 
         // per scoring card: card's own scoring + each joker's individual reaction
         for (card in scoringHand) {
-            ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = null
+            if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue   // debuffed: scores/triggers nothing
+            ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = card
             var reps = 1 + (if (card.seal == Seal.RED) 1 else 0)            // red seal repetition
+            for (jk in jokers) { ctx.repetition = true; calcJoker(jk, ctx)?.let { reps += it.repetitions }; ctx.repetition = false }  // joker retriggers
             repeat(reps) {
                 val effects = ArrayList<Fx>()
                 effects.add(evalCard(card, ctx))
@@ -192,14 +222,20 @@ object Score {
             ctx.held = false
         }
 
-        // JOKER MAIN pass: each joker's main effect — applied in board order
-        for (j in jokers) {
+        // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly) — board order.
+        // j_cry_oldblueprint re-applies the joker to its right; j_cry_primus is the Emult pow (mult^x).
+        for ((idx, j) in jokers.withIndex()) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
-            calcJoker(j, ctx)?.let { fx ->
-                if (fx.multMod != 0.0) mult += fx.multMod
-                if (fx.chipMod != 0.0) chips += fx.chipMod
-                if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            val target = if (j.key == "j_cry_oldblueprint") jokers.getOrNull(idx + 1) else j
+            if (target != null) {
+                if (target.key == "j_cry_primus") { if (target.x > 1.0) mult = mult.pow(target.x) }
+                else calcJoker(target, ctx)?.let { fx ->
+                    if (fx.multMod != 0.0) mult += fx.multMod
+                    if (fx.chipMod != 0.0) chips += fx.chipMod
+                    if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+                }
             }
+            when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
             ctx.jokerMain = false
         }
 
