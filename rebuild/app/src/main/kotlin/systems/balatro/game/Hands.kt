@@ -32,52 +32,107 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     FLUSH_FIVE(160, 16, 50, 3),
 }
 
+/**
+ * FAITHFUL 1:1 port of Balatro's evaluate_poker_hand + get_X_same/get_flush/get_straight/get_highest
+ * (functions/misc_functions.lua:376-621). Builds the same `results` table (each hand type -> the
+ * cards forming it; the first one set is `top`, the played hand) and the same downgrade chain
+ * (5oak -> 4oak -> 3oak -> pair). Structure matches the source so any joker that hooks hand
+ * detection (Four Fingers, Shortcut, Smeared) is a localized change here, not a rewrite.
+ *
+ * Joker hooks are parameters defaulting to off (those jokers aren't ported yet): fourFingers makes
+ * flush/straight need 4 not 5; shortcut allows one straight gap; smeared makes red/black suits
+ * collide (via PlayingCard.isSuit). rankOf composes active RankMods (Card:get_id patches).
+ */
 object Hands {
-    /**
-     * Best hand + the SCORING cards (kickers excluded — only these contribute chips).
-     * `rankOf` is the effective rank used for poker detection (identity by default; a
-     * RankMod joker like maximized makes face cards collide). Chip values are unaffected.
-     */
-    fun evaluate(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int = { it.rank }): Pair<HandType, List<PlayingCard>> {
+    fun evaluate(
+        cards: List<PlayingCard>,
+        rankOf: (PlayingCard) -> Int = { it.id },
+        fourFingers: Boolean = false, shortcut: Boolean = false, smeared: Boolean = false,
+    ): Pair<HandType, List<PlayingCard>> {
         if (cards.isEmpty()) return HandType.NONE to emptyList()
-        // Stone cards have no rank/suit: excluded from poker detection, but they ALWAYS score.
-        val stones = cards.filter { it.enhancement == Enhancement.STONE }
-        val normal = cards.filter { it.enhancement != Enhancement.STONE }
-        if (normal.isEmpty()) return HandType.HIGH_CARD to stones
-        val (type, scoring) = classify(normal, rankOf)
-        return type to (scoring + stones)
-    }
 
-    private fun classify(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int): Pair<HandType, List<PlayingCard>> {
-        val groups = cards.groupBy { rankOf(it) }.values.sortedByDescending { it.size }
-        val top = groups[0].size
-        val second = groups.getOrNull(1)?.size ?: 0
-        // Flush if some suit S covers every card — a Wild card counts as any suit.
-        val isFlush = cards.size == 5 && Suit.values().any { s -> cards.all { it.suit == s || it.enhancement == Enhancement.WILD } }
-        val straight = straightCards(cards, rankOf)
+        val _5 = getXSame(5, cards, rankOf)
+        val _4 = getXSame(4, cards, rankOf)
+        val _3 = getXSame(3, cards, rankOf)
+        val _2 = getXSame(2, cards, rankOf)
+        val _flush = getFlush(cards, fourFingers, smeared)
+        val _straight = getStraight(cards, rankOf, fourFingers, shortcut)
+        val _highest = getHighest(cards, rankOf)
 
-        return when {
-            top == 5 && isFlush -> HandType.FLUSH_FIVE to cards
-            top == 5 -> HandType.FIVE_OF_A_KIND to cards
-            top == 3 && second == 2 && isFlush -> HandType.FLUSH_HOUSE to cards
-            top == 4 -> HandType.FOUR_OF_A_KIND to groups[0]
-            top == 3 && second == 2 -> HandType.FULL_HOUSE to cards
-            straight != null && isFlush -> HandType.STRAIGHT_FLUSH to straight
-            isFlush -> HandType.FLUSH to cards
-            straight != null -> HandType.STRAIGHT to straight
-            top == 3 -> HandType.THREE_OF_A_KIND to groups[0]
-            top == 2 && second == 2 -> HandType.TWO_PAIR to (groups[0] + groups[1])
-            top == 2 -> HandType.PAIR to groups[0]
-            else -> HandType.HIGH_CARD to listOf(cards.maxByOrNull { rankOf(it) }!!)
+        // results: built in source order; `top` is the FIRST hand type satisfied (the played hand).
+        val results = HashMap<HandType, List<PlayingCard>>()
+        var top: HandType? = null
+        fun set(h: HandType, cs: List<PlayingCard>) { results[h] = cs; if (top == null) top = h }
+
+        if (_5.isNotEmpty() && _flush.isNotEmpty()) set(HandType.FLUSH_FIVE, _5[0])
+        if (_3.isNotEmpty() && _2.isNotEmpty() && _flush.isNotEmpty()) set(HandType.FLUSH_HOUSE, _3[0] + _2[0])
+        if (_5.isNotEmpty()) set(HandType.FIVE_OF_A_KIND, _5[0])
+        if (_flush.isNotEmpty() && _straight.isNotEmpty()) {                       // Straight Flush = flush ∪ straight
+            val ret = _flush[0].toMutableList()
+            for (v in _straight[0]) if (v !in _flush[0]) ret.add(v)
+            set(HandType.STRAIGHT_FLUSH, ret)
         }
+        if (_4.isNotEmpty()) set(HandType.FOUR_OF_A_KIND, _4[0])
+        if (_3.isNotEmpty() && _2.isNotEmpty()) set(HandType.FULL_HOUSE, _3[0] + _2[0])
+        if (_flush.isNotEmpty()) set(HandType.FLUSH, _flush[0])
+        if (_straight.isNotEmpty()) set(HandType.STRAIGHT, _straight[0])
+        if (_3.isNotEmpty()) set(HandType.THREE_OF_A_KIND, _3[0])
+        if (_2.size == 2 || (_3.size == 1 && _2.size == 1)) {                      // Two Pair (source line 479)
+            val a = _2[0]; val b = if (_2.size >= 2) _2[1] else _3[0]
+            set(HandType.TWO_PAIR, a + b)
+        }
+        if (_2.isNotEmpty()) set(HandType.PAIR, _2[0])
+        if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
+
+        val best = top ?: HandType.HIGH_CARD
+        return best to (results[best] ?: emptyList())
     }
 
-    private fun straightCards(cards: List<PlayingCard>, rankOf: (PlayingCard) -> Int): List<PlayingCard>? {
-        if (cards.size != 5) return null
-        val ranks = cards.map { rankOf(it) }.toSortedSet()
-        if (ranks.size != 5) return null
-        if (ranks.last() - ranks.first() == 4) return cards          // normal run
-        if (ranks == sortedSetOf(14, 2, 3, 4, 5)) return cards       // A-2-3-4-5
-        return null
+    /** get_X_same: groups of EXACTLY num cards sharing an id, ordered high-id first (source:592). */
+    private fun getXSame(num: Int, hand: List<PlayingCard>, idOf: (PlayingCard) -> Int): List<List<PlayingCard>> {
+        val vals = arrayOfNulls<List<PlayingCard>>(15)   // id 1..14
+        for (i in hand.indices.reversed()) {
+            if (idOf(hand[i]) !in 2..14) continue            // stones (random-negative id) never group
+            val curr = ArrayList<PlayingCard>(); curr.add(hand[i])
+            for (j in hand.indices) if (idOf(hand[i]) == idOf(hand[j]) && i != j) curr.add(hand[j])
+            if (curr.size == num) vals[idOf(curr[0])] = curr
+        }
+        val ret = ArrayList<List<PlayingCard>>()
+        for (i in 14 downTo 1) vals[i]?.let { ret.add(it) }
+        return ret
+    }
+
+    /** get_flush: one suit covering >= (5 - fourFingers) cards (source:522). */
+    private fun getFlush(hand: List<PlayingCard>, fourFingers: Boolean, smeared: Boolean): List<List<PlayingCard>> {
+        val need = 5 - (if (fourFingers) 1 else 0)
+        if (hand.size > 5 || hand.size < need) return emptyList()
+        for (suit in Suit.values()) {
+            val t = hand.filter { it.isSuit(suit, smeared) }
+            if (t.size >= need) return listOf(t)
+        }
+        return emptyList()
+    }
+
+    /** get_straight: a consecutive run (Ace high or low), shortcut allows one gap (source:548). */
+    private fun getStraight(hand: List<PlayingCard>, idOf: (PlayingCard) -> Int, fourFingers: Boolean, shortcut: Boolean): List<List<PlayingCard>> {
+        val need = 5 - (if (fourFingers) 1 else 0)
+        if (hand.size > 5 || hand.size < need) return emptyList()
+        val ids = HashMap<Int, MutableList<PlayingCard>>()
+        for (c in hand) { val id = idOf(c); if (id in 2..14) ids.getOrPut(id) { ArrayList() }.add(c) }
+        val t = ArrayList<PlayingCard>()
+        var len = 0; var straight = false; var skipped = false
+        for (j in 1..14) {
+            val key = if (j == 1) 14 else j
+            if (ids[key] != null) { len++; skipped = false; t.addAll(ids[key]!!) }
+            else if (shortcut && !skipped && j != 14) { skipped = true }
+            else { len = 0; skipped = false; if (!straight) t.clear(); if (straight) break }
+            if (len >= need) straight = true
+        }
+        return if (straight) listOf(t) else emptyList()
+    }
+
+    private fun getHighest(hand: List<PlayingCard>, idOf: (PlayingCard) -> Int): List<List<PlayingCard>> {
+        val highest = hand.maxByOrNull { it.nominal } ?: return emptyList()
+        return listOf(listOf(highest))
     }
 }

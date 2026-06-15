@@ -20,6 +20,21 @@ data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhanceme
         else -> rank
     }
 
+    /** Card:get_id() — the poker rank id (A=14). Stone cards return a value OUTSIDE 2..14 so they
+     *  never form rank hands (Balatro returns -random(100,1e6); the hand helpers skip non-2..14 ids). */
+    val id: Int get() = if (enhancement == Enhancement.STONE) -1 else rank
+
+    /** Card:get_nominal() ordering for High Card — highest rank wins; stones rank lowest. */
+    val nominal: Int get() = if (enhancement == Enhancement.STONE) -1000 else rank
+
+    /** Card:is_suit(flush_calc) — Stone never, Wild any, Smeared makes red/black collide, else exact. */
+    fun isSuit(suit: Suit, smeared: Boolean = false): Boolean = when {
+        enhancement == Enhancement.STONE -> false
+        enhancement == Enhancement.WILD -> true
+        smeared -> (suit == Suit.H || suit == Suit.D) == (this.suit == Suit.H || this.suit == Suit.D)
+        else -> this.suit == suit
+    }
+
     private val rankChar: String get() = when (rank) { 14 -> "A"; 13 -> "K"; 12 -> "Q"; 11 -> "J"; 10 -> "T"; else -> rank.toString() }
     /** Oracle/telemetry key, e.g. "S_A". */
     val key: String get() = "${suit.name}_$rankChar"

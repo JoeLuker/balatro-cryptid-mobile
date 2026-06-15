@@ -136,8 +136,11 @@ class ScoreRun(private val effects: Effects) {
         // detection sees. Empty store => identity, so the no-remap path is unchanged.
         val remaps = ArrayList<(Int) -> Int>()
         world.store<RankMod>().each { _, m -> remaps.add(m.map) }
-        val rankOf: (PlayingCard) -> Int = { c -> remaps.fold(c.rank) { r, m -> m(r) } }
-        val (handType, scoring) = Hands.evaluate(played, rankOf)   // base chips/mult + the scoring cards
+        val rankOf: (PlayingCard) -> Int = { c -> remaps.fold(c.id) { r, m -> m(r) } }  // RankMod patches get_id
+        val (handType, handCards) = Hands.evaluate(played, rankOf)   // the cards forming the poker hand
+        // Stone cards always score (Balatro's evaluate_play adds them to scoring_hand); evaluate_poker_hand
+        // excludes them. Until evaluate_play is ported, splice them in here in played order.
+        val scoring = played.filter { it in handCards || it.enhancement == Enhancement.STONE }
         ctx.tally.reset()
         // Hand base, raised by its planet level (level 1 => unchanged), then halved by Flint.
         val lvl = Levels.get(world)?.level(handType) ?: 1
