@@ -372,3 +372,19 @@ Build via `nix-shell shell.nix --run 'gradle --no-daemon :app:assembleDebug'`; i
 ### Recent HUD porting pattern
 Prior commits on this branch port LÖVE HUD content (hand readout, chips/mult, dollars, blind/debuff lines) through a "UIBox interpreter" — bindings like `chip_text` vs `chip_total_text` are distinct and must not be conflated.
 <!-- session:2026-06-14-28a6dd10 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-14 -->
+
+### Strangler-fig rebuild architecture
+The project is migrating from a Lua monkey-patch layer (`patches/*.lua` over `Balatro.love` + Cryptid mod) to a native Kotlin/Compose rebuild under package `systems.balatro.rebuild`, installed as a SEPARATE app from the LÖVE build (`systems.shorty.lmm`). The rebuild uses an ECS (composition) and a registered-effect system instead of inheritance/patching.
+<!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/engine/Ecs.kt,rebuild/README.md | area:rebuild | date:2026-06-14 -->
+
+### Oracle-parity as the migration safety net
+Correctness of the port is proven by scoring boards through the Kotlin engine and asserting against score-oracle goldens (`test/score-oracle-baselines.txt`). "Ported = scores like the original" is the gate for each content wave.
+<!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Scoring.kt | area:rebuild | date:2026-06-14 -->
+
+### Content port pipeline
+Cryptid jokers come from `mods/Cryptid/items/*.lua` and are translated into Kotlin `Effect`s registered via the effect system, each verified by the oracle harness. Real game assets are reused from `app/src/main/assets/textures` and pulled from `src/Balatro.love` / `mods/Cryptid/assets`.
+<!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/content/Jokers.kt | area:rebuild | date:2026-06-14 -->
+
+### Build/deploy loop for the rebuild
+Built via `nix-shell shell.nix --run 'gradle --no-daemon :app:assembleDebug'`, installed with `adb install -r`, and self-verified by reading `run-as systems.balatro.rebuild cat files/telemetry.log` for crashes/fps/expected events. Telemetry is first-class.
+<!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/bridge/Telemetry.kt | area:rebuild | date:2026-06-14 -->
