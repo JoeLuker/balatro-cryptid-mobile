@@ -142,6 +142,7 @@ private val CATALOG = listOf(
     Offer("j_cry_pizza_slice", "Pizza Slice", "Xmult scales +0.5 per other pizza slice sold", 6),
     Offer("j_cry_wheelhope", "Wheelhope", "Xmult scales +0.5 per Wheel of Fortune trigger", 7),
     Offer("j_cry_fspinner", "Fspinner", "+6 Chips each hand another type played as much (scaling)", 6),
+    Offer("j_cry_pirate_dagger", "Pirate Dagger", "+0.25*sell_cost Xchips when right joker sold", 7),
     // --- Cryptid custom hand-type jokers (dispatch wired; dormant until CRY_* hand evaluation ported) ---
     Offer("j_cry_stronghold", "Stronghold", "x5 Mult if cry_Bulwark", 8),
     Offer("j_cry_wtf", "WTF", "x10 Mult if cry_Clusterfuck", 8),

@@ -89,6 +89,7 @@ object Oracle {
         Case("Pair of aces + pizza_slice @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza_slice", x = 1.5))),
         Case("Pair of aces + wheelhope @x=1.5 (1 WoF trigger)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_wheelhope", x = 1.5))),
         Case("Pair of aces + fspinner @chips=30 (+30 Chips)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_cry_fspinner", chips = 30.0))),
+        Case("Pair of aces + pirate_dagger @xc=1.5 (x1.5 Xchips)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pirate_dagger", xc = 1.5))),
         // --- batch-16: misc/exotic accumulator-read + triggered eMult ---
         Case("Pair of aces + happyhouse @n=1 (114+ hands played, Emult^4)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_cry_happyhouse", n = 1))),
         Case("Pair of aces + verisimile @x=1.5 (pseudorandom hits)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_verisimile", x = 1.5))),
