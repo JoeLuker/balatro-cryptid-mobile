@@ -134,7 +134,7 @@ object Score {
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib", "j_cry_zooble" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
-            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame" ->
+            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
@@ -223,6 +223,13 @@ object Score {
         // j_cry_zooble: +1 Mult per DISTINCT rank in the scoring hand, unless the hand is a Straight (scaling).
         for (j in jokers) if (j.key == "j_cry_zooble" && HandType.STRAIGHT !in pokerHands && HandType.STRAIGHT_FLUSH !in pokerHands)
             j.mult += scoringHand.filter { it.enhancement != Enhancement.STONE }.map { it.id }.distinct().size.toDouble()
+        // j_cry_whip: +0.5 Xmult if the played hand holds a 2 and a 7 of different suits (WILD = all suits).
+        for (j in jokers) if (j.key == "j_cry_whip") {
+            fun suitsOf(id: Int) = played.filter { it.id == id }
+                .flatMap { if (it.enhancement == Enhancement.WILD) Suit.values().toList() else listOf(it.suit) }.toSet()
+            val ts = suitsOf(2); val ss = suitsOf(7)
+            if (ts.isNotEmpty() && ss.isNotEmpty() && (ts.size > 1 || ss.size > 1 || ts.first() != ss.first())) j.x += 0.5
+        }
         trace?.add(ScoreStep("base · ${handType.name.lowercase().replace('_', ' ')}", chips, mult))
 
         fun apply(fx: Fx) {                         // the effects[ii] application block (lines 702-777)
