@@ -95,6 +95,10 @@ object Oracle {
         Case("Pair of aces + verisimile @x=1.5 (pseudorandom hits)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_verisimile", x = 1.5))),
         Case("Pair of aces + duplicare @x=2.0 (2 scaling triggers)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_duplicare", x = 2.0))),
         Case("Pair of aces + formidiulosus @x=1.03 (3 candy jokers)", PlayingCard.hand("S_A", "H_A"), 65.0, j(FJoker("j_cry_formidiulosus", x = 1.03))),
+        // --- batch-18: individual Xmult + joker_main Xmult/Emult accumulators ---
+        Case("Pair of aces + caramel @x=1.75 (X1.75/card, 2 aces)", PlayingCard.hand("S_A", "H_A"), 196.0, j(FJoker("j_cry_caramel", x = 1.75))),
+        Case("Pair of aces + clockwork @x=1.5 (accumulated Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_clockwork", x = 1.5))),
+        Case("Pair of aces + starfruit @x=2.0 (Emult^2, default)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_starfruit", x = 2.0))),
         // --- batch-17: boss-blind gate, flat Xmult-halving, Astral-edition other_joker ---
         Case("Pair of aces + spy (flat x0.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy"))),
         Case("Pair of aces + apjoker on boss blind (x4 Xmult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_apjoker")), bossBlind = true),

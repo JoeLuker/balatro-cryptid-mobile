@@ -115,6 +115,8 @@ object Score {
             "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
             "j_cry_wee_fib"           -> if (oc.id == 14 || oc.id == 2 || oc.id == 3 || oc.id == 5 || oc.id == 8) j.mult += 3.0  // +3 Mult/scored Fibonacci, applied at joker_main
             "j_cry_antennastoheaven"  -> if (oc.id == 4 || oc.id == 7) j.xc += 0.1   // scaling: +0.1 Xchips per scored 4/7, applied at joker_main
+            // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
+            "j_cry_caramel"           -> if (j.x >= 1.0) return Fx().apply { xMult = j.x }
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -144,8 +146,9 @@ object Score {
             // poor_joker: j.mult += mult_mod(4) each time this joker pays rent (rental context, non-scoring)
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
-            "j_cry_verisimile", "j_cry_duplicare" ->
+            "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
+            // clockwork: j.x += xmult_mod(0.25) every 3rd hand (before, non-scoring); joker_main reads j.x
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
             // chili_pepper: j.x += Xmult_mod(0.5) each end_of_round (non-scoring); self-destructs after rounds_remaining hits 0
             // mondrian:    j.x += extra(0.25) each end_of_round where discard was not used (non-scoring)
@@ -167,7 +170,8 @@ object Score {
             "j_cry_night"   -> if (ctx.handsLeft == 0) return Fx().apply { eMult = 3.0 }       // Emult: mult^3 on the final hand
             // stella_mortis: Emult scales via ending_shop (destroy planet -> +0.4 per planet, stored in j.x); starts at 1
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
-            "j_cry_stella_mortis", "j_cry_formidiulosus" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // starfruit: Emult = j.x (starts at 2.0, decreases by 0.2 per reroll, self-destructs at <=1)
+            "j_cry_stella_mortis", "j_cry_formidiulosus", "j_cry_starfruit" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
             "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
