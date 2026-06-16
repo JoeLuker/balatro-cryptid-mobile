@@ -68,6 +68,10 @@ object Oracle {
         Case("HighCard 7,2 diff suits + whip (+0.5 Xmult)", PlayingCard.hand("S_2", "H_7"), 18.0, j(FJoker("j_cry_whip"))),
         Case("Pair + big_cube (x6 Chips)", PlayingCard.hand("S_A", "H_A"), 384.0, j(FJoker("j_cry_big_cube"))),
         Case("Pair of 4s + antennastoheaven (2x4 -> x1.2 Chips)", PlayingCard.hand("S_4", "H_4"), 43.0, j(FJoker("j_cry_antennastoheaven"))),
+        Case("Pair of aces + supercell (+15c x2c +15m x2m)", PlayingCard.hand("S_A", "H_A"), 7372.0, j(FJoker("j_cry_supercell"))),
+        Case("Pair of aces + m @x=14 (1 Jolly sold)", PlayingCard.hand("S_A", "H_A"), 4592.0, j(FJoker("j_cry_m", x = 14.0))),
+        Case("Pair of aces + iterum (x2/card, +1 retrigger/card)", PlayingCard.hand("S_A", "H_A"), 6656.0, j(FJoker("j_cry_iterum"))),
+        Case("Pair of aces + iterum + exponentia (emult from 4 xmult events)", PlayingCard.hand("S_A", "H_A"), 10963.0, j(FJoker("j_cry_iterum"), FJoker("j_cry_exponentia"))),
         // --- hands/discards-remaining jokers (now threaded into the engine) ---
         Case("Pair + acrobat on last hand (x3 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_acrobat")), handsLeft = 0),
         Case("Pair + mystic_summit at 0 discards (+15 Mult)", PlayingCard.hand("S_A", "H_A"), 544.0, j(FJoker("j_mystic_summit")), discardsLeft = 0),

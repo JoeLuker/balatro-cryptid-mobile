@@ -109,6 +109,7 @@ object Score {
             "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
             "j_photograph"       -> if (oc.isFace && ctx.scoringHand.firstOrNull { it.isFace } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
             // --- Cryptid individual ---
+            "j_cry_iterum"            -> return Fx().apply { xMult = 2.0 }               // X2 Mult per scored played card (also retriggers in repetition block)
             "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
             "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
             "j_cry_wee_fib"           -> if (oc.id == 14 || oc.id == 2 || oc.id == 3 || oc.id == 5 || oc.id == 8) j.mult += 3.0  // +3 Mult/scored Fibonacci, applied at joker_main
@@ -116,6 +117,7 @@ object Score {
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
+            "j_cry_iterum"    -> return Fx().apply { repetitions = 1 }                   // +1 retrigger per scored played card (base; immutable max 40)
             "j_cry_weegaming" -> if (oc.id == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2
             "j_cry_nosound"   -> if (oc.id == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7
             "j_cry_exposed"   -> if (!oc.isFace) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
@@ -158,6 +160,9 @@ object Score {
             // facile: Emult=3 (fixed) if scored-card count this hand <=10; counter tracked externally (j.n);
             //         nearly always fires (<= 5 cards in standard play; retrigger edge cases not modelled)
             "j_cry_facile" -> return Fx().apply { eMult = 3.0 }
+            // exponentia: scales Emult (j.x, base 1.0) +Emult_mod(0.03) each time any xmult effect fires during scoring;
+            //             joker_main reads j.x and applies mult^j.x when above 1 (no-op while x==1.0 / never scaled)
+            "j_cry_exponentia" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // --- Cryptid joker_main ---
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
@@ -187,6 +192,10 @@ object Score {
             "j_cry_nice"      -> if (ctx.fullHand.any { it.id == 6 } && ctx.fullHand.any { it.id == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69"
             "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
             "j_cry_antennastoheaven" -> if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
+            // supercell: +15 Chips, X2 Chips, +15 Mult, X2 Mult (config.extra.stat1=15, stat2=2; non-modest path)
+            "j_cry_supercell" -> return Fx().apply { chipMod = 15.0; xChipMod = 2.0; multMod = 15.0; xMultMod = 2.0 }
+            // m: X(x_mult) Mult; x_mult starts at 1, gains +13 each time a Jolly Joker is sold (selling_card, non-scoring)
+            "j_cry_m" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
@@ -252,7 +261,11 @@ object Score {
         fun apply(fx: Fx) {                         // the effects[ii] application block (lines 702-777)
             if (fx.chips != 0.0) chips += fx.chips
             if (fx.mult != 0.0) mult += fx.mult
-            if (fx.xMult != 0.0) mult *= fx.xMult
+            if (fx.xMult != 0.0) {
+                mult *= fx.xMult
+                // exponentia: +Emult_mod(0.03) each time a non-trivial xmult fires during scored-card pass
+                if (fx.xMult != 1.0) for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
+            }
         }
 
         // per scoring card: card's own scoring + each joker's individual reaction
