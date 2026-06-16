@@ -45,6 +45,13 @@ object Oracle {
         Case("Pair + oldblueprint,joker (blueprint copy)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_oldblueprint"), FJoker("j_joker"))),
         Case("J,Q,K + maximized (rank patch -> ToaK)", PlayingCard.hand("S_J", "H_Q", "D_K"), 180.0, j(FJoker("j_cry_maximized"))),
         Case("Flush A-2-3-5-7 + primus (Emult pow)", PlayingCard.hand("S_A", "S_2", "S_3", "S_5", "S_7"), 323.0, j(FJoker("j_cry_primus", x = 1.01))),
+        // --- Cryptid "type" jokers (fire on context.poker_hands present) ---
+        Case("Pair + giggly (High Card present, +4 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_giggly"))),
+        Case("FourOfAKind aces + nutty (+19 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 2704.0, j(FJoker("j_cry_nutty"))),
+        Case("FourOfAKind aces + shrewd (+150 Chips)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1778.0, j(FJoker("j_cry_shrewd"))),
+        Case("StraightFlush spades + nuts (x5 Mult)", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 6040.0, j(FJoker("j_cry_nuts"))),
+        Case("HighCard 9 (+6 kicker) + nice (+420 Chips)", PlayingCard.hand("S_9", "H_6"), 434.0, j(FJoker("j_cry_nice"))),
+        Case("Pair of Kings + mask (faces retrigger x3)", PlayingCard.hand("S_K", "H_K"), 180.0, j(FJoker("j_cry_mask"))),
         // --- editions ---
         Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0, j(FJoker("j_joker", edition = "Foil"))),
         Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_joker", edition = "Holo"))),

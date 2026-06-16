@@ -33,12 +33,15 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
  * collide (via PlayingCard.isSuit). rankOf composes active RankMods (Card:get_id patches).
  */
 object Hands {
+    /** (best hand, the cards forming it, AND the set of every hand type the cards satisfy). That set
+     *  is Balatro's `context.poker_hands` — jokers like the Cryptid "type" family fire when their
+     *  hand is merely PRESENT (e.g. High Card is always present), not only when it's the played hand. */
     fun evaluate(
         cards: List<PlayingCard>,
         rankOf: (PlayingCard) -> Int = { it.id },
         fourFingers: Boolean = false, shortcut: Boolean = false, smeared: Boolean = false,
-    ): Pair<HandType, List<PlayingCard>> {
-        if (cards.isEmpty()) return HandType.NONE to emptyList()
+    ): Triple<HandType, List<PlayingCard>, Set<HandType>> {
+        if (cards.isEmpty()) return Triple(HandType.NONE, emptyList(), emptySet())
 
         val _5 = getXSame(5, cards, rankOf)
         val _4 = getXSame(4, cards, rankOf)
@@ -74,7 +77,7 @@ object Hands {
         if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
 
         val best = top ?: HandType.HIGH_CARD
-        return best to (results[best] ?: emptyList())
+        return Triple(best, results[best] ?: emptyList(), results.keys.toSet())
     }
 
     /** get_X_same: groups of EXACTLY num cards sharing an id, ordered high-id first (source:592). */

@@ -37,6 +37,7 @@ class Sctx {
     var fullHand: List<PlayingCard> = emptyList()
     var scoringHand: List<PlayingCard> = emptyList()
     var scoringName: HandType = HandType.NONE
+    var pokerHands: Set<HandType> = emptySet()   // context.poker_hands: every hand type the played cards satisfy
     var otherCard: PlayingCard? = null     // the scored/held card a joker reacts to (individual)
     var otherJoker: FJoker? = null         // the board joker offered (joker-on-joker)
     var individual = false
@@ -112,6 +113,9 @@ object Score {
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
             "j_cry_weegaming" -> if (oc.id == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2
+            "j_cry_nosound"   -> if (oc.id == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7
+            "j_cry_exposed"   -> if (!oc.isFace) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
+            "j_cry_mask"      -> if (oc.isFace) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -146,6 +150,26 @@ object Score {
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
             "j_cry_triplet_rhythm" -> if (ctx.scoringHand.count { it.id == 3 } == 3) return Fx().apply { xMultMod = 3.0 }  // X3 iff exactly 3 threes
+            // --- Cryptid "type" jokers: fire when the played cards CONTAIN this hand (context.poker_hands), flat ---
+            "j_cry_giggly"    -> if (HandType.HIGH_CARD in ctx.pokerHands)      return Fx().apply { multMod = 4.0 }
+            "j_cry_silly"     -> if (HandType.FULL_HOUSE in ctx.pokerHands)     return Fx().apply { multMod = 16.0 }
+            "j_cry_nutty"     -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 19.0 }
+            "j_cry_manic"     -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) return Fx().apply { multMod = 22.0 }
+            "j_cry_delirious" -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 22.0 }
+            "j_cry_wacky"     -> if (HandType.FLUSH_HOUSE in ctx.pokerHands)    return Fx().apply { multMod = 30.0 }
+            "j_cry_kooky"     -> if (HandType.FLUSH_FIVE in ctx.pokerHands)     return Fx().apply { multMod = 30.0 }
+            "j_cry_dubious"   -> if (HandType.HIGH_CARD in ctx.pokerHands)      return Fx().apply { chipMod = 20.0 }
+            "j_cry_shrewd"    -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) return Fx().apply { chipMod = 150.0 }
+            "j_cry_tricksy"   -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) return Fx().apply { chipMod = 170.0 }
+            "j_cry_foxy"      -> if (HandType.FULL_HOUSE in ctx.pokerHands)     return Fx().apply { chipMod = 130.0 }
+            "j_cry_savvy"     -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) return Fx().apply { chipMod = 170.0 }
+            "j_cry_subtle"    -> if (HandType.FLUSH_HOUSE in ctx.pokerHands)    return Fx().apply { chipMod = 240.0 }
+            "j_cry_discreet"  -> if (HandType.FLUSH_FIVE in ctx.pokerHands)     return Fx().apply { chipMod = 240.0 }
+            "j_cry_nuts"      -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) return Fx().apply { xMultMod = 5.0 }
+            "j_cry_quintet"   -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) return Fx().apply { xMultMod = 5.0 }
+            "j_cry_unity"     -> if (HandType.FLUSH_HOUSE in ctx.pokerHands)    return Fx().apply { xMultMod = 9.0 }
+            "j_cry_swarm"     -> if (HandType.FLUSH_FIVE in ctx.pokerHands)     return Fx().apply { xMultMod = 9.0 }
+            "j_cry_nice"      -> if (ctx.fullHand.any { it.id == 6 } && ctx.fullHand.any { it.id == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69"
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
@@ -176,7 +200,7 @@ object Score {
         val rankOf: (PlayingCard) -> Int =
             if (jokers.any { it.key == "j_cry_maximized" }) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } }
             else { c -> c.id }
-        val (handType, handCards) = Hands.evaluate(played, rankOf)
+        val (handType, handCards, pokerHands) = Hands.evaluate(played, rankOf)
         // scoring_hand = hand cards + stones (always score), in played order (Splash would add all)
         val scoringHand = played.filter { it in handCards || it.enhancement == Enhancement.STONE }
 
@@ -184,7 +208,7 @@ object Score {
         var chips = (handType.baseChips + (level - 1) * handType.lChips).toDouble()
         var mult = (handType.baseMult + (level - 1) * handType.lMult).toDouble()
         if (debuff is Debuff.Flint) { chips = floor(chips / 2); mult = floor(mult / 2) }
-        val ctx = Sctx().apply { fullHand = played; this.scoringHand = scoringHand; scoringName = handType }
+        val ctx = Sctx().apply { fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
         for (j in jokers) if (j.key == "j_cry_primus" && played.all { it.id !in PRIMUS_COMPOSITES }) j.x += 0.17
