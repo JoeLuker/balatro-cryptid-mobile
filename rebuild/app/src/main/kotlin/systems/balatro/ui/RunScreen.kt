@@ -126,6 +126,9 @@ private val CATALOG = listOf(
     Offer("j_cry_big_cube", "Big Cube", "x6 Chips", 6),
     Offer("j_cry_antennastoheaven", "Antennas to Heaven", "+0.1 X Chips per scored 4/7 (scaling)", 7),
     Offer("j_cry_night", "Night", "mult^3 (Emult) on the final hand", 8),
+    // --- exotic jokers (iterum + exponentia now wired) ---
+    Offer("j_cry_iterum", "Iterum", "x2 Mult per scored card; +1 retrigger per card", 9),
+    Offer("j_cry_exponentia", "Exponentia", "Emult scales +0.03 per xmult event; applies mult^Emult", 9),
     // --- vanilla hands/discards-remaining jokers (now wired) ---
     Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
     Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),

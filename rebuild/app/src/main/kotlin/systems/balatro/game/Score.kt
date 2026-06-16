@@ -137,10 +137,18 @@ object Score {
             "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
-            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib", "j_cry_zooble" ->
+            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib", "j_cry_zooble",
+            "j_cry_poor_joker" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
-            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip" ->
+            // poor_joker: j.mult += mult_mod(4) each time this joker pays rent (rental context, non-scoring)
+            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
+            "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
+            // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
+            // chili_pepper: j.x += Xmult_mod(0.5) each end_of_round (non-scoring); self-destructs after rounds_remaining hits 0
+            // mondrian:    j.x += extra(0.25) each end_of_round where discard was not used (non-scoring)
+            // fading_joker: j.x += xmult_mod(1) when this perishable joker expires (perishable_debuffed, non-scoring)
+            // keychange:   j.x += xmgain(0.25) each time a hand type is played for the first time this round (before, non-scoring); resets end_of_round
             "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
