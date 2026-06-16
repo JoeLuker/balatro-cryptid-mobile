@@ -535,6 +535,10 @@ EOF
     cp "$PATCHES_DIR/trigger-collapse.lua" "$game_dir/trigger-collapse.lua"
     log_success "Trigger-collapse module embedded"
 
+    # Idle-joker perf: sort gate, limit-cache, Card:update scan cache
+    cp "$PATCHES_DIR/idle-joker-perf.lua" "$game_dir/idle-joker-perf.lua"
+    log_success "Idle-joker-perf module embedded"
+
     # Lazy shader binding (Tier-2a; loads before telemetry — see main.lua tail)
     cp "$PATCHES_DIR/lazy-shader.lua" "$game_dir/lazy-shader.lua"
     log_success "Lazy-shader module embedded"
