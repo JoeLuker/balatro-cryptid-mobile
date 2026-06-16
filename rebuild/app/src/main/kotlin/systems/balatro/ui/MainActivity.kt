@@ -41,15 +41,12 @@ class MainActivity : ComponentActivity() {
     private data class BootState(val pass: Int, val total: Int, val score: Double, val jokes: List<Joke>)
 
     private fun board(n: Int): Pair<Double, List<Joke>> {
-        val engine = Engine(); val effects = Effects()
-        Jokers.makeBoard(engine.world, effects, n)
-        val base = engine.world.create()
-        effects.register(base, setOf(Ctx.BEFORE)) { _, c -> c.tally.chips = BigValue.of(10) }
-        val score = ScoreRun(effects).scoreHand(engine.world, emptyList())
-        Telemetry.event("BOARD", "n" to n, "score" to score.v)
+        // Landing-card demo: score a pair through n jokers on the FAITHFUL Score engine.
+        val score = Score.score(PlayingCard.hand("S_A", "H_A"), List(n) { FJoker("j_joker") }).score
+        Telemetry.event("BOARD", "n" to n, "score" to score)
         val names = listOf("Joker", "Green Joker", "Scaler")
         val jokes = (0 until n).map { Joke(names[it % 3], it % 10, (it / 10) % 16) }
-        return score.v to jokes
+        return score to jokes
     }
 
     /** Decode the reused atlas and crop every distinct cell ONCE, off the main thread. */

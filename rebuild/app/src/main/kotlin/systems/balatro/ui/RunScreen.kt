@@ -122,6 +122,7 @@ internal class RunState {
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
     var phase by mutableStateOf(Phase.ROUND)
+    val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
 
     /** Mirrors G.GAME.hands[h].played — cumulative times each hand type was played in the run. */
     private val _handPlayed = mutableStateMapOf<HandType, Int>()
@@ -248,7 +249,7 @@ internal class RunState {
         val maxi = fjokers.any { it.key == "j_cry_maximized" }
         val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
         val handType = Hands.evaluate(sel, rankOf).first
-        val level = Levels.get(world)?.level(handType) ?: 1
+        val level = handLevels.level(handType)
         val trace = ArrayList<ScoreStep>()
         val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, trace)
         lastResult = r; lastSteps = trace
@@ -330,7 +331,7 @@ internal class RunState {
     fun buyPlanet(po: PlanetOffer) {
         if (money < po.cost) return
         money -= po.cost
-        Levels.ensure(world).levelUp(po.planet.hand)        // raises the hand's base for the whole run
+        handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
         Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
@@ -344,7 +345,7 @@ internal class RunState {
         Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
     }
 
-    fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
+    fun handLevel(h: HandType): Int = handLevels.level(h)
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
 
