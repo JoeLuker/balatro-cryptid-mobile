@@ -102,6 +102,9 @@ private val CATALOG = listOf(
     Offer("j_cry_meteor", "Meteor", "+75 Chips per Foil joker", 5),
     Offer("j_cry_exoplanet", "Exoplanet", "+15 Mult per Holo joker", 5),
     Offer("j_cry_stardust", "Stardust", "x2 Mult per Poly joker", 7),
+    Offer("j_cry_duos", "Duos", "x2.5 Mult if Two Pair or Full House", 7),
+    Offer("j_cry_home", "Home", "x3.5 Mult if Full House", 7),
+    Offer("j_cry_filler", "Filler", "x1.00000000000003 Mult", 1),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
