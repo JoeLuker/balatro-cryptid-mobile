@@ -89,3 +89,30 @@ Initial crash investigation associated the failure with negative anti / an exoti
 ### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/MainActivity.kt
 File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-2bd8151c for the correct approach.
 <!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/MainActivity.kt | area:.claude | date:2026-06-14 -->
+### Card hand arc repeatedly broken
+The hand-card arc was still rendering wrong despite prior attempts ("how is this still broken") → the curve math in `Spring.kt` was the root cause → corrected the rotation/offset curve to match the original.
+<!-- session:2026-06-14-e1c5d40d | commit:15624d1501125a80a7740a55588e484d4c132295 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/Spring.kt | area:rebuild | date:2026-06-14 -->
+### Headless LÖVE harness failed on first run
+The `tools/uiref` background harness exited with code 2 on the first attempt → required iterating on `main.lua`/`conf.lua` to get the headless render working.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/tools/uiref/main.lua,.claude/worktrees/dp-head/tools/uiref/conf.lua | area:.claude | date:2026-06-14 | tried:initial uiref harness launch (exit 2),multiple main.lua revisions -->
+### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-be67cd38 for the correct approach.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-14 -->
+### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-be67cd38 for the correct approach.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:.claude | date:2026-06-14 -->
+### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Scoring.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-be67cd38 for the correct approach.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Scoring.kt | area:.claude | date:2026-06-14 -->
+### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Cards.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-be67cd38 for the correct approach.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Cards.kt | area:.claude | date:2026-06-14 -->
+### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-be67cd38 for the correct approach.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt | area:.claude | date:2026-06-14 -->
+### Repeated modifications to .claude/worktrees/dp-head/tools/uiref/main.lua
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-14-be67cd38 for the correct approach.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/tools/uiref/main.lua | area:.claude | date:2026-06-14 -->
+### Flame effect handler asserted without basis
+The assistant stated a "flame handler should be emitted" → developer challenged "why do you get to say that... how are we doing the flame effect?" → the flame/fire visual approach was not actually established, so emitting a handler for it was premature. Correct approach: determine the faithful flame rendering technique from the Lua source before asserting HUD handlers.
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt | area:rebuild | date:2026-06-15 -->

@@ -75,3 +75,24 @@ New Kotlin rebuild installs as a distinct app (`systems.balatro.rebuild`), not r
 ### Large-stack UI via modals
 Static single-screen layouts for big joker/consumable stacks were judged unusable for real play → use Kotlin/Compose modals and dynamic UI affordances instead of cramming everything into one static screen.
 <!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/MainActivity.kt | area:rebuild | date:2026-06-14 -->
+### O-node as terminal leaf vs container
+Balatro O nodes carry an embedded object and could be modeled as a configurable container → modeled instead as a single terminal `Ob` leaf dispatching straight to `RenderObject` with no Container logic (O nodes have no children and just reserve their object's footprint, so container machinery would be dead weight).
+<!-- session:2026-06-14-c6c21629 | commit:83a8d5b34f728f2433cc2fdc4b564d24071fcacf | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-14 -->
+### Button feel derived at render time
+button/press/hover state could be stored on `Cfg` → derived at render time instead, with only `onClick` stored (plus an optional `button` flag defaulting from `onClick != null` so existing call sites compile unchanged); press/hover feel reuses BalatroSpring's 0.985 press-scale and a hover lighten driven by an `interactionSource`.
+<!-- session:2026-06-14-c6c21629 | commit:83a8d5b34f728f2433cc2fdc4b564d24071fcacf | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-14 -->
+### Port the LÖVE canvas instead of designing UI from scratch
+User explicitly stated he doesn't trust the agent to design UI from scratch and wants fidelity to the original → abandon bespoke Compose styling, read the Lua canvas code and port it (UIBox/Spring/Juice), build a `tools/uiref` LÖVE harness for ground-truth reference (the "how would Jane Street / Bluepoint do this" framing → reference-driven exact port).
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,.claude/worktrees/dp-head/tools/uiref/main.lua | area:.claude | date:2026-06-14 | rule:WHEN building rebuild UI ALWAYS port from the LÖVE/Lua canvas source, never design Compose UI from scratch. -->
+### Single set of game primitives — make illegal states unrepresentable
+User flagged that a "play run" vs "play a round" split risked an outdated, divergent code path → collapse to one set of composing primitives so the stale path cannot exist.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/MainActivity.kt | area:.claude | date:2026-06-14 | rule:WHEN modeling game flow in rebuild ALWAYS compose from one primitive set; NEVER maintain parallel "run" vs "round" code paths. -->
+### Parity before optimization
+Faced with the temptation to optimize/restructure the Kotlin port → developer explicitly directed "start with lua parity with kotlin, THEN we can start optimizing and then fixing inefficiencies" (a correct port is the prerequisite; optimizing an unfaithful port risks baking in divergence).
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-15 | rule:WHEN porting Balatro Lua to Kotlin ALWAYS achieve line-for-line parity before optimizing or refactoring. -->
+### Reuse HUD code exactly, don't reinvent
+Developer repeatedly pressed "are you reusing the hud code EXACTLY?" → committed to driving RunScreen from the existing/extracted HUD spec rather than hand-built approximations (faithful pixel layout, single source of truth).
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt | area:rebuild | date:2026-06-15 -->
+### Sonnet fan-out for mechanical joker translation
+~111 jokers needed Lua→Kotlin branch translation → ran a parallel Workflow of Sonnet agents (staggered to avoid rate limits) since most branches are mechanical pattern-application against a locked template, not novel design.
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-15 | rule:WHEN fanning out mechanical port work ALWAYS tier sub-agents to Sonnet and stagger to respect rate limits. -->

@@ -388,3 +388,59 @@ Cryptid jokers come from `mods/Cryptid/items/*.lua` and are translated into Kotl
 ### Build/deploy loop for the rebuild
 Built via `nix-shell shell.nix --run 'gradle --no-daemon :app:assembleDebug'`, installed with `adb install -r`, and self-verified by reading `run-as systems.balatro.rebuild cat files/telemetry.log` for crashes/fps/expected events. Telemetry is first-class.
 <!-- session:2026-06-14-2bd8151c | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/bridge/Telemetry.kt | area:rebuild | date:2026-06-14 -->
+
+### UIBox O-node design
+Balatro's `G.UIT.O` (object) nodes can be modeled as a single terminal `Ob(cfg, obj)` leaf added to the `UI` sealed interface, with `obj: Obj` a sealed hierarchy of `Sprite` (pre-cropped ImageBitmap + unit w/h) and `DynaText` (list of value-provider lambdas with per-segment colour/scale). O nodes are terminal and flow horizontally like C/B/T, reserving their object's size via `config.w or object.T.w` (mirroring `calculate_xywh`), so they need no container logic.
+<!-- session:2026-06-14-c6c21629 | commit:83a8d5b34f728f2433cc2fdc4b564d24071fcacf | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-14 -->
+
+### DynaText live binding via Compose
+Because `RunState` fields are Compose `mutableStateOf` (`handsLeft`, `roundScore`, `dollars`), reading them inside a `() -> String` provider lambda subscribes the composable, so a state change recomposes only that DynaText. This replaces Balatro's `UIElement:update_text` ref_table/prev_value polling for free.
+<!-- session:2026-06-14-c6c21629 | commit:83a8d5b34f728f2433cc2fdc4b564d24071fcacf | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-14 -->
+
+### Pixel-art rendering detail
+Sprite O nodes reuse the existing `Image(ImageBitmap, …)` path with cells cropped once upstream by `CardArt.cache`/`JokerArt.cache` (`Bitmap.createBitmap(atlas, col*142, row*190, 142, 190)`). `FilterQuality.None` is load-bearing — Balatro draws nearest-neighbour pixel art and Compose defaults to linear, which would blur the 142px cells.
+<!-- session:2026-06-14-c6c21629 | commit:83a8d5b34f728f2433cc2fdc4b564d24071fcacf | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-14 -->
+
+### Hand card arc rendering
+The fan/arc of cards in hand is driven by per-card rotation + vertical offset in `Spring.kt`; this had been repeatedly broken and required correcting the curve math to match the LÖVE original.
+<!-- session:2026-06-14-e1c5d40d | commit:15624d1501125a80a7740a55588e484d4c132295 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/Spring.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-14 -->
+
+### HUD faithful-port status
+Cards, HUD, colours, and blind-select are faithful ports; SHOP, scoring-juice, and the jokers-row remain invented/non-faithful and are the outstanding fidelity gaps.
+<!-- session:2026-06-14-e1c5d40d | commit:15624d1501125a80a7740a55588e484d4c132295 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-14 -->
+
+### Screenshot/verify workflow
+Fidelity is verified on the emulator via a true deep-link run (`run-rebuild.sh` with `--ez run true`), not by deploying to Joe's phone.
+<!-- session:2026-06-14-e1c5d40d | commit:15624d1501125a80a7740a55588e484d4c132295 | files:test/emulator/run-rebuild.sh | area:test | date:2026-06-14 -->
+
+### Autonomous loop self-verification
+Each brick runs end-to-end — implement → `nix-shell shell.nix --run 'gradle --no-daemon :app:assembleDebug'` → `adb install -r` + monkey-launch → pull `files/telemetry.log` via `run-as systems.balatro.rebuild` and check for CRASH/fps/brick-specific events before committing.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/bridge/Telemetry.kt | area:.claude | date:2026-06-14 -->
+
+### Two separate Android apps share the device
+`systems.balatro.rebuild` (the Kotlin port) is distinct from the LÖVE build `systems.shorty.lmm`; the rebuild work must never touch the LÖVE app or its saves.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Scoring.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Scoring.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/content/Content.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/content/Content.kt | area:.claude | date:2026-06-14 -->
+
+### UI ground-truth harness
+`tools/uiref` is a headless LÖVE harness built to render the original canvas for porting reference, rather than designing Compose UI from scratch.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/tools/uiref/main.lua,.claude/worktrees/dp-head/tools/uiref/conf.lua | area:.claude | date:2026-06-14 -->
+
+### LÖVE UI primitives ported, not reinvented
+UIBox (layout + dynatext), Spring, and Juice are direct ports of the Lua canvas primitives; this is the chosen foundation for matching look/feel/animation.
+<!-- session:2026-06-14-be67cd38 | commit:5a513e22ee22a53f0767514934a4767dd3ce9cf1 | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/Spring.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/Juice.kt | area:.claude | date:2026-06-14 -->
+
+### Faithful-port discipline order
+The agreed sequence is Lua→Kotlin parity FIRST, then optimization, then efficiency fixes — do not optimize or refactor scoring before parity is reached.
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-15 -->
+
+### Score.kt is the sole scoring engine
+Recent commits deleted the composition engine entirely; `Score` is now the single authority. All joker effects must be ported into `Score.calcJoker` branches keyed by joker id (e.g. `"j_arrowhead"`).
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-15 -->
+
+### Lua calculate_joker → Kotlin branch mapping
+Each joker fires in a specific context — `individual` (per scored card, cardarea=="play"), `held` (cardarea=="hand"), `joker_main` (cardarea=="jokers" else-branch), `other_joker`. Effect fields map to `Fx`: `chips`/`chipMod`, `multMod`, `xMult`/`xMultMod`. Simple suit/chip jokers (Arrowhead, Baron) port cleanly; scaling jokers (Banner, Blue Joker, Acrobat) need external round/deck state not yet in `Sctx`.
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Cards.kt | area:rebuild | date:2026-06-15 -->
+
+### UI-reference extractor
+`tools/uiref/extract.lua` + `extract.sh` pull faithful layout/HUD values directly from the Lua source so the Kotlin HUD is data-driven rather than eyeballed.
+<!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:tools/uiref/extract.lua,tools/uiref/extract.sh | area:tools | date:2026-06-15 -->
