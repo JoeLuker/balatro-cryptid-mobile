@@ -36,11 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
-import systems.balatro.content.Content
 import systems.balatro.content.Edition
-import systems.balatro.content.Editions
-import systems.balatro.engine.Entity
-import systems.balatro.engine.World
 import systems.balatro.game.*
 
 /**
@@ -51,7 +47,7 @@ import systems.balatro.game.*
  */
 internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
-internal data class Owned(val entity: Entity, val offer: Offer, val fj: FJoker)
+internal data class Owned(val offer: Offer, val fj: FJoker)
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
@@ -113,11 +109,8 @@ private val TAROTS = listOf(
 /** 2 tarots per ante; each enhances a random deck card. */
 private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
 
-/** Compose-observable run state; mutations drive recomposition. The engine is persistent. */
+/** Compose-observable run state; mutations drive recomposition. Scoring is the faithful Score engine. */
 internal class RunState {
-    val world = World()
-    val effects = Effects()
-
     var money by mutableStateOf(4)
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
@@ -310,18 +303,16 @@ internal class RunState {
     fun buy(offer: Offer, free: Boolean = false) {
         if (!free && money < offer.cost) return
         if (!free) money -= offer.cost
-        val e = Editions.spawn(world, effects, offer.key, offer.edition)   // composition entity: END_OF_ROUND only
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
         val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
-        owned.add(Owned(e, offer, fj))
+        owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
     }
 
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
-        effects.unregister(o.entity); world.destroy(o.entity)        // remove live, no residue
         owned.remove(o)
         val refund = maxOf(1, o.offer.cost / 2)
         money += refund

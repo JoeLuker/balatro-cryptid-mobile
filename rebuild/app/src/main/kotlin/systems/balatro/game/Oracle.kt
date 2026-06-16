@@ -5,7 +5,7 @@ package systems.balatro.game
  * runs through the FAITHFUL Score engine (the 1:1 port of evaluate_play + calculate_joker) and
  * asserts the score equals the value the original LÖVE build recorded (test/score-oracle-baselines.txt).
  * Runnable standalone:
- *   kotlinc <game+engine> -include-runtime -d o.jar && kotlin -cp o.jar systems.balatro.game.Oracle
+ *   kotlinc game content -include-runtime -d o.jar && kotlin -cp o.jar systems.balatro.game.Oracle
  */
 object Oracle {
     private fun en(k: String, e: Enhancement) = PlayingCard.parse(k).copy(enhancement = e)

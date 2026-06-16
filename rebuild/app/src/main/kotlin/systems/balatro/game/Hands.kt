@@ -1,16 +1,5 @@
 package systems.balatro.game
 
-import systems.balatro.engine.Component
-
-/**
- * A pre-evaluation rank remap (Balatro patches Card:get_id()). Stored as a component on
- * the joker that imposes it, so hand detection composes the active remaps as DATA — the
- * extension surface for "this joker changes what hand the cards form", distinct from the
- * tally Effects that fire mid-cascade. Maps an effective rank to an effective rank, so
- * remaps chain. Chip values are NOT affected (they come from the card's nominal, not id).
- */
-class RankMod(val map: (Int) -> Int) : Component
-
 /**
  * Poker hand types with their level-1 base (chips, mult) and per-level increments
  * (lChips, lMult) — all from Balatro's G.GAME.hands table. A planet card raises a hand's

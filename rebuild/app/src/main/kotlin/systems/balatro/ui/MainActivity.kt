@@ -25,8 +25,6 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
-import systems.balatro.content.Jokers
-import systems.balatro.engine.Engine
 import systems.balatro.game.*
 
 /**
