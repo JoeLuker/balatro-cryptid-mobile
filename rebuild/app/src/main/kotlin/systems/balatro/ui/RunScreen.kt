@@ -52,6 +52,9 @@ import systems.balatro.game.*
 internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 internal data class Owned(val entity: Entity, val offer: Offer, val fj: FJoker)
+
+/** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
+private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
 internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
@@ -278,11 +281,10 @@ internal class RunState {
             val reward = 4 + handsLeft + gold * 3
             money += reward
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
-            // END_OF_ROUND: fire joker self-destruct handlers (e.g. Broken Home). Remove destroyed
-            // entities from the owned list; they are already unregistered from effects by dispatchEndOfRound.
-            val destroyed = effects.dispatchEndOfRound(world)
+            // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
+            val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
             if (destroyed.isNotEmpty()) {
-                owned.removeAll { it.entity in destroyed }
+                owned.removeAll(destroyed)
                 Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
             }
             blindIndex += 1
