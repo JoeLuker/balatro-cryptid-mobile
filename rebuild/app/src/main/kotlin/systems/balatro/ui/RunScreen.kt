@@ -1038,18 +1038,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 }
                 if (s.scoring) {
                     Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        s.scoreCards.forEachIndexed { i, card ->
-                            val active = i == s.popIndex
-                            val popped = i <= s.popIndex
-                            val sc by animateFloatAsState(if (active) 1.3f else if (popped) 1.05f else 0.9f,
-                                spring(Spring.DampingRatioMediumBouncy, 520f), label = "pop$i")
-                            val lf by animateFloatAsState(if (active) -20f else 0f, spring(Spring.DampingRatioMediumBouncy, 520f), label = "pl$i")
-                            Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { scaleX = sc; scaleY = sc; translationY = lf }) {
-                                CardFace(card, cells[card], cardBase, Modifier.size(44.dp, 60.dp))
-                            }
-                        }
-                    }
+                    ScoredCardsRow(s, cells, cardBase)
                 }
             }
         }
@@ -1074,6 +1063,45 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
             RenderUI(buttonsRow(s, cells))
             BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally).padding(top = 2.dp))
+        }
+    }
+}
+
+/**
+ * The played cards popping during the scoring cascade — each springs with Balatro's juice_up
+ * (Spring.kt's damped sine: scale = amt·sin(50.8·t)·decay³, the iconic card.lua juice_up(0.3)),
+ * fired when the cascade's popIndex reaches that card. Replaces the old sustained scale tween,
+ * which never bounced. A single frame clock ticks every card's spring.
+ */
+@Composable
+private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, cardBase: ImageBitmap?) {
+    val springs = remember(s.scoreCards) { s.scoreCards.map { BalatroSpring() } }
+    var frame by remember(s.scoreCards) { mutableStateOf(0L) }
+    var nowSec by remember(s.scoreCards) { mutableStateOf(0f) }
+    LaunchedEffect(s.scoreCards) {
+        var last = 0L
+        while (true) {
+            withFrameNanos { t ->
+                val dt = if (last == 0L) 0.016f else ((t - last) / 1e9f).coerceIn(0.0001f, 0.05f)
+                last = t; nowSec = t / 1e9f
+                springs.forEach { it.move(dt, nowSec) }
+                frame = t
+            }
+        }
+    }
+    // Pop the scored card when the cascade reaches it (popIndex 0..n-1; step 0 is the hand base).
+    LaunchedEffect(s.popIndex) {
+        s.popIndex.takeIf { it in springs.indices }?.let { springs[it].juiceUp(amount = 0.4f, now = nowSec) }
+    }
+    frame.let {}    // read frame -> recompose each tick so graphicsLayer re-reads the spring values
+    Row(verticalAlignment = Alignment.Bottom) {
+        s.scoreCards.forEachIndexed { i, card ->
+            val sp = springs[i]
+            Box(
+                Modifier.padding(horizontal = 2.dp).graphicsLayer {
+                    scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
+                }
+            ) { CardFace(card, cells[card], cardBase, Modifier.size(44.dp, 60.dp)) }
         }
     }
 }
