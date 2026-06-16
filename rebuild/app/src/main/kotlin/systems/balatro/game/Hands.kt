@@ -19,6 +19,12 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     FIVE_OF_A_KIND(120, 12, 35, 3),
     FLUSH_HOUSE(140, 14, 40, 4),
     FLUSH_FIVE(160, 16, 50, 3),
+    // --- Cryptid-exclusive hand types (not returned by Hands.evaluate; stubs for joker dispatch) ---
+    CRY_BULWARK(0, 1),       // cry_Bulwark: whole-deck-suit hand (c_cry_asteroidbelt)
+    CRY_CLUSTERFUCK(0, 1),   // cry_Clusterfuck: specific multi-combo (cry_poker_hand_stuff)
+    CRY_ULTPAIR(0, 1),       // cry_UltPair: paired hand across many ranks (c_cry_marsmoons)
+    CRY_NONE(0, 1),          // cry_None: the "no valid hand" type (c_cry_nibiru)
+    CRY_WHOLEDECK(0, 1),     // cry_WholeDeck: all 52 cards scored at once (c_cry_universe)
 }
 
 /**

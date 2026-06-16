@@ -142,13 +142,16 @@ object Score {
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             // poor_joker: j.mult += mult_mod(4) each time this joker pays rent (rental context, non-scoring)
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
-            "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange" ->
+            "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
+            "j_cry_verisimile", "j_cry_duplicare" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
             // chili_pepper: j.x += Xmult_mod(0.5) each end_of_round (non-scoring); self-destructs after rounds_remaining hits 0
             // mondrian:    j.x += extra(0.25) each end_of_round where discard was not used (non-scoring)
             // fading_joker: j.x += xmult_mod(1) when this perishable joker expires (perishable_debuffed, non-scoring)
             // keychange:   j.x += xmgain(0.25) each time a hand type is played for the first time this round (before, non-scoring); resets end_of_round
+            // verisimile:  j.x += denominator each pseudorandom_result hit; joker_main reads j.x
+            // duplicare:   j.x += Xmult_mod(1) per post_trigger / individual card played (non-scoring); joker_main reads j.x
             "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
@@ -162,7 +165,10 @@ object Score {
             "j_mystic_summit" -> if (ctx.discardsLeft == 0) return Fx().apply { multMod = 15.0 } // +15 at 0 discards
             "j_cry_night"   -> if (ctx.handsLeft == 0) return Fx().apply { eMult = 3.0 }       // Emult: mult^3 on the final hand
             // stella_mortis: Emult scales via ending_shop (destroy planet -> +0.4 per planet, stored in j.x); starts at 1
-            "j_cry_stella_mortis" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
+            "j_cry_stella_mortis", "j_cry_formidiulosus" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
+            "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
             "j_cry_circulus_pistoris" -> if (ctx.handsLeft == 3) return Fx().apply { xChipMod = PI; eMult = PI }
             // facile: Emult=3 (fixed) if scored-card count this hand <=10; counter tracked externally (j.n);
@@ -201,11 +207,45 @@ object Score {
             "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
             // antennastoheaven: j.xc += 0.1 per scored 4/7 (individual, accumulated above)
             // spaceglobe: j.xc += Xchipmod(0.2) each time the current target hand type is played (before, non-scoring); target rotates on match
-            "j_cry_antennastoheaven", "j_cry_spaceglobe" -> if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
+            // pirate_dagger: j.xc += 0.25 * sell_cost of joker to the right (which is destroyed) at setting_blind
+            "j_cry_antennastoheaven", "j_cry_spaceglobe", "j_cry_pirate_dagger" ->
+                if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
             // supercell: +15 Chips, X2 Chips, +15 Mult, X2 Mult (config.extra.stat1=15, stat2=2; non-modest path)
             "j_cry_supercell" -> return Fx().apply { chipMod = 15.0; xChipMod = 2.0; multMod = 15.0; xMultMod = 2.0 }
             // m: X(x_mult) Mult; x_mult starts at 1, gains +13 each time a Jolly Joker is sold (selling_card, non-scoring)
             "j_cry_m" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
+            // kittyprinter: flat X2 Xmult every hand (config.extra.Xmult=2)
+            "j_cry_kittyprinter" -> return Fx().apply { xMultMod = 2.0 }
+            // clicked_cookie: +chips from j.chips accumulator (starts 200, decrements 1 per cry_press click)
+            "j_cry_clicked_cookie" -> return Fx().apply { chipMod = j.chips }
+            // monkey_dagger: +chips from j.chips accumulator (+10*sell_cost of left joker at setting_blind, that joker destroyed)
+            "j_cry_monkey_dagger" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
+            // unjust_dagger: Xmult from j.x accumulator (+0.2*sell_cost of left joker at setting_blind, that joker destroyed)
+            // jimball: Xmult from j.x accumulator (+0.15 per context.before when this hand type is least-played)
+            // pizza_slice: Xmult from j.x accumulator (+0.5 per other pizza_slice sold)
+            // wheelhope: Xmult from j.x accumulator (+0.5 per Wheel of Fortune pseudorandom_result trigger)
+            "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope" ->
+                if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
+            // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
+            "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
+            // --- Cryptid custom hand-type jokers (fire only when Cryptid-extended hand detection is active) ---
+            // These branches are dormant until CRY_* hand types are returned by hand evaluation;
+            // listed here so the dispatch is complete when those hand types are ported.
+            "j_cry_stronghold"       -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { xMultMod = 5.0 }
+            "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
+            "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
+            "j_cry_the"              -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { xMultMod = 2.0 }
+            "j_cry_annihalation"     -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { xMultMod = 5.2 }   // approx: Lua uses Emult=5.2 not Xmult
+            "j_cry_words_cant_even"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { xMultMod = 52000000.0 }
+            "j_cry_bonkers"          -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { multMod = 20.0 }
+            "j_cry_fuckedup"         -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { multMod = 37.0 }
+            "j_cry_foolhardy"        -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { multMod = 42.0 }
+            "j_cry_undefined"        -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { multMod = 5.0 }
+            "j_cry_adroit"           -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { chipMod = 170.0 }
+            "j_cry_penetrating"      -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { chipMod = 270.0 }
+            "j_cry_treacherous"      -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { chipMod = 300.0 }
+            "j_cry_nebulous"         -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { chipMod = 30.0 }
+            "j_cry_many_lost_minds"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { chipMod = 8.0658175e67 }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
