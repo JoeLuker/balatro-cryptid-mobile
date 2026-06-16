@@ -199,7 +199,9 @@ object Score {
             "j_cry_filler"    -> if (HandType.HIGH_CARD in ctx.pokerHands)     return Fx().apply { xMultMod = 1.00000000000003 }  // meme: ~X1 always
             "j_cry_nice"      -> if (ctx.fullHand.any { it.id == 6 } && ctx.fullHand.any { it.id == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69"
             "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
-            "j_cry_antennastoheaven" -> if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
+            // antennastoheaven: j.xc += 0.1 per scored 4/7 (individual, accumulated above)
+            // spaceglobe: j.xc += Xchipmod(0.2) each time the current target hand type is played (before, non-scoring); target rotates on match
+            "j_cry_antennastoheaven", "j_cry_spaceglobe" -> if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
             // supercell: +15 Chips, X2 Chips, +15 Mult, X2 Mult (config.extra.stat1=15, stat2=2; non-modest path)
             "j_cry_supercell" -> return Fx().apply { chipMod = 15.0; xChipMod = 2.0; multMod = 15.0; xMultMod = 2.0 }
             // m: X(x_mult) Mult; x_mult starts at 1, gains +13 each time a Jolly Joker is sold (selling_card, non-scoring)
