@@ -84,6 +84,65 @@ compare like batches), gross-allocation scoring window, texmem readout.
 Scoring window grosses ~286 MB/hand — sub-100 KB findings are invisible
 there; use the selection metric or a targeted micro-bench.
 
+## Tier 0 — infra patches (landed 2026-06-11)
+
+All four patches build-verified clean; deployed to device (build stamp `0611-1042.24cfd8`).
+
+| Marker | Summary | Measured benefit |
+|---|---|---|
+| `JIT_OPT_RAISE` | Raises LuaJIT compile budgets (maxtrace=4000, maxmcode=16384, hotloop=28) via `pcall(jit.opt.start(...))` in main.lua | Not yet measured on device; prevents trace eviction on large mod load |
+| `EVQ_BURST_ATTRIB` | Times `Event:handle` calls when `EVQ_PROF` global is live (set by android-telemetry.lua); buckets slow handlers by `source:linedefined` for per-window EV_SLOW events | Working: `EV_SLOW src=button_callbacks.lua:3238 ms=5754` confirmed first use |
+| `EVQ_COMPACT` | Replaces `table.remove(v, i)` in hot `EventManager:update` loop with identity-mark + O(n) two-pointer compaction | e_manager drops from ~14ms (initial transition burst) to ~0.11ms steady-state after UIBox animation completes — but see caveat below |
+| `UI_FUNC_THROTTLE` | Phase-staggered `(G.FRAMES.MOVE + self.ID) % 3 == 0` func polling per UIElement; `_ft_seen` first-fire guarantee; `instant_func` escape hatch | Not yet isolated; contributes to UI update cost reduction |
+
+### First on-device draw-call baseline (2026-06-11, ante 1 BLIND_SELECT)
+
+**⚠ n_ui column is `n_ui_total` (raw `#G.I.UIBOX`) — see measurement-gap note below.**
+
+| State | `e_manager` ms | `shsw_avg` | `dc_avg` | `uiboxes` ms | fps | `n_ui_total` |
+|---|---|---|---|---|---|---|
+| SPLASH | 0.38–0.46 | 12–96 | 7–49 | 0.04–0.08 | 124–125 | 0 |
+| MENU (idle) | 0.09–0.10 | 24 | 31–32 | 0.69–0.75 | 124–125 | 5 |
+| BLIND_SELECT (start_run burst) | 14.48 | 40 | 49 | 0.67 | 5 | 94 |
+| BLIND_SELECT (initial) | 15.21 | 770 | 625 | 2.56 | 61 | 88 |
+| BLIND_SELECT (settling) | 0.14 | 614 | 597 | 2.60 | 69 | 49 |
+| BLIND_SELECT (settling) | 0.11 | 508 | 544 | 2.02 | 69 | 22 |
+| BLIND_SELECT (settled) | 0.11 | 455 | 516 | 1.72 | 77 | 11 |
+
+**Measurement gap (discovered 2026-06-11):** `n_ui_total` conflates two populations
+with different draw-loop treatment. The uiboxes timer brackets only the structural loop
+(game.lua:3011), which excludes `attention_text` boxes, `parent`-owned boxes, and several
+overlay singletons. The 88→11 settling sequence drops ~77 boxes, almost all of them
+transient `attention_text` animation overlays from run-init tag/blind notifications —
+they are excluded from the uiboxes codepath and therefore contribute ~0ms to the
+`uiboxes` timer. The timer's 0.84ms drop over that sequence (2.56→1.72ms) reflects
+only the handful of structural boxes removed, not the 77 animation boxes.
+
+Consequence: the "linear scaling with n_ui" claim and the "0.03ms per-element" figure
+in the original note are artifacts of correlating `n_ui_total` against a timer that
+measures a strict subset. The uiboxes cost has a large fixed floor (~1.7ms at settled
+BLIND_SELECT) driven by a small number of structural root boxes with deep trees, plus a
+small marginal per-element cost (~0.01ms from the settling delta). This is not
+per-element shader bind at uniform cost — it is a few heavy roots dominating.
+
+**Telemetry fix applied (2026-06-11):** telemetry now emits `n_ui_s` (structural count,
+matching the game.lua:3011 filter) and `n_ui_total` separately. Future baselines should
+correlate `uiboxes` ms against `n_ui_s`. The `n_ui → shsw_avg` correlation noted below
+also needs re-evaluation once `n_ui_s` data is available.
+
+**The `shsw_avg` draw-call story stands but needs sharper data.** `shsw_avg=455` at
+settled BLIND_SELECT with `n_ui_s` unknown but small means the shader switch count is
+dominated by a few deep UIBox trees, not evenly spread across all registered boxes.
+SpriteBatch work should target the heavy structural roots (blind_select panel, HUD, card
+areas) rather than all UIBoxes uniformly.
+
+**Identified slow event handlers (all `EV_SLOW` from 10:45–10:46 session):**
+- `functions/button_callbacks.lua:3238` → `G:start_run(args)` — 5754ms, expected (full run init)
+- `game.lua:3521` → `create_UIBox_blind_select()` — 260ms, the Cryptid-loaded blind select UI build. **Patched + device-verified 2026-06-11 (`BLIND_SELECT_DEFER`)**: changed `trigger='immediate'` to `trigger='after', delay=0.05`. Root cause: four synchronous UIBox instantiations (set_parent_child tree construction + calculate_xywh with font:getWidth per text node, ~90–120 text nodes across the three blind-choice cards). Verified: session `6a2aeaa0` (post-patch), three BLIND_SELECT transitions observed, `game.lua:3521` absent from EV_SLOW in all three. `dt_max_ms` at BLIND_SELECT 22ms, `evh_ms` 21–28ms — normal range. The deferred 260ms spreads into normal frame budget without producing a new EV_SLOW attribution elsewhere.
+- `game.lua:1556` → 33.7ms at MENU transition (mod UI build)
+- `functions/button_callbacks.lua:3081` → 6.9ms
+- `game.lua:3515` → `save_run()` — 3.2ms, expected
+
 ## Tier 2 — high value, needs an audit + measurement first
 
 8. ~~`to_big` fast-path below 1e15~~ — **DONE 2026-06-10 in re-scoped form**

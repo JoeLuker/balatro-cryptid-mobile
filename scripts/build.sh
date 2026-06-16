@@ -83,9 +83,44 @@ fetch_sources() {
     # Fetch mods
     fetch_mod "Steamodded/smods" "smods" "Steamodded"
     fetch_mod "MathIsFun0/Cryptid" "cryptid" "Cryptid"
-    fetch_mod "MathIsFun0/Talisman" "talisman" "Talisman"
+    # Amulet replaces Talisman (2026-06-11): the officially recommended fork —
+    # cdata OmegaNum, save round-trip via self-rehydrating strings, lovely
+    # typefix compat layer. mods/Talisman stays on disk for rollback alongside
+    # src/dump-talisman; regenerate the dump with scripts/regen-dump.sh.
+    fetch_mod "frostice482/amulet" "Amulet" "Amulet"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
     fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
+
+    # CardSleeves (deck sleeves; its lovely patches — seed-gen reorder in
+    # Game:start_run, priority-ordered after Cryptid — are baked via
+    # scripts/regen-dump.sh). Release assets are version-named, so pin the
+    # tag explicitly.
+    if [[ ! -d "$MODS_DIR/CardSleeves" ]]; then
+        log_info "Fetching CardSleeves v1.9.2..."
+        curl -fL -o "$MODS_DIR/CardSleeves.zip" \
+            "https://github.com/larswijn/CardSleeves/releases/download/v1.9.2/CardSleeves-1.9.2.zip"
+        unzip -q -o "$MODS_DIR/CardSleeves.zip" -d "$MODS_DIR/"
+        rm "$MODS_DIR/CardSleeves.zip"
+        if [[ ! -d "$MODS_DIR/CardSleeves" ]]; then
+            mv "$MODS_DIR"/CardSleeves-* "$MODS_DIR/CardSleeves"
+        fi
+        log_success "CardSleeves fetched"
+    fi
+
+    # DebugPlus (better debug tools; re-enables Balatro's built-in debug mode +
+    # adds a Steamodded config tab). Release zip is FLAT (smods.json/lovely/
+    # debugplus/ at the archive root, no wrapping folder), so unlike fetch_mod
+    # it must extract into mods/DebugPlus/ directly. Pinned to v1.5.2.
+    # NOTE: its interactive menu (Tab) and console (/) need a hardware keyboard,
+    # so on the touch build only the debug toggles + config tab are reachable.
+    if [[ ! -d "$MODS_DIR/DebugPlus" ]]; then
+        log_info "Fetching DebugPlus v1.5.2..."
+        curl -fL -o "$MODS_DIR/DebugPlus.zip" \
+            "https://github.com/WilsontheWolf/DebugPlus/releases/download/v1.5.2/DebugPlus.zip"
+        unzip -q -o "$MODS_DIR/DebugPlus.zip" -d "$MODS_DIR/DebugPlus/"
+        rm "$MODS_DIR/DebugPlus.zip"
+        log_success "DebugPlus fetched"
+    fi
 
     # Apply config overrides
     apply_config_overrides
@@ -177,8 +212,14 @@ patch_mods_dir() {
     local mods_dir="$1"   # absolute path to the Mods/ directory to patch
 
     apply_build_stamp_menu "$mods_dir/Steamodded/src/ui.lua"
-    apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
-    apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
+    # TALISMAN-ERA (disabled under Amulet; functions kept for the
+    # src/dump-talisman rollback path): Amulet upstreamed the
+    # config-persistence class (love.filesystem + createDirectory in
+    # talisman/configinit.lua), rewrote the scoring coroutine + overlay
+    # (observe live before re-patching), and replaced the table OmegaNum
+    # whose churn NF_BIG_CACHE existed to avoid (cdata now).
+    # apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
+    # apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
     apply_shader_eof_newlines "$(dirname "$mods_dir")"
     apply_blur_shader_reorder "$mods_dir/Cryptid/assets/shaders/blur.fs"
     apply_glitch_shader_fix   "$mods_dir/Cryptid/assets/shaders/glitched.fs"
@@ -187,13 +228,29 @@ patch_mods_dir() {
     apply_cryptid_dead_copy_fix   "$mods_dir/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$mods_dir/Cryptid/lib/calculate.lua" "$mods_dir/Cryptid/lib/overrides.lua"
     apply_cryptid_events_guard    "$mods_dir/Cryptid/lib/calculate.lua"
-    apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"
-    apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"
-    apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"
+    # apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
+    # apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
+    # apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
+    apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
+    apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
+    apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
+    apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
+    apply_smods_disabled_pool_gate "$mods_dir/Steamodded/src/utils.lua"
+    apply_mod_toggle_removed      "$mods_dir/Steamodded/src/ui.lua"
     apply_cryptid_to_big_elim \
         "$mods_dir/Cryptid/items/epic.lua" \
         "$mods_dir/Cryptid/items/exotic.lua" \
         "$mods_dir/Cryptid/items/m.lua"
+    apply_cryptid_demicolon_no_chain   "$mods_dir/Cryptid/items/epic.lua"
+    apply_cryptid_oil_lamp_local_fix   "$mods_dir/Cryptid/items/misc_joker.lua"
+    apply_cry_vanilla_gameset \
+        "$mods_dir/Cryptid/lib/gameset.lua" \
+        "$mods_dir/Cryptid/Cryptid.lua" \
+        "$mods_dir/Cryptid/localization/en-us.lua"
+    apply_cry_blind_choice_guard \
+        "$mods_dir/Cryptid/lib/overrides.lua" \
+        "$mods_dir/Cryptid/lib/gameset.lua"
+    apply_cry_forcetrigger_depth_guard "$mods_dir/Cryptid/lib/forcetrigger.lua"
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
 }
 
@@ -298,6 +355,20 @@ build_apk() {
     fi
     sed -i "s/android:label=\"[^\"]*\"/android:label=\"$APP_NAME\"/" "$BUILD_DIR/apktool/AndroidManifest.xml"
 
+    # FOLD_RESIZE: upstream LÖVE ships GameActivity with
+    # android:resizeableActivity="false". On foldables that pins the app in
+    # size-compat mode on posture change — Android letterboxes/scales it at
+    # the old dimensions and NO surface resize ever reaches love.resize, so
+    # the contain layout and overlay recalculation never run. Flip it so
+    # fold-open delivers a real resize event.
+    sed -i 's/android:resizeableActivity="false"/android:resizeableActivity="true"/' "$BUILD_DIR/apktool/AndroidManifest.xml"
+    if grep -q 'android:resizeableActivity="true"' "$BUILD_DIR/apktool/AndroidManifest.xml"; then
+        log_success "FOLD_RESIZE applied (resizeableActivity=true — fold posture changes deliver real resizes)"
+    else
+        log_error "FOLD_RESIZE: resizeableActivity flip failed — check AndroidManifest.xml"
+        exit 1
+    fi
+
     if [[ "$DEBUGGABLE" == "true" ]]; then
         sed -i 's/android:allowBackup="true"/android:allowBackup="true" android:debuggable="true"/' "$BUILD_DIR/apktool/AndroidManifest.xml"
     fi
@@ -342,7 +413,7 @@ build_apk() {
     # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Talisman sticky-fingers; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
             rm -rf "$game_dir/Mods/$mod/lovely"
@@ -354,6 +425,24 @@ build_apk() {
     # for Sticky Fingers' Pull target (extracted from Pokermon — see patches/reserve-shim)
     cp -r "$PATCHES_DIR/reserve-shim" "$game_dir/Mods/"
     log_info "    Embedded reserve-shim"
+
+    # AMULET_ROOT_DIRS: Amulet expects talisman/ and big-num/ as PhysFS roots
+    # (it FFI-mounts them from the mod dir on desktop). PhysFS cannot mount
+    # paths inside game.love, so place them physically at the game root —
+    # require("talisman.*") and load("big-num/...") resolve natively on every
+    # platform. The copies under Mods/Amulet are then PRUNED: the root copy is
+    # the one that executes, and the two-copies trap is not getting a fourth
+    # notch (Mods/Amulet keeps smods.lua + manifest + assets, which SMODS
+    # loads at runtime).
+    if [[ -d "$game_dir/Mods/Amulet/talisman" ]]; then
+        cp -r "$game_dir/Mods/Amulet/talisman" "$game_dir/talisman"
+        cp -r "$game_dir/Mods/Amulet/big-num"  "$game_dir/big-num"
+        rm -rf "$game_dir/Mods/Amulet/talisman" "$game_dir/Mods/Amulet/big-num"
+        log_success "  Amulet talisman/ + big-num/ placed at game root (Mods copies pruned)"
+    else
+        log_error "Mods/Amulet/talisman missing — Amulet not embedded correctly"
+        exit 1
+    fi
 
     # Create lovely.lua config
     cat > "$game_dir/lovely.lua" << EOF
@@ -376,45 +465,91 @@ EOF
     apply_android_video_settings_fix "$game_dir/functions/UI_definitions.lua"
     apply_android_quit_fix "$game_dir/functions/button_callbacks.lua"
     apply_drag_reject_feedback "$game_dir/functions/button_callbacks.lua"
-    apply_fps_toggle "$game_dir/game.lua" "$game_dir/functions/UI_definitions.lua"
-    apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua" "$game_dir/functions/UI_definitions.lua"
+    apply_settings_debug_tab "$game_dir/functions/UI_definitions.lua"
+    apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
     patch_mods_dir "$game_dir/Mods"
     apply_shake_trig_guard "$game_dir/functions/common_events.lua"
+    apply_forced_key_guard "$game_dir/functions/common_events.lua"
+    apply_disabled_center_skip "$game_dir/cardarea.lua"
     apply_tap_description_persist "$game_dir/engine/controller.lua"
     apply_cursor_down_uptime_fix "$game_dir/engine/controller.lua"
     apply_drag_self_drop_exclude "$game_dir/engine/controller.lua"
     apply_ui_colour_guard "$game_dir/engine/ui.lua"
+    apply_ui_o_detached_guard "$game_dir/engine/ui.lua"
     apply_drag_select "$game_dir/engine/controller.lua" "$game_dir/globals.lua" "$game_dir/functions/UI_definitions.lua"
     apply_telemetry_toggles "$game_dir/functions/UI_definitions.lua" "$game_dir/game.lua"
+    apply_overlay_menu_fit "$game_dir/functions/UI_definitions.lua"
     apply_shadow_height_fix "$game_dir/card.lua"
     apply_card_to_big_elim "$game_dir/card.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
     apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
-    apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
+    # apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
+    # ^ TALISMAN-ERA: Amulet's rewritten hand_*_UI_set functions ship the
+    #   text-change guard built in (and Talisman.juice_elm replaced the
+    #   to_big juice mess) — the dedup is upstreamed. Kept for rollback.
     apply_lvl_prefix_cache "$game_dir/functions/common_events.lua"
     apply_parse_highlighted_lean "$game_dir/cardarea.lua"
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
+    apply_empty_pool_guard "$game_dir/functions/common_events.lua"
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
-    apply_ces_sign_fast "$game_dir/functions/common_events.lua"
+    # apply_ces_sign_fast "$game_dir/functions/common_events.lua"
+    # ^ TALISMAN-ERA: Talisman's lovely patches wrapped the card_eval sign
+    #   checks in to_big(); Amulet's cdata Big compares natively against
+    #   numbers, so the dump carries the vanilla `mod < 0` form already —
+    #   nothing left to elide. Kept for rollback.
     apply_dynatext_glyph_cache "$game_dir/engine/text.lua"
     apply_letter_table_reuse   "$game_dir/engine/text.lua"
-    # NF_BIG_CACHE must ALSO hit the lovely-merged Talisman copy inside
-    # main.lua — that copy is what executes on Android (the Mods/Talisman
-    # tree is dead code at runtime there); patching only the mod copy left
-    # the fix inert on-device.
-    apply_nf_big_cache         "$game_dir/main.lua"
+    # apply_nf_big_cache         "$game_dir/main.lua"
+    # ^ TALISMAN-ERA: number_format no longer lives in main.lua (Amulet keeps
+    #   it in its numfmt lovely patches + break_inf module), and the cache
+    #   existed to dodge table-OmegaNum churn that cdata eliminates. Bench
+    #   before ever reviving. Kept for rollback.
     apply_nugc_adaptive        "$game_dir/functions/misc_functions.lua"
     apply_moveable_sleep       "$game_dir/engine/moveable.lua"
+    apply_moveable_shadow_lists \
+        "$game_dir/globals.lua" \
+        "$game_dir/engine/moveable.lua" \
+        "$game_dir/game.lua"
+    apply_event_burst_attrib   "$game_dir/engine/event.lua"
+    apply_event_queue_compact  "$game_dir/engine/event.lua"
+    apply_ui_func_throttle     "$game_dir/engine/ui.lua"
+    apply_blind_select_defer   "$game_dir/game.lua"
+    apply_blind_select_tall    "$game_dir/functions/UI_definitions.lua"
+    # Consolidate shader nil-resets so LAZY_SHADER can collapse same-shader runs.
+    # draw_shader() no longer resets to nil after each draw; callers issue one
+    # setShader() per object (card/blind/stake) instead of one per draw_shader call.
+    apply_draw_shader_nil_reset \
+        "$game_dir/engine/sprite.lua" \
+        "$game_dir/SMODS/_/src/card_draw.lua" \
+        "$game_dir/card.lua" \
+        "$game_dir/blind.lua" \
+        "$game_dir/functions/misc_functions.lua"
 
     # Copy telemetry module into game root
     cp "$PATCHES_DIR/android-telemetry.lua" "$game_dir/android-telemetry.lua"
     log_success "Telemetry module embedded"
 
-    # Patch conf.lua
+    # Trigger-cascade collapsing engine (hooks self-install on first frame)
+    cp "$PATCHES_DIR/trigger-collapse.lua" "$game_dir/trigger-collapse.lua"
+    log_success "Trigger-collapse module embedded"
+
+    # Idle-joker perf: sort gate, limit-cache, Card:update scan cache
+    cp "$PATCHES_DIR/idle-joker-perf.lua" "$game_dir/idle-joker-perf.lua"
+    log_success "Idle-joker-perf module embedded"
+
+    # Lazy shader binding (Tier-2a; loads before telemetry — see main.lua tail)
+    cp "$PATCHES_DIR/lazy-shader.lua" "$game_dir/lazy-shader.lua"
+    log_success "Lazy-shader module embedded"
+
+    # Patch conf.lua. This authoritative heredoc (not the desktop dump's conf.lua)
+    # owns the Android love.conf — window dims must be 0 for Android fullscreen.
+    # _RELEASE_MODE = false enables Balatro's built-in debug mode, which is what
+    # makes DebugPlus's debug-tools UI + console reachable on the build; without
+    # it the dump's flip is clobbered here and DebugPlus is inert.
     cat > "$game_dir/conf.lua" << 'EOF'
-_RELEASE_MODE = true
+_RELEASE_MODE = false
 _DEMO = false
 
 function love.conf(t)
@@ -759,6 +894,207 @@ PYEOF
     fi
 }
 
+# CRY_DISABLED_POOL_GATE: Cryptid's gameset machinery (SMODS.Center._disable)
+# nils G.P_CENTERS[key] for disabled items but leaves them in side registries
+# like SMODS.Consumable.legendaries. SMODS's modded-souls roll in create_card
+# iterates that list gated only by SMODS.add_to_pool — which never checks
+# cry_disabled — so on the modest gameset a Spectral card generation could
+# force-roll the disabled c_cry_gateway and crash indexing the missing center
+# (field crash 2026-06-12, common_events.lua:2446, ~0.3%/spectral landmine).
+# Root fix: disabled prototypes are non-spawnable through add_to_pool, period.
+apply_smods_disabled_pool_gate() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "utils.lua not found at $f, skipping CRY_DISABLED_POOL_GATE"
+        return 0
+    fi
+    if grep -q "CRY_DISABLED_POOL_GATE" "$f"; then
+        log_info "CRY_DISABLED_POOL_GATE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """function SMODS.add_to_pool(prototype_obj, args)
+    if type(prototype_obj.in_pool) == "function" then"""
+new = """function SMODS.add_to_pool(prototype_obj, args)
+    if prototype_obj.cry_disabled then return false end -- CRY_DISABLED_POOL_GATE
+    if type(prototype_obj.in_pool) == "function" then"""
+
+if old not in text or text.count(old) != 1:
+    print("ERROR: add_to_pool anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("CRY_DISABLED_POOL_GATE applied")
+PYEOF
+    if grep -q "CRY_DISABLED_POOL_GATE" "$f"; then
+        log_success "CRY_DISABLED_POOL_GATE applied (disabled items non-spawnable via add_to_pool)"
+    else
+        log_error "CRY_DISABLED_POOL_GATE did not apply — check utils.lua anchor"
+        exit 1
+    fi
+}
+
+# DISABLED_CENTER_SKIP: CardArea:load rebuilds saved cards by looking up each
+# card's center in G.P_CENTERS, but disabling content (a Cryptid gameset, a mod
+# toggle) NILs those centers — so loading a run that still references a now-disabled
+# card crashes Card:load at "obj = G.P_CENTERS[center_key]" (nil index). Skip any
+# saved card whose center is gone, loudly (ATLOG), so the run loads minus the
+# disabled cards instead of being unopenable. The card simply isn't there — which
+# is the only sane outcome for content the player has turned off.
+apply_disabled_center_skip() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "cardarea.lua not found, skipping DISABLED_CENTER_SKIP"
+        return 0
+    fi
+    if grep -q "DISABLED_CENTER_SKIP" "$f"; then
+        log_info "DISABLED_CENTER_SKIP already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+# Two clean anchors that bracket the load-loop body — chosen to avoid the
+# "if card.highlighted then " line, which carries a trailing space in the dump.
+open_old = "    for i = 1, #cardAreaTable.cards do\n        loading = true"
+open_new = (
+    "    for i = 1, #cardAreaTable.cards do\n"
+    "        local _dcs_ck = cardAreaTable.cards[i].save_fields and cardAreaTable.cards[i].save_fields.center -- DISABLED_CENTER_SKIP\n"
+    "        if _dcs_ck and not G.P_CENTERS[_dcs_ck] then\n"
+    "            if ATLOG then ATLOG(\"LOAD_CENTER_MISSING_SKIP\", { key = tostring(_dcs_ck) }) end\n"
+    "        else\n"
+    "        loading = true"
+)
+close_old = "        card:set_card_area(self)\n    end\n    self:set_ranks()"
+close_new = "        card:set_card_area(self)\n        end\n    end\n    self:set_ranks()"
+
+for label, o in (("open", open_old), ("close", close_old)):
+    if text.count(o) != 1:
+        print("ERROR: cardarea %s anchor not found/unique (%d)" % (label, text.count(o)), file=sys.stderr)
+        sys.exit(1)
+text = text.replace(open_old, open_new, 1).replace(close_old, close_new, 1)
+open(path, 'w').write(text)
+print("DISABLED_CENTER_SKIP applied")
+PYEOF
+    if grep -q "DISABLED_CENTER_SKIP" "$f"; then
+        log_success "DISABLED_CENTER_SKIP applied (saved cards with disabled centers are skipped on load, not crashed on)"
+    else
+        log_error "DISABLED_CENTER_SKIP did not apply — check cardarea.lua load loop anchor"
+        exit 1
+    fi
+}
+
+# FORCED_KEY_GUARD: create_card's forced_key path indexes G.P_CENTERS
+# blindly; any caller or roll that forces a key whose center is missing
+# (gameset-disabled item left in a side registry) crashes mid-spawn. Fall
+# through to the normal pool roll instead, loudly (ATLOG FORCED_KEY_MISSING)
+# — observability for registry inconsistencies, not a silent mask: the pool
+# gate above is the actual fix for the known source.
+apply_forced_key_guard() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "common_events.lua not found, skipping FORCED_KEY_GUARD"
+        return 0
+    fi
+    if grep -q "FORCED_KEY_GUARD" "$f"; then
+        log_info "FORCED_KEY_GUARD already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """    if forced_key and not G.GAME.banned_keys[forced_key] then \n        center = G.P_CENTERS[forced_key]
+        _type = (center.set ~= 'Default' and center.set or _type)"""
+new = """    if forced_key and not G.P_CENTERS[forced_key] then -- FORCED_KEY_GUARD
+        if ATLOG then ATLOG("FORCED_KEY_MISSING", { key = tostring(forced_key), t = tostring(_type) }) end
+        forced_key = nil
+    end
+    if forced_key and not G.GAME.banned_keys[forced_key] then \n        center = G.P_CENTERS[forced_key]
+        _type = (center.set ~= 'Default' and center.set or _type)"""
+
+if old not in text or text.count(old) != 1:
+    print("ERROR: forced_key anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("FORCED_KEY_GUARD applied")
+PYEOF
+    if grep -q "FORCED_KEY_GUARD" "$f"; then
+        log_success "FORCED_KEY_GUARD applied (missing forced centers fall through to pool, logged)"
+    else
+        log_error "FORCED_KEY_GUARD did not apply — check common_events.lua anchor"
+        exit 1
+    fi
+}
+
+# MOD_TOGGLE_REMOVED: every mod on this build is structurally baked (lovely
+# patches compiled into the dump; STRUCTURAL_MODS_LOCK already makes the
+# SMODS mods-menu toggle a no-op for them). A toggle that writes
+# .lovelyignore but changes nothing is a lie — replace the control with an
+# inert "baked" label.
+apply_mod_toggle_removed() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "ui.lua not found at $f, skipping MOD_TOGGLE_REMOVED"
+        return 0
+    fi
+    if grep -q "MOD_TOGGLE_REMOVED" "$f"; then
+        log_info "MOD_TOGGLE_REMOVED already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """                                    create_toggle({
+                                    label = '',
+                                    ref_table = modInfo,
+                                    ref_value = 'should_enable',
+                                    col = true,
+                                    hide_label = true,
+                                    w = 0,
+                                    h = 0.2,
+                                    scale = 1,
+                                    callback = (
+                                        function(_set_toggle)
+                                            if not modInfo.should_enable then
+                                                NFS.write(modInfo.path .. '.lovelyignore', '')
+                                            else
+                                                NFS.remove(modInfo.path .. '.lovelyignore')
+                                            end
+                                            local toChange = 1
+                                            if modInfo.should_enable == not modInfo.disabled then
+                                                toChange = -1
+                                            end
+                                            SMODS.full_restart = SMODS.full_restart + toChange
+                                        end)
+                                    })"""
+new = """                                    -- MOD_TOGGLE_REMOVED: all mods on this build are
+                                    -- structurally baked; the enable toggle could only
+                                    -- half-unload them (proven crash 2026-06-11)
+                                    { n = G.UIT.T, config = { text = "baked", scale = 0.25, colour = G.C.UI.TEXT_INACTIVE } }"""
+
+if old not in text or text.count(old) != 1:
+    print("ERROR: mod toggle anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("MOD_TOGGLE_REMOVED applied")
+PYEOF
+    if grep -q "MOD_TOGGLE_REMOVED" "$f"; then
+        log_success "MOD_TOGGLE_REMOVED applied (mods-menu toggle replaced with inert baked label)"
+    else
+        log_error "MOD_TOGGLE_REMOVED did not apply — check ui.lua anchor"
+        exit 1
+    fi
+}
+
 # Hot-path fix 3: guard the 6 math.sin calls in update_canvas_juice behind a
 # shake_amt > 0 check.  When screenshake is at its default level (<=30) shake_amt
 # evaluates to 0 every frame and all six trig results are immediately multiplied
@@ -812,26 +1148,36 @@ PYEOF
     fi
 }
 
-# Add an in-game FPS counter toggle. The base game only draws FPS behind a debug
-# flag that never runs in release builds. This adds a simple counter gated on
-# G.SETTINGS.show_fps, plus a "Show FPS" toggle in Settings > Game.
-apply_fps_toggle() {
-    local game_lua="$1"
-    local ui_file="$2"
-    if [[ ! -f "$game_lua" || ! -f "$ui_file" ]]; then
-        log_warn "game.lua / UI_definitions.lua not found, skipping FPS toggle"
+# SETTINGS_DEBUG_TAB: the build adds several diagnostic toggles (Debug HUD,
+# Debug Logging, Phone Home Telemetry, Trigger Collapsing). Cramming them into
+# the vanilla Game tab pushes its content well past create_tabs' tab_h, which
+# balloons the menu frame past OVERLAY_MENU_FIT's maxh and shrinks the whole
+# menu (tabs + text) to fit — unreadably small. Give them their own "Debug" tab
+# so every tab's content fits at full scale. The Debug HUD toggle (perf_mode)
+# is the single merged FPS+perf overlay: the vanilla perf block it drives
+# already prints "Current FPS" above the timing graphs, so there is no separate
+# Show FPS toggle (it was a redundant second FPS readout that overlapped this).
+apply_settings_debug_tab() {
+    local ui_file="$1"
+    if [[ ! -f "$ui_file" ]]; then
+        log_warn "UI_definitions.lua not found, skipping SETTINGS_DEBUG_TAB"
         return 0
     fi
-    if grep -q "show_fps" "$game_lua"; then
-        log_info "FPS toggle already applied"
+    if grep -q "tab == 'Debug'" "$ui_file"; then
+        log_info "SETTINGS_DEBUG_TAB already applied"
         return 0
     fi
-    sed -i "s|    timer_checkpoint('canvas', 'draw')|    timer_checkpoint('canvas', 'draw')\n    if G.SETTINGS.show_fps then love.graphics.push('all'); love.graphics.origin(); love.graphics.setColor(0,1,0,1); love.graphics.print('FPS: '..love.timer.getFPS(), 15, 15); love.graphics.pop() end|" "$game_lua"
-    sed -i "s|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),\n      create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|" "$ui_file"
-    if grep -q "show_fps" "$game_lua" && grep -q "show_fps" "$ui_file"; then
-        log_success "FPS toggle added (Settings > Game > Show FPS)"
+    # 1. Prepend a 'Debug' branch to G.UIDEF.settings_tab (in front of the Game branch).
+    sed -i "s|  if tab == 'Game' then|  if tab == 'Debug' then\n    return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.05, colour = G.C.CLEAR}, nodes={\n      create_toggle({label = \"Debug HUD (FPS + perf)\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      create_toggle({label = \"Trigger Collapsing\", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},\n    }}\n  elseif tab == 'Game' then|" "$ui_file"
+    # 2. Register the Debug tab in create_UIBox_settings' tab list (last tab).
+    sed -i "s|  local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(|  tabs[#tabs+1] = { label = \"Debug\", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }\n  local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(|" "$ui_file"
+    if grep -q "tab == 'Debug'" "$ui_file" && grep -q "tab_definition_function_args = 'Debug'" "$ui_file" && grep -q "telemetry_home" "$ui_file"; then
+        log_success "SETTINGS_DEBUG_TAB applied (Debug tab: Debug HUD + Logging + Phone Home + Trigger Collapsing)"
     else
-        log_warn "FPS toggle did not fully apply — check anchors"
+        # hard failure: telemetry_home/telemetry_log toggles live here now; if the
+        # tab didn't materialise they're unreachable and consent can't be given.
+        log_error "SETTINGS_DEBUG_TAB did not apply — check settings_tab / create_UIBox_settings anchors"
+        exit 1
     fi
 }
 
@@ -843,24 +1189,31 @@ apply_fps_toggle() {
 apply_debug_overlay() {
     local game_lua="$1"
     local misc="$2"
-    local ui_file="$3"
-    if [[ ! -f "$game_lua" || ! -f "$misc" || ! -f "$ui_file" ]]; then
+    if [[ ! -f "$game_lua" || ! -f "$misc" ]]; then
         log_warn "files for debug overlay not found, skipping"
         return 0
     fi
-    if grep -q "Debug Overlay" "$ui_file"; then
+    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua"; then
         log_info "Debug overlay already applied"
         return 0
     fi
+    # The on-screen "Debug HUD" toggle (perf_mode) lives in the Debug settings tab
+    # (apply_settings_debug_tab); this only wires the draw + collection paths.
     # collection runs with EITHER toggle: Debug Logging alone gives headless
     # per-checkpoint timing through telemetry (no on-screen overlay — the
-    # draw stays gated on perf_mode below)
+    # draw stays gated on perf_mode below). The vanilla perf block already prints
+    # "Current FPS" above its timing graphs, so this IS the merged FPS+perf HUD.
     sed -i 's|if not G.F_ENABLE_PERF_OVERLAY then return end|if not (G.SETTINGS.perf_mode or G.SETTINGS.telemetry_log) then return end|' "$misc"
-    sed -i 's|if not _RELEASE_MODE and G.DEBUG and not G.video_control and G.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
+    # Anchor on the stable "...G.F_VERBOSE then" suffix, not the full vanilla
+    # condition: DebugPlus's bake rewrites the prefix of this exact line from
+    # "not _RELEASE_MODE and G.DEBUG" to its own "require('debugplus.config').getValue('showHUD')"
+    # (it drives the same perf overlay via its showHUD config). Replacing the whole
+    # condition with G.SETTINGS.perf_mode makes our Debug HUD toggle own the overlay
+    # regardless of DebugPlus's prefix. "G.F_VERBOSE then" is unique in game.lua.
+    sed -i 's|if .*G\.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
     sed -i 's|        love.graphics.setColor(0, 1, 1,1)|        love.graphics.origin()\n        love.graphics.setColor(0, 1, 1,1)|' "$game_lua"
-    sed -i "s|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),|create_toggle({label = \"Show FPS\", ref_table = G.SETTINGS, ref_value = 'show_fps'}),\n      create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|" "$ui_file"
-    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua" && grep -q "Debug Overlay" "$ui_file"; then
-        log_success "Debug overlay added (Settings > Game > Debug Overlay)"
+    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua"; then
+        log_success "Debug HUD (FPS + perf graphs) wired to G.SETTINGS.perf_mode"
     else
         log_warn "Debug overlay did not fully apply — check anchors"
     fi
@@ -868,34 +1221,71 @@ apply_debug_overlay() {
 
 # Telemetry & debug logging are OFF by default so the APK is shareable — on a
 # phone that never flips the toggles the game prints nothing, writes no
-# telemetry.log, and never starts the phone-home thread. Two toggles in
-# Settings > Game (persisted in settings.jkr like every other setting):
+# telemetry.log, and never starts the phone-home thread. The two consent toggles
 #   "Debug Logging"        -> G.SETTINGS.telemetry_log
 #   "Phone Home Telemetry" -> G.SETTINGS.telemetry_home
-# patches/android-telemetry.lua reads both live each frame. This applier adds
-# the toggles (anchored on the Slide-to-select toggle, so it must run after
-# apply_drag_select) and gates the vanilla LONG DT logcat print behind
-# telemetry_log — the PERF-FINDINGS LONG_DT entry, realized as a gate.
+# now live in the Debug settings tab (apply_settings_debug_tab); android-telemetry.lua
+# reads both live each frame. This applier only gates the vanilla LONG DT logcat
+# print behind telemetry_log — the PERF-FINDINGS LONG_DT entry, realized as a gate.
 apply_telemetry_toggles() {
     local ui_file="$1"
     local game_lua="$2"
-    if [[ ! -f "$ui_file" || ! -f "$game_lua" ]]; then
-        log_warn "UI_definitions.lua / game.lua not found, skipping telemetry toggles"
+    if [[ ! -f "$game_lua" ]]; then
+        log_warn "game.lua not found, skipping telemetry LONG DT gate"
         return 0
     fi
-    if ! grep -q "telemetry_log" "$ui_file"; then
-        sed -i "s|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},|" "$ui_file"
-    fi
     if ! grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
-        sed -i "s|    if self.real_dt > 0.05 then print('LONG DT|    if G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"
+        # Anchor on the stable "self.real_dt > 0.05 then print('LONG DT'" predicate,
+        # not the whole "if ... then" clause: DebugPlus's lovely bake prepends its
+        # own "require('debugplus.config').getValue('enableLongDT') and " condition
+        # ahead of self.real_dt, so a "    if self.real_dt" anchor no longer matches.
+        # Inserting the consent gate immediately before self.real_dt composes with
+        # any such prepended condition (both gates AND together) and keeps the
+        # success grep ("G.SETTINGS.telemetry_log and self.real_dt") valid.
+        sed -i "s|self.real_dt > 0.05 then print('LONG DT|G.SETTINGS.telemetry_log and self.real_dt > 0.05 then print('LONG DT|" "$game_lua"
     fi
-    if grep -q "telemetry_home" "$ui_file" && grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
-        log_success "Telemetry toggles added (Settings > Game — both default OFF; LONG DT print gated)"
+    if grep -q "G.SETTINGS.telemetry_log and self.real_dt" "$game_lua"; then
+        log_success "Telemetry LONG DT logcat print gated on G.SETTINGS.telemetry_log"
     else
-        # hard failure: a silent anchor miss here ships an APK whose telemetry
-        # can never be enabled (or whose LONG DT print is ungated) — the whole
-        # point of the gating is consent, so a broken gate fails the build
-        log_error "Telemetry toggles did not fully apply — check anchors"
+        # hard failure: a silent anchor miss here ships an APK whose LONG DT print
+        # is ungated — the whole point of the gating is consent, so it fails the build
+        log_error "Telemetry LONG DT gate did not apply — check anchor"
+        exit 1
+    fi
+}
+
+# OVERLAY_MENU_FIT: make every options overlay (Settings, run info, etc.) fit the
+# screen vertically. Balatro letterboxes the game ROOM so it is always fully
+# visible, but overlay menus are content-sized and uncapped — on a phone's
+# wide-but-short landscape aspect the visible vertical span is only ~the ROOM
+# height (G.ROOM.T.h tiles), so a tall menu (vanilla Settings + Cryptid's extra
+# rows + the telemetry toggles above) overflows off top/bottom; you only see it
+# all by unfolding to a squarer screen with more vertical tiles. The engine's
+# create_UIBox_generic_options menu frame already supports maxh — UIBox:calculate_xywh
+# scales a node's whole subtree by maxh/content_h when content exceeds maxh — but
+# the frame never sets one. Cap the menu frame at the ROOM height so any overflowing
+# menu auto-scales down to fit; it is a no-op for menus that already fit (desktop,
+# unfolded), so behaviour only changes where it was broken.
+apply_overlay_menu_fit() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "UI_definitions.lua not found, skipping OVERLAY_MENU_FIT"
+        return 0
+    fi
+    local anchor='{align = "cm", minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour or G.C.JOKER_GREY, emboss = 0.1}'
+    if grep -qF 'maxh = G.ROOM.T.h, minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour' "$f"; then
+        log_info "OVERLAY_MENU_FIT already applied"
+        return 0
+    fi
+    if ! grep -qF "$anchor" "$f"; then
+        log_error "OVERLAY_MENU_FIT: generic_options menu-frame anchor not found — check UI_definitions.lua"
+        exit 1
+    fi
+    sed -i 's|{align = "cm", minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour or G.C.JOKER_GREY, emboss = 0.1}|{align = "cm", maxh = G.ROOM.T.h, minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour or G.C.JOKER_GREY, emboss = 0.1}|' "$f"
+    if grep -qF 'maxh = G.ROOM.T.h, minh = 1,r = 0.3, padding = 0.07, minw = 1, colour = args.outline_colour' "$f"; then
+        log_success "OVERLAY_MENU_FIT applied (options overlays scale down to fit G.ROOM.T.h — no more off-screen settings)"
+    else
+        log_error "OVERLAY_MENU_FIT did not apply — check generic_options anchor"
         exit 1
     fi
 }
@@ -1237,7 +1627,10 @@ apply_drag_select() {
     #    when over limit).
     sed -i 's|    --Cursor is currently hovering over something|    if (self.HID.touch or self.HID.touch_env) and self.dragSelectActive.active then -- DRAG_SELECT_LOOP\n        local distance = math.huge; local closest = nil\n        for _, v in ipairs(self.collision_list) do\n            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)\n            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then\n                closest = v; distance = cur_distance\n            end\n        end\n        local _start = self.dragSelectActive.start_card\n        if closest and _start and not self.dragSelectActive.mode and closest ~= _start then -- DRAG_SELECT_CARD_START sweep begins\n            self.dragSelectActive.mode = _start.highlighted and "deselect" or "select"\n            if _start.highlighted then _start.area:remove_from_highlighted(_start) else _start.area:add_to_highlighted(_start) end\n        end\n        if closest and (closest ~= _start or self.dragSelectActive.mode) and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then\n            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"\n            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end\n        end\n    end\n    --Cursor is currently hovering over something|' "$ctrl"
     # 6) toggle in Settings > Game (after the Debug Overlay toggle)
-    sed -i "s|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),|create_toggle({label = \"Debug Overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
+    # Slide-to-select is a gameplay control, so it stays in the Game tab — anchored
+    # on the vanilla Reduced Motion toggle (the debug toggles it used to chain off
+    # moved to the Debug tab; see apply_settings_debug_tab).
+    sed -i "s|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),|create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),\n      create_toggle({label = \"Slide to select cards\", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),|" "$ui_file"
     if grep -q "DRAG_SELECT_LOOP" "$ctrl" && grep -q "DRAG_SELECT_ACTIVATE" "$ctrl" && grep -q "DRAG_SELECT_CARD_START" "$ctrl" && grep -q "DRAG_SELECT_HOLD_REORDER" "$ctrl" && grep -q "enable_drag_select" "$ui_file"; then
         log_success "Drag-select (slide to select, incl. card-start sweeps + hold-to-reorder) applied"
     else
@@ -1653,6 +2046,77 @@ PYEOF
     fi
 }
 
+# Fix: Demicolon stack overflow (DEMICOLON_NO_CHAIN).
+# Demicolon has demicoloncompat=true, so it can be force-triggered by another
+# Demicolon.  When that happens context.forcetrigger is already set and
+# Demicolon's calculate would call Cryptid.forcetrigger again — unbounded
+# recursion that stack-overflows on long runs (observed: ante 13, round 40).
+# Guard: skip the force-trigger chain when already in a forcetrigger context.
+apply_cryptid_demicolon_no_chain() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Cryptid epic.lua not found, skipping Demicolon chain fix"
+        return 0
+    fi
+    if grep -q "DEMICOLON_NO_CHAIN" "$f"; then
+        log_info "Demicolon no-chain fix already applied"
+        return 0
+    fi
+    sed -i 's/if context\.joker_main and not context\.blueprint then$/if context.joker_main and not context.blueprint and not context.forcetrigger then -- DEMICOLON_NO_CHAIN/' "$f"
+    if grep -q "DEMICOLON_NO_CHAIN" "$f"; then
+        log_success "Demicolon no-chain fix applied (DEMICOLON_NO_CHAIN)"
+    else
+        log_warn "Demicolon no-chain fix did not apply — check epic.lua"
+    fi
+}
+
+# Fix: Oil Lamp global leak (OIL_LAMP_LOCAL_FIX).
+# Oil Lamp's update function sets other_joker without local, leaking the
+# variable into _G and letting it alias across all joker update calls.
+apply_cryptid_oil_lamp_local_fix() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "Cryptid misc_joker.lua not found, skipping Oil Lamp local fix"
+        return 0
+    fi
+    if grep -q "OIL_LAMP_LOCAL_FIX" "$f"; then
+        log_info "Oil Lamp local fix already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = (
+    '\t\t\tfor i = 1, #G.jokers.cards do\n'
+    '\t\t\t\tif G.jokers.cards[i] == card then\n'
+    '\t\t\t\t\tother_joker = G.jokers.cards[i + 1]\n'
+    '\t\t\t\tend\n'
+    '\t\t\tend\n'
+    '\t\t\tif other_joker and other_joker ~= card'
+)
+new = (
+    '\t\t\tlocal other_joker = nil -- OIL_LAMP_LOCAL_FIX\n'
+    '\t\t\tfor i = 1, #G.jokers.cards do\n'
+    '\t\t\t\tif G.jokers.cards[i] == card then\n'
+    '\t\t\t\t\tother_joker = G.jokers.cards[i + 1]\n'
+    '\t\t\t\tend\n'
+    '\t\t\tend\n'
+    '\t\t\tif other_joker and other_joker ~= card'
+)
+if old in text:
+    open(path, 'w').write(text.replace(old, new, 1))
+    print("Oil Lamp local fix applied")
+else:
+    print("Oil Lamp local fix: pattern not found, skipping")
+PYEOF
+    if grep -q "OIL_LAMP_LOCAL_FIX" "$f"; then
+        log_success "Oil Lamp local fix applied (OIL_LAMP_LOCAL_FIX)"
+    else
+        log_warn "Oil Lamp local fix did not apply — check misc_joker.lua"
+    fi
+}
+
 # Hoist the eval_card context table outside the inner other_joker loop in
 # state_events.lua. The inner loop constructs a new 6-field table literal on
 # every eval_card call. Since full_hand / scoring_hand / scoring_name /
@@ -1913,6 +2377,57 @@ apply_ui_colour_guard() {
     fi
 }
 
+# UI_O_DETACHED: a UIT.O node whose config.object has been detached
+# (mid-teardown UI) breaks recalculate twice over: calculate_xywh computes
+# nil dims and set_values writes T.w/T.h = nil (next frame: move_wh
+# arithmetic-on-nil crash — the fold-close field crash, dying words
+# who=UIElement T(x,y,nil,nil)), and set_values' role wiring derefs the
+# missing object (error swallowed by the resize handler's pcall, leaving
+# the half-mutated tree alive). Detached objects must lay out 0x0 and skip
+# role wiring.
+apply_ui_o_detached_guard() {
+    local f="$1"
+    if grep -q "UI_O_DETACHED" "$f"; then
+        log_info "UI_O_DETACHED already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old_dims = """                node.config.w or (node.config.object and node.config.object.T.w),
+                node.config.h or (node.config.object and node.config.object.T.h)"""
+new_dims = """                node.config.w or (node.config.object and node.config.object.T.w) or 0, -- UI_O_DETACHED: detached object lays out 0x0, never nil
+                node.config.h or (node.config.object and node.config.object.T.h) or 0"""
+
+old_role = """    if self.UIT == G.UIT.O and not self.config.no_role then
+        self.config.object:set_role(self.config.role or {role_type = 'Minor', major = self, xy_bond = 'Strong', wh_bond = 'Weak', scale_bond = 'Weak'})
+    end"""
+new_role = """    if self.UIT == G.UIT.O and self.config.object and not self.config.no_role then -- UI_O_DETACHED: skip role wiring when the object is gone
+        self.config.object:set_role(self.config.role or {role_type = 'Minor', major = self, xy_bond = 'Strong', wh_bond = 'Weak', scale_bond = 'Weak'})
+    end"""
+
+for name, old, new in (("dims", old_dims, new_dims), ("role", old_role, new_role)):
+    if old not in text:
+        print("ERROR: UI_O_DETACHED %s anchor not found" % name, file=sys.stderr)
+        sys.exit(1)
+    if text.count(old) != 1:
+        print("ERROR: UI_O_DETACHED %s anchor not unique" % name, file=sys.stderr)
+        sys.exit(1)
+    text = text.replace(old, new, 1)
+
+open(path, 'w').write(text)
+print("UI_O_DETACHED applied")
+PYEOF
+    if grep -q "UI_O_DETACHED" "$f"; then
+        log_success "UI_O_DETACHED applied (detached UIT.O nodes lay out 0x0, role wiring skipped)"
+    else
+        log_error "UI_O_DETACHED did not apply — check ui.lua anchors"
+        exit 1
+    fi
+}
+
 # DRAG_REJECT_FEEDBACK: sticky-fingers' drag-drop targets silently no-op when
 # the drop is rejected (check_drag_target_active sets release_func=nil while
 # the card is unaffordable). On a touchscreen that silence is
@@ -2166,7 +2681,7 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
-    for mod in Steamodded Cryptid Talisman sticky-fingers; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
             rm -rf "$transfer_dir/Mods/$mod/lovely"
@@ -3097,6 +3612,15 @@ PYEOF
 # linearly to a 4ms cap by ~174MB, with the step cap scaled to match so the
 # time budget is the binding limit. At the frame times where this matters the
 # extra milliseconds are invisible; while healthy nothing changes.
+#
+# v2 (field data 2026-06-12: heap 153->201->259MB during play, 316MB burst
+# crossed the ceiling for a multi-second 1fps hitch): two additions —
+# (1) the budget keeps escalating past 4ms above 174MB (to a 10ms cap by
+# ~254MB; at that pressure frames are churn-bound anyway and 10ms of GC
+# beats a 3s emergency collect), and (2) above 200MB a FULL collect runs
+# opportunistically when the game enters a breath state (SHOP, BLIND_SELECT,
+# ROUND_EVAL, MENU — already a pause), never mid-scoring, debounced 30s, so
+# the 300MB mid-hand cliff is never reached. ATLOG NUGC_FULL logs each one.
 apply_nugc_adaptive() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -3120,12 +3644,41 @@ old = (
 new = (
     "\t-- NUGC_ADAPTIVE: scale the default budget with heap pressure so steady\n"
     "\t-- collection keeps pace with allocation churn instead of riding the\n"
-    "\t-- memory_ceiling emergency full-collect (a multi-second hitch)\n"
+    "\t-- memory_ceiling emergency full-collect (a multi-second hitch).\n"
+    "\t-- v2: budget escalates past 4ms above 174MB (10ms cap by ~254MB), and\n"
+    "\t-- above 200MB a full collect runs when the game enters a breath state\n"
+    "\t-- (already a pause; never mid-scoring; debounced 30s) so the 300MB\n"
+    "\t-- mid-hand cliff is never reached.\n"
+    "\tlocal nugc_mb = collectgarbage(\"count\") / 1024\n"
     "\tif not time_budget then\n"
-    "\t\tlocal mb = collectgarbage(\"count\") / 1024\n"
-    "\t\ttime_budget = mb < 100 and 3e-4 or math.min(4e-3, 3e-4 + (mb - 100) * 5e-5)\n"
+    "\t\tif nugc_mb < 100 then time_budget = 3e-4\n"
+    "\t\telseif nugc_mb < 174 then time_budget = 3e-4 + (nugc_mb - 100) * 5e-5\n"
+    "\t\telse time_budget = math.min(10e-3, 4e-3 + (nugc_mb - 174) * 7.5e-5) end\n"
     "\tend\n"
     "\tmemory_ceiling = memory_ceiling or 300\n"
+    "\tNUGC_ST = NUGC_ST or { prev = nil, last_full = -1e9 }\n"
+    "\tlocal nugc_state = G and G.STATE\n"
+    "\tif nugc_state ~= NUGC_ST.prev then\n"
+    "\t\tNUGC_ST.prev = nugc_state\n"
+    "\t\tlocal breath = G.STATES and (nugc_state == G.STATES.SHOP\n"
+    "\t\t\tor nugc_state == G.STATES.BLIND_SELECT\n"
+    "\t\t\tor nugc_state == G.STATES.ROUND_EVAL\n"
+    "\t\t\tor nugc_state == G.STATES.MENU)\n"
+    "\t\tlocal nugc_now = love.timer.getTime()\n"
+    "\t\tif breath and nugc_mb > 200\n"
+    "\t\t\tand not (Talisman and Talisman.scoring_coroutine)\n"
+    "\t\t\tand nugc_now - NUGC_ST.last_full > 30 then\n"
+    "\t\t\tcollectgarbage(\"collect\")\n"
+    "\t\t\tNUGC_ST.last_full = nugc_now\n"
+    "\t\t\tif ATLOG then ATLOG(\"NUGC_FULL\", {\n"
+    "\t\t\t\tmb = math.floor(nugc_mb),\n"
+    "\t\t\t\tafter = math.floor(collectgarbage(\"count\") / 1024),\n"
+    "\t\t\t\tms = math.floor((love.timer.getTime() - nugc_now) * 1000),\n"
+    "\t\t\t}) end\n"
+    "\t\t\tif disable_otherwise then collectgarbage(\"stop\") end\n"
+    "\t\t\treturn\n"
+    "\t\tend\n"
+    "\tend\n"
     "\tlocal max_steps = math.max(1000, math.ceil(time_budget * 3.4e6))\n"
 )
 
@@ -3140,7 +3693,7 @@ open(path, 'w').write(text.replace(old, new, 1))
 print("NUGC_ADAPTIVE applied")
 PYEOF
     if grep -q "NUGC_ADAPTIVE" "$f"; then
-        log_success "NUGC_ADAPTIVE applied (GC budget scales 0.3ms -> 4ms with heap pressure)"
+        log_success "NUGC_ADAPTIVE v2 applied (budget 0.3ms -> 10ms with pressure + breath-state full collects above 200MB)"
     else
         log_error "NUGC_ADAPTIVE did not apply — check nuGC anchor"
         exit 1
@@ -3214,6 +3767,1360 @@ PYEOF
         log_success "LETTER_TABLE_REUSE applied (reuse let_tab+dims in-place on char match)"
     else
         log_warn "LETTER_TABLE_REUSE did not apply — check engine/text.lua letter loop anchor"
+    fi
+}
+
+# CRY_VANILLA_GAMESET: fourth Cryptid gameset that disables ALL Cryptid
+# content while the mod stays loaded — the sanctioned "play without
+# Cryptid" switch (the SMODS toggle is locked: its lovely half is baked
+# into the game files and disabling only the runtime half crashes on baked
+# references). Rides Cryptid's own machinery: "disabled" is already a
+# first-class per-item state; Cryptid.enabled() (62 consumers), set_ability
+# cry_disabled stamping, pool checks and grey tinting all follow from the
+# resolution returning "disabled". This applier:
+#   1. replaces Cryptid.gameset() with a vanilla-aware version (every
+#      CENTER resolution under the vanilla profile gameset returns
+#      "disabled"; the bare profile query reports "vanilla"; force_gameset
+#      still wins so picker previews render; per-item overrides are inert
+#      under vanilla by short-circuit order — stale overrides cannot
+#      resurrect items);
+#   2. adds the 4th intro-picker option (atlas col 3, grey-mix colour);
+#   3. adds a gameset switcher row to Cryptid's config tab (upstream has NO
+#      post-intro switcher at all) — buttons write the profile gameset and
+#      G:save_settings() persists it (the settings push includes the
+#      current profile);
+#   4. injects the localization keys.
+apply_cry_vanilla_gameset() {
+    local gameset_f="$1"
+    local cryptid_f="$2"
+    local loc_f="$3"
+    if grep -q "CRY_VANILLA_GAMESET" "$gameset_f"; then
+        log_info "CRY_VANILLA_GAMESET already applied"
+        return 0
+    fi
+    python3 - "$gameset_f" "$cryptid_f" "$loc_f" <<'PYEOF'
+import sys
+gameset_path, cryptid_path, loc_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# ── gameset.lua ──────────────────────────────────────────────────────────
+text = open(gameset_path).read()
+
+# 1. Replace the whole Cryptid.gameset function (span-anchored on the
+# signature and the comment that follows the function — immune to
+# tab/space drift inside the body).
+start_marker = "function Cryptid.gameset(card, center)"
+end_marker = "-- set_ability accounts for gamesets"
+si = text.find(start_marker)
+ei = text.find(end_marker)
+if si == -1 or ei == -1 or text.count(start_marker) != 1 or text.count(end_marker) != 1:
+    print("ERROR: Cryptid.gameset span anchors not found/unique", file=sys.stderr)
+    sys.exit(1)
+
+new_fn = """function Cryptid.gameset(card, center)
+\t-- CRY_VANILLA_GAMESET: under the vanilla profile gameset every CENTER
+\t-- resolution returns "disabled" -- Cryptid.enabled(), set_ability's
+\t-- cry_disabled stamp, pool checks and tinting all follow. The bare
+\t-- profile query still reports "vanilla" for UI callers. force_gameset
+\t-- wins first so picker previews and the per-item config UI render.
+\t-- The short-circuit sits BEFORE the per-item override lookup on
+\t-- purpose: stale overrides from a profile's earlier gameset must not
+\t-- resurrect items under vanilla.
+\tlocal _profile_gameset = G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
+\tif not center then
+\t\tif not card then
+\t\t\treturn _profile_gameset
+\t\tend
+\t\tcenter = card.config and card.config.center or card.effect and card.effect.center or card
+\tend
+\tif card.force_gameset then
+\t\treturn card.force_gameset
+\tend
+\tif center.force_gameset then
+\t\treturn center.force_gameset
+\tend
+\tif _profile_gameset == "vanilla" then
+\t\treturn "disabled"
+\tend
+\tif center.fake_card then
+\t\treturn _profile_gameset
+\tend
+\tif not center.key then
+\t\tif center.tag and center.tag.key then --dumb fix for tags
+\t\t\tcenter = center.tag
+\t\telse
+\t\t\tif false then
+\t\t\t\tprint("Could not find key for center: " .. tprint(center))
+\t\t\tend
+\t\t\treturn _profile_gameset
+\t\tend
+\tend
+\tlocal gameset = _profile_gameset
+\tif Cryptid_config.experimental and center.extra_gamesets then
+\t\tfor i = 1, #center.extra_gamesets do
+\t\t\tif center.extra_gamesets[i] == "exp_" .. gameset then
+\t\t\t\tgameset = "exp_" .. gameset
+\t\t\t\tbreak
+\t\t\telseif center.extra_gamesets[i] == "exp" then
+\t\t\t\tgameset = "exp"
+\t\t\t\tbreak
+\t\t\tend
+\t\tend
+\tend
+\tif
+\t\tG.PROFILES[G.SETTINGS.profile].cry_gameset_overrides
+\t\tand G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides[center.key]
+\tthen
+\t\treturn G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides[center.key]
+\tend
+\treturn gameset
+end
+"""
+text = text[:si] + new_fn + text[ei:]
+print("CRY_VANILLA_GAMESET: resolution replaced")
+
+# 2. Intro picker: vanilla sprite + button before the gamesetUI build
+anchor_ui = "\t\tlocal gamesetUI = create_UIBox_generic_options({"
+if text.count(anchor_ui) != 1:
+    print("ERROR: gamesetUI anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+vanilla_btn = """\t\tlocal vanillaSprite = Sprite(0, 0, 1, 1, G.ASSET_ATLAS["cry_gameset"], { x = 3, y = 0 })
+\t\tvanillaSprite:define_draw_steps({
+\t\t\t{ shader = "dissolve", shadow_height = 0.05 },
+\t\t\t{ shader = "dissolve" },
+\t\t})
+\t\tG.vanillaBtn = create_UIBox_character_button_with_sprite({
+\t\t\tsprite = vanillaSprite,
+\t\t\tbutton = localize("cry_gameset_vanilla"),
+\t\t\tid = "vanilla",
+\t\t\tfunc = "cry_vanilla",
+\t\t\tcolour = mix_colours(G.C.RED, G.C.GREY, 0.7),
+\t\t\tmaxw = 3,
+\t\t})
+"""
+text = text.replace(anchor_ui, vanilla_btn + anchor_ui, 1)
+
+anchor_contents = "\t\t\t\tG.madnessBtn,\n\t\t\t},"
+if text.count(anchor_contents) != 1:
+    print("ERROR: picker contents anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+text = text.replace(anchor_contents, "\t\t\t\tG.madnessBtn,\n\t\t\t\tG.vanillaBtn,\n\t\t\t},", 1)
+
+# 3. intro_part condition + desc_length
+old_cond = 'if _part == "modest" or _part == "mainline" or _part == "madness" then'
+if text.count(old_cond) != 1:
+    print("ERROR: intro_part condition anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old_cond,
+    'if _part == "modest" or _part == "mainline" or _part == "madness" or _part == "vanilla" then', 1)
+
+old_desc = "\t\t\tmadness = 3,\n\t\t}"
+if text.count(old_desc) != 1:
+    print("ERROR: desc_length anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+text = text.replace(old_desc, "\t\t\tmadness = 3,\n\t\t\tvanilla = 1,\n\t\t}", 1)
+
+# 4. colour resets in the three existing funcs + the new cry_vanilla func
+reset_line = '\tif G.vanillaBtn then G.vanillaBtn.config.colour = mix_colours(G.C.RED, G.C.GREY, 0.7) end\n'
+for part in ("modest", "mainline", "madness"):
+    call = '\tG.FUNCS.cry_intro_part("%s")' % part
+    if text.count(call) != 1:
+        print("ERROR: cry_intro_part call anchor for %s not found/unique" % part, file=sys.stderr)
+        sys.exit(1)
+    text = text.replace(call, reset_line + call, 1)
+
+anchor_confirm = "G.FUNCS.cry_gameset_confirm = function(e)"
+if text.count(anchor_confirm) != 1:
+    print("ERROR: gameset_confirm anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+vanilla_func = """G.FUNCS.cry_vanilla = function(e)
+\tG.modestBtn.config.colour = G.C.GREEN
+\tG.mainlineBtn.config.colour = G.C.RED
+\tG.madnessBtn.config.colour = G.C.CRY_EXOTIC
+\tG.vanillaBtn.config.colour = G.C.CRY_SELECTED
+\tG.FUNCS.cry_intro_part("vanilla")
+\tG.selectedGameset = "vanilla"
+end
+"""
+text = text.replace(anchor_confirm, vanilla_func + anchor_confirm, 1)
+
+open(gameset_path, 'w').write(text)
+print("CRY_VANILLA_GAMESET: gameset.lua patched")
+
+# ── Cryptid.lua: config-tab switcher ─────────────────────────────────────
+ctext = open(cryptid_path).read()
+
+anchor_reset = """\tcry_nodes[#cry_nodes + 1] = UIBox_button({
+\t\tcolour = G.C.CRY_ALTGREENGRADIENT,
+\t\tbutton = "reset_gameset_config","""
+if ctext.count(anchor_reset) != 1:
+    print("ERROR: reset button anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+switcher = """\t-- CRY_VANILLA_GAMESET: gameset switcher (upstream has no post-intro
+\t-- switcher at all; gameset applies to new runs)
+\tcry_nodes[#cry_nodes + 1] = {
+\t\tn = G.UIT.R,
+\t\tconfig = { align = "cm", padding = 0.05 },
+\t\tnodes = { { n = G.UIT.T, config = { text = localize("cry_current_gameset_label"), scale = 0.4, colour = G.C.UI.TEXT_LIGHT } } },
+\t}
+\tlocal _gs_row = { n = G.UIT.R, config = { align = "cm", padding = 0.05 }, nodes = {} }
+\tfor _, _gs in ipairs({ "modest", "mainline", "madness", "vanilla" }) do
+\t\t_gs_row.nodes[#_gs_row.nodes + 1] = UIBox_button({
+\t\t\tcolour = (G.PROFILES[G.SETTINGS.profile].cry_gameset == _gs) and G.C.CRY_SELECTED or G.C.GREY,
+\t\t\tbutton = "cry_cfg_set_gameset",
+\t\t\tref_table = { gameset = _gs },
+\t\t\tfunc = "cry_cfg_gameset_colour",
+\t\t\tlabel = { localize("cry_gameset_" .. _gs) },
+\t\t\tminw = 2.2,
+\t\t\tscale = 0.35,
+\t\t})
+\tend
+\tcry_nodes[#cry_nodes + 1] = _gs_row
+"""
+ctext = ctext.replace(anchor_reset, switcher + anchor_reset, 1)
+
+anchor_tabs = "local cryptidTabs = function()"
+if ctext.count(anchor_tabs) != 1:
+    print("ERROR: cryptidTabs anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+handlers = """-- CRY_VANILLA_GAMESET: config-tab gameset switcher handlers
+G.FUNCS.cry_cfg_set_gameset = function(e)
+\tlocal _gs = e.config.ref_table and e.config.ref_table.gameset
+\tif not _gs then return end
+\tG.PROFILES[G.SETTINGS.profile].cry_gameset = _gs
+\tG:save_settings()
+end
+G.FUNCS.cry_cfg_gameset_colour = function(e)
+\tlocal _gs = e.config.ref_table and e.config.ref_table.gameset
+\tif not _gs then return end
+\tlocal _sel = (G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline") == _gs
+\te.config.colour = _sel and G.C.CRY_SELECTED or G.C.GREY
+end
+
+"""
+ctext = ctext.replace(anchor_tabs, handlers + anchor_tabs, 1)
+open(cryptid_path, 'w').write(ctext)
+print("CRY_VANILLA_GAMESET: Cryptid.lua patched")
+
+# ── localization ─────────────────────────────────────────────────────────
+ltext = open(loc_path).read()
+
+anchor_loc = '\t\t\tcry_gameset_modest = "Modest",'
+if ltext.count(anchor_loc) != 1:
+    print("ERROR: localization gameset anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+ltext = ltext.replace(anchor_loc,
+    '\t\t\tcry_gameset_vanilla = "Vanilla",\n'
+    '\t\t\tcry_current_gameset_label = "Gameset (applies to new runs)",\n'
+    + anchor_loc, 1)
+
+anchor_reset_loc = '\t\t\tb_reset_gameset_madness = "Reset Gameset Config (Madness)",'
+if ltext.count(anchor_reset_loc) != 1:
+    print("ERROR: localization reset anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+ltext = ltext.replace(anchor_reset_loc,
+    anchor_reset_loc + '\n\t\t\tb_reset_gameset_vanilla = "Reset Gameset Config (Vanilla)",', 1)
+
+anchor_intro = "\t\t\tcry_modest_1 = {"
+if ltext.count(anchor_intro) != 1:
+    print("ERROR: localization intro anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+ltext = ltext.replace(anchor_intro,
+    '\t\t\tcry_vanilla_1 = {\n'
+    '\t\t\t\t"Just want plain Balatro? The {C:inactive}Vanilla{}",\n'
+    '\t\t\t\t"gameset turns all Cryptid content off.",\n'
+    '\t\t\t},\n'
+    + anchor_intro, 1)
+
+open(loc_path, 'w').write(ltext)
+print("CRY_VANILLA_GAMESET: localization patched")
+PYEOF
+    if grep -q "CRY_VANILLA_GAMESET" "$gameset_f" && grep -q "cry_gameset_vanilla" "$loc_f"; then
+        log_success "CRY_VANILLA_GAMESET applied (4th gameset: all Cryptid content off)"
+    else
+        log_error "CRY_VANILLA_GAMESET did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# BLIND_SELECT_TALL: the blind-select Select button is minh 0.6 design
+# units — small for thumbs (Joe, 2026-06-12: "just taller so it's more
+# touch friendly"). Bump both variants (live button + run_info display
+# row, same id) to 1.0; minh drives the hit box and the visual together.
+apply_blind_select_tall() {
+    local f="$1"
+    if ! grep -q "select_blind_button" "$f"; then
+        log_warn "select_blind_button not found, skipping BLIND_SELECT_TALL"
+        return 0
+    fi
+    if ! grep "select_blind_button" "$f" | grep -q "minh = 0.6"; then
+        log_info "BLIND_SELECT_TALL already applied"
+        return 0
+    fi
+    sed -i "/id = 'select_blind_button'/s/minh = 0.6/minh = 1.0/" "$f"
+    if grep "select_blind_button" "$f" | grep -q "minh = 1.0"; then
+        log_success "BLIND_SELECT_TALL applied (select button 0.6 -> 1.0 units tall)"
+    else
+        log_error "BLIND_SELECT_TALL did not apply — check select_blind_button lines"
+        exit 1
+    fi
+}
+
+# DRAW_SHADER_NIL_RESET: Balatro's draw_shader() ends with love.graphics.setShader()
+# (sprite.lua), resetting to nil after every single sprite draw.  Consecutive cards
+# sharing the same shader therefore ping-pong  S -> nil -> S -> nil -> S  instead of
+# holding S across the run.  LAZY_SHADER (patches/lazy-shader.lua) defers the GPU
+# bind until the next draw call, but it can only elide the nil->S re-bind when the
+# nil write from the previous draw_shader call does not intervene — i.e. only when
+# the reset is NOT inside draw_shader.
+#
+# This patch moves responsibility for the nil-reset from draw_shader to its callers:
+#   - sprite.lua:   remove the setShader() after the draw call
+#   - SMODS Card:draw: add one setShader() at the end of the draw step loop
+#   - dump Card:draw: add one setShader() closing each draw path (card + shadow-only)
+#   - Blind:draw:   add one setShader() after both draw_shader calls
+#   - get_stake_sprite closure: add one setShader() after both draw_shader calls
+#
+# Semantics are identical without LAZY_SHADER (same number of GPU calls, just
+# consolidated).  With LAZY_SHADER, 20 dissolve-only cards go from 120 real GPU
+# shader-bind operations to 2 (one bind to dissolve, one reset at the end).
+apply_draw_shader_nil_reset() {
+    local sprite_lua="$1"
+    local card_draw_lua="$2"
+    local card_lua="$3"
+    local blind_lua="$4"
+    local misc_lua="$5"
+
+    if grep -q "DRAW_SHADER_NIL_RESET" "$sprite_lua" 2>/dev/null; then
+        log_info "DRAW_SHADER_NIL_RESET already applied"
+        return 0
+    fi
+
+    python3 - "$sprite_lua" "$card_draw_lua" "$card_lua" "$blind_lua" "$misc_lua" <<'PYEOF'
+import sys
+
+sprite_f, card_draw_f, card_f, blind_f, misc_f = sys.argv[1:6]
+
+for path in [sprite_f, card_draw_f, card_f, blind_f, misc_f]:
+    import os
+    if not os.path.exists(path):
+        print(f"DRAW_SHADER_NIL_RESET: {path} not found, skipping")
+        sys.exit(0)
+
+# --- sprite.lua: remove the nil-reset from draw_shader ---
+text = open(sprite_f).read()
+OLD = """    if other_obj then 
+        self:draw_from(other_obj, ms, mr, mx, my)
+    else 
+        self:draw_self()
+    end
+
+    love.graphics.setShader()
+
+    if _shadow_height then"""
+NEW = """    if other_obj then 
+        self:draw_from(other_obj, ms, mr, mx, my)
+    else 
+        self:draw_self()
+    end
+    -- DRAW_SHADER_NIL_RESET: nil-reset removed; callers (Card:draw, Blind:draw,
+    -- stake closure) issue one setShader() after their last draw_shader call,
+    -- letting LAZY_SHADER collapse same-shader runs without the S->nil->S ping-pong.
+
+    if _shadow_height then"""
+if OLD not in text:
+    print(f"DRAW_SHADER_NIL_RESET: sprite.lua anchor not found — check draw_shader body")
+    sys.exit(1)
+text = text.replace(OLD, NEW, 1)
+open(sprite_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: sprite.lua patched")
+
+# --- SMODS card_draw.lua: one reset at end of Card:draw ---
+text = open(card_draw_f).read()
+OLD2 = """function Card:draw(layer)
+    layer = layer or 'both'
+    self.hover_tilt = 1
+    if not self.states.visible then return end
+    for _, k in ipairs(SMODS.DrawStep.obj_buffer) do
+        if SMODS.DrawSteps[k]:check_conditions(self, layer) then SMODS.DrawSteps[k].func(self, layer) end
+    end
+end"""
+NEW2 = """function Card:draw(layer)
+    layer = layer or 'both'
+    self.hover_tilt = 1
+    if not self.states.visible then return end
+    for _, k in ipairs(SMODS.DrawStep.obj_buffer) do
+        if SMODS.DrawSteps[k]:check_conditions(self, layer) then SMODS.DrawSteps[k].func(self, layer) end
+    end
+    love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per card
+end"""
+if OLD2 not in text:
+    print(f"DRAW_SHADER_NIL_RESET: card_draw.lua Card:draw anchor not found")
+    sys.exit(1)
+text = text.replace(OLD2, NEW2, 1)
+open(card_draw_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: SMODS card_draw.lua patched")
+
+# --- card.lua: shadow-only reset + card-block reset ---
+text = open(card_f).read()
+OLD3A = """        G.shared_shadow:draw_shader('dissolve', self.shadow_height)
+    end
+
+    if (layer == 'card' or layer == 'both') and self.area ~= G.hand then"""
+NEW3A = """        G.shared_shadow:draw_shader('dissolve', self.shadow_height)
+    end
+    -- DRAW_SHADER_NIL_RESET: cover shadow draw when layer == 'shadow' (card block skipped)
+    if layer == 'shadow' then love.graphics.setShader() end
+
+    if (layer == 'card' or layer == 'both') and self.area ~= G.hand then"""
+if OLD3A not in text:
+    print(f"DRAW_SHADER_NIL_RESET: card.lua shadow anchor not found")
+    sys.exit(1)
+text = text.replace(OLD3A, NEW3A, 1)
+
+OLD3B = """        add_to_drawhash(self)
+        self:draw_boundingrect()
+    end
+end
+
+function Card:release(dragged)"""
+NEW3B = """        add_to_drawhash(self)
+        self:draw_boundingrect()
+        love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per card
+    end
+end
+
+function Card:release(dragged)"""
+if OLD3B not in text:
+    print(f"DRAW_SHADER_NIL_RESET: card.lua Card:draw close anchor not found")
+    sys.exit(1)
+text = text.replace(OLD3B, NEW3B, 1)
+open(card_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: card.lua patched")
+
+# --- blind.lua: one reset after both draw_shader calls ---
+text = open(blind_f).read()
+OLD4 = """    self.children.animatedSprite.role.draw_major = self
+    self.children.animatedSprite:draw_shader('dissolve', 0.1)
+    self.children.animatedSprite:draw_shader('dissolve')    
+
+    for k, v in pairs(self.children) do"""
+NEW4 = """    self.children.animatedSprite.role.draw_major = self
+    self.children.animatedSprite:draw_shader('dissolve', 0.1)
+    self.children.animatedSprite:draw_shader('dissolve')
+    love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per blind
+
+    for k, v in pairs(self.children) do"""
+if OLD4 not in text:
+    print(f"DRAW_SHADER_NIL_RESET: blind.lua anchor not found")
+    sys.exit(1)
+text = text.replace(OLD4, NEW4, 1)
+open(blind_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: blind.lua patched")
+
+# --- misc_functions.lua: one reset in get_stake_sprite custom draw ---
+text = open(misc_f).read()
+OLD5 = """      Sprite.draw_shader(_sprite, 'dissolve')
+      Sprite.draw_shader(_sprite, 'voucher', nil, _sprite.ARGS.send_to_shader)
+    end
+  end
+  return stake_sprite
+end"""
+NEW5 = """      Sprite.draw_shader(_sprite, 'dissolve')
+      Sprite.draw_shader(_sprite, 'voucher', nil, _sprite.ARGS.send_to_shader)
+      love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET
+    end
+  end
+  return stake_sprite
+end"""
+if OLD5 not in text:
+    print(f"DRAW_SHADER_NIL_RESET: misc_functions.lua stake closure anchor not found")
+    sys.exit(1)
+text = text.replace(OLD5, NEW5, 1)
+open(misc_f, 'w').write(text)
+print("DRAW_SHADER_NIL_RESET: misc_functions.lua patched")
+PYEOF
+    local exit_code=$?
+    if [[ $exit_code -eq 0 ]] && grep -q "DRAW_SHADER_NIL_RESET" "$sprite_lua" 2>/dev/null; then
+        log_success "DRAW_SHADER_NIL_RESET applied (draw_shader nil-reset consolidated to call sites)"
+    elif [[ $exit_code -ne 0 ]]; then
+        log_error "DRAW_SHADER_NIL_RESET Python patcher failed"
+        exit 1
+    fi
+}
+
+# EMPTY_POOL_GUARD: SMODS create_card rolls a center key from
+# get_current_pool and resamples while it draws 'UNAVAILABLE' — but an
+# EMPTY pool makes pseudorandom_element return nil, the resample loop
+# passes nil through, G.P_CENTERS[nil] silently yields a nil center, and
+# Card crashes three frames later in Cryptid's set_ability wrapper
+# ("attempt to index field 'ability'", on-device 2026-06-12: The Soul at
+# ante 3 on profile M2 rolled a legendary from an empty pool — heavy
+# disable interplay). Guard at the creation site (covers every caller and
+# both unguarded Cryptid wrappers downstream) with the type-appropriate
+# fallback, and ATLOG the pool key so the field names WHY it was empty.
+apply_empty_pool_guard() {
+    local f="$1"
+    if grep -q "EMPTY_POOL_GUARD" "$f"; then
+        log_info "EMPTY_POOL_GUARD already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "        center = G.P_CENTERS[center]\n"
+new = """        center = G.P_CENTERS[center]
+        -- EMPTY_POOL_GUARD: see build.sh applier comment
+        if not center then
+            if ATLOG then ATLOG("EMPTY_POOL", { type = _type, pool = tostring(_pool_key), legendary = legendary and 1 or 0 }) end
+            center = G.P_CENTERS[_type == 'Joker' and 'j_joker'
+                or _type == 'Tarot' and 'c_fool'
+                or _type == 'Planet' and 'c_pluto'
+                or _type == 'Spectral' and 'c_incantation'
+                or 'c_base'] or G.P_CENTERS['c_base']
+        end
+"""
+
+if old not in text:
+    print("ERROR: P_CENTERS lookup anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: P_CENTERS lookup anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("EMPTY_POOL_GUARD applied")
+PYEOF
+    if grep -q "EMPTY_POOL_GUARD" "$f"; then
+        log_success "EMPTY_POOL_GUARD applied (nil center falls back, pool key logged)"
+    else
+        log_error "EMPTY_POOL_GUARD did not apply — check common_events anchor"
+        exit 1
+    fi
+}
+
+# CRY_FORCETRIGGER_DEPTH_GUARD: Cryptid.forcetrigger -> eval_card with
+# context.forcetrigger=true -> the card's calculate -> which may call
+# Cryptid.forcetrigger again (chained / copied force-trigger jokers).
+# NOTHING enforces a bound centrally — each joker must individually respect
+# context.forcetrigger, and any pair that doesn't recurses to a C-stack
+# overflow with NO traceback ("stack overflow", no source location —
+# observed on-device 2026-06-11 ~1s after NEW_ROUND on the ante -20 grind
+# run; DEMICOLON_NO_CHAIN fixed one instance of the class, this bounds the
+# class itself, upstreamably). Wrapper post-define: depth-bounded, pcall'd
+# so the counter survives errors, ATLOG names the culprit card when the
+# bound trips (20 levels is far beyond any legitimate cascade).
+apply_cry_forcetrigger_depth_guard() {
+    local f="$1"
+    if grep -q "CRY_FORCETRIGGER_DEPTH_GUARD" "$f"; then
+        log_info "CRY_FORCETRIGGER_DEPTH_GUARD already applied"
+        return 0
+    fi
+    cat >> "$f" <<'LUAEOF'
+
+-- CRY_FORCETRIGGER_DEPTH_GUARD: see build.sh applier comment. Central bound
+-- on the forcetrigger -> eval_card -> calculate -> forcetrigger recursion
+-- class (per-joker context.forcetrigger checks are opt-in and incomplete).
+local _cry_ft_ref = Cryptid.forcetrigger
+local _cry_ft_depth = 0
+function Cryptid.forcetrigger(card, context)
+	if _cry_ft_depth >= 20 then
+		if ATLOG then
+			ATLOG("CRY_FT_DEPTH", { card = card and card.ability and card.ability.name or "?" })
+		end
+		return {}
+	end
+	_cry_ft_depth = _cry_ft_depth + 1
+	local _ok, _results = pcall(_cry_ft_ref, card, context)
+	_cry_ft_depth = _cry_ft_depth - 1
+	if not _ok then
+		error(_results, 0)
+	end
+	return _results
+end
+LUAEOF
+    if grep -q "CRY_FORCETRIGGER_DEPTH_GUARD" "$f"; then
+        log_success "CRY_FORCETRIGGER_DEPTH_GUARD applied (forcetrigger chains bounded at 20)"
+    else
+        log_error "CRY_FORCETRIGGER_DEPTH_GUARD did not apply"
+        exit 1
+    fi
+}
+
+# CRY_BLIND_CHOICE_GUARD: Cryptid's disable machinery REMOVES blinds from
+# G.P_BLINDS (SMODS.Blind._disable, gameset.lua:1066), but a live run's
+# G.GAME.round_resets.blind_choices can already reference a removed blind —
+# twelve unguarded P_BLINDS[blind_choices] index sites in the per-frame
+# Game:update block (overrides.lua:478-502) plus the baked blind-select UI
+# then crash on nil (hit on-device 2026-06-11 seconds after a mid-run
+# gameset switch; also reproducible in stock Cryptid by per-item-disabling
+# an upcoming blind). Two layers, both upstreamable:
+#   1. sanitize at the source: after the top-level registry sweep
+#      (Cryptid.update_obj_registry), re-roll any live blind_choices entry
+#      whose blind no longer exists (Small/Big -> vanilla constants,
+#      Boss -> get_new_boss(), which under vanilla rolls vanilla bosses);
+#   2. defensive guard in the per-frame condition chain.
+apply_cry_blind_choice_guard() {
+    local overrides_f="$1"
+    local gameset_f="$2"
+    if grep -q "CRY_BLIND_CHOICE_GUARD" "$overrides_f"; then
+        log_info "CRY_BLIND_CHOICE_GUARD already applied"
+        return 0
+    fi
+    python3 - "$overrides_f" "$gameset_f" <<'PYEOF'
+import sys
+overrides_path, gameset_path = sys.argv[1], sys.argv[2]
+
+otext = open(overrides_path).read()
+old_cond = """\t\t\tand G.GAME.round_resets.blind_choices[c]
+\t\t\tand G.P_BLINDS[G.GAME.round_resets.blind_choices[c]].cry_ante_base_mod"""
+new_cond = """\t\t\tand G.GAME.round_resets.blind_choices[c]
+\t\t\tand G.P_BLINDS[G.GAME.round_resets.blind_choices[c]] -- CRY_BLIND_CHOICE_GUARD
+\t\t\tand G.P_BLINDS[G.GAME.round_resets.blind_choices[c]].cry_ante_base_mod"""
+if otext.count(old_cond) != 1:
+    print("ERROR: blind-choice condition anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+open(overrides_path, 'w').write(otext.replace(old_cond, new_cond, 1))
+print("CRY_BLIND_CHOICE_GUARD: overrides.lua guarded")
+
+gtext = open(gameset_path).read()
+anchor = "function Cryptid.index_items(func, m)"
+if gtext.count(anchor) != 1:
+    print("ERROR: index_items anchor not found/unique", file=sys.stderr)
+    sys.exit(1)
+wrapper = """-- CRY_BLIND_CHOICE_GUARD: after the top-level registry sweep, a live run
+-- may hold blind_choices rolled before this sweep removed those blinds from
+-- G.P_BLINDS (mid-run gameset switch, per-item disable of an upcoming
+-- blind). Re-roll stale choices so the per-frame P_BLINDS[blind_choices]
+-- consumers and the blind-select UI never index nil. Inner recursive calls
+-- pass m ~= nil and skip this.
+local _cry_uor_ref = Cryptid.update_obj_registry
+function Cryptid.update_obj_registry(m, force_enable)
+\t_cry_uor_ref(m, force_enable)
+\tif not m and G.GAME and G.GAME.round_resets and G.GAME.round_resets.blind_choices and G.P_BLINDS then
+\t\tlocal bc = G.GAME.round_resets.blind_choices
+\t\tif bc.Small and not G.P_BLINDS[bc.Small] then bc.Small = "bl_small" end
+\t\tif bc.Big and not G.P_BLINDS[bc.Big] then bc.Big = "bl_big" end
+\t\tif bc.Boss and not G.P_BLINDS[bc.Boss] then
+\t\t\tlocal _ok_nb, _nb = pcall(get_new_boss)
+\t\t\tbc.Boss = (_ok_nb and _nb) or "bl_hook"
+\t\tend
+\tend
+end
+
+"""
+open(gameset_path, 'w').write(gtext.replace(anchor, wrapper + anchor, 1))
+print("CRY_BLIND_CHOICE_GUARD: gameset.lua sweep sanitize added")
+PYEOF
+    if grep -q "CRY_BLIND_CHOICE_GUARD" "$overrides_f" && grep -q "CRY_BLIND_CHOICE_GUARD" "$gameset_f"; then
+        log_success "CRY_BLIND_CHOICE_GUARD applied (stale blind_choices sanitized + guarded)"
+    else
+        log_error "CRY_BLIND_CHOICE_GUARD did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# AMULET_CALC_DELAY: Amulet's scoring coroutine summons the "calculating"
+# overlay on the FIRST update frame of every scoring run (co.update:
+# `if not G.OVERLAY_MENU then co.overlay()`), so small hands that finish in
+# a frame or two flash the overlay — the same class as the Talisman-era dim
+# fix (observed live 2026-06-11 after the migration). Gate the summon on
+# 1.0s of accumulated scoring wall-clock; the state is fresh per play
+# (co.initialize_state -> co.create_state), so the timer self-resets.
+apply_amulet_calc_delay() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "coroutine.lua not found at $f, skipping AMULET_CALC_DELAY"
+        return 0
+    fi
+    if grep -q "AMULET_CALC_DELAY" "$f"; then
+        log_info "AMULET_CALC_DELAY already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """	co.resume()
+
+	if not G.OVERLAY_MENU then
+		co.overlay()
+	else"""
+new = """	co.resume()
+
+	-- AMULET_CALC_DELAY: small hands finish in a frame or two; summoning the
+	-- overlay instantly reads as a flash. Only show it once this scoring run
+	-- has been visibly long.
+	Talisman.scoring_coroutine.pre_overlay_t = (Talisman.scoring_coroutine.pre_overlay_t or 0) + dt
+	if not G.OVERLAY_MENU then
+		if Talisman.scoring_coroutine.pre_overlay_t > 1.0 then co.overlay() end
+	else"""
+
+if old not in text:
+    print("ERROR: calc overlay anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: calc overlay anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("AMULET_CALC_DELAY applied")
+PYEOF
+    if grep -q "AMULET_CALC_DELAY" "$f"; then
+        log_success "AMULET_CALC_DELAY applied (calc overlay gated on 1.0s of scoring)"
+    else
+        log_error "AMULET_CALC_DELAY did not apply — check coroutine.lua anchor"
+        exit 1
+    fi
+}
+
+# AMULET_OVERLAY_FIT: the calc overlay ROOT uses padding=9999 as a
+# fill-the-screen hack. Under our contain layout the UI layouter then parks
+# the actual content ~10k units off-screen (desktop probe at 2208x1840: ROOT
+# T=(-9990,-19993), text child at y=-9993.9). Replace the hack with a
+# room-sized backdrop; align="cm" keeps the text centered on screen
+# (probe-verified: text child lands at (8.6, 4.9)).
+apply_amulet_overlay_fit() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "coroutine.lua not found at $f, skipping AMULET_OVERLAY_FIT"
+        return 0
+    fi
+    if grep -q "AMULET_OVERLAY_FIT" "$f"; then
+        log_info "AMULET_OVERLAY_FIT already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """		config = {
+			align = "cm",
+			padding = 9999,
+			offset = { x = 0, y = -3 },
+			r = 0.1,
+			colour = { G.C.GREY[1], G.C.GREY[2], G.C.GREY[3], 0.7 }
+		},"""
+new = """		-- AMULET_OVERLAY_FIT: padding=9999 was a fill-the-screen hack that
+		-- parks the laid-out content ~10k units off-screen (text child
+		-- measured at y=-9994 under the contain layout). Size the backdrop
+		-- to the real window (in room units; the room is centered in the
+		-- window, so a window-sized box centered on ROOM_ATTACH dims the
+		-- whole screen in any posture) and let align="cm" center the content.
+		-- Recomputed each summon, so it adapts per fold posture.
+		config = {
+			align = "cm",
+			padding = 0.2,
+			minw = (G.WINDOWTRANS and G.WINDOWTRANS.real_window_w / (G.TILESIZE * G.TILESCALE))
+				or (G.TILE_W + 2 * G.ROOM_PADDING_W),
+			minh = (G.WINDOWTRANS and G.WINDOWTRANS.real_window_h / (G.TILESIZE * G.TILESCALE))
+				or (G.TILE_H + 2 * G.ROOM_PADDING_H),
+			r = 0.1,
+			colour = { G.C.GREY[1], G.C.GREY[2], G.C.GREY[3], 0.7 }
+		},"""
+
+if old not in text:
+    print("ERROR: overlay config anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: overlay config anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("AMULET_OVERLAY_FIT applied")
+PYEOF
+    if grep -q "AMULET_OVERLAY_FIT" "$f"; then
+        log_success "AMULET_OVERLAY_FIT applied (calc overlay room-sized, content on-screen)"
+    else
+        log_error "AMULET_OVERLAY_FIT did not apply — check coroutine.lua anchor"
+        exit 1
+    fi
+}
+
+# STRUCTURAL_MODS_LOCK: on this build, Cryptid / Amulet / sticky-fingers are
+# HALF BAKED-IN — their lovely patches are compiled into the shipped game
+# files (the dump), and only their runtime half loads through SMODS. The
+# SMODS mods-menu toggle writes .lovelyignore into the save-dir Mods overlay
+# and disables ONLY the runtime half — baked references then call nil
+# (proven on-device 2026-06-11: Cryptid toggled off -> Cryptid.gameset_sprite
+# nil at UI_definitions.lua:6534 -> crash loop on every run-setup open).
+# Make the loader ignore .lovelyignore for the baked mods; they are not
+# optional content here.
+apply_structural_mods_lock() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "loader.lua not found at $f, skipping STRUCTURAL_MODS_LOCK"
+        return 0
+    fi
+    if grep -q "STRUCTURAL_MODS_LOCK" "$f"; then
+        log_info "STRUCTURAL_MODS_LOCK already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+table_def = """-- STRUCTURAL_MODS_LOCK: these mods' lovely patches are baked into the
+-- shipped game files; the runtime toggle cannot remove that half, so
+-- disabling them only breaks the baked references (nil calls). The loader
+-- ignores their .lovelyignore markers.
+local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['eramdam.sticky-fingers'] = true, CardSleeves = true }
+
+"""
+
+old_check = """                    if NFS.getInfo(directory..'/.lovelyignore') then
+                        mod.disabled = true
+                    end"""
+new_check = """                    if NFS.getInfo(directory..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+                        mod.disabled = true
+                    end"""
+
+n = text.count(old_check)
+if n != 2:
+    print(f"ERROR: expected 2 lovelyignore checks, found {n}", file=sys.stderr)
+    sys.exit(1)
+
+text = table_def + text.replace(old_check, new_check)
+open(path, 'w').write(text)
+print("STRUCTURAL_MODS_LOCK applied")
+PYEOF
+    if grep -q "STRUCTURAL_MODS_LOCK" "$f"; then
+        log_success "STRUCTURAL_MODS_LOCK applied (baked mods cannot be runtime-disabled)"
+    else
+        log_error "STRUCTURAL_MODS_LOCK did not apply — check loader.lua anchors"
+        exit 1
+    fi
+}
+
+# AMULET_CFG_SAFE_UNPACK + AMULET_OMEGA_CLAMP: harden Amulet's config load
+# (talisman/configinit.lua, executing from the game root — see
+# AMULET_ROOT_DIRS). Two independent protections, same bug class that bricked
+# the device on 2026-06-10:
+#   1. Talisman.config.load() runs STR_UNPACK(conf) unguarded — a truncated
+#      config/amulet.lua (process killed mid love.filesystem.write, which is
+#      not atomic) would raise and crash-loop the boot. pcall it; a bad file
+#      keeps the defaults.
+#   2. disable_omega=true would skip the big-num backend entirely (Amulet
+#      gates require("talisman.break_inf") on it) and Cryptid math assumes
+#      Big exists — clamp it false after the config merges, whatever was
+#      persisted.
+apply_amulet_config_hardening() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "configinit.lua not found at $f, skipping Amulet config hardening"
+        return 0
+    fi
+    if grep -q "AMULET_CFG_SAFE_UNPACK" "$f"; then
+        log_info "Amulet config hardening already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old_unpack = """    local conf = love.filesystem.read(Talisman.config.file_name)
+    if not conf then return end
+    local parsed = STR_UNPACK(conf)
+    if not parsed then return end"""
+new_unpack = """    local conf = love.filesystem.read(Talisman.config.file_name)
+    if not conf then return end
+    -- AMULET_CFG_SAFE_UNPACK: user data must not be able to crash boot
+    local _ok, parsed = pcall(STR_UNPACK, conf)
+    if not _ok or type(parsed) ~= "table" then return end"""
+
+old_load = "\nTalisman.config.load()\n"
+new_load = """
+Talisman.config.load()
+-- AMULET_CFG_MIGRATE: one-time import of the Talisman-era on-device config
+-- (Mods/Talisman/config.lua in the save dir, written by the old
+-- TAL_CONFIG_PERSIST shim) so preferences like disable_anims survive the
+-- Talisman->Amulet migration. Only keys Amulet knows are taken; the
+-- Talisman-only backend keys are skipped. Saving immediately makes this a
+-- one-shot: next boot finds config/amulet.lua and never looks back.
+if not love.filesystem.getInfo(Talisman.config.file_name) then
+    local legacy = love.filesystem.read('Mods/Talisman/config.lua')
+    if legacy then
+        local _lok, _lt = pcall(STR_UNPACK, legacy)
+        if _lok and type(_lt) == 'table' then
+            for k, v in pairs(_lt) do
+                if Talisman.config_file[k] ~= nil and k ~= 'break_infinity' then
+                    Talisman.config_file[k] = v
+                end
+            end
+            pcall(Talisman.config.save)
+        end
+    end
+end
+-- AMULET_OMEGA_CLAMP: this pack requires the big-num backend (Cryptid math
+-- assumes Big); never honor a persisted disable_omega
+Talisman.config_file.disable_omega = false
+"""
+
+for name, frag in (("unpack", old_unpack), ("load-call", old_load)):
+    if frag not in text:
+        print(f"ERROR: Amulet config {name} anchor not found", file=sys.stderr)
+        sys.exit(1)
+    if text.count(frag) != 1:
+        print(f"ERROR: Amulet config {name} anchor not unique", file=sys.stderr)
+        sys.exit(1)
+
+text = text.replace(old_unpack, new_unpack, 1).replace(old_load, new_load, 1)
+open(path, 'w').write(text)
+print("AMULET_CFG_SAFE_UNPACK + AMULET_OMEGA_CLAMP applied")
+PYEOF
+    if grep -q "AMULET_CFG_SAFE_UNPACK" "$f" && grep -q "AMULET_OMEGA_CLAMP" "$f"; then
+        log_success "Amulet config hardening applied (safe unpack + omega clamp)"
+    else
+        log_error "Amulet config hardening did not apply — check configinit.lua anchors"
+        exit 1
+    fi
+}
+
+# EVQ_COMPACT (Tier 0c): EventManager:update removes each completed event
+# with table.remove(v, i) mid-walk — O(queue length) per completion, so a
+# transition burst completing hundreds of events on a long queue goes
+# quadratic (the measured 38ms e_manager spikes). Replace with identity
+# marking + one O(n) compaction per queue after the walk:
+#   - completed events are marked in a per-queue set keyed by the EVENT
+#     OBJECT (not index — front-inserts during handle shift indices, and
+#     append_count bookkeeping already repoints i; identity is shift-proof);
+#   - the walk advances past marked events exactly where the original's
+#     remove would have exposed the next event — handled order is identical;
+#   - compaction drops marked events in place, preserving order.
+# Semantic deltas, all verified harmless: completed events remain visible
+# in the queue table until that queue's walk ends (one pass, sub-frame);
+# the clear_queue-during-handle stale-index edge case removes the same
+# wrong event in both versions (bit-identical wrongness). The nil guard
+# mirrors table.remove's silent no-op when i ran past #v.
+apply_event_queue_compact() {
+    local f="$1"
+    if grep -q "EVQ_COMPACT" "$f"; then
+        log_info "EVQ_COMPACT already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old_head = """        for k, v in pairs(self.queues) do
+            local blocked = false
+            local i=1
+"""
+new_head = """        for k, v in pairs(self.queues) do
+            local blocked = false
+            local i=1
+            -- EVQ_COMPACT: see build.sh applier comment
+            local dead, dead_n = nil, 0
+"""
+
+old_tail = """                if results.pause_skip then \n\
+                    i = i + 1
+                else if not blocked and results.blocking then blocked = true end
+                    if results.completed and results.time_done then
+                        table.remove(v, i)
+                    else
+                        i = i + 1
+                    end
+                end
+            end
+        end"""
+new_tail = """                if results.pause_skip then \n\
+                    i = i + 1
+                else if not blocked and results.blocking then blocked = true end
+                    if results.completed and results.time_done then
+                        local ev = v[i]
+                        if ev ~= nil then
+                            if not dead then dead = {} end
+                            dead[ev] = true
+                            dead_n = dead_n + 1
+                        end
+                        i = i + 1
+                    else
+                        i = i + 1
+                    end
+                end
+            end
+            if dead_n > 0 then
+                local n, w = #v, 1
+                for r = 1, n do
+                    local ev = v[r]
+                    if not dead[ev] then
+                        if w ~= r then v[w] = ev end
+                        w = w + 1
+                    end
+                end
+                for r = w, n do v[r] = nil end
+            end
+        end"""
+
+for name, frag in (("head", old_head), ("tail", old_tail)):
+    if frag not in text:
+        print(f"ERROR: EVQ_COMPACT {name} anchor not found", file=sys.stderr)
+        sys.exit(1)
+    if text.count(frag) != 1:
+        print(f"ERROR: EVQ_COMPACT {name} anchor not unique", file=sys.stderr)
+        sys.exit(1)
+
+text = text.replace(old_head, new_head, 1).replace(old_tail, new_tail, 1)
+open(path, 'w').write(text)
+print("EVQ_COMPACT applied")
+PYEOF
+    if grep -q "EVQ_COMPACT" "$f"; then
+        log_success "EVQ_COMPACT applied (event completions compact in O(n) per queue walk)"
+    else
+        log_error "EVQ_COMPACT did not apply — check engine/event.lua update anchors"
+        exit 1
+    fi
+}
+
+# UI_FUNC_THROTTLE (Tier 0d): UIElement:update fires G.FUNCS[config.func]
+# for every visible element with a func, every frame — pure state-polling
+# (enable/disable buttons, recolour, retext) that cannot change faster than
+# the user acts, yet it's 2-6ms of the measured steady-state UI update cost.
+# Run each element's func every 3rd frame instead, phase-staggered by node
+# ID so the load spreads evenly across frames. Two escape hatches:
+#   - first update after creation always fires (new UI paints correct state
+#     immediately, no 2-frame wrong-state flash);
+#   - config.instant_func = true opts an element back to every-frame for
+#     anything found to need frame-exact polling.
+# G.FRAMES.MOVE increments unconditionally at the top of Game:update
+# (game.lua:2622), including while paused — verified, so pause-menu
+# elements keep cycling.
+apply_ui_func_throttle() {
+    local f="$1"
+    if grep -q "UI_FUNC_THROTTLE" "$f"; then
+        log_info "UI_FUNC_THROTTLE already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """    if self.config and self.config.func then
+        G.ARGS.FUNC_TRACKER[self.config.func] = (G.ARGS.FUNC_TRACKER[self.config.func] or 0) + 1
+        G.FUNCS[self.config.func](self)
+    end"""
+new = """    if self.config and self.config.func then
+        -- UI_FUNC_THROTTLE: poll funcs every 3rd frame, phase-staggered by
+        -- node ID; first update always fires; config.instant_func opts out
+        if self.config.instant_func or not self._ft_seen or (G.FRAMES.MOVE + self.ID) % 3 == 0 then
+            self._ft_seen = true
+            G.ARGS.FUNC_TRACKER[self.config.func] = (G.ARGS.FUNC_TRACKER[self.config.func] or 0) + 1
+            G.FUNCS[self.config.func](self)
+        end
+    end"""
+
+if old not in text:
+    print("ERROR: UIElement func anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: UIElement func anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("UI_FUNC_THROTTLE applied")
+PYEOF
+    if grep -q "UI_FUNC_THROTTLE" "$f"; then
+        log_success "UI_FUNC_THROTTLE applied (config.func polls every 3rd frame, ID-staggered)"
+    else
+        log_error "UI_FUNC_THROTTLE did not apply — check engine/ui.lua UIElement:update anchor"
+        exit 1
+    fi
+}
+
+# EVQ_BURST_ATTRIB (Tier 0a): the 38ms e_manager bursts are anonymous — the
+# checkpoint says "events were slow" but not WHICH handler. Time each
+# Event:handle() call when telemetry is collecting and bucket handlers over a
+# threshold by their func's source:linedefined (in the lovely-merged main.lua
+# the line number IS the mod attribution). android-telemetry.lua owns the
+# collector global (EVQ_PROF — table while collecting, nil otherwise) and
+# drains it into EV_SLOW events alongside each PERF_SNAPSHOT; the event loop
+# pays one global nil-check per handle when idle.
+apply_event_burst_attrib() {
+    local f="$1"
+    if grep -q "EVQ_BURST_ATTRIB" "$f"; then
+        log_info "EVQ_BURST_ATTRIB already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = "                if (not blocked or not v[i].blockable) then v[i]:handle(results) end\n"
+new = """                -- EVQ_BURST_ATTRIB: time each handler while telemetry
+                -- collects (EVQ_PROF set by android-telemetry.lua); slow
+                -- handlers bucket by func source:line for burst attribution
+                if (not blocked or not v[i].blockable) then
+                    local _ep = EVQ_PROF
+                    if _ep then
+                        local _t0 = love.timer.getTime()
+                        v[i]:handle(results)
+                        local _ms = (love.timer.getTime() - _t0) * 1000
+                        _ep.n = _ep.n + 1
+                        _ep.ms = _ep.ms + _ms
+                        if _ms > _ep.thresh_ms then
+                            local _fn = v[i].func
+                            local _fi = _fn and debug.getinfo(_fn, "S")
+                            local _key = _fi and ((_fi.short_src or "?") .. ":" .. (_fi.linedefined or 0)) or "?"
+                            local _b = _ep.slow[_key]
+                            if not _b then _b = {n = 0, ms = 0, max = 0}; _ep.slow[_key] = _b end
+                            _b.n = _b.n + 1
+                            _b.ms = _b.ms + _ms
+                            if _ms > _b.max then _b.max = _ms end
+                        end
+                    else
+                        v[i]:handle(results)
+                    end
+                end
+"""
+
+if old not in text:
+    print("ERROR: event handle anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: event handle anchor not unique", file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(text.replace(old, new, 1))
+print("EVQ_BURST_ATTRIB applied")
+PYEOF
+    if grep -q "EVQ_BURST_ATTRIB" "$f"; then
+        log_success "EVQ_BURST_ATTRIB applied (per-handler timing into EVQ_PROF when telemetry on)"
+    else
+        log_error "EVQ_BURST_ATTRIB did not apply — check engine/event.lua handle anchor"
+        exit 1
+    fi
+}
+
+# MOVEABLE_SHADOW_LISTS (Tier-1a): G.MOVEABLES is a single polymorphic list of all
+# live Moveable instances. The two hot loops in Game:update (move pass + update pass)
+# iterate it every frame, producing a polymorphic call-site that JIT cannot specialize
+# — every dispatch goes through a vtable walk instead of a direct jump.
+#
+# Fix: maintain five shadow lists in parallel with G.MOVEABLES (unchanged):
+#   MOVEABLES_C  — Card (direct Moveable subclass, not a Sprite subclass)
+#   MOVEABLES_S  — Sprite (direct subclass; AnimatedSprite extends Sprite so its
+#                  exact metatable != Sprite and lands in MOVEABLES_O)
+#   MOVEABLES_UB — UIBox
+#   MOVEABLES_UE — UIElement
+#   MOVEABLES_O  — catch-all for every other Moveable subclass (DynaText,
+#                  Card_Character, AnimatedSprite, and any mod-added classes).
+#                  This list remains polymorphic but is small and correctness-safe.
+#
+# Classification uses getmetatable(self) == <Class> — O(1) exact identity check.
+# Any instance whose metatable doesn't match one of the four named classes falls
+# into MOVEABLES_O and is still processed every frame.
+#
+# G.MOVEABLES stays intact so no mod code breaks. Shadow lists are additive.
+apply_moveable_shadow_lists() {
+    local globals_f="$1"
+    local moveable_f="$2"
+    local game_f="$3"
+    if grep -q "MOVEABLE_SHADOW_LISTS" "$moveable_f"; then
+        log_info "MOVEABLE_SHADOW_LISTS already applied"
+        return 0
+    fi
+    python3 - "$globals_f" "$moveable_f" "$game_f" <<'PYEOF'
+import sys
+globals_path, moveable_path, game_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# --- globals.lua: add shadow list initialization next to G.MOVEABLES = {} ---
+gtext = open(globals_path).read()
+old_g = "    self.MOVEABLES = {}\n"
+new_g = """    self.MOVEABLES = {}
+    -- MOVEABLE_SHADOW_LISTS: per-class shadow lists for JIT-friendly loops
+    self.MOVEABLES_C  = {}  -- Card
+    self.MOVEABLES_S  = {}  -- Sprite (exact; AnimatedSprite goes to MOVEABLES_O)
+    self.MOVEABLES_UB = {}  -- UIBox
+    self.MOVEABLES_UE = {}  -- UIElement
+    self.MOVEABLES_O  = {}  -- catch-all: DynaText, Card_Character, AnimatedSprite, mods
+"""
+if old_g not in gtext:
+    print("ERROR: globals MOVEABLES anchor not found", file=sys.stderr)
+    sys.exit(1)
+if gtext.count(old_g) != 1:
+    print("ERROR: globals MOVEABLES anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(globals_path, 'w').write(gtext.replace(old_g, new_g, 1))
+print("MOVEABLE_SHADOW_LISTS: globals.lua patched")
+
+# --- moveable.lua: shadow insert at init, shadow remove at remove ---
+mtext = open(moveable_path).read()
+
+old_init = "    table.insert(G.MOVEABLES, self)\n    if getmetatable(self) == Moveable then \n        table.insert(G.I.MOVEABLE, self)\n    end"
+new_init = """    table.insert(G.MOVEABLES, self)
+    -- MOVEABLE_SHADOW_LISTS: route into the appropriate per-class shadow list.
+    -- MOVEABLES_O catches all subclasses not explicitly named (DynaText,
+    -- Card_Character, AnimatedSprite, mod-added classes) so they are still
+    -- processed every frame — correctness preserved, polymorphic but small.
+    local _mt = getmetatable(self)
+    if     _mt == Card      then table.insert(G.MOVEABLES_C,  self)
+    elseif _mt == Sprite    then table.insert(G.MOVEABLES_S,  self)
+    elseif _mt == UIBox     then table.insert(G.MOVEABLES_UB, self)
+    elseif _mt == UIElement then table.insert(G.MOVEABLES_UE, self)
+    else                         table.insert(G.MOVEABLES_O,  self)
+    end
+    if _mt == Moveable then
+        table.insert(G.I.MOVEABLE, self)
+    end"""
+if old_init not in mtext:
+    print("ERROR: moveable init anchor not found", file=sys.stderr)
+    sys.exit(1)
+if mtext.count(old_init) != 1:
+    print("ERROR: moveable init anchor not unique", file=sys.stderr)
+    sys.exit(1)
+mtext = mtext.replace(old_init, new_init, 1)
+
+old_remove = """function Moveable:remove()
+    for k, v in pairs(G.MOVEABLES) do
+        if v == self then
+            table.remove(G.MOVEABLES, k)
+            break;
+        end
+    end
+    for k, v in pairs(G.I.MOVEABLE) do
+        if v == self then
+            table.remove(G.I.MOVEABLE, k)
+            break;
+        end
+    end
+    Node.remove(self)
+end"""
+new_remove = """function Moveable:remove()
+    for k, v in pairs(G.MOVEABLES) do
+        if v == self then table.remove(G.MOVEABLES, k); break end
+    end
+    -- MOVEABLE_SHADOW_LISTS: mirror removal into the appropriate shadow list
+    local _mt = getmetatable(self)
+    local _sl = (_mt == Card and G.MOVEABLES_C)
+             or (_mt == Sprite and G.MOVEABLES_S)
+             or (_mt == UIBox and G.MOVEABLES_UB)
+             or (_mt == UIElement and G.MOVEABLES_UE)
+             or G.MOVEABLES_O
+    for k, v in pairs(_sl) do
+        if v == self then table.remove(_sl, k); break end
+    end
+    for k, v in pairs(G.I.MOVEABLE) do
+        if v == self then table.remove(G.I.MOVEABLE, k); break end
+    end
+    Node.remove(self)
+end"""
+if old_remove not in mtext:
+    print("ERROR: moveable remove anchor not found", file=sys.stderr)
+    sys.exit(1)
+if mtext.count(old_remove) != 1:
+    print("ERROR: moveable remove anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(moveable_path, 'w').write(mtext.replace(old_remove, new_remove, 1))
+print("MOVEABLE_SHADOW_LISTS: moveable.lua patched")
+
+# --- game.lua: replace two monolithic loops with four monomorphic loops each ---
+gtext = open(game_path).read()
+
+old_move_loop = """        for k, v in pairs(self.MOVEABLES) do
+            if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end
+        end"""
+new_move_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic move-pass loops per class.
+        -- MOVEABLES_O catches all subclasses not explicitly listed (CardArea,
+        -- Blind, DynaText, Card_Character, AnimatedSprite, Particles, mods)
+        -- and iterates FIRST: majors (CardAreas) must stamp FRAME.MOVE before
+        -- their minor cards run, or the MOVEABLE_SLEEP minor gate
+        -- (major.FRAME.MOVE >= G.FRAMES.MOVE) can never pass and every first
+        -- card per area pays the full move path each frame. Order follows the
+        -- attachment chain: CardArea(O) -> Card(C) -> Sprite(S)/UIBox(UB) ->
+        -- UIElement(UE).
+        for k, v in ipairs(self.MOVEABLES_O)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_C)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_S)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_UB) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end"""
+if old_move_loop not in gtext:
+    print("ERROR: game.lua move loop anchor not found", file=sys.stderr)
+    sys.exit(1)
+if gtext.count(old_move_loop) != 1:
+    print("ERROR: game.lua move loop anchor not unique", file=sys.stderr)
+    sys.exit(1)
+gtext = gtext.replace(old_move_loop, new_move_loop, 1)
+
+old_update_loop = """        for k, v in pairs(self.MOVEABLES) do
+            v:update(dt*self.SPEEDFACTOR, self.real_dt)
+            v.states.collide.is = false
+        end"""
+new_update_loop = """        -- MOVEABLE_SHADOW_LISTS: monomorphic update-pass loops per class,
+        -- majors-first (same order rationale as the move pass above)
+        for k, v in ipairs(self.MOVEABLES_O)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_C)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_S)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_UB) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end"""
+if old_update_loop not in gtext:
+    print("ERROR: game.lua update loop anchor not found", file=sys.stderr)
+    sys.exit(1)
+if gtext.count(old_update_loop) != 1:
+    print("ERROR: game.lua update loop anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(game_path, 'w').write(gtext.replace(old_update_loop, new_update_loop, 1))
+print("MOVEABLE_SHADOW_LISTS: game.lua patched")
+PYEOF
+    if grep -q "MOVEABLE_SHADOW_LISTS" "$moveable_f"; then
+        log_success "MOVEABLE_SHADOW_LISTS applied (4 monomorphic + 1 catch-all move+update loops)"
+    else
+        log_error "MOVEABLE_SHADOW_LISTS did not apply — check anchors"
+        exit 1
+    fi
+}
+
+# BLIND_SELECT_DEFER: create_UIBox_blind_select() builds four UIBoxes
+# synchronously — set_parent_child tree construction + calculate_xywh
+# (recursive with font:getWidth per text node) for three blind-choice cards.
+# Measured cost: 260ms EV_SLOW on game.lua:3521. The event is currently
+# trigger='immediate', so it fires before any frame is rendered post-transition.
+# Change to trigger='after', delay=0.05 (3 frames at 60fps): the background
+# colour ease plays for ~50ms before the stall, making it perceptually invisible.
+# State correctness: all inputs (blind_states, blind_choices, dollars, tags) are
+# read at construction time, which is still correct — just 50ms later.
+apply_blind_select_defer() {
+    local f="$1"
+    if grep -q "BLIND_SELECT_DEFER" "$f"; then
+        log_info "BLIND_SELECT_DEFER already applied"
+        return 0
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+
+old = """        G.E_MANAGER:add_event(Event({
+            trigger = 'immediate',
+            func = function()
+                --G.GAME.round_resets.blind_states"""
+new = """        G.E_MANAGER:add_event(Event({ -- BLIND_SELECT_DEFER
+            trigger = 'after', delay = 0.05,
+            func = function()
+                --G.GAME.round_resets.blind_states"""
+
+if old not in text:
+    print("ERROR: BLIND_SELECT_DEFER anchor not found", file=sys.stderr)
+    sys.exit(1)
+if text.count(old) != 1:
+    print("ERROR: BLIND_SELECT_DEFER anchor not unique", file=sys.stderr)
+    sys.exit(1)
+open(path, 'w').write(text.replace(old, new, 1))
+print("BLIND_SELECT_DEFER applied")
+PYEOF
+    if grep -q "BLIND_SELECT_DEFER" "$f"; then
+        log_success "BLIND_SELECT_DEFER applied (blind UI build deferred 50ms behind transition)"
+    else
+        log_error "BLIND_SELECT_DEFER did not apply — check game.lua anchor"
+        exit 1
     fi
 }
 

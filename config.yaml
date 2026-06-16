@@ -54,6 +54,13 @@ mods:
     required: false
     description: "Mobile-style touch/drag controls for jokers, boosters, consumables"
 
+  debugplus:
+    type: github-release
+    repo: WilsontheWolf/DebugPlus
+    tag: v1.5.2  # flat release zip, extracted into mods/DebugPlus/ by build.sh
+    required: false
+    description: "Better debug tools — re-enables built-in debug mode + Steamodded config tab. Interactive menu (Tab) / console (/) need a hardware keyboard, so touch-build access is limited to toggles + config."
+
   # reserve-shim: local mini-mod (patches/reserve-shim) providing
   # G.FUNCS.can_reserve_card/reserve_card for Sticky Fingers' Pull drag-target.
   # Two functions extracted from Pokermon — avoids shipping the full ~130MB mod.

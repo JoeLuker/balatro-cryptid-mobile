@@ -1,0 +1,93 @@
+# Score-oracle baselines — recorded from build 0613-1403.f07652
+# Format: seed  hand  jokers  score  hand-type  settled-state
+# settled-state: 1=SELECTING_HAND (blind not beaten), 8=ROUND_EVAL (blind beaten)
+# All runs: stake=1 (White Stake), Red Deck, ante 1 Small Blind (300 chips).
+# Reproduce: ORACLE_SEED=<seed> ORACLE_HAND=<hand> ORACLE_JOKERS=<jokers> just score-oracle
+#
+# Card key format: <suit>_<rank>  (S=Spades H=Hearts D=Diamonds C=Clubs,
+#                                  2-9=pip, T=10, J=Jack, Q=Queen, K=King, A=Ace)
+# Only cards in the SCORING HAND contribute chip values (kickers excluded).
+#
+# Base formula without jokers (level 1, no Cryptid ascend modifiers):
+#   score = floor((base_chips + sum(scoring_card_chips)) * base_mult)
+# Joker effects are applied on top; Cryptid's ascend() may apply log-scale
+# modifiers to hand base values — the oracle records what the build actually
+# produces regardless of formula complexity.
+#
+# --- no-joker baselines (formula verifiable by hand) ---
+# FourOfAKind aces + king kicker: (60 + 4*11) * 7 = 104 * 7 = 728
+# StraightFlush A-K-Q-J-T spades: (100 + 11+10+10+10+10) * 8 = 151 * 8 = 1208
+# FourOfAKind 2s + 3 kicker:      (60 + 4*2) * 7 = 68 * 7 = 476
+# HighCard A,K,Q,J,9 mixed:       (5 + 11) * 1 = 16  (only ace in scoring hand)
+# Pair of aces:                   (10 + 11+11) * 2 = 32 * 2 = 64
+
+AAAAAAAA  S_A,H_A,D_A,C_A,S_K  (none)                     728   FourOfAKind    8
+AAAAAAAA  S_A,S_K,S_Q,S_J,S_T  (none)                    1208   StraightFlush  8
+AAAAAAAA  S_2,H_2,D_2,C_2,S_3  (none)                     476   FourOfAKind    8
+AAAAAAAA  S_A,H_K,D_Q,C_J,S_9  (none)                      16   HighCard       1
+AAAAAAAA  S_A,H_A               (none)                      64   Pair           1
+BBBBBBBB  S_A,H_A,D_A,C_A,S_K  (none)                     728   FourOfAKind    8
+
+# --- joker baselines (seed matters once jokers interact with the hand) ---
+# j_joker: flat +4 mult.  Pair aces baseline=64; +j_joker → (10+22)*(2+4)=192 ✓
+# j_greedy_joker: +3 mult per Diamond scored.  All-diamond flush: 5 diamonds in
+#   scoring hand → +15 mult.  (35+50)*(4+15) = 85*19 = 1615 ✓
+#   Card chips: A=11 K=10 Q=10 J=10 9=9, sum=50.
+# N j_jokers (plain, no edition): (10+22) * (2 + 4*N) = 32*(2+4N)
+#   N=1 → 192, N=2 → 320, N=3 → 448, N=4 → 576  ✓
+#
+# NOTE — edition suppression: install_jokers() sets SMODS.bypass_create_card_edition=true
+#   before calling create_card(), preventing the edition lottery that runs on every
+#   joker creation.  Without this, create_card() calls poll_edition('edi'..ante) for
+#   each joker; pseudoseed('edi1') advances its LCG state between calls, so the 2nd
+#   joker lands on Foil (+50 chips) for seed AAAAAAAA/ante-1, giving anomalous scores
+#   (2×j_joker→820, 3×j_joker→1148).  The bypass makes results depend only on the
+#   jokers' explicit abilities — which is what these baselines are testing.
+
+AAAAAAAA  S_A,H_A               j_joker                    192   Pair           1
+AAAAAAAA  D_A,D_K,D_Q,D_J,D_9  j_greedy_joker            1615   Flush          8
+AAAAAAAA  S_A,H_A               j_joker,j_joker            320   Pair           8
+AAAAAAAA  S_A,H_A               j_joker,j_joker,j_joker    448   Pair           8
+
+# --- Cryptid-specific baselines — 10 archetypes for native-port spike ---
+# All: stake=1 (White Stake), Red Deck, ante 1 Small Blind (300 chips), seed AAAAAAAA.
+# Install via ORACLE_JOKERS=j_cry_<key>; create_card uses forced_key, bypassing pool.
+#
+# 1  flat +chips      j_cry_cube: chip_mod=6 at joker_main.
+#    Pair aces + cube: (10 + 11+11 + 6) * 2 = 38 * 2 = 76
+# 2  conditional Xmult j_cry_triplet_rhythm: Xmult=3 when scoring_hand has exactly 3 threes.
+#    Three-3s Three-of-a-Kind: (30 + 3+3+3) * 3 * 3 = 39 * 9 = 351
+# 3  individual x_mult  j_cry_lightupthenight: x_mult=1.5 per scored rank=2 or rank=7 card.
+#    Four-2s: chips=60+8=68; mult=7 * 1.5^4=35.4375; score=floor(68*35.4375)=2409
+# 4  retrigger         j_cry_weegaming: +2 repetitions for rank=2 (context.repetition).
+#    Two-Pair 2-2-A-A: base=20; S_2*3=6, H_2*3=6, S_A=11, H_A=11 -> chips=54; mult=2 -> 108
+# 5  perpetual/scaling j_cry_krustytheclown: x_mult += 0.02 per individual scored card;
+#    individual fires inside SMODS.score_card (step 1) before joker_main loop (step 2).
+#    Four-aces: chips=60+44=104; mult=7; x_mult 1.0->1.08 on same play -> floor(104*7*1.08)=786
+# 6  cross-joker       j_cry_waluigi: Xmult=2.5 per context.other_joker; NO self-exclusion.
+#    [j_joker, j_cry_waluigi]: waluigi fires for j_joker outer AND waluigi outer -> X2.5 twice.
+#    Pair aces: chips=32; mult=(2+4)*2.5*2.5=37.5 -> floor(32*37.5)=1200
+# 7  blueprint copy    j_cry_oldblueprint: blueprint_effect on joker at pos+1 in G.jokers.
+#    [j_cry_oldblueprint, j_joker]: oldblueprint copies j_joker (+4 mult) + j_joker (+4 mult).
+#    Pair aces: chips=32; mult=2+4+4=10 -> 32*10=320
+# 8  global-state/init j_cry_maximized: init patches Card.get_id() so id 2-10->10, J/Q/K->13.
+#    Without: S_J,H_Q,D_K = 3 different ranks -> High Card -> only K scores -> 15.
+#    With:    id=13,13,13 -> Three-of-a-Kind -> chips=30+10+10+10=60; mult=3 -> 180
+# 9  big-number Emult  j_cry_primus: before-context Emult += 0.17 if all ranks are prime;
+#    joker_main fires {Emult_mod=Emult} -> mult = mult^Emult (talisman.lua:1091).
+#    Ranks A(14),2,3,5,7 not in {4,6,8,9,10,11,12,13} -> all prime -> Emult 1.01->1.18.
+#    Flush A-2-3-5-7 spades: chips=35+11+2+3+5+7=63; mult=4^1.18=5.1337 -> floor(63*5.1337)=323
+# 10 RNG-seeded        j_cry_brokenhome: Xmult=11.4 at joker_main (always fires, deterministic);
+#    1-in-4 pseudorandom_probability self-destruct fires at end_of_round only (not chip-score path).
+#    Pair aces: chips=32; mult=2*11.4=22.8 -> floor(32*22.8)=floor(729.6)=729
+
+AAAAAAAA  S_A,H_A               j_cry_cube                                   76   Pair+chips        1
+AAAAAAAA  S_3,H_3,D_3           j_cry_triplet_rhythm                        351   ToaK+Xmult        8
+AAAAAAAA  S_2,H_2,D_2,C_2,S_3  j_cry_lightupthenight                      2409   FoaK+xmult        8
+AAAAAAAA  S_2,H_2,S_A,H_A      j_cry_weegaming                             108   TwoPair+retrig    1
+AAAAAAAA  S_A,H_A,D_A,C_A,S_K  j_cry_krustytheclown                        786   FoaK+scaling      8
+AAAAAAAA  S_A,H_A               j_joker,j_cry_waluigi                      1200   Pair+crossj       8
+AAAAAAAA  S_A,H_A               j_cry_oldblueprint,j_joker                  320   Pair+blueprint    8
+AAAAAAAA  S_J,H_Q,D_K           j_cry_maximized                             180   ToaK+initpatch    1
+AAAAAAAA  S_A,S_2,S_3,S_5,S_7  j_cry_primus                                323   Flush+Emult       8
+AAAAAAAA  S_A,H_A               j_cry_brokenhome                            729   Pair+RNGxmult     8

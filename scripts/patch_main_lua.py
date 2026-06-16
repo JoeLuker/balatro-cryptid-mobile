@@ -12,16 +12,126 @@ def patch_main_lua(filepath):
         content = f.read()
 
     # Check if already fully patched (all sentinel strings must be present).
+    # NOTE (Amulet era, 2026-06-11): the Talisman-specific sections below
+    # (config read/write redirects, big-num loads, F_NO_COROUTINE dedup,
+    # TAL_BREAKINF_CLAMP) no-op cleanly against the Amulet dump — their
+    # anchors only exist in src/dump-talisman. They are kept, not deleted,
+    # so pointing the build back at the old dump still works (rollback).
     already_android = '-- Android SMODS path fix' in content
-    already_dedup = 'Duplicate Talisman coroutine harness' in content
     already_focus = '-- Android flush-on-background' in content
     already_istouch = 'HID_ISTOUCH_FIX' in content
     already_istouch_release = 'HID_ISTOUCH_RELEASE_FIX' in content
     already_istouch_move = 'HID_ISTOUCH_MOVE_FIX' in content
-    already_breakinf = 'TAL_BREAKINF_CLAMP' in content
-    if already_android and already_dedup and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_breakinf:
+    already_jitopt = 'JIT_OPT_RAISE' in content
+    already_amulet = 'AMULET_ROOT_MOUNT' in content or '_mod_dir_amulet' not in content
+    already_resize = 'ANDROID_RESIZE_CONTAIN' in content
+    if already_android and already_focus and already_istouch and already_istouch_release and already_istouch_move and already_jitopt and already_amulet and already_resize:
         print("Already patched")
         return
+
+    # 0. JIT_OPT_RAISE (Tier 0b): raise LuaJIT trace budgets at the earliest
+    # possible point. The defaults (maxtrace=1000, maxmcode=2048KB,
+    # maxside=100, maxsnap=500, hotloop=56) starve a 128k-line codebase:
+    # when the trace pool exhausts, hot paths blacklist and run interpreted
+    # forever — the bimodal frame-time cliff measured on-device. jit.opt is
+    # a C builtin (lib_jit.c, preregistered), available even in the static
+    # liblove.so where plain-Lua jit modules (vmdef) are not. Unconditional
+    # (not Android-gated) so desktop benches measure the same configuration;
+    # pcall-guarded for any non-LuaJIT runtime.
+    if 'JIT_OPT_RAISE' not in content:
+        jit_opt_block = """-- JIT_OPT_RAISE: see scripts/patch_main_lua.py section 0
+pcall(function()
+    require("jit.opt").start(
+        "maxtrace=4000", "maxmcode=16384", "maxside=400", "maxsnap=2000", "hotloop=28"
+    )
+end)
+"""
+        content = jit_opt_block + content
+
+    # 0b. AMULET_ROOT_MOUNT: Amulet's appended loader FFI-mounts
+    # <mod_dir>/talisman and <mod_dir>/big-num as PhysFS roots so its modules
+    # resolve as require("talisman.*") / load("big-num/..."). Two problems for
+    # us: the dump bakes the dump-rig's ABSOLUTE path into _mod_dir_amulet,
+    # and PhysFS cannot mount a directory that lives inside game.love on
+    # Android. build.sh instead places talisman/ and big-num/ physically at
+    # the game root (apply_amulet_root_dirs), which satisfies the same
+    # requires natively on every platform — so the mounts are deleted, not
+    # ported. The path var stays (smods.lua nil-checks it as an
+    # installed-correctly sentinel), rewritten to the embedded location.
+    if 'AMULET_ROOT_MOUNT' not in content and '_mod_dir_amulet' in content:
+        content = re.sub(
+            r'_mod_dir_amulet = "[^"]*"',
+            '_mod_dir_amulet = "Mods/Amulet"',
+            content,
+            count=1,
+        )
+        mount_block = """local ffi = require("ffi")
+ffi.cdef[[int PHYSFS_mount(const char* dir, const char* mountPoint, int appendToPath)]]
+local tinymount = (pcall(function() return ffi.C.PHYSFS_mount end) and ffi.C or ffi.load("love")).PHYSFS_mount
+
+local talisman_path = _mod_dir_amulet
+assert(tinymount(talisman_path .. '/talisman', 'talisman', 0) ~= 0, 'Amulet: Failed to mount talisman from ' .. talisman_path)
+assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Failed to mount big-num from ' .. talisman_path)"""
+        mount_replacement = """-- AMULET_ROOT_MOUNT: PhysFS mounts removed — talisman/ and big-num/ are
+-- placed physically at the game root by build.sh (PhysFS cannot mount
+-- paths inside game.love on Android); require("talisman.*") resolves
+-- natively. See patch_main_lua.py section 0b."""
+        if mount_block in content:
+            content = content.replace(mount_block, mount_replacement, 1)
+        else:
+            print("WARNING: Amulet mount block anchor not found — AMULET_ROOT_MOUNT NOT applied")
+
+    # 0c. ANDROID_RESIZE_CONTAIN: love.resize refuses portrait — `if w/h < 1
+    # then h = w/1` — computing layout, canvas size and WINDOWTRANS for a
+    # square w×w region while the surface stays w×H (canvas presents at
+    # origin: dead band fills the rest). On the foldable, portrait and
+    # split-screen surfaces are NORMAL (inner screen portrait is ratio 0.83),
+    # so screen switches feel broken. The scale math itself is sound absolute
+    # contain (window_prev algebraically cancels), so the fix is narrow:
+    # on Android allow any aspect down to 0.4 (real height flows into layout,
+    # canvas and touch geometry; the room centers via the existing formula),
+    # keeping a far rarer clamp for extreme slivers. The floor sat at 0.6
+    # first — but the cover screen itself reports 0.569 and got a 5% dead
+    # band; 0.4 also lets half-splits (~0.46-0.55) fill. Trade-off: tall surfaces
+    # can show card staging pop-in above/below the room (the clamp's original
+    # purpose) — cosmetic, versus a dead fifth of the screen. Also: open
+    # overlay menus get the same recalculate() that buttons/HUD already get,
+    # or a screen switch with a menu open leaves it on stale geometry.
+    if 'ANDROID_RESIZE_CONTAIN' not in content:
+        old_clamp = """function love.resize(w, h)
+	if w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
+		h = w/1
+	end"""
+        new_clamp = """function love.resize(w, h)
+	-- ANDROID_RESIZE_CONTAIN: see scripts/patch_main_lua.py section 0c
+	-- (RESIZE telemetry: field evidence that fold posture changes actually
+	-- deliver resize events — pairs with FOLD_RESIZE manifest flip)
+	if ATLOG then ATLOG("RESIZE", { w = math.floor(w), h = math.floor(h) }) end
+	if love.system.getOS() == 'Android' then
+		-- floor 0.4, NOT 0.6: the cover screen reports 411x722 = 0.569 and
+		-- must fill edge-to-edge (0.6 left a 5% dead band on it); only true
+		-- ribbon windows clamp
+		if w/h < 0.4 then h = w/0.4 end
+	elseif w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
+		h = w/1
+	end"""
+        if old_clamp in content and content.count(old_clamp) == 1:
+            content = content.replace(old_clamp, new_clamp, 1)
+        else:
+            print("WARNING: resize clamp anchor not found — ANDROID_RESIZE_CONTAIN NOT applied")
+
+        old_recalc = """		if G.buttons then G.buttons:recalculate() end
+		if G.HUD then G.HUD:recalculate() end"""
+        new_recalc = """		if G.buttons then G.buttons:recalculate() end
+		if G.HUD then G.HUD:recalculate() end
+		-- ANDROID_RESIZE_CONTAIN: open overlays must re-layout too (pcall:
+		-- a mid-removal overlay must not crash the resize handler)
+		if G.OVERLAY_MENU then pcall(function() G.OVERLAY_MENU:recalculate() end) end
+		if G.OVERLAY_TUTORIAL and G.OVERLAY_TUTORIAL.recalculate then pcall(function() G.OVERLAY_TUTORIAL:recalculate() end) end"""
+        if old_recalc in content and content.count(old_recalc) == 1:
+            content = content.replace(old_recalc, new_recalc, 1)
+        else:
+            print("WARNING: resize recalc anchor not found — overlay recalc NOT applied")
 
     # 1. Add require path fix and package.preload before SMODS = {}
     smods_init = "SMODS = {}"
@@ -32,7 +142,10 @@ if love.system.getOS() == 'Android' then
     package.preload['SMODS.release'] = function() return love.filesystem.load('Mods/Steamodded/release.lua')() end
     -- Add paths for mod requires including Steamodded libs (json, nativefs, https)
     -- LÖVE uses love.filesystem require path, not Lua package.path
-    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'
+    -- DebugPlus's entrypoint does require('debugplus.config') etc.; its folder is
+    -- Mods/DebugPlus/ (capitalised, with a nested debugplus/ subdir), so the generic
+    -- Mods/?.lua entry can't resolve it. Add the mod root explicitly, as with Steamodded.
+    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
     love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
 end
 
@@ -68,7 +181,7 @@ end"""
 local info
 if love.system.getOS() == 'Android' then
     info = {}
-    for _, name in ipairs({'Cryptid', 'Steamodded', 'Talisman', 'lovely', 'sticky-fingers'}) do
+    for _, name in ipairs({'Cryptid', 'Steamodded', 'Amulet', 'lovely', 'sticky-fingers'}) do
         table.insert(info, {name = name, type = 'directory'})
     end
 else
@@ -135,7 +248,9 @@ end"""
     if Talisman.config_file.break_infinity ~= "omeganum" then Talisman.config_file.break_infinity = "omeganum" Talisman.config_file.score_opt_id = 2 end -- TAL_BREAKINF_CLAMP"""
     if unpack_pattern in content:
         content = content.replace(unpack_pattern, unpack_replacement, 1)
-    else:
+    elif '_mod_dir_amulet' not in content:
+        # only alarming on a Talisman-era dump; under Amulet the config system
+        # moved to talisman/configinit.lua (hardened by build.sh applier)
         print("WARNING: Talisman STR_UNPACK anchor not found - TAL_BREAKINF_CLAMP NOT applied")
 
     # 6. Fix nativefs.load calls for big-num
@@ -402,6 +517,31 @@ end
             print("WARNING: love.mousemoved anchor not found — HID istouch move fix NOT applied")
 
 
+    if '-- Trigger-cascade collapsing' not in content:
+        content += """
+-- Trigger-cascade collapsing: pure module, hooks self-install on the first
+-- frame (SMODS loads after this chunk). NOT Android-gated: the desktop
+-- harnesses exercise the same code, and the engine is platform-free.
+local tc_ok, tc_err = pcall(function()
+    local chunk = love.filesystem.load('trigger-collapse.lua')
+    if chunk then chunk() end
+end)
+if not tc_ok then print('[TC] LOAD_FAILED error=' .. tostring(tc_err)) end
+"""
+
+    if '-- Lazy shader binding' not in content:
+        content += """
+-- Lazy shader binding (Tier-2a): must load BEFORE android-telemetry so the
+-- telemetry setShader wrapper counts game-issued calls while the lazy
+-- flush talks to the captured original. NOT Android-gated: the desktop
+-- harnesses exercise the same draw path.
+local ls_ok, ls_err = pcall(function()
+    local chunk = love.filesystem.load('lazy-shader.lua')
+    if chunk then chunk() end
+end)
+if not ls_ok then print('[LS] LOAD_FAILED error=' .. tostring(ls_err)) end
+"""
+
     if '-- Android telemetry: load after all game hooks are set up' not in content:
         content += """
 -- Android telemetry: load after all game hooks are set up
@@ -416,6 +556,23 @@ if love.system.getOS() == 'Android' then
     if not tel_ok then print('[TEL] LOAD_FAILED error=' .. tostring(tel_err)) end
 end
 """
+
+    # 12. DEBUGPLUS_CONSOLE_DISABLED: DebugPlus bakes a console render hook
+    # (console.doConsoleRender) after G:draw(), but its logger init —
+    # lovelyLoadModule.lua -> logger.registerLogHandler() — is a lovely
+    # module-load directive that does NOT bake into the Android dump. So the
+    # console renders against an uninitialised log buffer and crashes on the
+    # first frame (logger.lua:112 table.insert(nil,...)). registerLogHandler
+    # would also hijack global print, which would break the telemetry that
+    # relies on print('LONG DT...') reaching logcat. The console is keyboard-only
+    # (Tab/'/'), useless on a touch device, so skip the render entirely; debug
+    # mode + the touch-reachable debug-tools UI (debug-enhancements) stay intact.
+    if 'console.doConsoleRender()' in content and 'DEBUGPLUS_CONSOLE_DISABLED' not in content:
+        content = content.replace(
+            'console.doConsoleRender()',
+            'do end -- DEBUGPLUS_CONSOLE_DISABLED: keyboard-only console; logger init not baked, would crash + hijack print',
+            1)
+        print("DEBUGPLUS_CONSOLE_DISABLED applied")
 
     with open(filepath, 'w') as f:
         f.write(content)

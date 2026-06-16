@@ -116,6 +116,141 @@ local function flush()
     for i = #buf, 1, -1 do buf[i] = nil end
 end
 
+-- ── Tier-0a collectors ──────────────────────────────────────────────────
+-- These must be defined ABOVE apply_gates, which references them (a
+-- definition below would compile the reference as a global — the scoping
+-- trap that shipped twice on 2026-06-10).
+
+-- Event-handler burst attribution: EVQ_PROF is a deliberate GLOBAL fed by
+-- the EVQ_BURST_ATTRIB patch in engine/event.lua — a table while telemetry
+-- collects (handlers timed, slow ones bucketed by source:linedefined), nil
+-- otherwise (the event loop pays one global nil-check per handle). Drained
+-- into EV_SLOW events alongside each PERF_SNAPSHOT.
+local function evq_prof_new()
+    return {n = 0, ms = 0, thresh_ms = 1, slow = {}}
+end
+
+-- Per-frame draw stats (love.graphics.getStats: drawcalls, shaderswitches,
+-- canvasswitches, drawcallsbatched) sampled at the end of Game:draw and
+-- averaged into PERF_SNAPSHOT — the targeting data for the SpriteBatch work.
+TEL.draw_frames = 0
+TEL.dc_sum, TEL.dc_max = 0, 0
+TEL.dcb_sum = 0
+TEL.shsw_sum, TEL.shsw_max = 0, 0
+TEL.cnv_sum = 0
+local function reset_draw_stats()
+    TEL.draw_frames = 0
+    TEL.dc_sum, TEL.dc_max = 0, 0
+    TEL.dcb_sum = 0
+    TEL.shsw_sum, TEL.shsw_max = 0, 0
+    TEL.cnv_sum = 0
+end
+
+-- forward declaration: tel is ASSIGNED below (after the gates), but the
+-- early-defined collectors reference it — without this the references
+-- compile as a nil global (the scoping trap, caught a third time 2026-06-12
+-- via shsw_frame_end; runtime-only call paths hide it until they fire)
+local tel
+
+-- SHSW attribution (Tier-2a targeting): getStats says shader switches track
+-- UI element count (455-830/frame at blind select), but not WHO issues them.
+-- Wrap love.graphics.setShader: while telemetry collects, count raw calls
+-- per frame (vs getStats' actual switches — the delta is redundant binds,
+-- i.e. elision potential); and on ONE armed frame per PERF window, bucket
+-- every call by caller source:line (~800 debug.getinfo calls once per 5s).
+-- Idle cost: one upvalue boolean check per setShader call.
+local shsw_on = false           -- mirrors (log_on or home_on); set in apply_gates
+local shsw_attr_armed = false   -- one-frame attribution, armed per PERF window
+local shsw_calls = 0            -- raw calls this frame
+TEL.shsw_calls_sum = 0          -- summed per window (drained with draw stats)
+local shsw_sites = {}
+local _setShader = love.graphics.setShader
+love.graphics.setShader = function(...)
+    if shsw_on then
+        shsw_calls = shsw_calls + 1
+        if shsw_attr_armed then
+            local fi = debug.getinfo(2, "Sl")
+            local key = fi and ((fi.short_src or "?") .. ":" .. (fi.currentline or 0)) or "?"
+            shsw_sites[key] = (shsw_sites[key] or 0) + 1
+        end
+    end
+    return _setShader(...)
+end
+local function shsw_frame_end()
+    -- called from the Game:draw wrapper each sampled frame
+    TEL.shsw_calls_sum = TEL.shsw_calls_sum + shsw_calls
+    shsw_calls = 0
+    if shsw_attr_armed then
+        shsw_attr_armed = false
+        local top = {}
+        for k, n in pairs(shsw_sites) do top[#top + 1] = { k = k, n = n } end
+        table.sort(top, function(a, b) return a.n > b.n end)
+        for i = 1, math.min(#top, 8) do
+            tel("SHSW_AT", { src = top[i].k:gsub("[%s=]", "_"), n = top[i].n })
+        end
+        if next(shsw_sites) then shsw_sites = {} end
+    end
+end
+
+-- JIT trace-abort visibility: every abort leaves that path interpreted (the
+-- bimodal frame-time cliff measured on-device). Aggregate aborts per
+-- (source:line, reason) and flush a summary with each PERF_SNAPSHOT.
+-- jit.vmdef (the error-string table) is a plain-Lua module usually NOT
+-- embedded in liblove.so — reasons then log as numeric codes; decode offline
+-- against LuaJIT 2.1.1700008891 lj_traceerr.h.
+local JIT_TR = {n_start = 0, n_stop = 0, n_abort = 0, n_flush = 0, detail = 0, aborts = {}}
+local jit_ok, jit_lib = pcall(require, "jit")
+local jutil_ok, jutil = pcall(require, "jit.util")
+local vmdef_ok, vmdef = pcall(require, "jit.vmdef")
+local function trace_cb(what, tr, func, pc, otr, oex)
+    -- runs from the JIT engine itself: must never raise, never trace
+    if what == "start" then JIT_TR.n_start = JIT_TR.n_start + 1
+    elseif what == "stop" then JIT_TR.n_stop = JIT_TR.n_stop + 1
+    elseif what == "flush" then JIT_TR.n_flush = JIT_TR.n_flush + 1
+    elseif what == "abort" then
+        JIT_TR.n_abort = JIT_TR.n_abort + 1
+        if JIT_TR.detail < 400 then  -- cap allocation per flush window
+            JIT_TR.detail = JIT_TR.detail + 1
+            pcall(function()
+                local loc = "?"
+                if jutil_ok and func then
+                    local fi = jutil.funcinfo(func, pc)
+                    if fi then
+                        loc = tostring(fi.source or "?"):gsub("^@", "")
+                            .. ":" .. tostring(fi.currentline or fi.linedefined or 0)
+                    end
+                end
+                local why
+                if vmdef_ok and type(otr) == "number" and vmdef.traceerr and vmdef.traceerr[otr] then
+                    why = vmdef.traceerr[otr]
+                    if why:find("%%") and oex ~= nil then
+                        local ok_f, msg = pcall(string.format, why, tostring(oex))
+                        why = ok_f and msg or why
+                    end
+                else
+                    why = tostring(otr) .. (oex ~= nil and ("|" .. tostring(oex)) or "")
+                end
+                -- telemetry lines are space-separated k=v: values must not
+                -- contain spaces or '='
+                local key = (loc .. "|" .. why):gsub("[%s=]", "_")
+                JIT_TR.aborts[key] = (JIT_TR.aborts[key] or 0) + 1
+            end)
+        end
+    end
+end
+if jit_ok and jit_lib and jit_lib.off then pcall(jit_lib.off, trace_cb, true) end
+local jit_attached = false
+local function set_jit_hook(on)
+    if not (jit_ok and jit_lib and jit_lib.attach) then return end
+    if on and not jit_attached then
+        jit_attached = pcall(jit_lib.attach, trace_cb, "trace") and true or false
+    elseif not on and jit_attached then
+        pcall(jit_lib.attach, trace_cb)  -- no event name = detach
+        jit_attached = false
+    end
+end
+-- ── end Tier-0a collectors ──────────────────────────────────────────────
+
 local function apply_gates(want_log, want_home)
     -- drain under the OLD gates on ANY change while active: lines buffered
     -- under one consent state must never be delivered under another (e.g.
@@ -141,6 +276,13 @@ local function apply_gates(want_log, want_home)
         end
     end
     if want_home then start_sender() end
+    if not (want_log or want_home) and (log_on or home_on) then
+        -- deactivation edge: drop the Tier-0a collectors so the event loop
+        -- and JIT engine pay nothing while telemetry is off
+        EVQ_PROF = nil
+        set_jit_hook(false)
+        shsw_on = false
+    end
     if (want_log or want_home) and not (log_on or home_on) then
         -- activation edge: start the reporting windows now, not at t=0
         local now = (G and G.TIMERS and G.TIMERS.UPTIME) or 0
@@ -149,6 +291,12 @@ local function apply_gates(want_log, want_home)
         TEL.exp_recompute_count = 0
         TEL.frame_count, TEL.frame_dt_sum, TEL.frame_dt_max = 0, 0, 0
         last_flush = now
+        -- arm the Tier-0a collectors
+        EVQ_PROF = evq_prof_new()
+        set_jit_hook(true)
+        reset_draw_stats()
+        shsw_on = true
+        TEL.shsw_calls_sum = 0
         -- resync the STATE baseline: a re-enable mid-game would otherwise
         -- emit a transition whose 'from' is the stale pre-disable state.
         -- (Gesture baselines are left alone — their events carry no 'from',
@@ -169,7 +317,8 @@ local function apply_gates(want_log, want_home)
     end
 end
 
-local function tel(event, data)
+-- assigns the forward-declared local (see SHSW block above)
+function tel(event, data)
     if log_on == false and home_on == false then return end
     local parts = {"[TEL]", event}
     if data then
@@ -243,6 +392,15 @@ end
 -- (lib/overrides.lua:1385), clobbering any chunk-load-time wrap. That is why
 -- G_PRESS never fired from any prior build. Installing on the first
 -- Game:update frame wraps Cryptid's version instead.
+-- HAND_CALCS accumulator (filled by the calculate_joker wrap in
+-- install_late_hooks, emitted by the update hook at scoring-run end).
+-- hits = calls that returned an effect; the complement is the no-op
+-- fraction — the direct measure of how much of the jokers×contexts×reps
+-- sweep is wasted work.
+local CALC_ATTR = { total = 0, nhit = 0, joks = {}, hits = {}, ctx = {},
+    t0 = 0, tc0_runs = 0, tc0_coll = 0 }
+local calc_run_active = false
+
 local late_hooks_done = false
 local function install_late_hooks()
     late_hooks_done = true
@@ -271,6 +429,41 @@ local function install_late_hooks()
             return _qp(self, x, y, ...)
         end
     end
+    -- HAND_CALCS attribution: Amulet's "calculations" counter is one
+    -- increment per Card:calculate_joker call inside the scoring coroutine
+    -- (talisman/coroutine.lua) — a flat count with no memory of which joker
+    -- or which context. Wrap the same chokepoint (we load after Amulet, so
+    -- this is the outermost wrap and counts 1:1 with its counter) and
+    -- accumulate per-joker-key and per-context-kind tallies, scoped to the
+    -- coroutine exactly like Amulet's count. Emitted as HAND_CALCS by the
+    -- update hook when the scoring run ends.
+    if Card and Card.calculate_joker then
+        local _cj = Card.calculate_joker
+        function Card:calculate_joker(context)
+            if not (Talisman and Talisman.scoring_coroutine) then
+                return _cj(self, context)
+            end
+            local A = CALC_ATTR
+            A.total = A.total + 1
+            local key = self.config and self.config.center and self.config.center.key or '?'
+            A.joks[key] = (A.joks[key] or 0) + 1
+            local c = context
+            local ck = (c.repetition and 'rep') or (c.retrigger_joker and 'retrig')
+                or (c.other_joker and 'copy') or (c.individual and 'individual')
+                or (c.joker_main and 'main') or (c.before and 'before')
+                or (c.after and 'after') or (c.end_of_round and 'eor')
+                or (c.setting_blind and 'blind')
+                or (c.cardarea == G.play and 'play_pass')
+                or (c.cardarea == G.hand and 'hand_pass') or 'other'
+            A.ctx[ck] = (A.ctx[ck] or 0) + 1
+            local ret, trig = _cj(self, context)
+            if ret then
+                A.nhit = A.nhit + 1
+                A.hits[key] = (A.hits[key] or 0) + 1
+            end
+            return ret, trig
+        end
+    end
 end
 
 -- Hook Game:update to track state transitions and exp_recompute rate
@@ -291,6 +484,17 @@ function Game:update(dt)
         return _original_game_update(self, dt)
     end
 
+    -- HAND_CALCS baseline: a scoring run can start AND collapse inside the
+    -- update call below, so the collapse-stats baseline must be taken
+    -- pre-update while no run is active (a post-detection snapshot reads
+    -- counters the run already bumped).
+    if not calc_run_active then
+        local tcs = TRIGGER_COLLAPSE and TRIGGER_COLLAPSE.stats_total
+        CALC_ATTR.tc0_runs = tcs and tcs.runs or 0
+        CALC_ATTR.tc0_coll = tcs and tcs.collapsed_reps or 0
+        CALC_ATTR.t0 = love.timer.getTime()
+    end
+
     local exp_dt_before = self._exp_dt
     local result = _original_game_update(self, dt)
 
@@ -304,6 +508,52 @@ function Game:update(dt)
     TEL.frame_count = TEL.frame_count + 1
     TEL.frame_dt_sum = TEL.frame_dt_sum + rdt
     if rdt > TEL.frame_dt_max then TEL.frame_dt_max = rdt end
+
+    -- HAND_CALCS: emit the per-scoring-run calc attribution when the Amulet
+    -- coroutine winds down (truthy -> nil transition). One line per scored
+    -- hand: total calls, hit count (returned an effect), top jokers as
+    -- key:calls:hits, context-kind histogram, and the collapse engine's
+    -- delta for this run (runs/collapsed must explain — or indict — the
+    -- rep volume).
+    do
+        local sc = Talisman and Talisman.scoring_coroutine
+        if sc and not calc_run_active then
+            calc_run_active = true  -- baseline already captured pre-update
+        elseif not sc and calc_run_active then
+            calc_run_active = false
+            local A = CALC_ATTR
+            if A.total > 0 then
+                local top = {}
+                for k, n in pairs(A.joks) do top[#top + 1] = { k = k, n = n } end
+                table.sort(top, function(a, b) return a.n > b.n end)
+                local jparts = {}
+                for i = 1, math.min(#top, 10) do
+                    local t = top[i]
+                    jparts[i] = t.k .. ':' .. t.n .. ':' .. (A.hits[t.k] or 0)
+                end
+                local cparts = {}
+                for k, n in pairs(A.ctx) do cparts[#cparts + 1] = k .. ':' .. n end
+                table.sort(cparts)
+                local tcs = TRIGGER_COLLAPSE and TRIGGER_COLLAPSE.stats_total
+                tel("HAND_CALCS", {
+                    total = A.total,
+                    hits = A.nhit,
+                    noop_pct = string.format("%.1f", 100 * (A.total - A.nhit) / A.total),
+                    -- Amulet's own run clock (co.finish stamps it just before
+                    -- the coroutine winds down); wall t0 as fallback
+                    secs = string.format("%.2f", (G.GAME and G.GAME.LAST_CALC_TIME)
+                        or (love.timer.getTime() - A.t0)),
+                    njok = #top,
+                    amulet_calcs = (G.GAME and G.GAME.LAST_CALCS) or -1,
+                    tc_runs = tcs and (tcs.runs - A.tc0_runs) or -1,
+                    tc_collapsed = tcs and (tcs.collapsed_reps - A.tc0_coll) or -1,
+                    joks = table.concat(jparts, ","),
+                    ctx = table.concat(cparts, ","),
+                })
+            end
+            A.total, A.nhit, A.joks, A.hits, A.ctx = 0, 0, {}, {}, {}
+        end
+    end
 
     -- Emit summary every EXP_REPORT_INTERVAL seconds of real time
     local now = self.TIMERS and self.TIMERS.UPTIME or 0
@@ -332,13 +582,33 @@ function Game:update(dt)
             dt_avg_ms = string.format("%.2f", 1000 * TEL.frame_dt_sum / math.max(TEL.frame_count, 1)),
             dt_max_ms = string.format("%.2f", 1000 * TEL.frame_dt_max),
         }
-        -- object-registry counts: a leak shows up as the counter that climbs
+        -- object-registry counts: a leak shows up as the counter that climbs.
+        -- n_ui_s counts only boxes that go through the uiboxes draw loop
+        -- (mirrors the filter at game.lua:3011: no attention_text, no parent,
+        -- not the excluded overlay singletons). n_ui_total is the raw registry
+        -- size; the delta (n_ui_total - n_ui_s) is mostly transient
+        -- attention_text animation boxes that are excluded from the draw loop
+        -- and therefore do NOT contribute to the uiboxes timer — correlating
+        -- n_ui_total against uiboxes ms produces a misleading floor artifact.
         if G.I then
             snap.n_node = #G.I.NODE
             snap.n_mov = #G.I.MOVEABLE
-            snap.n_ui = #G.I.UIBOX
             snap.n_card = #G.I.CARD
             snap.n_moves = G.MOVEABLES and #G.MOVEABLES or -1
+            local n_s = 0
+            for _, v in pairs(G.I.UIBOX) do
+                if not v.attention_text and not v.parent
+                    and v ~= G.OVERLAY_MENU and v ~= G.screenwipe
+                    and v ~= G.OVERLAY_TUTORIAL and v ~= G.debug_tools
+                    and v ~= G.online_leaderboard
+                    and v ~= G.achievement_notification then
+                    n_s = n_s + 1
+                end
+            end
+            snap.n_ui_s = n_s
+            snap.n_ui_total = #G.I.UIBOX
+            -- MOVEABLE_SHADOW_LISTS: UIElement count drives the update= cost
+            snap.n_uie = G.MOVEABLES_UE and #G.MOVEABLES_UE or -1
         end
         -- checkpoint breakdowns flow whenever collection is on: Debug Logging
         -- alone enables them headlessly (the on-screen overlay needs the
@@ -360,7 +630,87 @@ function Game:update(dt)
             snap.upd = table.concat(upd_parts, ",")
             snap.drw = table.concat(drw_parts, ",")
         end
+        -- Tier-0a: draw-call stats for the window (Game:draw wrapper below)
+        if TEL.draw_frames > 0 then
+            local n = TEL.draw_frames
+            snap.dc_avg = math.floor(TEL.dc_sum / n + 0.5)
+            snap.dc_max = TEL.dc_max
+            snap.dcb_avg = math.floor(TEL.dcb_sum / n + 0.5)
+            snap.shsw_avg = math.floor(TEL.shsw_sum / n + 0.5)
+            snap.shsw_max = TEL.shsw_max
+            snap.cnv_avg = math.floor(TEL.cnv_sum / n + 0.5)
+            -- raw setShader CALLS vs actual switches: the gap is redundant
+            -- binds (elision potential for Tier-2a)
+            snap.shsw_set_avg = math.floor(TEL.shsw_calls_sum / n + 0.5)
+            TEL.shsw_calls_sum = 0
+            -- lazy-shader elision (Tier-2a v1): real GPU binds vs game-issued
+            -- calls for the window — binds << calls is the win, live
+            if LAZY_SHADER then
+                snap.ls_binds = LAZY_SHADER.binds - (TEL.ls_binds_last or 0)
+                snap.ls_calls = LAZY_SHADER.calls - (TEL.ls_calls_last or 0)
+                TEL.ls_binds_last, TEL.ls_calls_last = LAZY_SHADER.binds, LAZY_SHADER.calls
+            end
+            reset_draw_stats()
+        end
+        -- Tier-2a: attribute every setShader call of ONE upcoming frame to
+        -- its caller (SHSW_AT events emitted from the draw wrapper)
+        shsw_attr_armed = true
+        -- Tier-0a: event-handler totals for the window
+        local _ep = EVQ_PROF
+        if _ep then
+            snap.n_evh = _ep.n
+            snap.evh_ms = string.format("%.1f", _ep.ms)
+        end
         tel("PERF_SNAPSHOT", snap)
+        -- Tier-0a: name the slowest event handlers of the window (top 5 by
+        -- total ms; src is func source:linedefined — in the lovely-merged
+        -- main.lua the line number IS the mod attribution)
+        if _ep then
+            local top = {}
+            for k, b in pairs(_ep.slow) do top[#top + 1] = {k = k, b = b} end
+            table.sort(top, function(a, b) return a.b.ms > b.b.ms end)
+            for i = 1, math.min(#top, 5) do
+                local t = top[i]
+                tel("EV_SLOW", {src = t.k:gsub("[%s=]", "_"), n = t.b.n,
+                    ms = string.format("%.1f", t.b.ms),
+                    max_ms = string.format("%.1f", t.b.max)})
+            end
+            _ep.n, _ep.ms = 0, 0
+            if next(_ep.slow) then _ep.slow = {} end
+        end
+        -- trigger-collapse stats for the window (engine in
+        -- trigger-collapse.lua; mismatches must stay zero)
+        local tc = TRIGGER_COLLAPSE
+        if tc and tc.stats and (tc.stats.runs > 0 or tc.stats.unstable > 0
+                or tc.stats.impure > 0 or tc.stats.mismatches > 0) then
+            tel("RLE_STATS", {
+                runs = tc.stats.runs,
+                collapsed = tc.stats.collapsed_reps,
+                honest = tc.stats.honest_reps,
+                unstable = tc.stats.unstable,
+                impure = tc.stats.impure,
+                mismatch = tc.stats.mismatches,
+                max_run = tc.stats.max_run,
+            })
+            tc.stats.runs, tc.stats.collapsed_reps, tc.stats.honest_reps = 0, 0, 0
+            tc.stats.unstable, tc.stats.impure, tc.stats.mismatches = 0, 0, 0
+            tc.stats.max_run = 0
+        end
+        -- Tier-0a: JIT trace activity for the window (only emit when the
+        -- compiler did something — steady state after warmup is silence)
+        if jit_attached and (JIT_TR.n_abort > 0 or JIT_TR.n_stop > 0
+                or JIT_TR.n_start > 0 or JIT_TR.n_flush > 0) then
+            tel("JIT_TRACE", {n_start = JIT_TR.n_start, n_stop = JIT_TR.n_stop,
+                n_abort = JIT_TR.n_abort, n_flush = JIT_TR.n_flush})
+            local atop = {}
+            for k, n in pairs(JIT_TR.aborts) do atop[#atop + 1] = {k = k, n = n} end
+            table.sort(atop, function(a, b) return a.n > b.n end)
+            for i = 1, math.min(#atop, 8) do
+                tel("JIT_ABORT", {at = atop[i].k, n = atop[i].n})
+            end
+            JIT_TR.n_start, JIT_TR.n_stop, JIT_TR.n_abort, JIT_TR.n_flush, JIT_TR.detail = 0, 0, 0, 0, 0
+            if next(JIT_TR.aborts) then JIT_TR.aborts = {} end
+        end
         TEL.frame_count = 0
         TEL.frame_dt_sum = 0
         TEL.frame_dt_max = 0
@@ -381,6 +731,42 @@ function Game:update(dt)
                 -- back-references (package.loaded._G reaches everything)
                 visited[_G] = true; visited[G] = true
                 if package then visited[package] = true; visited[package.loaded] = true end
+                -- pre-mark alias registries: every entry in these lists is
+                -- owned elsewhere (G.jokers, UIBoxes, ...), so letting them
+                -- act as census roots just steals whole subtrees from their
+                -- real owners by reach order (observed 2026-06-11:
+                -- G.MOVEABLES_UE "absorbed" 34.5k entries that belong to the
+                -- UI tree). Marking the list table itself stops the walk
+                -- from entering through the alias; contents still attribute
+                -- to whichever true owner reaches them.
+                for _, alias in ipairs({'MOVEABLES', 'MOVEABLES_C', 'MOVEABLES_S',
+                        'MOVEABLES_UB', 'MOVEABLES_UE', 'MOVEABLES_O'}) do
+                    if type(G[alias]) == 'table' then visited[G[alias]] = true end
+                end
+                -- G.I (instance registry: I.NODE/I.MOVEABLE/I.CARD/...) is the
+                -- same kind of alias — it reaches every live object and
+                -- absorbed 61k entries as a root on 2026-06-11
+                if type(G.I) == 'table' then
+                    visited[G.I] = true
+                    for _, reg in pairs(G.I) do
+                        if type(reg) == 'table' then visited[reg] = true end
+                    end
+                end
+                -- G.STAGE_OBJECTS (scene-graph attachment root) reaches every
+                -- attached node — absorbed the entire 150k walk budget as the
+                -- first-reached root on 2026-06-12, blinding the census.
+                -- Mark the root and per-stage lists; contents attribute
+                -- through semantic owners (G.jokers, G.GAME, ...).
+                if type(G.STAGE_OBJECTS) == 'table' then
+                    visited[G.STAGE_OBJECTS] = true
+                    for _, stage in pairs(G.STAGE_OBJECTS) do
+                        if type(stage) == 'table' then visited[stage] = true end
+                    end
+                end
+                -- G.DRAW_HASH: per-frame array of drawn objects (in-place
+                -- emptied each frame) — another pure alias; absorbed 111k as
+                -- a root on 2026-06-12 once STAGE_OBJECTS was marked
+                if type(G.DRAW_HASH) == 'table' then visited[G.DRAW_HASH] = true end
                 local function subtree_count(root)
                     if type(root) ~= 'table' or visited[root] then return 0 end
                     visited[root] = true
@@ -511,6 +897,30 @@ function Game:update(dt)
     end
 
     return result
+end
+
+-- Tier-0a: sample love.graphics.getStats at the end of Game:draw (stats
+-- accumulate from frame start; sampling here captures the whole game draw
+-- and excludes any overlay drawn after). Table-arg form avoids a per-frame
+-- allocation. Averaged into PERF_SNAPSHOT by the update hook above.
+local _original_game_draw = Game.draw
+local _gstats = {}
+function Game:draw(...)
+    local r = _original_game_draw(self, ...)
+    if (log_on or home_on) and love.graphics.getStats then
+        love.graphics.getStats(_gstats)
+        TEL.draw_frames = TEL.draw_frames + 1
+        local dc = _gstats.drawcalls or 0
+        TEL.dc_sum = TEL.dc_sum + dc
+        if dc > TEL.dc_max then TEL.dc_max = dc end
+        TEL.dcb_sum = TEL.dcb_sum + (_gstats.drawcallsbatched or 0)
+        local ss = _gstats.shaderswitches or 0
+        TEL.shsw_sum = TEL.shsw_sum + ss
+        if ss > TEL.shsw_max then TEL.shsw_max = ss end
+        TEL.cnv_sum = TEL.cnv_sum + (_gstats.canvasswitches or 0)
+        shsw_frame_end()
+    end
+    return r
 end
 
 -- gesture provenance: wrap the mutation sites the gesture system fights over
@@ -682,12 +1092,62 @@ end
 -- Hook error handler to log crashes with context
 local _original_errorhandler = love.errorhandler
 love.errorhandler = function(msg)
+    -- the handler runs on top of the erroring stack (xpcall handler), so
+    -- debug.traceback here sees the real error frames — same trick the
+    -- vanilla crash screen uses. Keep it compact: strip the header and the
+    -- C/boot frames, one line per frame joined with " | ".
+    local trace = ""
+    pcall(function()
+        trace = debug.traceback("", 2) or ""
+        trace = trace:gsub("stack traceback:%s*", "")
+            :gsub("%s*\n%s*", " | ")
+            :gsub("%[C%]: in [^|]*|? ?", "")
+            :sub(1, 600)
+    end)
+    -- the erroring frames are still live under this handler, so pull `self`
+    -- out of the innermost method frame (debug.getlocal) and identify the
+    -- object that died — the traceback alone is the same per-frame update
+    -- chain no matter which moveable crashed.
+    local who = ""
+    pcall(function()
+        for lvl = 2, 24 do
+            if not debug.getinfo(lvl, "f") then break end
+            local name, val = debug.getlocal(lvl, 1)
+            if name == "self" and type(val) == "table" then
+                local parts = {}
+                for _, cls in ipairs({ "Card", "CardArea", "UIBox", "UIElement",
+                    "DynaText", "AnimatedSprite", "Sprite", "Particles", "Blind",
+                    "Moveable", "Node" }) do
+                    local c = rawget(_G, cls)
+                    local ok, r = pcall(function() return c and val.is and val:is(c) end)
+                    if ok and r then parts[#parts + 1] = cls; break end
+                end
+                if val.config and val.config.id then parts[#parts + 1] = "id:" .. tostring(val.config.id) end
+                if val.label then parts[#parts + 1] = "label:" .. tostring(val.label) end
+                if val.config and val.config.object then parts[#parts + 1] = "obj:" .. tostring(val.config.object) end
+                if val.UIBox and val.UIBox.config and val.UIBox.config.id then
+                    parts[#parts + 1] = "uibox:" .. tostring(val.UIBox.config.id)
+                end
+                if val.T then
+                    parts[#parts + 1] = string.format("T(%s,%s,%s,%s)",
+                        tostring(val.T.x), tostring(val.T.y), tostring(val.T.w), tostring(val.T.h))
+                end
+                if val.VT then
+                    parts[#parts + 1] = string.format("VT(%s,%s)", tostring(val.VT.w), tostring(val.VT.h))
+                end
+                who = table.concat(parts, " "):sub(1, 300)
+                break
+            end
+        end
+    end)
     tel("CRASH", {
         state = get_state_name(G and G.STATE),
         stage = STAGE_NAMES[G and G.STAGE] or "unknown",
         ante = G and G.GAME and G.GAME.round_resets and G.GAME.round_resets.ante or 0,
         round = G and G.GAME and G.GAME.round or 0,
-        error = tostring(msg):sub(1, 200):gsub("\n", " | ")
+        error = tostring(msg):sub(1, 200):gsub("\n", " | "),
+        trace = trace,
+        who = who
     })
     pcall(flush)  -- dying words must reach the file
     if _original_errorhandler then
