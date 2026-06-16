@@ -165,11 +165,13 @@ object Score {
         return null
     }
 
-    /** evaluate_play (state_events.lua:571) — the cascade, score only (animation stripped). */
+    /** evaluate_play (state_events.lua:571) — the cascade. `trace` (when non-null) records the
+     *  running chips/mult after the base and after each scoring card + the joker passes, so the UI
+     *  can animate the build-up. trace=null is the oracle/hot path (no overhead). */
     fun score(
         played: List<PlayingCard>, jokers: List<FJoker>, held: List<PlayingCard> = emptyList(),
-        level: Int = 1, debuff: Debuff = Debuff.None,
-    ): Double {
+        level: Int = 1, debuff: Debuff = Debuff.None, trace: MutableList<ScoreStep>? = null,
+    ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
         val rankOf: (PlayingCard) -> Int =
             if (jokers.any { it.key == "j_cry_maximized" }) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } }
@@ -186,6 +188,7 @@ object Score {
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
         for (j in jokers) if (j.key == "j_cry_primus" && played.all { it.id !in PRIMUS_COMPOSITES }) j.x += 0.17
+        trace?.add(ScoreStep("base · ${handType.name.lowercase().replace('_', ' ')}", chips, mult))
 
         fun apply(fx: Fx) {                         // the effects[ii] application block (lines 702-777)
             if (fx.chips != 0.0) chips += fx.chips
@@ -209,6 +212,7 @@ object Score {
                 }
                 for (fx in effects) apply(fx)
             }
+            trace?.add(ScoreStep("+ ${card.label}", chips, mult))
         }
 
         // held-in-hand pass: the card's own held effect (steel x1.5) + each joker reacting to held cards
@@ -250,6 +254,7 @@ object Score {
         }
         ctx.otherJoker = null
 
-        return floor(chips * mult)
+        if (jokers.isNotEmpty()) trace?.add(ScoreStep("jokers", chips, mult))
+        return ScoreResult(handType, chips, mult, floor(chips * mult))
     }
 }

@@ -51,7 +51,7 @@ import systems.balatro.game.*
  */
 internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
-internal data class Owned(val entity: Entity, val offer: Offer)
+internal data class Owned(val entity: Entity, val offer: Offer, val fj: FJoker)
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
 internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
@@ -114,7 +114,6 @@ private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(bl
 internal class RunState {
     val world = World()
     val effects = Effects()
-    private val scorer = ScoreRun(effects)
 
     var money by mutableStateOf(4)
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
@@ -240,8 +239,15 @@ internal class RunState {
         if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
         val sel = hand.filterIndexed { i, _ -> i in selected }
         val held = hand.filterIndexed { i, _ -> i !in selected }
+        // FAITHFUL Score engine: maximized-aware hand type drives the planet level; FJokers carry
+        // scaling state and accumulate across hands (krusty/primus mutate during scoring).
+        val fjokers = owned.map { it.fj }
+        val maxi = fjokers.any { it.key == "j_cry_maximized" }
+        val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
+        val handType = Hands.evaluate(sel, rankOf).first
+        val level = Levels.get(world)?.level(handType) ?: 1
         val trace = ArrayList<ScoreStep>()
-        val r = scorer.scoreDetailed(world, sel, trace, boss?.scoringDebuff ?: Debuff.None, held)
+        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         scoreCards = sel; popIndex = -1
@@ -301,8 +307,11 @@ internal class RunState {
     fun buy(offer: Offer, free: Boolean = false) {
         if (!free && money < offer.cost) return
         if (!free) money -= offer.cost
-        val e = Editions.spawn(world, effects, offer.key, offer.edition)   // register live, with edition
-        owned.add(Owned(e, offer))
+        val e = Editions.spawn(world, effects, offer.key, offer.edition)   // composition entity: END_OF_ROUND only
+        // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
+        val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
+        val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
+        owned.add(Owned(e, offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
     }
