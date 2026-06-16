@@ -27,7 +27,7 @@ import kotlin.math.pow
  *           abstract: jokers; supernova: hand-type plays; blue: deck size; drivers: enhanced cards)
  */
 class FJoker(
-    val key: String, val mult: Double = 0.0, val edition: String = "", var x: Double = 1.0,
+    val key: String, var mult: Double = 0.0, val edition: String = "", var x: Double = 1.0,
     var chips: Double = 0.0, var n: Int = 0, val rarity: Int = 0,
 )
 
@@ -109,6 +109,7 @@ object Score {
             // --- Cryptid individual ---
             "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
             "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
+            "j_cry_wee_fib"           -> if (oc.id == 14 || oc.id == 2 || oc.id == 3 || oc.id == 5 || oc.id == 8) j.mult += 3.0  // +3 Mult/scored Fibonacci, applied at joker_main
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -131,7 +132,7 @@ object Score {
             "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
-            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card" ->
+            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
@@ -185,6 +186,10 @@ object Score {
         if (oj != null) when (j.key) {
             "j_baseball"     -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
             "j_cry_waluigi"  -> return Fx().apply { xMultMod = 2.5 }                                  // X2.5 once per board joker (incl self)
+            // --- Cryptid edition reactors (the card-edition branch is unreachable: cards carry no edition here) ---
+            "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
+            "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker
+            "j_cry_stardust"  -> if (oj !== j && oj.edition == "Poly") return Fx().apply { xMultMod = 2.0 }   // X2 Mult / other Poly joker
         }
         return null
     }

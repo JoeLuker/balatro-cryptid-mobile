@@ -98,6 +98,10 @@ private val CATALOG = listOf(
     Offer("j_cry_nosound", "No Sound?", "retrigger scored 7s x3", 5),
     Offer("j_cry_exposed", "Exposed", "retrigger scored non-faces x2", 5),
     Offer("j_cry_mask", "Mask", "retrigger scored faces x3", 5),
+    Offer("j_cry_wee_fib", "Wee Fibonacci", "+3 Mult per scored A/2/3/5/8 (scaling)", 6),
+    Offer("j_cry_meteor", "Meteor", "+75 Chips per Foil joker", 5),
+    Offer("j_cry_exoplanet", "Exoplanet", "+15 Mult per Holo joker", 5),
+    Offer("j_cry_stardust", "Stardust", "x2 Mult per Poly joker", 7),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3

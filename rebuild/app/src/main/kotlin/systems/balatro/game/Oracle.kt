@@ -52,6 +52,8 @@ object Oracle {
         Case("StraightFlush spades + nuts (x5 Mult)", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 6040.0, j(FJoker("j_cry_nuts"))),
         Case("HighCard 9 (+6 kicker) + nice (+420 Chips)", PlayingCard.hand("S_9", "H_6"), 434.0, j(FJoker("j_cry_nice"))),
         Case("Pair of Kings + mask (faces retrigger x3)", PlayingCard.hand("S_K", "H_K"), 180.0, j(FJoker("j_cry_mask"))),
+        Case("Pair of aces + wee_fib (2 fibs -> +6 Mult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_wee_fib"))),
+        Case("Pair + Foil Joker + meteor (+75 Chips/Foil joker)", PlayingCard.hand("S_A", "H_A"), 942.0, j(FJoker("j_joker", edition = "Foil"), FJoker("j_cry_meteor"))),
         // --- editions ---
         Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0, j(FJoker("j_joker", edition = "Foil"))),
         Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_joker", edition = "Holo"))),
