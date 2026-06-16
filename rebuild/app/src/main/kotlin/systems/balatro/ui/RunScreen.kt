@@ -280,9 +280,10 @@ internal class RunState {
      *  scale=0.001 in source; blind_chip_UI_scale springs to 0.5 on round start (implemented in HudColumn). */
     val chipText: String get() = fmtR(target)
 
-    /** Mirrors G.GAME.current_round.dollars_to_be_earned — reward payout shown on the blind panel.
-     *  Balatro formula: 4 + hands_left (+ gold cards, deferred). Matches scoreCommit's reward calc. */
-    val dollarsToBeEarned: Int get() = 4 + handsLeft
+    /** The blind's $ reward shown on the HUD blind panel — config.dollars (Small=3/Big=4/Boss=5),
+     *  matching the coins Balatro draws on the blind token. (The per-hand/interest bonuses appear at
+     *  cash-out, not here.) */
+    val dollarsToBeEarned: Int get() = rewardForSlot(slot)
 
     // ── contents.hand bindings — mirror current_round.current_hand ──────────────
     // These feed the DynaText Os in hudHand(). Compose recomposes when the mutableStateOf
