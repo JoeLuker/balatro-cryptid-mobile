@@ -64,6 +64,20 @@ private val CATALOG = listOf(
     Offer("j_even_steven", "Even Steven", "+4 Mult / even card", 4),
     Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
     Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
+    // --- vanilla, individual (already faithful in calcJoker) ---
+    Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5),
+    Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5),
+    Offer("j_fibonacci", "Fibonacci", "+8 Mult / A,2,3,5,8", 8),
+    Offer("j_scary_face", "Scary Face", "+30 Chips / face card", 4),
+    Offer("j_smiley", "Smiley Face", "+5 Mult / face card", 4),
+    Offer("j_triboulet", "Triboulet", "x2 Mult / King or Queen", 8),
+    Offer("j_walkie_talkie", "Walkie Talkie", "10 or 4: +10 Chips & +4 Mult", 4),
+    Offer("j_photograph", "Photograph", "x2 Mult on first face card", 5),
+    // --- vanilla, joker_main flat ---
+    Offer("j_half", "Half Joker", "+20 Mult if <= 3 cards", 5),
+    Offer("j_stuntman", "Stuntman", "+250 Chips", 7),
+    Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6),
+    Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),

@@ -35,6 +35,11 @@ object Oracle {
         Case("Pair of 2s + Even Steven", PlayingCard.hand("S_2", "H_2"), 140.0, j(FJoker("j_even_steven"))),
         Case("Pair of 3s + Odd Todd", PlayingCard.hand("S_3", "H_3"), 156.0, j(FJoker("j_odd_todd"))),
         Case("Pair of aces + Scholar", PlayingCard.hand("S_A", "H_A"), 720.0, j(FJoker("j_scholar"))),
+        // --- vanilla flat jokers (faithful, now also catalogued) ---
+        Case("Pair of aces + fibonacci (+8 Mult/ace)", PlayingCard.hand("S_A", "H_A"), 576.0, j(FJoker("j_fibonacci"))),
+        Case("Pair of aces + half (+20 Mult, <=3 cards)", PlayingCard.hand("S_A", "H_A"), 704.0, j(FJoker("j_half"))),
+        Case("Pair of aces + stuntman (+250 Chips)", PlayingCard.hand("S_A", "H_A"), 564.0, j(FJoker("j_stuntman"))),
+        Case("Pair of Kings + triboulet (x2/King)", PlayingCard.hand("S_K", "H_K"), 240.0, j(FJoker("j_triboulet"))),
         // --- Cryptid jokers ---
         Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, j(FJoker("j_cry_cube"))),
         Case("ThreeOfAKind 3s + triplet_rhythm (x3)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, j(FJoker("j_cry_triplet_rhythm"))),
