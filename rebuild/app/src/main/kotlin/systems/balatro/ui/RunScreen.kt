@@ -105,6 +105,9 @@ private val CATALOG = listOf(
     Offer("j_cry_duos", "Duos", "x2.5 Mult if Two Pair or Full House", 7),
     Offer("j_cry_home", "Home", "x3.5 Mult if Full House", 7),
     Offer("j_cry_filler", "Filler", "x1.00000000000003 Mult", 1),
+    Offer("j_cry_zooble", "Zooble", "+1 Mult per distinct scored rank (scaling)", 6),
+    Offer("j_cry_cursor", "Cursor", "+8 Chips per card bought (scaling)", 5),
+    Offer("j_cry_eternalflame", "Eternal Flame", "+0.1 X Mult per card sold (scaling)", 6),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -334,6 +337,7 @@ internal class RunState {
         if (!free && money < offer.cost) return
         if (!free) money -= offer.cost
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
+        onCardBought()                               // context.buying_card: scale cursors before the new card lands
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
         val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
         owned.add(Owned(offer, fj))
@@ -344,14 +348,19 @@ internal class RunState {
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
         owned.remove(o)
+        owned.forEach { if (it.fj.key == "j_cry_eternalflame") it.fj.x += 0.1 }   // context.selling_card: +0.1 X per sell
         val refund = maxOf(1, o.offer.cost / 2)
         money += refund
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
     }
 
+    /** context.buying_card — every Cryptid Cursor on the board gains +8 Chips when any card is bought. */
+    private fun onCardBought() { owned.forEach { if (it.fj.key == "j_cry_cursor") it.fj.chips += 8.0 } }
+
     fun buyPlanet(po: PlanetOffer) {
         if (money < po.cost) return
         money -= po.cost
+        onCardBought()
         handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
         Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
@@ -360,6 +369,7 @@ internal class RunState {
     fun buyTarot(t: TarotOffer) {
         if (money < t.cost) return
         money -= t.cost
+        onCardBought()
         val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
         if (card != null) enhancedCount += 1
         shopTarots = shopTarots.filterNot { it === t }
