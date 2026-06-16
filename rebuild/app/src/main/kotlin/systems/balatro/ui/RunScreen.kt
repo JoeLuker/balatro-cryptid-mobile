@@ -219,6 +219,11 @@ internal class RunState {
     fun handPlayed(h: HandType): Int = _handPlayed[h] ?: 0
     private fun recordHandPlayed(h: HandType) { _handPlayed[h] = handPlayed(h) + 1 }
 
+    // ── game-over (Phase.OVER) stats — round_scores_row equivalents the run actually tracks ──
+    val handsPlayedTotal: Int get() = _handPlayed.values.sum()
+    val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
+    val timesRerolled: Int get() = rerolls
+
     val ante: Int get() = blindIndex / 3 + 1
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
@@ -561,16 +566,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
                     Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                     Phase.ROUND_EVAL -> RoundEvalScreen(s)
-                    Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Panel {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                BTxt("Game Over", Balatro.Mult, 24.sp)
-                                BTxt("lost ${s.blindName} · Ante ${s.ante}", Balatro.White, 13.sp)
-                                Spacer(Modifier.height(10.dp))
-                                BButton("New Run", Balatro.Orange) { onRestart() }
-                            }
-                        }
-                    }
+                    Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
                 }
             }
         }
@@ -1123,6 +1119,51 @@ private fun EvalRowView(row: EvalRow) {
         Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Balatro.Panel).padding(horizontal = 8.dp, vertical = 2.dp)) {
             BTxt(if (row.dollars <= 7) "\$".repeat(row.dollars) else "\$${row.dollars}", Balatro.Money, 16.sp)
         }
+    }
+}
+
+/**
+ * Port of create_UIBox_game_over (UI_definitions.lua): "Game Over" title, a dark stats panel
+ * (create_UIBox_round_scores_row), and the Start New Run (RED, notify_then_setup_run) / Main Menu
+ * (RED, go_to_menu) buttons. Only stats the run actually tracks are shown — cards
+ * played/discarded/purchased and seed aren't tracked yet, so they're omitted rather than faked.
+ */
+@Composable
+private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Panel(Modifier.width(320.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BTxt("Game Over", Balatro.Mult, 26.sp)
+                BTxt("Defeated by ${s.blindName}", Balatro.White, 12.sp)
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    s.mostPlayedHand?.let { (h, n) -> StatRow("Most played hand", "${handName(h)} ($n)", Balatro.Orange) }
+                    StatRow("Hands played", s.handsPlayedTotal.toString(), Balatro.Chips)
+                    StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
+                    StatRow("Furthest Ante", s.ante.toString(), Balatro.Orange)        // round_scores_row 'furthest_ante'
+                    StatRow("Furthest Round", (s.blindIndex + 1).toString(), Balatro.Orange)  // 'furthest_round'
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BButton("New Run", Balatro.Mult) { onRestart() }
+                    BButton("Main Menu", Balatro.Mult) { onMainMenu() }
+                }
+            }
+        }
+    }
+}
+
+/** One create_UIBox_round_scores_row: label on the left, coloured value on the right. */
+@Composable
+private fun StatRow(label: String, value: String, accent: Color) {
+    Row(
+        Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BTxt(label, Balatro.White, 11.sp)
+        Spacer(Modifier.width(8.dp))
+        BTxt(value, accent, 13.sp)
     }
 }
 
