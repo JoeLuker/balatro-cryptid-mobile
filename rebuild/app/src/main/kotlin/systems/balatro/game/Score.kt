@@ -371,6 +371,10 @@ object Score {
 
         // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly) — board order.
         // j_cry_oldblueprint re-applies the joker to its right; j_cry_primus is the Emult pow (mult^x).
+        // GAP: no joker-RETRIGGER dispatch. Each joker_main fires exactly once; the only reps loop is
+        // per-scored-card (above). Cryptid's context.retrigger_joker_check family — chad (retriggers the
+        // leftmost joker), spectrogram, flip_side, blur, m_cry_loopy, m_cry_echo — is therefore UNWIRED
+        // pending a dedicated joker-retrigger pass here. See port-notes/cryptid-jokers-translations.json (j_cry_chad).
         for ((idx, j) in jokers.withIndex()) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
             val target = if (j.key == "j_cry_oldblueprint") jokers.getOrNull(idx + 1) else j

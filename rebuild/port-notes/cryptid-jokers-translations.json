@@ -94,9 +94,9 @@
   "name": "cry-Chili Pepper",
   "fires": "joker_main",
   "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
-  "accumulator": "x; multiplied by Xmult_mod (0.5) each end_of_round via SMODS.scale_card (i.e. j.x *= 0.5 per round). Starts at 1 (no-op guard); grows only if end_of_round fires before the card is destroyed after 8 rounds.",
-  "confidence": "medium",
-  "notes": "Scaling Xmult that accumulates via end_of_round (not scoring). Starts at Xmult=1 (the > 1 guard means no score until the value actually exceeds 1 via scale, which multiplies by 0.5 each round \u2014 so it never exceeds 1 from the default path; it can only be set externally or via forcetrigger). Low confidence on direction of scaling because SMODS.scale_card with scalar_value=0.5 multiplies, so Xmult halves each round rather than grows \u2014 the joker gets weaker over time and self-destructs after 8 rounds."
+  "accumulator": "x; += Xmult_mod (0.5) each end_of_round via SMODS.scale_card (default operation '+', additive). Starts at 1 (no-op guard); grows 1 -> 1.5 -> 2.0 ... over up to 8 rounds, then self-destructs.",
+  "confidence": "high",
+  "notes": "Scaling Xmult that accumulates via end_of_round (not scoring). joker_main read branch (xMultMod = j.x when j.x > 1) is correct. DIRECTION CORRECTED 2026-06-16: SMODS.scale_card defaults to operation '+' (Steamodded utils.lua), so Xmult GROWS +0.5/round, not halves \u2014 the earlier 'multiplies/weakens' reading was wrong. The run-loop sets j.x; the engine only reads it. Verified by oracle case 'chili_pepper @x=2.0 (2 end_of_round) -> 128' (1 + 2*0.5 = 2.0), which is green."
  },
  {
   "key": "j_cry_compound_interest",
@@ -146,11 +146,11 @@
  {
   "key": "j_cry_chad",
   "name": "cry-Chad",
-  "fires": "other_joker",
-  "kotlin": "if (oj === jokers.firstOrNull() && oj !== j) return Fx().apply { repetitions = math.min(j.n, 25) }",
+  "fires": "retrigger_joker_check (UNSUPPORTED)",
+  "kotlin": "",
   "accumulator": "",
-  "confidence": "low",
-  "notes": "Fires on context.retrigger_joker_check (not a standard engine dispatch context). Gives 2 retriggers to the left-most joker on the board (G.jokers.cards[1]). The engine has no retrigger_joker_check dispatch; closest analog is other_joker context but the semantics differ (retrigger_joker_check controls joker retriggers, not card retriggers). j.n would need to store the retriggers count (config.extra.retriggers=2, capped at immutable.max_retriggers=25). Kotlin body is approximate; confidence low due to missing dispatch context."
+  "confidence": "tracked-gap",
+  "notes": "DELIBERATELY UNWIRED 2026-06-16. Chad retriggers the LEFT-MOST joker (G.jokers.cards[1]) config.extra.retriggers=2 times (capped at immutable.max_retriggers=25) via context.retrigger_joker_check. The engine has NO joker-retrigger pass — the JOKER MAIN pass (Score.kt) evaluates each joker's main effect exactly once, and the only reps loop is per-scored-CARD (Score.kt ~L346), which retriggers cards, not jokers. The earlier proposal mapping this to repetitions in an other_joker branch was wrong (that would retrigger scored cards). retrigger_joker_check is a RECURRING Cryptid family — also j_cry_spectrogram, j_cry_flip_side, j_cry_blur, m_cry_loopy, and the m_cry_echo edition. Faithful support needs a dedicated joker-retrigger dispatch around the joker_main pass (mirroring the per-card reps loop) plus real LÖVE baselines; tracked as its own batch, not approximated here."
  },
  {
   "key": "j_cry_jimball",

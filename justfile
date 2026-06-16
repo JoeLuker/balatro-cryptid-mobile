@@ -238,3 +238,11 @@ score-oracle:
 # Needs nix-shell. ~10-15 min for all 10 baselines.
 oracle-check *args:
     test/oracle-check.sh {{args}}
+
+# Kotlin rebuild oracle-parity — compiles the pure-Kotlin Score engine and runs
+# the systems.balatro.game.Oracle harness (~99 scored-hand baselines) against
+# the scores recorded by the LÖVE build. Fast, no emulator/phone; checks the
+# REBUILT engine, complementing score-oracle/oracle-check (which generate and
+# verify baselines from the LÖVE build). Needs nix-shell (kotlin). ~30-60 s.
+kt-oracle:
+    test/kt-oracle.sh
