@@ -48,6 +48,7 @@ class Sctx {
     var edition = false
     var held = false                       // held-in-hand pass (cardarea == G.hand)
     var heldHand: List<PlayingCard> = emptyList()
+    var boardKeys: List<String> = emptyList()   // keys of every joker on the board (jtron counts j_joker)
     var handsLeft = -1                      // hands remaining this round (-1 = unknown; acrobat: ==0 last hand)
     var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
     var bossBlind = false                   // true when current blind is a boss blind (apjoker)
@@ -184,6 +185,8 @@ object Score {
             // exponentia: scales Emult (j.x, base 1.0) +Emult_mod(0.03) each time any xmult effect fires during scoring;
             //             joker_main reads j.x and applies mult^j.x when above 1 (no-op while x==1.0 / never scaled)
             "j_cry_exponentia" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // jtron: Emult = 1 + (# of base "j_joker" Jokers on the board); no-op when none present
+            "j_cry_jtron" -> { val n = ctx.boardKeys.count { it == "j_joker" }; if (n > 0) return Fx().apply { eMult = 1.0 + n } }
             // --- Cryptid joker_main ---
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
@@ -309,6 +312,7 @@ object Score {
         val ctx = Sctx().apply {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
+            this.boardKeys = jokers.map { it.key }
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.

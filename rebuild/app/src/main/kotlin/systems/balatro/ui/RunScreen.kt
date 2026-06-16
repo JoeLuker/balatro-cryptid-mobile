@@ -159,6 +159,7 @@ private val CATALOG = listOf(
     Offer("j_cry_treacherous", "Treacherous Joker", "+300 Chips if cry_UltPair", 7),
     Offer("j_cry_nebulous", "Nebulous Joker", "+30 Chips if cry_None", 5),
     Offer("j_cry_many_lost_minds", "Many Lost Minds", "+52! Chips if cry_WholeDeck", 9),
+    Offer("j_cry_jtron", "J-Tron", "mult^(1 + Jokers on board)", 9),
     // --- vanilla hands/discards-remaining jokers (now wired) ---
     Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
     Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
