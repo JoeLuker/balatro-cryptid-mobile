@@ -111,6 +111,10 @@ private val CATALOG = listOf(
     Offer("j_cry_whip", "The WHIP", "+0.5 X Mult if hand has a 2 and 7 of diff suits (scaling)", 7),
     Offer("j_cry_big_cube", "Big Cube", "x6 Chips", 6),
     Offer("j_cry_antennastoheaven", "Antennas to Heaven", "+0.1 X Chips per scored 4/7 (scaling)", 7),
+    Offer("j_cry_night", "Night", "mult^3 (Emult) on the final hand", 8),
+    // --- vanilla hands/discards-remaining jokers (now wired) ---
+    Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
+    Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -280,7 +284,9 @@ internal class RunState {
         val handType = Hands.evaluate(sel, rankOf).first
         val level = handLevels.level(handType)
         val trace = ArrayList<ScoreStep>()
-        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, trace)
+        // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
+        // count AFTER this hand (Balatro decrements before scoring), discards_left is the current count.
+        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         scoreCards = sel; popIndex = -1

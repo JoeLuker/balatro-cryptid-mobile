@@ -56,9 +56,10 @@ class Sctx {
 class Fx {
     var chips = 0.0; var mult = 0.0; var xMult = 0.0; var hMult = 0.0
     var chipMod = 0.0; var multMod = 0.0; var xMultMod = 1.0; var xChipMod = 1.0   // Xchip_mod: Cryptid X-chips
+    var eMult = 1.0                                                                  // Emult_mod: Cryptid exponential mult (mult^eMult)
     var repetitions = 0
     val empty get() = chips == 0.0 && mult == 0.0 && xMult == 0.0 && hMult == 0.0 &&
-        chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && xChipMod == 1.0 && repetitions == 0
+        chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && xChipMod == 1.0 && eMult == 1.0 && repetitions == 0
 }
 
 object Score {
@@ -148,6 +149,7 @@ object Score {
             "j_drivers_license" -> if (j.n >= 16) return Fx().apply { xMultMod = 3.0 }         // X3 if >=16 enhanced
             "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
             "j_mystic_summit" -> if (ctx.discardsLeft == 0) return Fx().apply { multMod = 15.0 } // +15 at 0 discards
+            "j_cry_night"   -> if (ctx.handsLeft == 0) return Fx().apply { eMult = 3.0 }       // Emult: mult^3 on the final hand
             // --- Cryptid joker_main ---
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
@@ -205,7 +207,8 @@ object Score {
      *  can animate the build-up. trace=null is the oracle/hot path (no overhead). */
     fun score(
         played: List<PlayingCard>, jokers: List<FJoker>, held: List<PlayingCard> = emptyList(),
-        level: Int = 1, debuff: Debuff = Debuff.None, trace: MutableList<ScoreStep>? = null,
+        level: Int = 1, debuff: Debuff = Debuff.None, handsLeft: Int = -1, discardsLeft: Int = -1,
+        trace: MutableList<ScoreStep>? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
         val rankOf: (PlayingCard) -> Int =
@@ -219,7 +222,10 @@ object Score {
         var chips = (handType.baseChips + (level - 1) * handType.lChips).toDouble()
         var mult = (handType.baseMult + (level - 1) * handType.lMult).toDouble()
         if (debuff is Debuff.Flint) { chips = floor(chips / 2); mult = floor(mult / 2) }
-        val ctx = Sctx().apply { fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands }
+        val ctx = Sctx().apply {
+            fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
+            this.handsLeft = handsLeft; this.discardsLeft = discardsLeft
+        }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
         for (j in jokers) if (j.key == "j_cry_primus" && played.all { it.id !in PRIMUS_COMPOSITES }) j.x += 0.17
@@ -283,6 +289,7 @@ object Score {
                     if (fx.xChipMod != 1.0) chips *= fx.xChipMod   // X-chips multiplies the running chip total
                     if (fx.multMod != 0.0) mult += fx.multMod
                     if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+                    if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // Emult raises mult to a power (applied last)
                 }
             }
             when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }

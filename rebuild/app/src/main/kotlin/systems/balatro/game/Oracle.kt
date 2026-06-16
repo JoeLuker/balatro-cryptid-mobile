@@ -13,6 +13,7 @@ object Oracle {
         val name: String, val hand: List<PlayingCard>, val expected: Double,
         val jokers: List<FJoker> = emptyList(), val level: Int = 1,
         val debuff: Debuff = Debuff.None, val held: List<PlayingCard> = emptyList(),
+        val handsLeft: Int = -1, val discardsLeft: Int = -1,
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -62,6 +63,10 @@ object Oracle {
         Case("HighCard 7,2 diff suits + whip (+0.5 Xmult)", PlayingCard.hand("S_2", "H_7"), 18.0, j(FJoker("j_cry_whip"))),
         Case("Pair + big_cube (x6 Chips)", PlayingCard.hand("S_A", "H_A"), 384.0, j(FJoker("j_cry_big_cube"))),
         Case("Pair of 4s + antennastoheaven (2x4 -> x1.2 Chips)", PlayingCard.hand("S_4", "H_4"), 43.0, j(FJoker("j_cry_antennastoheaven"))),
+        // --- hands/discards-remaining jokers (now threaded into the engine) ---
+        Case("Pair + acrobat on last hand (x3 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_acrobat")), handsLeft = 0),
+        Case("Pair + mystic_summit at 0 discards (+15 Mult)", PlayingCard.hand("S_A", "H_A"), 544.0, j(FJoker("j_mystic_summit")), discardsLeft = 0),
+        Case("Pair + cry_night on last hand (Emult mult^3)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_night")), handsLeft = 0),
         // --- editions ---
         Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0, j(FJoker("j_joker", edition = "Foil"))),
         Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_joker", edition = "Holo"))),
@@ -89,7 +94,7 @@ object Oracle {
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")
