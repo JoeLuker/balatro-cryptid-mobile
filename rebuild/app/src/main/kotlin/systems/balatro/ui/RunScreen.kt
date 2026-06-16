@@ -45,7 +45,12 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
+internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER }
+
+/** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
+ *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
+internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST }
+internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 internal data class Owned(val offer: Offer, val fj: FJoker)
 
@@ -205,6 +210,10 @@ internal class RunState {
     var phase by mutableStateOf(Phase.ROUND)
     val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
 
+    // ── cash-out (ROUND_EVAL) state — the reward breakdown shown after a blind is beaten ──
+    var evalRows by mutableStateOf<List<EvalRow>>(emptyList()); private set
+    var cashOutTotal by mutableStateOf(0); private set
+
     /** Mirrors G.GAME.hands[h].played — cumulative times each hand type was played in the run. */
     private val _handPlayed = mutableStateMapOf<HandType, Int>()
     fun handPlayed(h: HandType): Int = _handPlayed[h] ?: 0
@@ -361,26 +370,50 @@ internal class RunState {
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
         if (roundScore >= target) {
-            val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
-            val reward = 4 + handsLeft + gold * 3
-            money += reward
-            Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
-            // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
-            val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
-            if (destroyed.isNotEmpty()) {
-                owned.removeAll(destroyed)
-                Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
-            }
-            blindIndex += 1
-            shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
-            // Pre-seed boss so blind-select and shop screens show correct name/desc.
-            // startRound() re-derives the same deterministic value.
-            boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
-            phase = Phase.SHOP
+            buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
+            Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
+            phase = Phase.ROUND_EVAL
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
             Telemetry.event("ROUND_LOSE", "blind" to blindName, "total" to roundScore)
         }
+    }
+
+    /** Build the cash-out rows the way evaluate_round (state_events.lua:1147) does — in order:
+     *  blind reward (config.dollars 3/4/5), then bonus rows for remaining hands ($1 each), gold-
+     *  enhancement cards held ($3 each, their end-of-round calculate_dollar_bonus), and interest
+     *  ($1 per $5 held, capped at $5 — interest_amount=1, interest_cap=25). Interest reads `money`
+     *  as it stands now (the bankroll BEFORE this cash-out is paid), matching G.GAME.dollars. */
+    private fun buildCashOut() {
+        val rows = ArrayList<EvalRow>()
+        rows += EvalRow(EvalKind.BLIND, rewardForSlot(slot), blindName)
+        if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft, "\$1 per remaining hand", handsLeft.toString())
+        val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
+        if (gold > 0) rows += EvalRow(EvalKind.GOLD, gold * 3, "Gold cards held", gold.toString())
+        val interest = minOf(money / 5, 5)
+        if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$5)")
+        evalRows = rows
+        cashOutTotal = rows.sumOf { it.dollars }
+    }
+
+    /** Cash Out (button='cash_out'): ease_dollars(current_round.dollars) banks the total, then the
+     *  blind→shop transition runs (END_OF_ROUND self-destructs, advance blind, roll the next shop). */
+    fun cashOut() {
+        if (phase != Phase.ROUND_EVAL) return
+        money += cashOutTotal
+        // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
+        val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
+        if (destroyed.isNotEmpty()) {
+            owned.removeAll(destroyed)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
+        }
+        blindIndex += 1
+        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        // Pre-seed boss so blind-select and shop screens show correct name/desc.
+        // startRound() re-derives the same deterministic value.
+        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        phase = Phase.SHOP
+        Telemetry.event("CASH_OUT", "total" to cashOutTotal, "money" to money)
     }
 
     fun discard() {
@@ -527,6 +560,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                     Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
                     Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
+                    Phase.ROUND_EVAL -> RoundEvalScreen(s)
                     Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Panel {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1044,6 +1078,50 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
             RenderUI(buttonsRow(s, cells))
             BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally).padding(top = 2.dp))
+        }
+    }
+}
+
+/**
+ * Port of create_UIBox_round_evaluation (UI_definitions.lua:1808): the cash-out panel shown
+ * after a blind is beaten, before the shop. A dark panel lists the reward rows built by
+ * evaluate_round (state_events.lua:1147) — blind reward, $/remaining-hand, gold cards, interest —
+ * with an ORANGE "Cash Out: $N" button (button='cash_out', b_cash_out + current_round.dollars).
+ * Each row shows a description on the left and the gold $ payout on the right.
+ */
+@Composable
+private fun RoundEvalScreen(s: RunState) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Panel(Modifier.width(300.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Cash Out button — G.C.ORANGE (#FDA200), label "Cash Out: $TOTAL".
+                BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
+                Spacer(Modifier.height(2.dp))
+                s.evalRows.forEach { EvalRowView(it) }
+            }
+        }
+    }
+}
+
+/** One add_round_eval_row: left = [coloured count] description, right = gold $ payout pips. */
+@Composable
+private fun EvalRowView(row: EvalRow) {
+    val accent = when (row.kind) {
+        EvalKind.BLIND -> Balatro.Money; EvalKind.HANDS -> Balatro.Chips
+        EvalKind.GOLD -> Balatro.Gold; EvalKind.INTEREST -> Balatro.Money
+    }
+    Row(
+        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (row.leadNum != null) { BTxt(row.leadNum, accent, 16.sp); Spacer(Modifier.width(4.dp)) }
+            BTxt(row.label, Balatro.White, 11.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        // Balatro renders num_dollars gold "$" pips; collapse to "$N" past 7 to stay on one line.
+        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Balatro.Panel).padding(horizontal = 8.dp, vertical = 2.dp)) {
+            BTxt(if (row.dollars <= 7) "\$".repeat(row.dollars) else "\$${row.dollars}", Balatro.Money, 16.sp)
         }
     }
 }
