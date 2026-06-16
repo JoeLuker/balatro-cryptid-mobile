@@ -481,6 +481,9 @@ internal class RunState {
         phase = Phase.SHOP
     }
 
+    /** Build a sample cash-out and jump to it — for the --es screen eval parity-screenshot deep-link only. */
+    fun toEvalForPreview() { buildCashOut(); phase = Phase.ROUND_EVAL }
+
     /** Reroll the shop stock (button='reroll_shop'). Balatro charges a flat reroll cost ($5 base). */
     var rerollCost by mutableStateOf(5)
     private var rerolls = 0
@@ -531,6 +534,8 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
             "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
+            "eval" -> s.toEvalForPreview()
+            "over" -> s.phase = Phase.OVER
         }
     }
 
