@@ -125,6 +125,7 @@ object Score {
             "j_cry_nosound"   -> if (oc.id == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7
             "j_cry_exposed"   -> if (!oc.isFace) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
             "j_cry_mask"      -> if (oc.isFace) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
+            "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -141,9 +142,10 @@ object Score {
                 return Fx().apply { xMultMod = 3.0 }
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib", "j_cry_zooble",
-            "j_cry_poor_joker" ->
+            "j_cry_poor_joker", "j_cry_foodm" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             // poor_joker: j.mult += mult_mod(4) each time this joker pays rent (rental context, non-scoring)
+            // foodm: j.mult=40 by default (decreases per round, self-destructs; replenished by selling jolly jokers)
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork" ->
@@ -219,6 +221,10 @@ object Score {
             "j_cry_supercell" -> return Fx().apply { chipMod = 15.0; xChipMod = 2.0; multMod = 15.0; xMultMod = 2.0 }
             // m: X(x_mult) Mult; x_mult starts at 1, gains +13 each time a Jolly Joker is sold (selling_card, non-scoring)
             "j_cry_m" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
+            // longboi: Xmult = j.x (= G.GAME.monstermult at equip time, starts 1, grows end_of_round); same guard
+            "j_cry_longboi" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
+            // biggestm: X(j.x) Mult when j.n > 0 (j.n=1 when "before" check fired this hand, 0 otherwise)
+            "j_cry_biggestm" -> if (j.n > 0) return Fx().apply { xMultMod = j.x }
             // kittyprinter: flat X2 Xmult every hand (config.extra.Xmult=2)
             "j_cry_kittyprinter" -> return Fx().apply { xMultMod = 2.0 }
             // spy: flat X0.5 Xmult every hand (x_mult=0.5); effectively halves mult

@@ -95,6 +95,11 @@ object Oracle {
         Case("Pair of aces + verisimile @x=1.5 (pseudorandom hits)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_verisimile", x = 1.5))),
         Case("Pair of aces + duplicare @x=2.0 (2 scaling triggers)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_duplicare", x = 2.0))),
         Case("Pair of aces + formidiulosus @x=1.03 (3 candy jokers)", PlayingCard.hand("S_A", "H_A"), 65.0, j(FJoker("j_cry_formidiulosus", x = 1.03))),
+        // --- batch-19: m.lua scoring jokers: foodm/mstack/biggestm/longboi ---
+        Case("Pair of aces + foodm @mult=40 (perishable +40 Mult)", PlayingCard.hand("S_A", "H_A"), 1344.0, j(FJoker("j_cry_foodm", mult = 40.0))),
+        Case("Pair of aces + mstack @n=1 (retrigger 1/card)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_mstack", n = 1))),
+        Case("Pair of aces + biggestm @x=7,n=1 (x7 when active)", PlayingCard.hand("S_A", "H_A"), 448.0, j(FJoker("j_cry_biggestm", x = 7.0, n = 1))),
+        Case("Pair of aces + longboi @x=2.0 (Xmult from monstermult)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_longboi", x = 2.0))),
         // --- batch-18: individual Xmult + joker_main Xmult/Emult accumulators ---
         Case("Pair of aces + caramel @x=1.75 (X1.75/card, 2 aces)", PlayingCard.hand("S_A", "H_A"), 196.0, j(FJoker("j_cry_caramel", x = 1.75))),
         Case("Pair of aces + clockwork @x=1.5 (accumulated Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_clockwork", x = 1.5))),
