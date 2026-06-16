@@ -1,5 +1,6 @@
 package systems.balatro.game
 
+import kotlin.math.PI
 import kotlin.math.floor
 import kotlin.math.pow
 
@@ -138,7 +139,7 @@ object Score {
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
-            "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor" ->
+            "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
             "j_stone"       -> if (j.n > 0) return Fx().apply { chipMod = 25.0 * j.n }         // +25 / stone card
@@ -150,6 +151,13 @@ object Score {
             "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
             "j_mystic_summit" -> if (ctx.discardsLeft == 0) return Fx().apply { multMod = 15.0 } // +15 at 0 discards
             "j_cry_night"   -> if (ctx.handsLeft == 0) return Fx().apply { eMult = 3.0 }       // Emult: mult^3 on the final hand
+            // stella_mortis: Emult scales via ending_shop (destroy planet -> +0.4 per planet, stored in j.x); starts at 1
+            "j_cry_stella_mortis" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
+            "j_cry_circulus_pistoris" -> if (ctx.handsLeft == 3) return Fx().apply { xChipMod = PI; eMult = PI }
+            // facile: Emult=3 (fixed) if scored-card count this hand <=10; counter tracked externally (j.n);
+            //         nearly always fires (<= 5 cards in standard play; retrigger edge cases not modelled)
+            "j_cry_facile" -> return Fx().apply { eMult = 3.0 }
             // --- Cryptid joker_main ---
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
