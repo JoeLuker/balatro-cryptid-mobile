@@ -1023,15 +1023,23 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
     }
     Column(Modifier.fillMaxSize()) {
-        // jokers across the top — CENTERED, like Balatro's G.jokers CardArea (a flat centered row,
-        // not an arc). Cards at G.CARD_W aspect (142x190), nearest-neighbour so the art stays crisp.
-        Row(Modifier.fillMaxWidth().height(84.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            s.owned.forEach { o ->
-                jokerCells[o.offer.key]?.let {
-                    Image(it, o.offer.name, Modifier.padding(horizontal = 3.dp).size(56.dp, 76.dp),
-                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                } ?: Box(Modifier.padding(horizontal = 3.dp).size(56.dp, 76.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+        // Top of the play area, Balatro layout: jokers LEFT (G.jokers CardArea) under the N/5 slot
+        // count, consumables RIGHT under N/2. The rebuild applies consumables immediately (none held),
+        // so the right side is the 0/2 count badge only. Cards at G.CARD_W aspect, nearest-neighbour.
+        Row(Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.Top) {
+            Column(horizontalAlignment = Alignment.Start) {
+                BTxt("${s.owned.size}/5", Balatro.White, 12.sp, Modifier.padding(start = 2.dp, bottom = 1.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    s.owned.forEach { o ->
+                        jokerCells[o.offer.key]?.let {
+                            Image(it, o.offer.name, Modifier.padding(horizontal = 2.dp).size(56.dp, 76.dp),
+                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        } ?: Box(Modifier.padding(horizontal = 2.dp).size(56.dp, 76.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                    }
+                }
             }
+            Spacer(Modifier.weight(1f))
+            BTxt("0/2", Balatro.White, 12.sp, Modifier.padding(end = 2.dp))
         }
 
         // centre: the played cards popping while scoring. The hand-name + chips X mult readout
@@ -1068,7 +1076,8 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             // Balatro's create_UIBox_buttons: play (left), sort cluster (centre), discard (right).
             // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
             RenderUI(buttonsRow(s, cells))
-            BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally).padding(top = 2.dp))
+            // Deck count bottom-right (Balatro shows the deck stack + N/52 there).
+            BTxt("${s.deckRemaining}/52", Balatro.White, 11.sp, Modifier.align(Alignment.End).padding(top = 2.dp, end = 6.dp))
         }
     }
 }
