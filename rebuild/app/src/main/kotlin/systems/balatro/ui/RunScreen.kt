@@ -109,6 +109,7 @@ private val CATALOG = listOf(
     Offer("j_cry_cursor", "Cursor", "+8 Chips per card bought (scaling)", 5),
     Offer("j_cry_eternalflame", "Eternal Flame", "+0.1 X Mult per card sold (scaling)", 6),
     Offer("j_cry_whip", "The WHIP", "+0.5 X Mult if hand has a 2 and 7 of diff suits (scaling)", 7),
+    Offer("j_cry_big_cube", "Big Cube", "x6 Chips", 6),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3

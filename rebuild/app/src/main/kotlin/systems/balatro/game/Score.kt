@@ -55,10 +55,10 @@ class Sctx {
  *  joker_main pass uses chip_mod/mult_mod/Xmult_mod; the source distinguishes them by field name. */
 class Fx {
     var chips = 0.0; var mult = 0.0; var xMult = 0.0; var hMult = 0.0
-    var chipMod = 0.0; var multMod = 0.0; var xMultMod = 1.0
+    var chipMod = 0.0; var multMod = 0.0; var xMultMod = 1.0; var xChipMod = 1.0   // Xchip_mod: Cryptid X-chips
     var repetitions = 0
     val empty get() = chips == 0.0 && mult == 0.0 && xMult == 0.0 && hMult == 0.0 &&
-        chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && repetitions == 0
+        chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && xChipMod == 1.0 && repetitions == 0
 }
 
 object Score {
@@ -174,6 +174,7 @@ object Score {
             "j_cry_home"      -> if (HandType.FULL_HOUSE in ctx.pokerHands)    return Fx().apply { xMultMod = 3.5 }
             "j_cry_filler"    -> if (HandType.HIGH_CARD in ctx.pokerHands)     return Fx().apply { xMultMod = 1.00000000000003 }  // meme: ~X1 always
             "j_cry_nice"      -> if (ctx.fullHand.any { it.id == 6 } && ctx.fullHand.any { it.id == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69"
+            "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
@@ -276,8 +277,9 @@ object Score {
             if (target != null) {
                 if (target.key == "j_cry_primus") { if (target.x > 1.0) mult = mult.pow(target.x) }
                 else calcJoker(target, ctx)?.let { fx ->
-                    if (fx.multMod != 0.0) mult += fx.multMod
                     if (fx.chipMod != 0.0) chips += fx.chipMod
+                    if (fx.xChipMod != 1.0) chips *= fx.xChipMod   // X-chips multiplies the running chip total
+                    if (fx.multMod != 0.0) mult += fx.multMod
                     if (fx.xMultMod != 1.0) mult *= fx.xMultMod
                 }
             }
