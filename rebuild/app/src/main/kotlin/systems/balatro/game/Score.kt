@@ -28,7 +28,7 @@ import kotlin.math.pow
  */
 class FJoker(
     val key: String, var mult: Double = 0.0, val edition: String = "", var x: Double = 1.0,
-    var chips: Double = 0.0, var n: Int = 0, val rarity: Int = 0,
+    var chips: Double = 0.0, var n: Int = 0, val rarity: Int = 0, var xc: Double = 1.0,
 )
 
 /** Balatro's `context` table — the flags a calculate_joker / eval_card branch inspects. */
@@ -110,6 +110,7 @@ object Score {
             "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
             "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
             "j_cry_wee_fib"           -> if (oc.id == 14 || oc.id == 2 || oc.id == 3 || oc.id == 5 || oc.id == 8) j.mult += 3.0  // +3 Mult/scored Fibonacci, applied at joker_main
+            "j_cry_antennastoheaven"  -> if (oc.id == 4 || oc.id == 7) j.xc += 0.1   // scaling: +0.1 Xchips per scored 4/7, applied at joker_main
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -175,6 +176,7 @@ object Score {
             "j_cry_filler"    -> if (HandType.HIGH_CARD in ctx.pokerHands)     return Fx().apply { xMultMod = 1.00000000000003 }  // meme: ~X1 always
             "j_cry_nice"      -> if (ctx.fullHand.any { it.id == 6 } && ctx.fullHand.any { it.id == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69"
             "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
+            "j_cry_antennastoheaven" -> if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
