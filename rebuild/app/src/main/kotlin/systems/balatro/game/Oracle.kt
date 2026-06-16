@@ -13,7 +13,7 @@ object Oracle {
         val name: String, val hand: List<PlayingCard>, val expected: Double,
         val jokers: List<FJoker> = emptyList(), val level: Int = 1,
         val debuff: Debuff = Debuff.None, val held: List<PlayingCard> = emptyList(),
-        val handsLeft: Int = -1, val discardsLeft: Int = -1,
+        val handsLeft: Int = -1, val discardsLeft: Int = -1, val bossBlind: Boolean = false,
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -95,6 +95,10 @@ object Oracle {
         Case("Pair of aces + verisimile @x=1.5 (pseudorandom hits)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_verisimile", x = 1.5))),
         Case("Pair of aces + duplicare @x=2.0 (2 scaling triggers)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_duplicare", x = 2.0))),
         Case("Pair of aces + formidiulosus @x=1.03 (3 candy jokers)", PlayingCard.hand("S_A", "H_A"), 65.0, j(FJoker("j_cry_formidiulosus", x = 1.03))),
+        // --- batch-17: boss-blind gate, flat Xmult-halving, Astral-edition other_joker ---
+        Case("Pair of aces + spy (flat x0.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy"))),
+        Case("Pair of aces + apjoker on boss blind (x4 Xmult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_apjoker")), bossBlind = true),
+        Case("Pair of aces + universe + Astral joker (Emult^1.2)", PlayingCard.hand("S_A", "H_A"), 274.0, j(FJoker("j_joker", edition = "Astral"), FJoker("j_cry_universe"))),
         // --- hands/discards-remaining jokers (now threaded into the engine) ---
         Case("Pair + acrobat on last hand (x3 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_acrobat")), handsLeft = 0),
         Case("Pair + mystic_summit at 0 discards (+15 Mult)", PlayingCard.hand("S_A", "H_A"), 544.0, j(FJoker("j_mystic_summit")), discardsLeft = 0),
@@ -126,7 +130,7 @@ object Oracle {
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")

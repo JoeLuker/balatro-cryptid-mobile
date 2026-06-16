@@ -333,7 +333,7 @@ internal class RunState {
         val trace = ArrayList<ScoreStep>()
         // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
         // count AFTER this hand (Balatro decrements before scoring), discards_left is the current count.
-        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace)
+        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         scoreCards = sel; popIndex = -1

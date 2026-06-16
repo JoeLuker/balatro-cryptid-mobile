@@ -50,6 +50,7 @@ class Sctx {
     var heldHand: List<PlayingCard> = emptyList()
     var handsLeft = -1                      // hands remaining this round (-1 = unknown; acrobat: ==0 last hand)
     var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
+    var bossBlind = false                   // true when current blind is a boss blind (apjoker)
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -216,6 +217,10 @@ object Score {
             "j_cry_m" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // kittyprinter: flat X2 Xmult every hand (config.extra.Xmult=2)
             "j_cry_kittyprinter" -> return Fx().apply { xMultMod = 2.0 }
+            // spy: flat X0.5 Xmult every hand (x_mult=0.5); effectively halves mult
+            "j_cry_spy" -> return Fx().apply { xMultMod = 0.5 }
+            // apjoker: X4 Xmult when the current blind is a boss blind (G.GAME.blind.boss)
+            "j_cry_apjoker" -> if (ctx.bossBlind) return Fx().apply { xMultMod = 4.0 }
             // clicked_cookie: +chips from j.chips accumulator (starts 200, decrements 1 per cry_press click)
             "j_cry_clicked_cookie" -> return Fx().apply { chipMod = j.chips }
             // monkey_dagger: +chips from j.chips accumulator (+10*sell_cost of left joker at setting_blind, that joker destroyed)
@@ -265,6 +270,7 @@ object Score {
             "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
             "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker
             "j_cry_stardust"  -> if (oj !== j && oj.edition == "Poly") return Fx().apply { xMultMod = 2.0 }   // X2 Mult / other Poly joker
+            "j_cry_universe"  -> if (oj !== j && oj.edition == "Astral") return Fx().apply { eMult = 1.2 }    // Emult^1.2 per other Astral-edition joker
         }
         return null
     }
@@ -275,6 +281,7 @@ object Score {
     fun score(
         played: List<PlayingCard>, jokers: List<FJoker>, held: List<PlayingCard> = emptyList(),
         level: Int = 1, debuff: Debuff = Debuff.None, handsLeft: Int = -1, discardsLeft: Int = -1,
+        bossBlind: Boolean = false,
         trace: MutableList<ScoreStep>? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
@@ -291,7 +298,7 @@ object Score {
         if (debuff is Debuff.Flint) { chips = floor(chips / 2); mult = floor(mult / 2) }
         val ctx = Sctx().apply {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
-            this.handsLeft = handsLeft; this.discardsLeft = discardsLeft
+            this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
@@ -374,6 +381,7 @@ object Score {
                 if (fx.multMod != 0.0) mult += fx.multMod
                 if (fx.chipMod != 0.0) chips += fx.chipMod
                 if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+                if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // universe: Emult per Astral joker
             }
         }
         ctx.otherJoker = null
