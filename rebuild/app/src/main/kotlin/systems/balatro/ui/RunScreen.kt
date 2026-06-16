@@ -296,13 +296,13 @@ internal class RunState {
     /** Mirrors current_hand.chip_text — live cascade counter for the chips box (blank when idle). */
     /** contents.dollars_chips round-score readout (G.GAME.chips_text); always shown ("0" at start). */
     val chipsText: String get() = fmtR(roundScore)
-    val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else ""
+    val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else "0"
 
     /** Mirrors current_hand.chip_total_text — cumulative round score shown in the top-row readout. */
     val chipTotalText: String get() = if (scoring || lastResult != null) fmtR(roundScore) else ""
 
     /** Mirrors current_hand.mult_text — the mult DynaText (blank when idle). */
-    val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else ""
+    val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else "0"
 
     /** Mirrors current_hand.hand_level — the Lv badge T node. */
     val currentHandLevel: Int get() = lastResult?.let { handLevel(it.handType) } ?: 0

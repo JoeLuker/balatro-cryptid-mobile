@@ -95,7 +95,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
 
     fun loc(key: Any?): String = when (key) {
         "k_hud_hands" -> "Hands"; "k_hud_discards" -> "Discards"
-        "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "Score at least"
+        "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "score"
         "$" -> "$"; "b_options" -> "Options"; "b_run_info_1" -> "Run"; "b_run_info_2" -> "Info"
         else -> key?.toString() ?: ""
     }
@@ -164,7 +164,13 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         val shadow = o.optBoolean("shadow", true)
         val segs = (0 until segsJ.length()).map { i ->
             val sj = segsJ.getJSONObject(i)
-            val col = colsJ?.optString(i.coerceAtMost((colsJ.length() - 1).coerceAtLeast(0)))?.let { colourByName(it) } ?: Balatro.White
+            // The extracted tree statically colours chip/mult text UI.TEXT_LIGHT, but Balatro
+            // colours them at runtime (chip_UI_set -> blue, mult -> red). Restore that.
+            val col = when (sj.optString("value")) {
+                "chip_text" -> Balatro.Chips
+                "mult_text" -> Balatro.Mult
+                else -> colsJ?.optString(i.coerceAtMost((colsJ.length() - 1).coerceAtLeast(0)))?.let { colourByName(it) } ?: Balatro.White
+            }
             val prefix = sj.optJSONObject("prefix")?.let { loc(it.opt("loc")) } ?: (sj.opt("prefix") as? String ?: "")
             val reader: () -> String = when {
                 sj.has("value") -> read(sj.getString("value"))
