@@ -1,13 +1,13 @@
-# Build artifacts
-/build/
+# Build artifacts (no trailing slash: also matches the self-symlink in linked worktrees)
+/build
 
 # Downloaded sources (can be re-fetched)
 /src/Balatro.love
 /src/base.apk
-/src/dump/
+/src/dump
 
 # Downloaded mods (can be re-fetched)
-/mods/
+/mods
 
 # Signing keys (machine-specific, preserves app identity across rebuilds)
 /keys/
