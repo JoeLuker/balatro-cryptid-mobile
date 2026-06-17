@@ -549,6 +549,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     val cardBase by produceState<ImageBitmap?>(null) {
         value = withContext(Dispatchers.Default) { CardArt.base(ctx) }
     }
+    // Red Deck card back for the deck stack (bottom-right).
+    val cardBack by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { CardArt.back(ctx) }
+    }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
         value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
@@ -576,7 +580,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
                 when (s.phase) {
-                    Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase)
+                    Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase, cardBack)
                     Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                     Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
                     Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
@@ -1010,7 +1014,7 @@ private fun CardFace(
 }
 
 @Composable
-private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null) {
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null) {
     LaunchedEffect(s.scoring) {
         if (s.scoring) {
             for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
@@ -1018,7 +1022,8 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             s.scoreCommit()
         }
     }
-    Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+      Column(Modifier.fillMaxSize()) {
         // Top of the play area, Balatro layout: jokers LEFT (G.jokers CardArea) under the N/5 slot
         // count, consumables RIGHT under N/2. The rebuild applies consumables immediately (none held),
         // so the right side is the 0/2 count badge only. Cards at G.CARD_W aspect, nearest-neighbour.
@@ -1069,9 +1074,13 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             // Balatro's create_UIBox_buttons: play (left), sort cluster (centre), discard (right).
             // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
             RenderUI(buttonsRow(s, cells))
-            // Deck count bottom-right (Balatro shows the deck stack + N/52 there).
-            BTxt("${s.deckRemaining}/52", Balatro.White, 11.sp, Modifier.align(Alignment.End).padding(top = 2.dp, end = 6.dp))
         }
+      }
+      // Deck card-back + N/52 count, bottom-right (Balatro's deck stack).
+      Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+          cardBack?.let { Image(it, "deck", Modifier.size(50.dp, 68.dp), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
+          BTxt("${s.deckRemaining}/52", Balatro.White, 12.sp, Modifier.padding(top = 2.dp))
+      }
     }
 }
 

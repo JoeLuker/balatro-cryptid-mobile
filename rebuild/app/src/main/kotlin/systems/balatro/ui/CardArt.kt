@@ -45,6 +45,14 @@ object CardArt {
         } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString()); return null }
         return Bitmap.createBitmap(atlas, 1 * 142, 0 * 190, 142, 190).asImageBitmap()
     }
+
+    /** The Red Deck card back (Balatro's b_red, centers=Enhancers.png cell {x=0,y=0}) — the deck stack. */
+    fun back(ctx: Context): ImageBitmap? {
+        val atlas = try {
+            ctx.assets.open("textures/Enhancers.png").use { BitmapFactory.decodeStream(it) }
+        } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString()); return null }
+        return Bitmap.createBitmap(atlas, 0 * 142, 0 * 190, 142, 190).asImageBitmap()
+    }
 }
 
 /** "FOUR_OF_A_KIND" -> "Four Of A Kind". */
