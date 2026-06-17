@@ -126,8 +126,14 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         minw = c.optDouble("minw", 0.0).toFloat(),
         // minh=30 on the BOSS_DARK panel is Balatro's "fill the sidebar height" sentinel; taken
         // literally it inflates the natural height to 30u so FitToHeight shrinks the HUD to a sliver.
-        // Drop sentinel mins (>=20u) so the panel sizes to its real ~9u content.
-        minh = c.optDouble("minh", 0.0).toFloat().let { if (it >= 20f) 0f else it },
+        // Drop sentinel mins (>=20u) so the panel sizes to its real ~9u content. The hand-name row
+        // reserves 1.1u for the played-hand name; idle (no hand) that's empty, so Balatro shows a
+        // compact chips×mult box — collapse the reservation when there's no hand name.
+        minh = c.optDouble("minh", 0.0).toFloat().let { m ->
+            if (m >= 20f) 0f
+            else if (c.optString("id") == "hand_name_row" && s.handNameText.isBlank()) 0f
+            else m
+        },
         maxw = c.optDouble("maxw", 0.0).toFloat(),
         scale = c.optDouble("scale", 1.0).toFloat(),
         textColour = colour(c.optJSONObject("colour")) ?: Balatro.White,
