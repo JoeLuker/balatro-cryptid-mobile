@@ -560,8 +560,8 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     Box(                                                                        // the green felt table
         Modifier.fillMaxSize().background(
             // lit-centre → darker-edge vignette, like Balatro's felt depth (no texture asset needed)
-            // warm, saturated green centre → deep vignette edge (Balatro's lit felt table)
-            Brush.radialGradient(listOf(Color(0xFF2E7D5C), Color(0xFF256B4E), Color(0xFF143026)))
+            // measured to Balatro's felt (dominant ~#2D5A45): lit centre, gentle vignette (not black)
+            Brush.radialGradient(listOf(Color(0xFF42926E), Color(0xFF356650), Color(0xFF2E5A46)))
         )
     ) {
         // BALATRO wordmark watermark behind the table, like the real felt's backdrop.
