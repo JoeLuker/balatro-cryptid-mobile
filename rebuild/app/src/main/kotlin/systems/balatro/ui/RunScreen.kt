@@ -1053,23 +1053,18 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val badgeSp = (0.33f * u * FONT_RATIO).sp
     Box(Modifier.fillMaxSize()) {
       Column(Modifier.fillMaxSize()) {
-        // Top of the play area, Balatro layout: jokers LEFT (G.jokers CardArea) under the N/5 slot
-        // count, consumables RIGHT under N/2. The rebuild applies consumables immediately (none held),
-        // so the right side is the 0/2 count badge only. Cards at G.CARD_W aspect, nearest-neighbour.
-        Row(Modifier.fillMaxWidth().padding(horizontal = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
-            Column(horizontalAlignment = Alignment.Start) {
-                BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = 2.dp, bottom = 1.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    s.owned.forEach { o ->
-                        jokerCells[o.offer.key]?.let {
-                            Image(it, o.offer.name, Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH),
-                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                        } ?: Box(Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
-                    }
-                }
+        // Jokers + consumables at the VERY top of the play field (G.jokers/G.consumeables CardAreas,
+        // both T.y=0), left-aligned where the HUD sidebar ends and consumables immediately to the
+        // right of the jokers — exactly set_screen_positions (common_events.lua). Balatro shows NO
+        // count labels in the run HUD and empty slots are invisible, so this is just the held cards.
+        // (The rebuild auto-applies consumables, so none are ever held → the consumable area is empty.)
+        Row(Modifier.fillMaxWidth().padding(top = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
+            s.owned.forEach { o ->
+                jokerCells[o.offer.key]?.let {
+                    Image(it, o.offer.name, Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH),
+                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                } ?: Box(Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
             }
-            Spacer(Modifier.weight(1f))
-            BTxt("0/2", Balatro.White, countSp, Modifier.padding(end = 2.dp))
         }
 
         // centre: the played cards popping while scoring. The hand-name + chips X mult readout
