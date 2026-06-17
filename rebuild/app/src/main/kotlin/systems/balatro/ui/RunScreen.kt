@@ -792,6 +792,12 @@ private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)?
 private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?, chipTargetScale: Float = 0.001f): UI {
     val panel = Balatro.Panel   // G.C.BLACK = G.C.DYN_UI.MAIN = G.C.DYN_UI.DARK = #374244
     val light = Balatro.White   // G.C.UI.TEXT_LIGHT
+    // The blind-name header is tinted by the blind colour (measured from real Balatro: small=#005A9C).
+    val nameBg = when {
+        s.boss != null -> Color(0xFF8C3A3A)                 // boss blind (reddish)
+        s.blindName.startsWith("Big") -> Color(0xFFCB7A2A)  // big blind (amber)
+        else -> Color(0xFF005A9C)                           // small blind (measured blue)
+    }
 
     // G.UIT.O blind sprite (1.5u x 1.5u after change_dim). When bitmap not yet loaded, a B spacer
     // of the same size preserves the layout so nothing shifts when art arrives.
@@ -837,7 +843,7 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
 
     return R(Cfg(align = "cm", minw = 4.5f, r = 0.1f, colour = panel, emboss = 0.05f, padding = 0.05f),
         // ── name strip (G.C.DYN_UI.MAIN = panel) ──────────────────────────────
-        R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, colour = panel, emboss = 0.05f),
+        R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, colour = nameBg, emboss = 0.05f),
             C(Cfg(align = "cm", minw = 3f),
                 O(Cfg(), DynaT(seg({ s.blindName }, light, scale = 0.64f), shadow = true)))),
         body
