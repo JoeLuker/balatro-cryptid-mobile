@@ -118,8 +118,6 @@ fun seg(value: () -> String, colour: Color = Balatro.White, scale: Float = 1f) =
 /** seg for a static literal: seg("Choose your Blind", Balatro.White). */
 fun seg(text: String, colour: Color = Balatro.White, scale: Float = 1f) = DynSeg({ text }, colour, scale)
 
-private fun vArr(a: String): Arrangement.Vertical = when (a.getOrNull(0)) { 't' -> Arrangement.Top; 'b' -> Arrangement.Bottom; else -> Arrangement.Center }
-private fun hArr(a: String): Arrangement.Horizontal = when (a.getOrNull(1)) { 'l' -> Arrangement.Start; 'r' -> Arrangement.End; else -> Arrangement.Center }
 private fun vAlign(a: String): Alignment.Vertical = when (a.getOrNull(0)) { 't' -> Alignment.Top; 'b' -> Alignment.Bottom; else -> Alignment.CenterVertically }
 private fun hAlign(a: String): Alignment.Horizontal = when (a.getOrNull(1)) { 'l' -> Alignment.Start; 'r' -> Alignment.End; else -> Alignment.CenterHorizontally }
 
@@ -259,12 +257,17 @@ private fun Container(cfg: Cfg, kids: List<UI>) {
     // `any` rather than `all` so a single R among C/T siblings still triggers Column layout,
     // matching the Lua cursor behaviour exactly. Pure non-R children → Row (horizontal flow).
     val vertical = kids.any { it is Ro }
+    // calculate_xywh inserts `padding` AFTER every child along the main axis (cursor += size+padding),
+    // so total = Σchild + (n+1)·padding. cfg()'s Modifier.padding gives the 2 edge paddings; the
+    // (n-1) BETWEEN-child gaps come from spacedBy here — without it the rebuild was tighter than the
+    // game. gap=0 (most nodes) makes spacedBy collapse to the plain alignment arrangement.
+    val gap = (cfg.padding * LocalUIScale.current).dp
     if (vertical) {
-        Column(Modifier.cfg(cfg), verticalArrangement = vArr(cfg.align), horizontalAlignment = hAlign(cfg.align)) {
+        Column(Modifier.cfg(cfg), verticalArrangement = Arrangement.spacedBy(gap, vAlign(cfg.align)), horizontalAlignment = hAlign(cfg.align)) {
             kids.forEach { RenderUI(it) }
         }
     } else {
-        Row(Modifier.cfg(cfg), horizontalArrangement = hArr(cfg.align), verticalAlignment = vAlign(cfg.align)) {
+        Row(Modifier.cfg(cfg), horizontalArrangement = Arrangement.spacedBy(gap, hAlign(cfg.align)), verticalAlignment = vAlign(cfg.align)) {
             kids.forEach { RenderUI(it) }
         }
     }
