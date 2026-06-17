@@ -568,8 +568,8 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             Brush.radialGradient(listOf(Color(0xFF42926E), Color(0xFF356650), Color(0xFF2E5A46)))
         )
     ) {
-        // BALATRO wordmark watermark behind the table, like the real felt's backdrop.
-        BTxt("BALATRO", Balatro.White.copy(alpha = 0.13f), 156.sp, Modifier.align(Alignment.Center))
+        // BALATRO metallic wordmark behind the table, like the real felt's backdrop.
+        Watermark("BALATRO", 156.sp, Modifier.align(Alignment.Center))
         Row(Modifier.fillMaxSize().padding(10.dp)) {
             // Balatro's left sidebar: rendered at natural unit-size, then scaled to fit the screen
             // height by FitToHeight (like Balatro scaling the HUD to the device). Width = the HUD's

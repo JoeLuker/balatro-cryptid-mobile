@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +77,22 @@ private val pixelStyle = TextStyle(
 @Composable
 fun BTxt(text: String, color: Color = Balatro.White, size: TextUnit = 16.sp, modifier: Modifier = Modifier) =
     Text(text, color = color, fontFamily = Balatro.font, fontWeight = FontWeight.Normal, fontSize = size, style = pixelStyle, modifier = modifier)
+
+/** Faint metallic/embossed wordmark for the felt backdrop (Balatro's BALATRO watermark):
+ *  a dark emboss-shadow layer under a vertical chrome gradient (light→steel→light). */
+@Composable
+fun Watermark(text: String, size: TextUnit, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.layout.Box(modifier) {
+        Text(text, fontFamily = Balatro.font, fontSize = size, style = pixelStyle,
+            color = Color.Black.copy(alpha = 0.13f),
+            modifier = Modifier.offset(x = 3.dp, y = 5.dp))
+        Text(text, fontFamily = Balatro.font, fontSize = size,
+            style = pixelStyle.copy(brush = Brush.verticalGradient(listOf(
+                Color.White.copy(alpha = 0.24f),
+                Color(0xFFA9C6B9).copy(alpha = 0.13f),
+                Color.White.copy(alpha = 0.07f)))))
+    }
+}
 
 /** A rounded value chip (Hands/Discards/Money counters). */
 @Composable
