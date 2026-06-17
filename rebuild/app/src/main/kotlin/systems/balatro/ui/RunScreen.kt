@@ -584,10 +584,13 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     // (align "cm"). Pinned centre-left, vertical overflow clipped — exactly how the
                     // game positions G.HUD ('cli'). No fit-to-height shrink.
                     Box(
-                        Modifier.fillMaxHeight().width((5.3f * u).dp).clipToBounds(),
+                        // full room height, clips the 30u panel's vertical overflow; width wraps to
+                        // the HUD's natural width so nothing is cut horizontally (the injected blind
+                        // panel can make it a touch wider than the source's empty-row_blind 5.25u).
+                        Modifier.fillMaxHeight().clipToBounds(),
                         contentAlignment = Alignment.CenterStart
                     ) {
-                        Box(Modifier.wrapContentSize(Alignment.CenterStart, unbounded = true)) {
+                        Box(Modifier.wrapContentHeight(Alignment.CenterVertically, unbounded = true)) {
                             HudColumn(s, Modifier, stakeBmp)
                         }
                     }
