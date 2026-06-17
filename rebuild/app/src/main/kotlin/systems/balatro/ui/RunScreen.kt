@@ -1033,10 +1033,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // (contents.hand) lives in the LEFT HUD sidebar per create_UIBox_HUD, NOT here.
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (!s.scoring && s.lastResult == null) {
-                    Spacer(Modifier.height(4.dp))
-                    BTxt("select up to 5 cards, then Play", Balatro.White, 13.sp)
-                }
+                // (no idle prompt — Balatro shows an empty play area until cards are played)
                 if (s.scoring) {
                     Spacer(Modifier.height(8.dp))
                     ScoredCardsRow(s, cells, cardBase)
