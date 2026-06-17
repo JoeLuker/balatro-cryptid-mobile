@@ -560,11 +560,12 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     Box(                                                                        // the green felt table
         Modifier.fillMaxSize().background(
             // lit-centre → darker-edge vignette, like Balatro's felt depth (no texture asset needed)
-            Brush.radialGradient(listOf(Color(0xFF2A5A50), Balatro.Felt, Balatro.FeltDark))
+            // warm, saturated green centre → deep vignette edge (Balatro's lit felt table)
+            Brush.radialGradient(listOf(Color(0xFF2E7D5C), Color(0xFF256B4E), Color(0xFF143026)))
         )
     ) {
-        // BALATRO wordmark watermark behind the table — faint, like the real felt's backdrop.
-        BTxt("BALATRO", Balatro.White.copy(alpha = 0.05f), 132.sp, Modifier.align(Alignment.Center))
+        // BALATRO wordmark watermark behind the table, like the real felt's backdrop.
+        BTxt("BALATRO", Balatro.White.copy(alpha = 0.10f), 132.sp, Modifier.align(Alignment.Center))
         Row(Modifier.fillMaxSize().padding(10.dp)) {
             // Balatro's left sidebar: rendered at natural unit-size, then scaled to fit the screen
             // height by FitToHeight (like Balatro scaling the HUD to the device). Width = the HUD's
@@ -1027,9 +1028,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     s.owned.forEach { o ->
                         jokerCells[o.offer.key]?.let {
-                            Image(it, o.offer.name, Modifier.padding(horizontal = 2.dp).size(56.dp, 76.dp),
+                            Image(it, o.offer.name, Modifier.padding(horizontal = 2.dp).size(72.dp, 98.dp),
                                 contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                        } ?: Box(Modifier.padding(horizontal = 2.dp).size(56.dp, 76.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                        } ?: Box(Modifier.padding(horizontal = 2.dp).size(72.dp, 98.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
                     }
                 }
             }
@@ -1054,7 +1055,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Box(Modifier.weight(1f)) {
-                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 56.dp, onToggle = { s.toggle(it) }) { card ->
+                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 96.dp, onToggle = { s.toggle(it) }) { card ->
                         CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
                             if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
                                 Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
@@ -1108,7 +1109,7 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
                 Modifier.padding(horizontal = 2.dp).graphicsLayer {
                     scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
                 }
-            ) { CardFace(card, cells[card], cardBase, Modifier.size(44.dp, 60.dp)) }
+            ) { CardFace(card, cells[card], cardBase, Modifier.size(68.dp, 92.dp)) }
         }
     }
 }

@@ -161,7 +161,7 @@ private fun Modifier.cfg(c: Cfg): Modifier {
     if (c.maxh > 0) m = m.heightIn(max = (c.maxh * U).dp)
     if (c.colour != null) {
         val shape = RoundedCornerShape((c.r * U).dp)
-        if (c.emboss > 0) m = m.border((c.emboss * U).dp, Color.Black.copy(alpha = 0.25f), shape)  // 3D edge: depth in units
+        if (c.emboss > 0) m = m.border((c.emboss * U).dp, Color.Black.copy(alpha = 0.45f), shape)  // 3D edge: depth in units
         val fill = if (pressed) lighten(c.colour) else c.colour                   // ARGS.button_colours[2] HOVER
         m = m.clip(shape).background(fill)
     }
