@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
@@ -556,7 +557,14 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { StakeArt.whiteChip(ctx) }
     }
 
-    Box(Modifier.fillMaxSize().background(Balatro.Felt)) {                       // the green felt table
+    Box(                                                                        // the green felt table
+        Modifier.fillMaxSize().background(
+            // lit-centre → darker-edge vignette, like Balatro's felt depth (no texture asset needed)
+            Brush.radialGradient(listOf(Color(0xFF2A5A50), Balatro.Felt, Balatro.FeltDark))
+        )
+    ) {
+        // BALATRO wordmark watermark behind the table — faint, like the real felt's backdrop.
+        BTxt("BALATRO", Balatro.White.copy(alpha = 0.05f), 132.sp, Modifier.align(Alignment.Center))
         Row(Modifier.fillMaxSize().padding(10.dp)) {
             // Balatro's left sidebar: rendered at natural unit-size, then scaled to fit the screen
             // height by FitToHeight (like Balatro scaling the HUD to the device). Width = the HUD's
