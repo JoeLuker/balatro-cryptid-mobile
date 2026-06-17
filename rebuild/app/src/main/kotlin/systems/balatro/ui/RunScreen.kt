@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -561,40 +562,59 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { StakeArt.whiteChip(ctx) }
     }
 
-    Box(                                                                        // the green felt table
+    BoxWithConstraints(                                                          // the green felt table — full surface
         Modifier.fillMaxSize().background(
             // lit-centre → darker-edge vignette, like Balatro's felt depth (no texture asset needed)
             // measured to Balatro's felt (dominant ~#2D5A45): lit centre, gentle vignette (not black)
             Brush.radialGradient(listOf(Color(0xFF42926E), Color(0xFF356650), Color(0xFF2E5A46)))
         )
     ) {
-        // BALATRO metallic wordmark behind the table, like the real felt's backdrop.
-        Watermark("BALATRO", 156.sp, Modifier.align(Alignment.Center))
-        Row(Modifier.fillMaxSize().padding(10.dp)) {
-            // Balatro's left sidebar: rendered at natural unit-size, then scaled to fit the screen
-            // height by FitToHeight (like Balatro scaling the HUD to the device). Width = the HUD's
-            // widest row (contents.hand ≈ 4.7u); the scaled result is ~the same on every screen.
-            FitToHeight(Modifier.width((4.7f * U).dp).fillMaxHeight()) {
-                HudColumn(s, Modifier.fillMaxWidth(), onClose, stakeBmp)
-            }
-            Spacer(Modifier.width(10.dp))
-            Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
-                when (s.phase) {
-                    Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase, cardBack)
-                    Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
-                    Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
-                    Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
-                    Phase.ROUND_EVAL -> RoundEvalScreen(s)
-                    Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+        // Balatro fits its virtual room (22×12.9u) into the live window every resize; we derive the
+        // dp-per-unit from THIS surface (density-correct, any display/stream) and centre a room-sized
+        // box, felt filling the letterbox — same result as the game's love.resize, done in Compose.
+        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+        CompositionLocalProvider(LocalUIScale provides u) {
+            Box(
+                Modifier.size((ROOM_W * u).dp, (ROOM_H * u).dp).align(Alignment.Center)
+            ) {
+                Row(Modifier.fillMaxSize()) {
+                    // Balatro's left sidebar: the REAL create_UIBox_HUD tree at the room scale. Its
+                    // dark panel is minh=30u — deliberately taller than the room — so it bleeds off
+                    // top & bottom (the full-height sidebar look) with content vertically centred
+                    // (align "cm"). Pinned centre-left, vertical overflow clipped — exactly how the
+                    // game positions G.HUD ('cli'). No fit-to-height shrink.
+                    Box(
+                        Modifier.fillMaxHeight().width((5.3f * u).dp).clipToBounds(),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Box(Modifier.wrapContentSize(Alignment.CenterStart, unbounded = true)) {
+                            HudColumn(s, Modifier, stakeBmp)
+                        }
+                    }
+                    Box(Modifier.weight(1f).fillMaxHeight()) {                  // the play area
+                        when (s.phase) {
+                            Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase, cardBack)
+                            Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
+                            Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
+                            Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
+                            Phase.ROUND_EVAL -> RoundEvalScreen(s)
+                            Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+                        }
+                    }
                 }
             }
+        }
+        // Minimal close affordance (NOT part of Balatro's HUD) — a small corner overlay so the
+        // sidebar itself stays a faithful create_UIBox_HUD with no injected dev chrome.
+        Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+            BButton("✕", Balatro.Mult) { onClose() }
         }
     }
 }
 
 /** Balatro's left sidebar: blind token + score target, round score, Hands/Discards, money, Ante/Round. */
 @Composable
-private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stakeBmp: ImageBitmap? = null) {
+private fun HudColumn(s: RunState, modifier: Modifier, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
     // Load blind sprite for the current ante's boss (Small row=0, Big row=1, Boss->row from atlas).
     // Re-runs when s.boss changes (next ante always changes the boss). Null while loading -> B spacer.
@@ -619,22 +639,15 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
         label = "chipTargetScale"
     )
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            BButton("✕", Balatro.Mult) { onClose() }
-            Spacer(Modifier.weight(1f))
-            BTxt("Ante ${s.ante}/8", Balatro.White, 12.sp)
+    // The HUD body is Balatro's ACTUAL create_UIBox_HUD tree, loaded from hud_tree.json
+    // (tools/uiref/extract.sh) — NO hand-transcription. Descriptors bind to live RunState via
+    // HudBind; the blind token UIBox is injected into the (source-empty) row_blind node.
+    val root = remember { HudSpec.root(ctx) }
+    if (root != null) {
+        val bind = HudBind(s, stakeBmp).apply {
+            blindContent = hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale)
         }
-        // The HUD body is Balatro's ACTUAL create_UIBox_HUD tree, loaded from hud_tree.json
-        // (tools/uiref/extract.sh) — NO hand-transcription. Descriptors bind to live RunState via
-        // HudBind; the blind token UIBox is injected into the (source-empty) row_blind node.
-        val root = remember { HudSpec.root(ctx) }
-        if (root != null) {
-            val bind = HudBind(s, stakeBmp).apply {
-                blindContent = hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale)
-            }
-            RenderUI(HudSpec.build(root, bind))
-        }
+        Box(modifier) { RenderUI(HudSpec.build(root, bind)) }
     }
 }
 
@@ -1028,25 +1041,32 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             s.scoreCommit()
         }
     }
+    // Everything in the play area is sized in Balatro units × the live scale, so it scales with the
+    // room exactly like the HUD: card = G.CARD_W/H = 2.4×{35,47}/41 units, labels at the HUD's scale.
+    val u = LocalUIScale.current
+    val cardW = (2.0488f * u).dp
+    val cardH = (2.7512f * u).dp
+    val countSp = (0.5f * u * FONT_RATIO).sp
+    val badgeSp = (0.33f * u * FONT_RATIO).sp
     Box(Modifier.fillMaxSize()) {
       Column(Modifier.fillMaxSize()) {
         // Top of the play area, Balatro layout: jokers LEFT (G.jokers CardArea) under the N/5 slot
         // count, consumables RIGHT under N/2. The rebuild applies consumables immediately (none held),
         // so the right side is the 0/2 count badge only. Cards at G.CARD_W aspect, nearest-neighbour.
-        Row(Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
             Column(horizontalAlignment = Alignment.Start) {
-                BTxt("${s.owned.size}/5", Balatro.White, 12.sp, Modifier.padding(start = 2.dp, bottom = 1.dp))
+                BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = 2.dp, bottom = 1.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     s.owned.forEach { o ->
                         jokerCells[o.offer.key]?.let {
-                            Image(it, o.offer.name, Modifier.padding(horizontal = 2.dp).size(72.dp, 98.dp),
+                            Image(it, o.offer.name, Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH),
                                 contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                        } ?: Box(Modifier.padding(horizontal = 2.dp).size(72.dp, 98.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                        } ?: Box(Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
                     }
                 }
             }
             Spacer(Modifier.weight(1f))
-            BTxt("0/2", Balatro.White, 12.sp, Modifier.padding(end = 2.dp))
+            BTxt("0/2", Balatro.White, countSp, Modifier.padding(end = 2.dp))
         }
 
         // centre: the played cards popping while scoring. The hand-name + chips X mult readout
@@ -1066,11 +1086,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Box(Modifier.weight(1f)) {
-                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 96.dp, onToggle = { s.toggle(it) }) { card ->
+                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
                         CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
+                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
                                 Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
+                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
                                 Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
                         }
                     }
@@ -1082,10 +1102,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             RenderUI(buttonsRow(s, cells))
         }
       }
-      // Deck card-back + N/52 count, bottom-right (Balatro's deck stack).
-      Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-          cardBack?.let { Image(it, "deck", Modifier.size(50.dp, 68.dp), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
-          BTxt("${s.deckRemaining}/52", Balatro.White, 12.sp, Modifier.padding(top = 2.dp))
+      // Deck card-back + N/52 count, bottom-right (Balatro's deck stack — card-sized).
+      Column(Modifier.align(Alignment.BottomEnd).padding(end = (0.3f * u).dp, bottom = (0.3f * u).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+          cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
+          BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
       }
     }
 }
@@ -1116,15 +1136,18 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
     LaunchedEffect(s.popIndex) {
         s.popIndex.takeIf { it in springs.indices }?.let { springs[it].juiceUp(amount = 0.4f, now = nowSec) }
     }
+    val u = LocalUIScale.current
+    val cardW = (2.0488f * u).dp
+    val cardH = (2.7512f * u).dp
     frame.let {}    // read frame -> recompose each tick so graphicsLayer re-reads the spring values
     Row(verticalAlignment = Alignment.Bottom) {
         s.scoreCards.forEachIndexed { i, card ->
             val sp = springs[i]
             Box(
-                Modifier.padding(horizontal = 2.dp).graphicsLayer {
+                Modifier.padding(horizontal = (0.04f * u).dp).graphicsLayer {
                     scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
                 }
-            ) { CardFace(card, cells[card], cardBase, Modifier.size(68.dp, 92.dp)) }
+            ) { CardFace(card, cells[card], cardBase, Modifier.size(cardW, cardH)) }
         }
     }
 }

@@ -11,17 +11,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.SubcomposeLayout
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -34,41 +32,25 @@ import androidx.compose.ui.unit.sp
  * Surface (measured across all of Balatro's UI defs): 8 node tags, ~15 config keys. Bounded.
  */
 
-/** Balatro UI unit -> dp / sp. Calibrated against the headless reference: the HUD's real
- *  computed width is 3.23 units (tools/uiref/hud_geometry.ref.txt), so U*3.23 ~= the 175dp
- *  sidebar. FONT pairs with it (Balatro text height in units = scale*0.83). */
-// Balatro UI unit -> dp / sp. The HUD is scaled to the device by FitToHeight (Balatro scales the
-// whole HUD to the screen), so U is the NATURAL unit, not a device-fit value: it just has to be big
-// enough that the full create_UIBox_HUD overflows and gets shrunk to fit (never scaled up). FONT
-// pairs with it (text height in units = scale*0.83).
-const val U = 54f      // dp per Balatro UI unit
-const val FONT = 36f   // sp per text scale=1
+// Balatro never bakes a fixed scale: it fits a virtual room into the live window every resize
+// (main.lua love.resize). We do the same the idiomatic Compose way — the root measures the surface
+// and provides dp-per-unit here, so the whole interpreted UI sizes to ANY display/stream. See
+// ROOM_W/ROOM_H and uiScaleFor() for the fit math. Default is a sane fallback before the root sets it.
+val LocalUIScale = staticCompositionLocalOf { 32f }   // dp per Balatro UI unit (set at the root)
 
-/**
- * Scale [content] down uniformly (never up) so its natural height fits the incoming max height —
- * Balatro scales the whole HUD to the screen rather than letting it overflow. The content is
- * measured at the incoming (fixed) width and unbounded height, then both dimensions shrink by the
- * fit factor and the result is drawn from the top-left. This decouples "how big the HUD wants to
- * be" (its unit math) from "does it fit the device", so the unit calibration never has to be
- * re-guessed per screen size.
- */
-@Composable
-fun FitToHeight(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    SubcomposeLayout(modifier) { constraints ->
-        val measurable = subcompose(Unit, content).first()
-        val natural = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
-        val maxH = constraints.maxHeight
-        val scale = if (maxH in 1 until natural.height) maxH.toFloat() / natural.height else 1f
-        val w = (natural.width * scale).toInt().coerceAtMost(constraints.maxWidth)
-        val h = (natural.height * scale).toInt().coerceIn(0, if (maxH > 0) maxH else natural.height)
-        layout(w, h) {
-            natural.placeWithLayer(0, 0) {
-                scaleX = scale; scaleY = scale
-                transformOrigin = TransformOrigin(0f, 0f)
-            }
-        }
-    }
-}
+// text sp per (unit × text-scale). Balatro text height ≈ 0.83×scale units; this ratio pairs the
+// pixel font to the box scale so text fills its boxes the same at any UIScale (resolution-independent).
+const val FONT_RATIO = 0.667f
+
+// Balatro's virtual window in UI units: the room (TILE_W×TILE_H = 20×11.5) plus padding (1, 0.7) on
+// each side (globals.lua/game.lua init_window). The whole game is this rect, fit into the surface.
+const val ROOM_W = 22f      // 20 + 2×1
+const val ROOM_H = 12.9f    // 11.5 + 2×0.7
+
+/** dp-per-unit that fits the 22×12.9 room inside [wDp]×[hDp] preserving aspect (contain) — exactly
+ *  the scale Balatro's love.resize computes, expressed as a plain min(). Resolution/density-correct
+ *  because the inputs are the surface's own dp dimensions. */
+fun uiScaleFor(wDp: Float, hDp: Float): Float = minOf(wDp / ROOM_W, hDp / ROOM_H)
 
 data class Cfg(
     val align: String = "cm",       // <v><h>: t/c/b + l/m/r
@@ -143,6 +125,7 @@ private fun hAlign(a: String): Alignment.Horizontal = when (a.getOrNull(1)) { 'l
 
 @Composable
 private fun Modifier.cfg(c: Cfg): Modifier {
+    val u = LocalUIScale.current
     var m = this
     // config.button -> clickable with Balatro's press feel: scale to 0.985 while held (the exact
     // `button_being_pressed and 0.985 or 1` from ui.lua draw_self), and lighten the fill toward
@@ -155,23 +138,23 @@ private fun Modifier.cfg(c: Cfg): Modifier {
             .graphicsLayer { val s = if (pressed) 0.985f else 1f; scaleX = s; scaleY = s }
             .clickable(interaction, indication = null) { c.onClick.invoke() }
     }
-    if (c.minw > 0) m = m.widthIn(min = (c.minw * U).dp)
-    if (c.minh > 0) m = m.heightIn(min = (c.minh * U).dp)
-    if (c.maxw > 0) m = m.widthIn(max = (c.maxw * U).dp)
-    if (c.maxh > 0) m = m.heightIn(max = (c.maxh * U).dp)
+    if (c.minw > 0) m = m.widthIn(min = (c.minw * u).dp)
+    if (c.minh > 0) m = m.heightIn(min = (c.minh * u).dp)
+    if (c.maxw > 0) m = m.widthIn(max = (c.maxw * u).dp)
+    if (c.maxh > 0) m = m.heightIn(max = (c.maxh * u).dp)
     if (c.colour != null) {
-        val shape = RoundedCornerShape((c.r * U).dp)
-        if (c.emboss > 0) m = m.border((c.emboss * U).dp, Color.Black.copy(alpha = 0.45f), shape)  // 3D edge: depth in units
+        val shape = RoundedCornerShape((c.r * u).dp)
+        if (c.emboss > 0) m = m.border((c.emboss * u).dp, Color.Black.copy(alpha = 0.45f), shape)  // 3D edge: depth in units
         val fill = if (pressed) lighten(c.colour) else c.colour                   // ARGS.button_colours[2] HOVER
         m = m.clip(shape).background(fill)
     }
     // outline is a cosmetic border rendered at the clip boundary (config.outline / outline_colour).
     // Thickness is in dp (Balatro's outline=1 ≈ 1dp — sub-unit, pixel-scale value).
     if (c.outline > 0f && c.outlineColour != Color.Transparent) {
-        val shape = RoundedCornerShape((c.r * U).dp)
+        val shape = RoundedCornerShape((c.r * u).dp)
         m = m.border(c.outline.dp, c.outlineColour, shape)
     }
-    if (c.padding > 0) m = m.padding((c.padding * U).dp)
+    if (c.padding > 0) m = m.padding((c.padding * u).dp)
     return m
 }
 
@@ -193,7 +176,7 @@ private fun lighten(c: Color, amt: Float = 0.2f) = Color(
 fun RenderUI(node: UI) {
     when (node) {
         is Tx -> {
-            val size = (node.cfg.scale * FONT).sp
+            val size = (node.cfg.scale * LocalUIScale.current * FONT_RATIO).sp
             // config.vert=true: text rotated 90° CCW — Balatro's vertical sidebar labels.
             // graphicsLayer rotates the drawing pass; wrapContentSize + rotate in place to avoid layout jump.
             val vertMod = if (node.cfg.vert) Modifier.graphicsLayer { rotationZ = -90f } else Modifier
@@ -219,7 +202,7 @@ fun RenderUI(node: UI) {
  */
 @Composable
 private fun RenderObject(cfg: Cfg, obj: Obj) {
-    val box = Modifier.objSize(cfg, obj).cfg(cfg)   // cfg() still paints colour/r/emboss + button feel
+    val box = Modifier.objSize(cfg, obj, LocalUIScale.current).cfg(cfg)   // cfg() still paints colour/r/emboss + button feel
     when (obj) {
         is Sprite -> Box(box, contentAlignment = Alignment.Center) {
             Image(
@@ -235,12 +218,12 @@ private fun RenderObject(cfg: Cfg, obj: Obj) {
 }
 
 /** O size = config.w/h (carried as minw/minh in units) when set, else the object's intrinsic w/h. */
-private fun Modifier.objSize(cfg: Cfg, obj: Obj): Modifier {
+private fun Modifier.objSize(cfg: Cfg, obj: Obj, u: Float): Modifier {
     val w = if (cfg.minw > 0) cfg.minw else obj.w
     val h = if (cfg.minh > 0) cfg.minh else obj.h
     var m = this
-    if (w > 0) m = m.width((w * U).dp)
-    if (h > 0) m = m.height((h * U).dp)
+    if (w > 0) m = m.width((w * u).dp)
+    if (h > 0) m = m.height((h * u).dp)
     return m
 }
 
@@ -251,11 +234,12 @@ private fun Modifier.objSize(cfg: Cfg, obj: Obj): Modifier {
  */
 @Composable
 private fun RenderDynaText(dt: DynaText) {
-    val maxW = if (dt.maxw > 0) Modifier.widthIn(max = (dt.maxw * U).dp) else Modifier
+    val u = LocalUIScale.current
+    val maxW = if (dt.maxw > 0) Modifier.widthIn(max = (dt.maxw * u).dp) else Modifier
     Row(maxW, verticalAlignment = Alignment.CenterVertically) {
         dt.segs.forEach { s ->
             val text = s.value()                    // live read -> recomposes on RunState change
-            val size = (s.scale * FONT).sp
+            val size = (s.scale * u * FONT_RATIO).sp
             if (dt.shadow) {
                 Box {
                     BTxt(text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
