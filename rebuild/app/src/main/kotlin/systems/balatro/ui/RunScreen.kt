@@ -793,54 +793,41 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
     else
         B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips))
 
+    // Boss debuff lines exist only for boss blinds. On Small/Big blinds the source has empty strings
+    // here, but empty T("") nodes still render a line of text-height each — that was the gap under the
+    // blind name. So omit the debuff block entirely unless there's a boss description to show.
+    val bossDesc = s.boss?.desc
+    val debuffBlock: UI? = if (!bossDesc.isNullOrBlank())
+        R(Cfg(align = "cm", padding = 0.05f),
+            R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
+                T(Cfg(scale = 0.36f, textColour = light), bossDesc)))
+    else null
+
+    // blind sprite + chip-target card (Score at least / target / reward)
+    val spriteScore: UI = R(Cfg(align = "cm", padding = 0.15f),
+        blindO,
+        C(Cfg(align = "cm", r = 0.1f, padding = 0.05f, emboss = 0.05f, minw = 2.9f, colour = panel),
+            R(Cfg(align = "cm", maxw = 2.8f),
+                T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
+            // stake sprite + 0.1u spacer + chip target (chipTargetScale springs in on ROUND start)
+            R(Cfg(align = "cm", minh = 0.6f),
+                stakeO,
+                B(Cfg(minw = 0.1f, minh = 0.1f)),
+                T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)),
+            // reward row — "Reward: " has NO shadow per source; DynaText has shadow=true
+            R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
+                T(Cfg(scale = 0.3f, textColour = light), "Reward: "),
+                O(Cfg(), DynaT(seg({ "\$${s.dollarsToBeEarned}" }, Balatro.Money, scale = 0.45f), shadow = true)))))
+
+    // body sizes to its content (no fixed minh) → no empty band under the name on non-boss blinds.
+    val body: UI = Ro(Cfg(align = "cm", r = 0.1f, colour = panel), listOfNotNull(debuffBlock, spriteScore))
+
     return R(Cfg(align = "cm", minw = 4.5f, r = 0.1f, colour = panel, emboss = 0.05f, padding = 0.05f),
         // ── name strip (G.C.DYN_UI.MAIN = panel) ──────────────────────────────
         R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, colour = panel, emboss = 0.05f),
             C(Cfg(align = "cm", minw = 3f),
-                // DynaText: blind.loc_name — scale=1.6*0.4=0.64, shadow=true; animate flags deferred
-                O(Cfg(),
-                    DynaT(seg({ s.blindName }, light, scale = 0.64f), shadow = true))
-            )
-        ),
-        // ── body panel (G.C.DYN_UI.DARK = panel) ──────────────────────────────
-        R(Cfg(align = "cm", minh = 2.74f, r = 0.1f, colour = panel),
-            // debuff rows — loc_debuff_lines[1] = boss description; [2] = second line (unused in vanilla)
-            // HUD_blind_debuff_prefix T is always "" until the func system is wired
-            R(Cfg(align = "cm", padding = 0.05f),
-                R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                    T(Cfg(scale = 0.36f, textColour = light), ""),              // HUD_blind_debuff_prefix
-                    T(Cfg(scale = 0.36f, textColour = light), s.boss?.desc ?: "") // loc_debuff_lines[1]
-                ),
-                R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                    T(Cfg(scale = 0.36f, textColour = light), "")               // loc_debuff_lines[2]
-                )
-            ),
-            // blind sprite + chip-target card
-            R(Cfg(align = "cm", padding = 0.15f),
-                blindO,
-                C(Cfg(align = "cm", r = 0.1f, padding = 0.05f, emboss = 0.05f, minw = 2.9f, colour = panel),
-                    // "Score at least" — localize('ph_blind_score_at_least'), shadow=true per source
-                    R(Cfg(align = "cm", maxw = 2.8f),
-                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")
-                    ),
-                    // stake sprite + 0.1u spacer + chip target (chipTargetScale springs in on ROUND start)
-                    R(Cfg(align = "cm", minh = 0.6f),
-                        stakeO,
-                        B(Cfg(minw = 0.1f, minh = 0.1f)),
-                        // chip_text T: springs from 0.001 → 0.5 when round starts (blind_chip_UI_scale).
-                        // chipTargetScale driven by animateFloatAsState in HudColumn.
-                        T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)
-                    ),
-                    // reward row — func=HUD_blind_reward (always show until wired)
-                    // "Reward: " has NO shadow per source; DynaText has shadow=true
-                    R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
-                        T(Cfg(scale = 0.3f, textColour = light), "Reward: "),
-                        O(Cfg(),
-                            DynaT(seg({ "\$${s.dollarsToBeEarned}" }, Balatro.Money, scale = 0.45f), shadow = true))
-                    )
-                )
-            )
-        )
+                O(Cfg(), DynaT(seg({ s.blindName }, light, scale = 0.64f), shadow = true)))),
+        body
     )
 }
 
