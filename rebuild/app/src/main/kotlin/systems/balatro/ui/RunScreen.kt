@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -1081,9 +1082,22 @@ private fun CardFace(
     face: ImageBitmap?,
     base: ImageBitmap?,
     modifier: Modifier = Modifier,
+    shadowHeight: Float = 0.1f,         // card.lua: 0.1 normal, 0.35 highlighted-in-play / dragged; 0 = no shadow
     badges: @Composable BoxScope.() -> Unit = {},
 ) {
+    val u = LocalUIScale.current
     Box(modifier) {
+        // Balatro drop shadow (sprite.lua draw_shader + dissolve.fs): the card silhouette in BLACK at
+        // 0.3 alpha, offset by -shadow_parallax*height (parallax.y=-1.5 → +1.5*h units DOWN) and scaled
+        // (1-0.2*h). The base (white card stock) is the silhouette; tint it black for the shadow pass.
+        if (base != null && shadowHeight > 0f) {
+            val sc = 1f - 0.2f * shadowHeight
+            Image(base, null,
+                Modifier.matchParentSize()
+                    .graphicsLayer { scaleX = sc; scaleY = sc; translationY = 1.5f * shadowHeight * u * density; alpha = 0.3f },
+                contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None,
+                colorFilter = ColorFilter.tint(Color.Black))
+        }
         base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
         face?.let { Image(it, card.label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
         badges()
@@ -1122,8 +1136,15 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     s.owned.forEachIndexed { i, o ->
                         BalatroFloat(seed = i * 0.7f, modifier = Modifier.padding(horizontal = (0.04f * u).dp)) {
                             jokerCells[o.offer.key]?.let {
-                                Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                                    contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                                Box {
+                                    // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
+                                    Image(it, null, Modifier.size(cardW, cardH)
+                                        .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
+                                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
+                                        colorFilter = ColorFilter.tint(Color.Black))
+                                    Image(it, o.offer.name, Modifier.size(cardW, cardH),
+                                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                                }
                             } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
                         }
                     }
@@ -1227,7 +1248,7 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
                 Modifier.padding(horizontal = (0.04f * u).dp).graphicsLayer {
                     scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
                 }
-            ) { CardFace(card, cells[card], cardBase, Modifier.size(cardW, cardH)) }
+            ) { CardFace(card, cells[card], cardBase, Modifier.size(cardW, cardH), shadowHeight = 0.1f) }
         }
     }
 }
