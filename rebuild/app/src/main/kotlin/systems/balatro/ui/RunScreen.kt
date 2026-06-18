@@ -259,11 +259,17 @@ internal class RunState {
         return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
     }
 
+    /** The boss at THIS ante's Boss slot — for the blind-select preview. `boss` is only assigned
+     *  once you're ON the boss slot, so the select screen (you're at Small) needs the upcoming one.
+     *  Same RNG as the slot-2 assignment, keyed to the boss-slot index (current ante's 3rd blind). */
+    val upcomingBoss: Boss
+        get() = Boss.values().random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1))
+
     /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
     fun targetForSlot(slotIdx: Int): Double {
         val base = 300.0 * ante
-        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
+        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * upcomingBoss.targetMult }
     }
 
     /** Reward dollars for each blind slot (config.dollars in Lua: Small=$3, Big=$4, Boss=$5). */
@@ -271,11 +277,11 @@ internal class RunState {
 
     /** Name label for the upcoming blind slot on the blind-select screen. */
     fun nameForSlot(slotIdx: Int): String = when (slotIdx) {
-        0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind"
+        0 -> "Small Blind"; 1 -> "Big Blind"; else -> upcomingBoss.display
     }
 
     /** Description for the blind-select screen (boss ability line, or empty for Small/Big). */
-    fun descForSlot(slotIdx: Int): String = if (slotIdx == 2) boss?.desc ?: "" else ""
+    fun descForSlot(slotIdx: Int): String = if (slotIdx == 2) upcomingBoss.desc else ""
 
     /** Mirrors G.GAME.blind.chip_text — the chip target as a formatted string for the HUD_blind T node.
      *  scale=0.001 in source; blind_chip_UI_scale springs to 0.5 on round start (implemented in HudColumn). */
@@ -1356,10 +1362,11 @@ private fun ShopCard(
 @Composable
 private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
-    // Load all three blind sprites in one atlas pass. Re-fires when the boss changes (new ante).
+    // Load all three blind sprites in one atlas pass — including the UPCOMING boss (s.boss is null
+    // during select, so use s.upcomingBoss or the boss slot shows a blank/placeholder). Re-fires per ante.
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
-        Triple(null, null, null), s.boss
-    ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.boss) } }
+        Triple(null, null, null), s.blindIndex
+    ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) } }
 
     Column(
         Modifier.fillMaxSize().padding(12.dp),
