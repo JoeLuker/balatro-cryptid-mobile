@@ -1076,16 +1076,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
 
-        // centre: the played cards popping while scoring. The hand-name + chips X mult readout
-        // (contents.hand) lives in the LEFT HUD sidebar per create_UIBox_HUD, NOT here.
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // (no idle prompt — Balatro shows an empty play area until cards are played)
-                if (s.scoring) {
-                    Spacer(Modifier.height(8.dp))
-                    ScoredCardsRow(s, cells, cardBase)
-                }
-            }
+        // The played-cards area (G.play) sits JUST ABOVE the hand (play.y = hand.y − 3.6), not in the
+        // dead centre — so bottom-align it with a small lift, not vertical-centre. Empty until played.
+        Box(Modifier.fillMaxWidth().weight(1f).padding(bottom = (0.6f * u).dp), contentAlignment = Alignment.BottomCenter) {
+            if (s.scoring) ScoredCardsRow(s, cells, cardBase)
         }
 
         // bottom: fanned hand + action bar (Play Hand / Sort / Discard)
@@ -1109,8 +1103,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             RenderUI(buttonsRow(s, cells))
         }
       }
-      // Deck card-back + N/52 count, bottom-right (Balatro's deck stack — card-sized).
-      Column(Modifier.align(Alignment.BottomEnd).padding(end = (0.3f * u).dp, bottom = (0.3f * u).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+      // Deck card-back + N/52, seated RIGHT AFTER the hand area (deck.x = hand.x + hand.w + ~0.1,
+      // set_screen_positions) — not pinned to the far edge, so there's no felt gap before it.
+      Column(Modifier.align(Alignment.BottomStart).padding(start = handW + (0.15f * u).dp, bottom = (0.3f * u).dp), horizontalAlignment = Alignment.CenterHorizontally) {
           cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
           BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
       }
