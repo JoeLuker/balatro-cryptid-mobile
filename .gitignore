@@ -24,3 +24,14 @@ Thumbs.db
 
 # Ghost session data (local only)
 .ai-sessions/
+
+# Claude Code working dir: linked worktrees (with self-symlinks), settings, scratch shots
+/.claude/
+
+# Pre-DebugPlus backup of the (re-fetchable) decompiled source dump — mirrors /src/dump
+/src/dump.bak-*
+
+# Lovely injector: downloaded/built binaries (.so, tarball) + the upstream source clone
+# (314M, its own git repo). All re-fetchable — see tools/uiref for the committed toolchain.
+/tools/lovely/
+/tools/lovely-src/
