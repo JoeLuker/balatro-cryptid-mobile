@@ -608,7 +608,12 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // The 22u-wide room is centred; ROOM.T.x/y are the room interior's screen-top-left origin (in
         // units), so card areas land at (ROOM.T + cardArea.T) regardless of device aspect (the bref_3
         // 16:9 capture happens to be width-constrained → ROOM.T.y≈0.44; a squarer Fold letterboxes).
-        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+        // Parity (repro) forces the WIDTH-constrained fit that the bref_3 reference was captured at
+        // (a 16:9 image where the room overflows height and is cropped), so the pixel-diff is
+        // apples-to-apples. Live play uses Balatro's faithful aspect branch (min) — width-constrained
+        // on a squarer surface, height-constrained otherwise. The room-origin formula is identical for
+        // both (the room always centres); only u differs.
+        val u = if (s.repro) maxWidth.value / ROOM_W else uiScaleFor(maxWidth.value, maxHeight.value)
         val roomTx = (maxWidth.value / u - ROOM_W) / 2f + ROOM_PADDING_W
         val roomTy = (maxHeight.value / u - ROOM_H) / 2f + ROOM_PADDING_H
         CompositionLocalProvider(LocalUIScale provides u) {
