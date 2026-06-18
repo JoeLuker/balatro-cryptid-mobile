@@ -1129,8 +1129,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         if (s.scoring) Box(off(PF.PLAY_X, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
             ScoredCardsRow(s, cells, cardBase)
         }
-        // ── HAND (G.hand): fanned along the bottom, centred in the 12.29u hand area.
-        Box(off(PF.HAND_X, PF.HAND_Y).width((PF.HAND_W * u).dp)) {
+        // ── HAND (G.hand): fanned along the bottom, centred in the 12.29u hand area. SpringHand
+        // anchors cards ~0.55·cardH below its box top (reserving lift-room above for selected cards),
+        // so raise the box by that resting offset (~1.4u) to land the card tops at the area position.
+        Box(off(PF.HAND_X, PF.HAND_Y - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
             SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
                 CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
                     if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
@@ -1172,6 +1174,7 @@ private object PF {
     const val PLAY_RESTING_Y = 5.7238f          // empty play area (live); cards lift up while scoring
     const val PLAY_SCORING_Y = 4.23f            // measured mid-scoring position in bref_3
     const val HAND_X = 5.8573f;  const val HAND_Y = 9.3238f; const val HAND_W = 12.2927f
+    const val HAND_SPRING_OFFSET = 1.4f          // SpringHand card-top resting offset below its box top
     const val DECK_X = 18.2463f; const val DECK_Y = 9.3328f; const val DECK_W = 2.2537f
 }
 
