@@ -68,11 +68,15 @@ object Balatro {
     val font = FontFamily(Font(R.font.m6x11plus))
 }
 
-// m6x11plus is a pixel font; Compose's default font padding + leading trim soften it. Drop the
-// padding and trim line spacing to first/last baseline so the glyphs sit tight and crisp.
+// m6x11plus is a pixel font; Compose adds font padding by default — drop it. Do NOT trim the line
+// height (Trim.Both) because it clips glyph descenders (p, q, g, y): m6x11plus 'p' extends to
+// yMin=-320 out of UPM=1024, below the -256 font descender. Trim.Both clips at the baseline, so 'p'
+// renders as 'o'. Keep Trim.None so descenders draw fully. The TEXT_VSHIFT correction in UILayout /
+// RenderDynaText still applies: Compose centres the glyph in its line box and TEXT_H=0.83 means
+// the layout node is shorter than a full line, so text sits too low — the upward shift is correct.
 private val pixelStyle = TextStyle(
     platformStyle = PlatformTextStyle(includeFontPadding = false),
-    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
 )
 
 /** Pixel-font text — the default everywhere in the Balatro chrome. */
