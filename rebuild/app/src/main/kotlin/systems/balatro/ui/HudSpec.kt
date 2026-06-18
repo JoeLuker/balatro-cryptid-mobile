@@ -56,8 +56,8 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         "BLACK", "DYN_UI.MAIN", "DYN_UI.DARK", "DYN_UI.BOSS_MAIN", "DYN_UI.BOSS_DARK", "DYN_UI.BOSS_PALE" -> Balatro.Panel
         "L_BLACK", "UI.TEXT_DARK" -> Balatro.PanelLight
         "GREY" -> Balatro.Grey
-        "BLUE", "CHIPS" -> Balatro.Chips
-        "RED", "MULT" -> Balatro.Mult
+        "BLUE", "CHIPS", "UI_CHIPS" -> Balatro.Chips
+        "RED", "MULT", "UI_MULT" -> Balatro.Mult
         "MONEY" -> Balatro.Money
         "GOLD" -> Balatro.Gold
         "IMPORTANT", "FILTER" -> Balatro.Orange
@@ -166,13 +166,10 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         val shadow = o.optBoolean("shadow", true)
         val segs = (0 until segsJ.length()).map { i ->
             val sj = segsJ.getJSONObject(i)
-            // The extracted tree statically colours chip/mult text UI.TEXT_LIGHT, but Balatro
-            // colours them at runtime (chip_UI_set -> blue, mult -> red). Restore that.
-            val col = when (sj.optString("value")) {
-                "chip_text" -> Balatro.Chips
-                "mult_text" -> Balatro.Mult
-                else -> colsJ?.optString(i.coerceAtMost((colsJ.length() - 1).coerceAtLeast(0)))?.let { colourByName(it) } ?: Balatro.White
-            }
+            // Use the tree's own colour (chips/mult numbers are UI.TEXT_LIGHT = white): they sit
+            // INSIDE the blue/red chip/mult boxes, so white reads correctly — colouring the text
+            // blue/red (an old workaround for when the boxes had no fill) made them invisible.
+            val col = colsJ?.optString(i.coerceAtMost((colsJ.length() - 1).coerceAtLeast(0)))?.let { colourByName(it) } ?: Balatro.White
             val prefix = sj.optJSONObject("prefix")?.let { loc(it.opt("loc")) } ?: (sj.opt("prefix") as? String ?: "")
             val reader: () -> String = when {
                 sj.has("value") -> read(sj.getString("value"))
