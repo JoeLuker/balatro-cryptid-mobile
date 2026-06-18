@@ -75,6 +75,12 @@ data class Cfg(
     val minh: Float = 0f,
     val maxw: Float = 0f,
     val maxh: Float = 0f,           // max height constraint in units (config.maxh)
+    // config.w / config.h — EXPLICIT leaf size for B (box/spacer) and O (object) nodes
+    // (calculate_xywh: `config.w or object.T.w`). null = absent → use object's intrinsic size.
+    // Must be nullable to distinguish "absent" (dynatext self-measures) from "explicitly 0"
+    // (the flame anchors are w=0,h=0). The old Cfg dropped these → B spacers collapsed to 0.
+    val wCfg: Float? = null,
+    val hCfg: Float? = null,
     val scale: Float = 1f,          // text scale
     val textColour: Color = Balatro.White,
     val shadow: Boolean = false,    // T shadow: black 0.3a offset pass (config.shadow in ui.lua draw_self)
@@ -115,6 +121,7 @@ class DynaText(
     val segs: List<DynSeg>,
     val maxw: Float = 0f,
     val shadow: Boolean = true,
+    val spacing: Float = 0f,   // config.spacing — adds 0.0135×spacing per letter to measured width (text.lua:152)
     override val w: Float = 0f,
     override val h: Float = 0f,
 ) : Obj
@@ -263,7 +270,7 @@ fun BalatroFloat(seed: Float, modifier: Modifier = Modifier, content: @Composabl
 }
 
 @Composable
-private fun RenderDynaText(dt: DynaText) {
+fun RenderDynaText(dt: DynaText) {
     val u = LocalUIScale.current
     val maxW = if (dt.maxw > 0) Modifier.widthIn(max = (dt.maxw * u).dp) else Modifier
     // Balatro DynaText floats: every dynamic readout perpetually bobs (text.lua:287, the float pass,

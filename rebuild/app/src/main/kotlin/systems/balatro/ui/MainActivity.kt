@@ -63,6 +63,12 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge: let the Compose surface fill the ENTIRE display, drawing under (hidden) system
+        // bars. Without this the content area is inset by the landscape nav bar (~200px), so the room
+        // scaled to a too-narrow surface (u≈165px/unit instead of the full-width 174.5) and the whole
+        // HUD/play field rendered ~6% small. setDecorFitsSystemWindows(false) makes fillMaxSize == the
+        // real screen, so u = screenWidth/ROOM_W exactly matches the reference's scale.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         // Immersive fullscreen — hide the status bar + nav/taskbar so the game fills the whole
         // surface (like the real game), instead of being inset by system bars (which offset/compress
         // the layout vs a fullscreen reference). Sticky so transient swipes don't permanently show them.

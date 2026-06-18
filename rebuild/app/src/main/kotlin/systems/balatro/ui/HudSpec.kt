@@ -134,6 +134,8 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         // hand-name row keeps its 1.1u reservation (the played-hand name floats into it).
         minh = c.optDouble("minh", 0.0).toFloat(),
         maxw = c.optDouble("maxw", 0.0).toFloat(),
+        wCfg = if (c.has("w")) c.optDouble("w", 0.0).toFloat() else null,
+        hCfg = if (c.has("h")) c.optDouble("h", 0.0).toFloat() else null,
         scale = c.optDouble("scale", 1.0).toFloat(),
         textColour = colour(c.optJSONObject("colour")) ?: Balatro.White,
         shadow = c.optBoolean("shadow", false),
@@ -167,6 +169,8 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         val colsJ = o.optJSONArray("colours")
         val scale = o.optDouble("scale", 1.0).toFloat()
         val shadow = o.optBoolean("shadow", true)
+        val spacing = o.optDouble("spacing", 0.0).toFloat()
+        val maxw = o.optDouble("maxw", 0.0).toFloat()
         val segs = (0 until segsJ.length()).map { i ->
             val sj = segsJ.getJSONObject(i)
             // Use the tree's own colour (chips/mult numbers are UI.TEXT_LIGHT = white): they sit
@@ -181,6 +185,6 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
             }
             DynSeg({ prefix + reader() }, col, scale)
         }
-        return DynaText(segs, shadow = shadow)
+        return DynaText(segs, maxw = maxw, shadow = shadow, spacing = spacing)
     }
 }

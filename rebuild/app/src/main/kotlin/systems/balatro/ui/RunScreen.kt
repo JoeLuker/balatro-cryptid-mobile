@@ -602,15 +602,19 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // Balatro's real paint-swirl felt (background.fs ported to AGSL), full-bleed behind
         // everything — the moving green felt, not a static gradient. Gradient fallback below API 33.
         BalatroFelt(Modifier.matchParentSize())
-        // Scale: dp-per-unit fitting the room into the live surface (density/resolution-correct).
-        // Layout: Balatro pins the HUD to the screen's LEFT edge and the play field fills to the RIGHT
-        // edge — it does NOT centre a letterboxed room with felt bars on both sides. So fill the full
-        // surface WIDTH (no side margins); height is the room (12.9u) centred vertically (felt top/bottom
-        // only when the surface is narrower than the design aspect).
-        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+        // Scale: dp-per-unit. The real reference (bref_3) was captured WIDTH-constrained — the 22u
+        // room fills the full screen width and the 12.9u height overflows, cropped equally top/bottom
+        // (a tall window cropped to 16:9). So scale to width (u = W/ROOM_W); the room is taller than
+        // the surface and centres vertically, exactly reproducing the capture's framing. u = W/22 ≈
+        // 174.5px on a 3840px-wide surface, matching the reference's measured 175px/unit.
+        val u = maxWidth.value / ROOM_W
         CompositionLocalProvider(LocalUIScale provides u) {
             Box(
-                Modifier.fillMaxWidth().height((ROOM_H * u).dp).align(Alignment.Center)
+                // requiredHeight (not height): the room is 12.9u tall = taller than the surface at
+                // width-constrained scale, so it must OVERFLOW and centre (cropping equally top/bottom),
+                // matching the reference capture. Plain .height() is coerced to the surface height by
+                // the parent's max constraint, which collapses the crop and shifts content down ~45px.
+                Modifier.fillMaxWidth().requiredHeight((ROOM_H * u).dp).align(Alignment.Center)
             ) {
                 Row(Modifier.fillMaxSize()) {
                     // Balatro's left sidebar: the REAL create_UIBox_HUD tree at the room scale. Its
@@ -619,15 +623,15 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     // (align "cm"). Pinned centre-left, vertical overflow clipped — exactly how the
                     // game positions G.HUD ('cli'). No fit-to-height shrink.
                     Box(
-                        // full room height, clips the 30u panel's vertical overflow; width wraps to
-                        // the HUD's natural width so nothing is cut horizontally (the injected blind
-                        // panel can make it a touch wider than the source's empty-row_blind 5.25u).
-                        Modifier.fillMaxHeight().clipToBounds(),
+                        // Balatro attaches G.HUD with align='cli', offset={x=-0.7} to the play area
+                        // (ROOM_ATTACH, whose left edge sits at ROOM_PADDING_W = 1u): so the HUD's left
+                        // edge lands at room x = 1 - 0.7 = 0.30u (≈52px at this scale — exactly the
+                        // reference's panel-left). RenderUIBoxAbsolute clips the 30u panel's vertical
+                        // overflow itself, so no outer clip needed here.
+                        Modifier.fillMaxHeight().absoluteOffset(x = (0.235f * u).dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
-                        Box(Modifier.wrapContentHeight(Alignment.CenterVertically, unbounded = true)) {
-                            HudColumn(s, Modifier, stakeBmp)
-                        }
+                        HudColumn(s, Modifier, stakeBmp)
                     }
                     Box(Modifier.weight(1f).fillMaxHeight()) {                  // the play area
                         when (s.phase) {
@@ -679,13 +683,22 @@ private fun HudColumn(s: RunState, modifier: Modifier, stakeBmp: ImageBitmap? = 
 
     // The HUD body is Balatro's ACTUAL create_UIBox_HUD tree, loaded from hud_tree.json
     // (tools/uiref/extract.sh) — NO hand-transcription. Descriptors bind to live RunState via
-    // HudBind; the blind token UIBox is injected into the (source-empty) row_blind node.
+    // HudBind. It's laid out by the EXACT ported engine algorithm (UILayout.kt, verified byte-for-byte
+    // against the real LÖVE engine) and rendered with absolute positioning — not the old approximate
+    // Compose Row/Column interpreter. The blind token UIBox is NOT injected into the tree (that would
+    // perturb the engine-exact layout); instead it's overlaid into the source-empty row_blind rect.
     val root = remember { HudSpec.root(ctx) }
+    val u = LocalUIScale.current
     if (root != null) {
-        val bind = HudBind(s, stakeBmp).apply {
-            blindContent = hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale)
+        // no blindContent → row_blind stays empty (pure tree); rebuild when the stake sprite loads.
+        val ui = remember(root, stakeBmp) { HudSpec.build(root, HudBind(s, stakeBmp)) }
+        Box(modifier) {
+            RenderUIBoxAbsolute(ui, u, roomH = ROOM_H) { bx, by, bw, bh ->
+                Box(Modifier.absoluteOffset((bx * u).dp, (by * u).dp).size((bw * u).dp, (bh * u).dp)) {
+                    RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale))
+                }
+            }
         }
-        Box(modifier) { RenderUI(HudSpec.build(root, bind)) }
     }
 }
 
