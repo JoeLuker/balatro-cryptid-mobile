@@ -609,6 +609,11 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // 174.5px on a 3840px-wide surface, matching the reference's measured 175px/unit.
         val u = maxWidth.value / ROOM_W
         CompositionLocalProvider(LocalUIScale provides u) {
+            // ROUND's play field is positioned at ABSOLUTE room coordinates over the full surface
+            // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
+            // weight box to the right of the HUD. Card areas span the whole room; the HUD sits on top
+            // of the left edge exactly as the game layers G.HUD over the room.
+            if (s.phase == Phase.ROUND) RoundPlay(s, cells, jokerCells, cardBase, cardBack)
             Box(
                 // requiredHeight (not height): the room is 12.9u tall = taller than the surface at
                 // width-constrained scale, so it must OVERFLOW and centre (cropping equally top/bottom),
@@ -633,9 +638,9 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     ) {
                         HudColumn(s, Modifier, stakeBmp)
                     }
-                    Box(Modifier.weight(1f).fillMaxHeight()) {                  // the play area
+                    Box(Modifier.weight(1f).fillMaxHeight()) {                  // non-ROUND phase content
                         when (s.phase) {
-                            Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase, cardBack)
+                            Phase.ROUND -> {}                                  // rendered full-screen above
                             Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                             Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
                             Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
@@ -1086,30 +1091,23 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             s.scoreCommit()
         }
     }
-    // Everything in the play area is sized in Balatro units × the live scale, so it scales with the
-    // room exactly like the HUD: card = G.CARD_W/H = 2.4×{35,47}/41 units, labels at the HUD's scale.
+    // Play field laid out at ABSOLUTE room coordinates — set_screen_positions (common_events.lua),
+    // resolved to screen-top-left room units by the playfield-coords analysis (LÖVE oracle +
+    // reference measurement). Card areas (jokers/play/hand/deck/consumeables) are placed via
+    // absoluteOffset(xu·u, yu·u); the coords already bake in the room origin + vertical crop, so no
+    // extra term is needed. Card = G.CARD_W/H = 2.04878 × 2.75122 units.
     val u = LocalUIScale.current
-    val cardW = (2.0488f * u).dp
-    val cardH = (2.7512f * u).dp
-    val handW = (6f * 2.0488f * u).dp     // G.hand area = 6 × CARD_W (set_screen_positions)
+    val cardW = (PF.CARD_W * u).dp
+    val cardH = (PF.CARD_H * u).dp
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
+    fun off(xu: Float, yu: Float) = Modifier.absoluteOffset((xu * u).dp, (yu * u).dp)
+
     Box(Modifier.fillMaxSize()) {
-      // The play field (jokers, played cards, hand) shares ONE left-aligned frame the width of the
-      // hand area, so the joker row's left edge lines up with the hand's exactly as Balatro does
-      // (jokers.x = hand.x - 0.1). The deck stays pinned bottom-right (its own room position).
-      Column(Modifier.fillMaxHeight().width(handW)) {
-        // Jokers + consumables at the VERY top of the play field (G.jokers/G.consumeables CardAreas,
-        // both T.y=0), left-aligned where the HUD sidebar ends and consumables immediately to the
-        // right of the jokers — exactly set_screen_positions (common_events.lua). Balatro shows NO
-        // count labels in the run HUD and empty slots are invisible, so this is just the held cards.
-        // (The rebuild auto-applies consumables, so none are ever held → the consumable area is empty.)
-        // Top: jokers (left, with the N/5 slot count) + consumables count N/2 (top-right). Balatro DOES
-        // show these slot counts in the run HUD (they're on the card-area corners) — confirmed against
-        // a real play screenshot. Jokers float/wobble (G.jokers CardArea idle juice).
-        Row(Modifier.fillMaxWidth().padding(top = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
+        // ── JOKERS (G.jokers): area top-left, cards left-aligned; N/5 slot count above. Idle float/wobble.
+        Box(off(PF.JOKERS_X, PF.JOKERS_Y - 0.34f)) {
             Column(horizontalAlignment = Alignment.Start) {
-                BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp, bottom = (0.03f * u).dp))
+                BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     s.owned.forEachIndexed { i, o ->
                         BalatroFloat(seed = i * 0.7f, modifier = Modifier.padding(horizontal = (0.04f * u).dp)) {
@@ -1121,48 +1119,60 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     }
                 }
             }
-            Spacer(Modifier.weight(1f))
-            BTxt("0/2", Balatro.White, countSp, Modifier.padding(end = (0.05f * u).dp))
         }
-
-        // The played-cards area (G.play) sits JUST ABOVE the hand (play.y = hand.y − 3.6), not in the
-        // dead centre — so bottom-align it with a small lift, not vertical-centre. Empty until played.
-        // Played cards (G.play) sit in the upper-middle of the play field (play.y = hand.y − 3.6 ≈ 46%
-        // height), NOT just above the hand — vertically centred in the area between jokers and hand.
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            if (s.scoring) ScoredCardsRow(s, cells, cardBase)
+        // ── CONSUMABLES (G.consumeables): same row as jokers, to their right. Empty (auto-applied) → just N/2.
+        Box(off(PF.CONSUM_X, PF.JOKERS_Y - 0.34f)) {
+            BTxt("0/2", Balatro.White, countSp)
         }
-
-        // bottom: fanned hand + action bar (Play Hand / Sort / Discard)
-        // The action bar is Balatro's create_UIBox_buttons tree rendered through the UIBox interpreter.
-        Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                Box(Modifier.weight(1f)) {
-                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
-                        CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
-                                Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
-                                Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
-                        }
-                    }
+        // ── PLAYED (G.play): the played hand. bref_3 freezes mid-scoring with the cards risen to ~4.23u
+        // (the resting area is 5.7238u; cards lift toward the jokers while scoring). Centre in the play area.
+        if (s.scoring) Box(off(PF.PLAY_X, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
+            ScoredCardsRow(s, cells, cardBase)
+        }
+        // ── HAND (G.hand): fanned along the bottom, centred in the 12.29u hand area.
+        Box(off(PF.HAND_X, PF.HAND_Y).width((PF.HAND_W * u).dp)) {
+            SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
+                CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
+                    if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
+                        Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                    if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
+                        Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
                 }
             }
-            // hand-size count under the hand (G.hand area count, e.g. 4/8) — shown in the real HUD.
-            BTxt("${s.hand.size}/8", Balatro.White, countSp, Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally))
-            Spacer(Modifier.height(4.dp))
-            // Balatro's create_UIBox_buttons: play (left), sort cluster (centre), discard (right).
-            // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
+        }
+        // hand-size count (N/8) under the hand area.
+        Box(off(PF.HAND_X, PF.HAND_Y + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
+            BTxt("${s.hand.size}/8", Balatro.White, countSp)
+        }
+        // action bar (Play Hand / Sort / Discard) below the hand — hidden during scoring (Balatro hides it).
+        if (!s.scoring) Box(off(PF.HAND_X, PF.HAND_Y + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
             RenderUI(buttonsRow(s, cells))
         }
-      }
-      // Deck card-back + N/52, seated RIGHT AFTER the hand area (deck.x = hand.x + hand.w + ~0.1,
-      // set_screen_positions) — not pinned to the far edge, so there's no felt gap before it.
-      Column(Modifier.align(Alignment.BottomStart).padding(start = handW + (0.15f * u).dp, bottom = (0.3f * u).dp), horizontalAlignment = Alignment.CenterHorizontally) {
-          cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
-          BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
-      }
+        // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
+        Box(off(PF.DECK_X, PF.DECK_Y).size((PF.DECK_W * u).dp, cardH), contentAlignment = Alignment.TopEnd) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
+                BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
+            }
+        }
     }
+}
+
+/**
+ * Play-field room coordinates (screen-top-left UI units) from set_screen_positions, resolved by the
+ * playfield-coords analysis (LÖVE oracle dump + bref_3 reference measurement). x/y already include the
+ * room origin and vertical crop, so an element placed at absoluteOffset(x·u, y·u) lands at the reference
+ * pixel. Width-constrained scale (u = surfaceW/22). See the workflow result for derivation/citations.
+ */
+private object PF {
+    const val CARD_W = 2.04878f; const val CARD_H = 2.75122f
+    const val JOKERS_X = 5.7573f; const val JOKERS_Y = 0.4375f
+    const val CONSUM_X = 15.9963f
+    const val PLAY_X = 6.5744f;  const val PLAY_W = 10.8585f
+    const val PLAY_RESTING_Y = 5.7238f          // empty play area (live); cards lift up while scoring
+    const val PLAY_SCORING_Y = 4.23f            // measured mid-scoring position in bref_3
+    const val HAND_X = 5.8573f;  const val HAND_Y = 9.3238f; const val HAND_W = 12.2927f
+    const val DECK_X = 18.2463f; const val DECK_Y = 9.3328f; const val DECK_W = 2.2537f
 }
 
 /**
