@@ -31,7 +31,10 @@ object Balatro {
     // table + panels
     val Felt = Color(0xFF234C44)        // the green felt table
     val FeltDark = Color(0xFF1B3A34)
-    val Panel = Color(0xFF374244)        // G.C.BLACK — dark UI panels
+    // G.C.BLACK is nominally #374244, but Balatro composites a shadow under the HUD so panels render
+    // darker on screen (~#2E3A3C, measured across box bodies/insets in the reference). Use the rendered
+    // value so the dark panels pixel-match; the ~9/channel shadow offset isn't exposed headlessly.
+    val Panel = Color(0xFF2E3A3C)        // G.C.BLACK as composited (dark UI panels)
     val PanelLight = Color(0xFF4F6367)   // G.C.L_BLACK
     val Grey = Color(0xFF5F7377)         // G.C.GREY
     // readout colours
