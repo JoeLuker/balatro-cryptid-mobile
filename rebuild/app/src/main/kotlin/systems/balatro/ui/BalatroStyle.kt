@@ -1,22 +1,25 @@
 package systems.balatro.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,21 +71,49 @@ object Balatro {
     val font = FontFamily(Font(R.font.m6x11plus))
 }
 
-// m6x11plus is a pixel font; Compose adds font padding by default — drop it. Do NOT trim the line
-// height (Trim.Both) because it clips glyph descenders (p, q, g, y): m6x11plus 'p' extends to
-// yMin=-320 out of UPM=1024, below the -256 font descender. Trim.Both clips at the baseline, so 'p'
-// renders as 'o'. Keep Trim.None so descenders draw fully. The TEXT_VSHIFT correction in UILayout /
-// RenderDynaText still applies: Compose centres the glyph in its line box and TEXT_H=0.83 means
-// the layout node is shorter than a full line, so text sits too low — the upward shift is correct.
+// m6x11plus is a pixel font; Compose adds font padding by default — drop it. Trim.Both trims the
+// line-height box to cap-height+baseline so the glyph sits at the correct vertical position inside
+// its layout node. The TEXT_VSHIFT correction in UILayout / RenderDynaText handles the remaining
+// offset.
+//
+// Descender fix: Compose's Text composable clips ink at the font's declared winDescent metric
+// (256/1024 em for m6x11plus), but glyphs p/g/j/q/y have yMin=-320 — 64/1024 em beyond winDescent.
+// BTxt therefore renders via Canvas.drawText (TextMeasurer) on a canvas padded by DESCENT_OVERHANG_EM
+// below the measured layout height, which gives the native Skia rasterizer room to draw the full
+// glyph outlines without clipping.
 private val pixelStyle = TextStyle(
     platformStyle = PlatformTextStyle(includeFontPadding = false),
-    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
 )
 
-/** Pixel-font text — the default everywhere in the Balatro chrome. */
+// m6x11plus: winDescent=256, actual glyph yMin=-320 → overhang = 64/1024 em = 0.0625 em.
+// Adding this fraction of fontSize as extra canvas height below the measured text lets Skia draw
+// the full descender outline instead of clipping at the declared font descent.
+private const val DESCENT_OVERHANG_EM = 0.0625f  // (320 - 256) / 1024
+
+/**
+ * Pixel-font text — the default everywhere in the Balatro chrome.
+ *
+ * Uses Canvas + TextMeasurer rather than Text() so that the native Skia rasterizer renders m6x11plus
+ * glyphs at their full yMin bounds. Compose's Text clips ink at the font's declared winDescent; the
+ * Canvas path draws into a slightly taller region (DESCENT_OVERHANG_EM × fontSize) to preserve
+ * descenders on p/g/j/q/y ("Ootions" → "Options").
+ */
 @Composable
-fun BTxt(text: String, color: Color = Balatro.White, size: TextUnit = 16.sp, modifier: Modifier = Modifier) =
-    Text(text, color = color, fontFamily = Balatro.font, fontWeight = FontWeight.Normal, fontSize = size, style = pixelStyle, modifier = modifier)
+fun BTxt(text: String, color: Color = Balatro.White, size: TextUnit = 16.sp, modifier: Modifier = Modifier) {
+    val measurer = rememberTextMeasurer()
+    val style = pixelStyle.copy(color = color, fontFamily = Balatro.font, fontWeight = FontWeight.Normal, fontSize = size)
+    val result = measurer.measure(text, style)
+    val density = LocalDensity.current
+    // Canvas height = text's measured height + descender overhang to unclip p/g/j/q/y ink.
+    // size is in sp; convert overhang to dp via density (1 sp = fontScale × 1 dp).
+    val wDp = with(density) { result.size.width.toDp() }
+    val hDp = with(density) { result.size.height.toDp() }
+    val overhangDp = with(density) { (size.value * DESCENT_OVERHANG_EM).sp.toDp() }
+    Canvas(modifier.size(wDp, hDp + overhangDp)) {
+        drawText(result, color)
+    }
+}
 
 /** A rounded value chip (Hands/Discards/Money counters). */
 @Composable
