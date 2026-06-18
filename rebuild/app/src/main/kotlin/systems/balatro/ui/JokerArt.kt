@@ -20,6 +20,7 @@ object JokerArt {
     // (fspinner, jimball, wee_fib, wheelhope) carry no `atlas` field in source (Cryptid default)
     // so they'd need a verified atlas before mapping — left to the name placeholder for now.
     private val MAP: Map<String, Triple<String, Int, Int>> = mapOf(
+        "j_abstract" to Triple("Jokers.png", 3, 3),   // Abstract Joker (game.lua pos x=3,y=3)
         "j_arrowhead" to Triple("Jokers.png", 1, 8),
         "j_cry_annihalation" to Triple("atlasthree.png", 8, 7),
         "j_cry_antennastoheaven" to Triple("atlasone.png", 3, 1),

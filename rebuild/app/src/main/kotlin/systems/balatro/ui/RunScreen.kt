@@ -276,7 +276,8 @@ internal class RunState {
         money = 4
         owned.clear()
         buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)
-        buy(Offer("j_greedy_joker", "Greedy Joker", "+3 Mult per Diamond", 0), free = true)
+        // bref_3's 2nd joker is the Abstract Joker (pixel-identified), not Greedy — Jokers.png cell (3,3).
+        buy(Offer("j_abstract", "Abstract Joker", "+3 Mult / Joker", 0), free = true)
         deck.reshuffle(); deck.draw(8)       // remaining → 44/52
         hand = listOf(PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4))
         selected = emptySet()
@@ -591,7 +592,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { CardArt.back(ctx) }
     }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
-        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key } + "j_abstract") }
     }
     // Stake sprite (White Chip, stake 1 — always-active). chips.png 2x: 58×58px, pos={x=0,y=0}.
     val stakeBmp by produceState<ImageBitmap?>(null) {
