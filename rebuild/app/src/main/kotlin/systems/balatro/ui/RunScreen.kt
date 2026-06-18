@@ -602,23 +602,25 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // Balatro's real paint-swirl felt (background.fs ported to AGSL), full-bleed behind
         // everything — the moving green felt, not a static gradient. Gradient fallback below API 33.
         BalatroFelt(Modifier.matchParentSize())
-        // Scale: dp-per-unit. The real reference (bref_3) was captured WIDTH-constrained — the 22u
-        // room fills the full screen width and the 12.9u height overflows, cropped equally top/bottom
-        // (a tall window cropped to 16:9). So scale to width (u = W/ROOM_W); the room is taller than
-        // the surface and centres vertically, exactly reproducing the capture's framing. u = W/22 ≈
-        // 174.5px on a 3840px-wide surface, matching the reference's measured 175px/unit.
-        val u = maxWidth.value / ROOM_W
+        // Scale + room transform: Balatro's love.resize (main.lua:1223). The room (ROOM_W×ROOM_H)
+        // is fit into the surface by the aspect branch — width-constrained when the surface is squarer
+        // than the room (aspect < 22/12.9), else height-constrained — which is exactly min(W/22, H/12.9).
+        // The 22u-wide room is centred; ROOM.T.x/y are the room interior's screen-top-left origin (in
+        // units), so card areas land at (ROOM.T + cardArea.T) regardless of device aspect (the bref_3
+        // 16:9 capture happens to be width-constrained → ROOM.T.y≈0.44; a squarer Fold letterboxes).
+        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+        val roomTx = (maxWidth.value / u - ROOM_W) / 2f + ROOM_PADDING_W
+        val roomTy = (maxHeight.value / u - ROOM_H) / 2f + ROOM_PADDING_H
         CompositionLocalProvider(LocalUIScale provides u) {
             // ROUND's play field is positioned at ABSOLUTE room coordinates over the full surface
             // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
             // weight box to the right of the HUD. Card areas span the whole room; the HUD sits on top
             // of the left edge exactly as the game layers G.HUD over the room.
-            if (s.phase == Phase.ROUND) RoundPlay(s, cells, jokerCells, cardBase, cardBack)
+            if (s.phase == Phase.ROUND) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
             Box(
-                // requiredHeight (not height): the room is 12.9u tall = taller than the surface at
-                // width-constrained scale, so it must OVERFLOW and centre (cropping equally top/bottom),
-                // matching the reference capture. Plain .height() is coerced to the surface height by
-                // the parent's max constraint, which collapses the crop and shifts content down ~45px.
+                // requiredHeight + centre: the 12.9u room centres in the surface — letterboxed when the
+                // surface is taller than the room, cropped top/bottom when shorter (16:9). Plain .height()
+                // is coerced to the surface height by the parent's max constraint, collapsing the crop.
                 Modifier.fillMaxWidth().requiredHeight((ROOM_H * u).dp).align(Alignment.Center)
             ) {
                 Row(Modifier.fillMaxSize()) {
@@ -629,11 +631,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     // game positions G.HUD ('cli'). No fit-to-height shrink.
                     Box(
                         // Balatro attaches G.HUD with align='cli', offset={x=-0.7} to the play area
-                        // (ROOM_ATTACH, whose left edge sits at ROOM_PADDING_W = 1u): so the HUD's left
-                        // edge lands at room x = 1 - 0.7 = 0.30u (≈52px at this scale — exactly the
-                        // reference's panel-left). RenderUIBoxAbsolute clips the 30u panel's vertical
-                        // overflow itself, so no outer clip needed here.
-                        Modifier.fillMaxHeight().absoluteOffset(x = (0.235f * u).dp),
+                        // (ROOM_ATTACH left = roomTx): HUD left edge = roomTx - 0.765 (the -0.7 attach
+                        // offset, +0.065 for the HUD's emboss/padding, matched to the reference's panel-
+                        // left). Tracks the room horizontally so it's correct under pillarboxing too.
+                        Modifier.fillMaxHeight().absoluteOffset(x = ((roomTx - 0.765f) * u).dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         HudColumn(s, Modifier, stakeBmp)
@@ -1083,7 +1084,7 @@ private fun CardFace(
 }
 
 @Composable
-private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null) {
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null, roomTx: Float = 1f, roomTy: Float = 0.4375f) {
     LaunchedEffect(s.scoring) {
         if (s.scoring && !s.repro) {        // repro mode freezes the scored frame (no cascade/commit)
             for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
@@ -1101,7 +1102,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val cardH = (PF.CARD_H * u).dp
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
-    fun off(xu: Float, yu: Float) = Modifier.absoluteOffset((xu * u).dp, (yu * u).dp)
+    // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
+    // so they land correctly at the device's scale/letterboxing.
+    fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
 
     Box(Modifier.fillMaxSize()) {
         // ── JOKERS (G.jokers): area top-left, cards left-aligned; N/5 slot count above. Idle float/wobble.
@@ -1168,14 +1171,16 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
  */
 private object PF {
     const val CARD_W = 2.04878f; const val CARD_H = 2.75122f
-    const val JOKERS_X = 5.7573f; const val JOKERS_Y = 0.4375f
-    const val CONSUM_X = 15.9963f
-    const val PLAY_X = 6.5744f;  const val PLAY_W = 10.8585f
-    const val PLAY_RESTING_Y = 5.7238f          // empty play area (live); cards lift up while scoring
-    const val PLAY_SCORING_Y = 4.23f            // measured mid-scoring position in bref_3
-    const val HAND_X = 5.8573f;  const val HAND_Y = 9.3238f; const val HAND_W = 12.2927f
+    // ROOM_ATTACH-frame coordinates (set_screen_positions, common_events.lua); the room origin
+    // (ROOM.T) is added at render time, so these are device-aspect independent.
+    const val JOKERS_X = 4.7573f; const val JOKERS_Y = 0f          // jokers.T.x = hand.T.x - 0.1
+    const val CONSUM_X = 14.9963f                                   // jokers.T.x + jokers.T.w + 0.2
+    const val PLAY_X = 5.5744f;  const val PLAY_W = 10.8585f       // play.T.x = hand.T.x + (hand.T.w-play.T.w)/2
+    const val PLAY_RESTING_Y = 5.2863f          // play.T.y = hand.T.y - 3.6 (empty area, live)
+    const val PLAY_SCORING_Y = 3.7925f          // cards lifted while scoring (bref_3 frozen frame)
+    const val HAND_X = 4.8573f;  const val HAND_Y = 8.8863f; const val HAND_W = 12.2927f  // TILE_W-w-2.85 ; TILE_H-h
     const val HAND_SPRING_OFFSET = 1.4f          // SpringHand card-top resting offset below its box top
-    const val DECK_X = 18.2463f; const val DECK_Y = 9.3328f; const val DECK_W = 2.2537f
+    const val DECK_X = 17.2463f; const val DECK_Y = 8.8953f; const val DECK_W = 2.2537f   // TILE_W - w - 0.5
 }
 
 /**

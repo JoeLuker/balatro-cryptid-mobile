@@ -62,6 +62,10 @@ private const val TWO_PI = 6.2831855f   // float-bob period for DynaText idle ju
 // each side (globals.lua/game.lua init_window). The whole game is this rect, fit into the surface.
 const val ROOM_W = 22f      // 20 + 2×1
 const val ROOM_H = 12.9f    // 11.5 + 2×0.7
+const val TILE_W = 20f
+const val TILE_H = 11.5f
+const val ROOM_PADDING_W = 1f
+const val ROOM_PADDING_H = 0.7f
 
 /** dp-per-unit that fits the 22×12.9 room inside [wDp]×[hDp] preserving aspect (contain) — exactly
  *  the scale Balatro's love.resize computes, expressed as a plain min(). Resolution/density-correct
