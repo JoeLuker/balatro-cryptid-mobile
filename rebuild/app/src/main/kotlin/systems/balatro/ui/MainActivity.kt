@@ -63,6 +63,17 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Immersive fullscreen — hide the status bar + nav/taskbar so the game fills the whole
+        // surface (like the real game), instead of being inset by system bars (which offset/compress
+        // the layout vs a fullscreen reference). Sticky so transient swipes don't permanently show them.
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION)
         Telemetry.event("ACTIVITY", "stage" to "onCreate")
         val n = 120
         // Deep-link straight into the in-run HUD: `am start -n …/.ui.MainActivity --ez run true`.

@@ -254,9 +254,39 @@ internal class RunState {
     private var pendingSel: List<PlayingCard> = emptyList()
     private var pendingHeld: List<PlayingCard> = emptyList()
 
+    var repro by mutableStateOf(false)   // PROOF mode: freeze a fixed state (skip the scoring cascade)
+
+    /** Balatro's small-blind base requirement per ante (ante_base in game.lua) — NOT linear 300×ante.
+     *  Big = ×1.5, Boss = ×2 (× boss mult). ante 2 small = 800, matching the reference screenshot. */
+    private fun anteBase(a: Int): Double = when (a) {
+        1 -> 300.0; 2 -> 800.0; 3 -> 2000.0; 4 -> 5000.0
+        5 -> 11000.0; 6 -> 20000.0; 7 -> 35000.0; else -> 50000.0
+    }
+
     val target: Double get() {
-        val base = 300.0 * ante
+        val base = anteBase(ante)
         return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
+    }
+
+    /** PROOF harness: inject the EXACT state of the reference screenshot (Balatro press kit, Small Blind
+     *  ante 2) so a render can be diffed pixel-for-pixel against it. Two Pair 40×2 frozen mid-score. */
+    fun loadRepro() {
+        repro = true
+        blindIndex = 3                       // ante 2, slot 0 = Small Blind → target 800
+        money = 4
+        owned.clear()
+        buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)
+        buy(Offer("j_greedy_joker", "Greedy Joker", "+3 Mult per Diamond", 0), free = true)
+        deck.reshuffle(); deck.draw(8)       // remaining → 44/52
+        hand = listOf(PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4))
+        selected = emptySet()
+        handsLeft = 3; discardsLeft = 4; roundScore = 0.0
+        lastResult = ScoreResult(HandType.TWO_PAIR, 40.0, 2.0, 80.0)
+        lastSteps = emptyList()
+        scoreCards = listOf(PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
+        displayChips = 40.0; displayMult = 2.0; popIndex = -1
+        scoring = true
+        phase = Phase.ROUND
     }
 
     /** The boss at THIS ante's Boss slot — for the blind-select preview. `boss` is only assigned
@@ -268,7 +298,7 @@ internal class RunState {
     /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
     fun targetForSlot(slotIdx: Int): Double {
-        val base = 300.0 * ante
+        val base = anteBase(ante)
         return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * upcomingBoss.targetMult }
     }
 
@@ -306,7 +336,7 @@ internal class RunState {
     val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else "0"
 
     /** Mirrors current_hand.chip_total_text — cumulative round score shown in the top-row readout. */
-    val chipTotalText: String get() = if (scoring || lastResult != null) fmtR(roundScore) else ""
+    val chipTotalText: String get() = if ((scoring || lastResult != null) && roundScore > 0.0) fmtR(roundScore) else ""
 
     /** Mirrors current_hand.mult_text — the mult DynaText (blank when idle). */
     val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else "0"
@@ -544,6 +574,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
             "eval" -> s.toEvalForPreview()
             "over" -> s.phase = Phase.OVER
+            "repro" -> s.loadRepro()      // PROOF: freeze the exact reference-screenshot state for pixel-diff
         }
     }
 
@@ -1042,7 +1073,7 @@ private fun CardFace(
 @Composable
 private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null) {
     LaunchedEffect(s.scoring) {
-        if (s.scoring) {
+        if (s.scoring && !s.repro) {        // repro mode freezes the scored frame (no cascade/commit)
             for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
             delay(450L)
             s.scoreCommit()
