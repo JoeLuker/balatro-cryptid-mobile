@@ -8,15 +8,20 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.sin
@@ -270,7 +275,21 @@ private fun RenderDynaText(dt: DynaText) {
         dt.segs.forEachIndexed { i, s ->
             val text = s.value()                    // live read -> recomposes on RunState change
             val size = (s.scale * u * FONT_RATIO).sp
-            Box(Modifier.graphicsLayer { translationY = amp * sin(phase + i * 0.7f) }) {  // perpetual float
+            // bump: when the value changes (chips tick up, money earned), the number pops and settles
+            // with a springy overshoot — Balatro's juice_up on update. Initial value doesn't bump.
+            val bump = remember { Animatable(1f) }
+            var prev by remember { mutableStateOf(text) }
+            LaunchedEffect(text) {
+                if (text != prev) {
+                    prev = text
+                    bump.snapTo(1.22f)
+                    bump.animateTo(1f, spring(dampingRatio = 0.36f, stiffness = 520f))
+                }
+            }
+            Box(Modifier.graphicsLayer {
+                translationY = amp * sin(phase + i * 0.7f)      // perpetual float
+                scaleX = bump.value; scaleY = bump.value         // pop on change
+            }) {
                 if (dt.shadow) {
                     Box {
                         BTxt(text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
