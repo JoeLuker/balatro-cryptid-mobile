@@ -277,8 +277,9 @@ internal class RunState {
         money = 4
         owned.clear()
         buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)
-        // bref_3's 2nd joker is the Abstract Joker (pixel-identified), not Greedy — Jokers.png cell (3,3).
-        buy(Offer("j_abstract", "Abstract Joker", "+3 Mult / Joker", 0), free = true)
+        // bref_3's 2nd joker is the Clever Joker (the Two Pair chip joker — the hand here is Two Pair),
+        // identified by the jester+fanned-cards art at Jokers.png cell (2,14) (game.lua j_clever pos x=2,y=14).
+        buy(Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 0), free = true)
         deck.reshuffle(); deck.draw(8)       // remaining → 44/52
         hand = listOf(PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4))
         selected = emptySet()
@@ -593,7 +594,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { CardArt.back(ctx) }
     }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
-        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key } + "j_abstract") }
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key } + "j_clever") }
     }
     // Stake sprite (White Chip, stake 1 — always-active). chips.png 2x: 58×58px, pos={x=0,y=0}.
     val stakeBmp by produceState<ImageBitmap?>(null) {
@@ -1128,31 +1129,41 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
 
     Box(Modifier.fillMaxSize()) {
-        // ── JOKERS (G.jokers): area top-left, cards left-aligned; N/5 slot count above. Idle float/wobble.
-        Box(off(PF.JOKERS_X, PF.JOKERS_Y - 0.34f)) {
-            Column(horizontalAlignment = Alignment.Start) {
-                BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    s.owned.forEachIndexed { i, o ->
-                        BalatroFloat(seed = i * 0.7f, modifier = Modifier.padding(horizontal = (0.04f * u).dp)) {
-                            jokerCells[o.offer.key]?.let {
-                                Box {
-                                    // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
-                                    Image(it, null, Modifier.size(cardW, cardH)
-                                        .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
-                                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
-                                        colorFilter = ColorFilter.tint(Color.Black))
-                                    Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                                }
-                            } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
-                        }
+        // ── JOKERS (G.jokers): cards distributed across the area by align_cards (cardarea.lua:565
+        // joker branch). The 2-card, non-consumeables case spreads each card at
+        // x = area.x + (area.w - card_w)·((k-0.5)/n); a subtle fan rotation r = 0.1·(-n/2-0.5+k)/n
+        // tilts the first card CCW and the last CW. Cards sit (joker_H-card_h)/2 above the area top.
+        // The N/5 slot count sits BELOW the area corner, not above — matching the real game.
+        val nj = s.owned.size
+        s.owned.forEachIndexed { i, o ->
+            val k = i + 1
+            val dx = when {
+                nj > 2 -> (PF.JOKER_W - PF.CARD_W) * ((k - 1f) / (nj - 1f))
+                nj > 1 -> (PF.JOKER_W - PF.CARD_W) * ((k - 0.5f) / nj)
+                else   -> PF.JOKER_W / 2f - PF.CARD_W / 2f
+            }
+            val rDeg = 0.1f * (-nj / 2f - 0.5f + k) / nj * 57.29578f
+            Box(off(PF.JOKERS_X + dx, PF.JOKERS_Y + PF.JOKER_DY)) {
+                BalatroFloat(seed = i * 0.7f) {
+                    Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
+                        jokerCells[o.offer.key]?.let {
+                            // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
+                            Image(it, null, Modifier.size(cardW, cardH)
+                                .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
+                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
+                                colorFilter = ColorFilter.tint(Color.Black))
+                            Image(it, o.offer.name, Modifier.size(cardW, cardH),
+                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
                     }
                 }
             }
         }
-        // ── CONSUMABLES (G.consumeables): same row as jokers, to their right. Empty (auto-applied) → just N/2.
-        Box(off(PF.CONSUM_X, PF.JOKERS_Y - 0.34f)) {
+        // Slot counts at the BOTTOM-left of each card area (jokers N/5, consumables 0/2).
+        Box(off(PF.JOKERS_X, PF.JOKERS_Y + PF.CARD_H + 0.05f)) {
+            BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
+        }
+        Box(off(PF.CONSUM_X, PF.JOKERS_Y + PF.CARD_H + 0.05f)) {
             BTxt("0/2", Balatro.White, countSp)
         }
         // ── PLAYED (G.play): the played hand. bref_3 freezes mid-scoring with the cards risen to ~4.23u
@@ -1202,6 +1213,9 @@ private object PF {
     // ROOM_ATTACH-frame coordinates (set_screen_positions, common_events.lua); the room origin
     // (ROOM.T) is added at render time, so these are device-aspect independent.
     const val JOKERS_X = 4.7573f; const val JOKERS_Y = 0f          // jokers.T.x = hand.T.x - 0.1
+    const val JOKER_W = 4.9f * CARD_W                               // CAI.joker_W = 4.9·G.CARD_W (area width)
+    const val JOKER_H = 0.95f * CARD_H                              // CAI.joker_H = 0.95·G.CARD_H
+    const val JOKER_DY = (JOKER_H - CARD_H) / 2f                    // card sits centred in the shorter area (≈ -0.069u)
     const val CONSUM_X = 14.9963f                                   // jokers.T.x + jokers.T.w + 0.2
     const val PLAY_X = 5.5744f;  const val PLAY_W = 10.8585f       // play.T.x = hand.T.x + (hand.T.w-play.T.w)/2
     const val PLAY_RESTING_Y = 5.2863f          // play.T.y = hand.T.y - 3.6 (empty area, live)

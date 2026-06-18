@@ -22,6 +22,7 @@ object JokerArt {
     private val MAP: Map<String, Triple<String, Int, Int>> = mapOf(
         "j_abstract" to Triple("Jokers.png", 3, 3),   // Abstract Joker (game.lua pos x=3,y=3)
         "j_arrowhead" to Triple("Jokers.png", 1, 8),
+        "j_clever" to Triple("Jokers.png", 2, 14),     // Clever Joker — Two Pair chips (game.lua pos x=2,y=14)
         "j_cry_annihalation" to Triple("atlasthree.png", 8, 7),
         "j_cry_antennastoheaven" to Triple("atlasone.png", 3, 1),
         "j_cry_big_cube" to Triple("atlasone.png", 4, 4),
