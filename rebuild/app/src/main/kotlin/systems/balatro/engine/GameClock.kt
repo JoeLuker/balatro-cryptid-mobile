@@ -41,6 +41,7 @@ class GameClock {
     var expScale = 1.0
     var expR = 1.0
     var moveDt = 0.0
+    var maxVel = 0.0    // G.exp_times.max_vel = 70*move_dt (move_xy velocity clamp)
 
     /**
      * One simulation step. Mirrors the ordered timer/speed block of `Game:update`.
@@ -93,6 +94,7 @@ class GameClock {
         expScale = exp(-60.0 * realDt)
         expR = exp(-190.0 * realDt)
         moveDt = min(1.0 / 20.0, realDt)
+        maxVel = 70.0 * moveDt
     }
 
     /** Resolve a named timer the way Lua's `G.TIMERS[name]` does (Event.timer is "REAL" or "TOTAL"). */

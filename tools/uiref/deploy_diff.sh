@@ -4,7 +4,7 @@
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:$PATH"
 TAG="${1:-r}"
-RB=/home/jluker/balatro-cryptid-mobile/.claude/worktrees/dp-head/rebuild
+RB=/home/jluker/balatro-cryptid-mobile/rebuild
 EMU=emulator-5560
 REF=/tmp/bref_3.png
 OUT=/tmp/${TAG}.png

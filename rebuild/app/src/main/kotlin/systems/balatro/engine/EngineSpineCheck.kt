@@ -81,6 +81,60 @@ fun main() {
         check("blocked event waited for the blocker", bFired > aFired, "a=$aFired b=$bFired")
     }
 
+    // 5. Moveable (Major): VT springs to T, converges exactly, rotation lean settles back to T.r.
+    run {
+        val scene = SceneRegistry(); val c = GameClock()
+        val mv = Moveable(scene, Transform(w = 1.0, h = 1.0))
+        mv.T.x = 10.0; mv.T.y = 6.0
+        repeat(180) { c.advance(DT); scene.moveables.forEach { it.move(c) } }   // 3s
+        check("Major VT converged to T", abs(mv.VT.x - 10.0) < 0.05 && abs(mv.VT.y - 6.0) < 0.05, "vt=(${mv.VT.x},${mv.VT.y})")
+        check("Major settled (velocity ~0)", abs(mv.velocity.x) < 0.01 && abs(mv.velocity.y) < 0.01)
+        check("Major rotation settled to T.r", abs(mv.VT.r) < 0.001, "vr=${mv.VT.r}")
+    }
+
+    // 5b. move_r lean: while travelling in +x, VT leans (VT.r ≠ 0) before settling — the iconic tilt.
+    run {
+        val scene = SceneRegistry(); val c = GameClock()
+        val mv = Moveable(scene, Transform(w = 1.0, h = 1.0)); mv.T.x = 10.0
+        var leaned = false
+        repeat(25) { c.advance(DT); scene.moveables.forEach { it.move(c) }; if (abs(mv.VT.r) > 1e-4) leaned = true }
+        check("Major leans into horizontal motion", leaned)
+    }
+
+    // 6. Minor aligned 'cm' (center+middle) welds centered on its Major (AlignmentSystem + RoleHierarchy).
+    run {
+        val scene = SceneRegistry(); val c = GameClock()
+        val major = Moveable(scene, Transform(x = 0.0, y = 0.0, w = 10.0, h = 10.0))
+        val minor = Moveable(scene, Transform(w = 2.0, h = 2.0))
+        minor.setAlignment(major = major, type = "cm", bond = "Strong")
+        repeat(120) { c.advance(DT); scene.moveables.forEach { it.move(c) } }
+        check("Minor T centered on Major (cm)", abs(minor.T.x - 4.0) < 1e-9 && abs(minor.T.y - 4.0) < 1e-9, "T=(${minor.T.x},${minor.T.y})")
+        check("Minor VT tracks centered T", abs(minor.VT.x - 4.0) < 0.05 && abs(minor.VT.y - 4.0) < 0.05, "VT=(${minor.VT.x},${minor.VT.y})")
+    }
+
+    // 7. juice_up pops VT.scale below 1, then recovers to T.scale once the 0.4s window passes.
+    run {
+        val scene = SceneRegistry(); val c = GameClock()
+        val mv = Moveable(scene, Transform(w = 1.0, h = 1.0))
+        c.advance(DT)
+        mv.juiceUp(amount = 0.4, now = c.real)
+        val dipped = mv.VT.scale < 0.9
+        repeat(45) { c.advance(DT); scene.moveables.forEach { it.move(c) } }
+        check("juice dipped scale below 1", dipped, "scale0=${1.0 - 0.6 * 0.4}")
+        check("juice recovered to ~1", abs(mv.VT.scale - 1.0) < 0.02 && mv.juice == null, "scale=${mv.VT.scale}")
+    }
+
+    // 8. SceneRegistry deferred removal: a removed Moveable drops out only after flush.
+    run {
+        val scene = SceneRegistry()
+        val a = Moveable(scene, Transform()); val b = Moveable(scene, Transform())
+        val before = scene.moveables.size
+        a.remove()
+        check("removal is deferred until flush", scene.moveables.size == before, "size=${scene.moveables.size}")
+        scene.flushRemovals()
+        check("flush compacts removed", scene.moveables.size == before - 1 && scene.moveables.contains(b), "size=${scene.moveables.size}")
+    }
+
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
 }
