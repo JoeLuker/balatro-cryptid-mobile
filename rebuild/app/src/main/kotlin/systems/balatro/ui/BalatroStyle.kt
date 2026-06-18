@@ -11,6 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -62,10 +65,17 @@ object Balatro {
     val font = FontFamily(Font(R.font.m6x11plus))
 }
 
+// m6x11plus is a pixel font; Compose's default font padding + leading trim soften it. Drop the
+// padding and trim line spacing to first/last baseline so the glyphs sit tight and crisp.
+private val pixelStyle = TextStyle(
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+)
+
 /** Pixel-font text — the default everywhere in the Balatro chrome. */
 @Composable
 fun BTxt(text: String, color: Color = Balatro.White, size: TextUnit = 16.sp, modifier: Modifier = Modifier) =
-    Text(text, color = color, fontFamily = Balatro.font, fontWeight = FontWeight.Normal, fontSize = size, modifier = modifier)
+    Text(text, color = color, fontFamily = Balatro.font, fontWeight = FontWeight.Normal, fontSize = size, style = pixelStyle, modifier = modifier)
 
 /** A rounded value chip (Hands/Discards/Money counters). */
 @Composable

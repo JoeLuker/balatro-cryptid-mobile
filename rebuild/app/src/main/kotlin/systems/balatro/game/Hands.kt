@@ -1,16 +1,5 @@
 package systems.balatro.game
 
-import systems.balatro.engine.Component
-
-/**
- * A pre-evaluation rank remap (Balatro patches Card:get_id()). Stored as a component on
- * the joker that imposes it, so hand detection composes the active remaps as DATA — the
- * extension surface for "this joker changes what hand the cards form", distinct from the
- * tally Effects that fire mid-cascade. Maps an effective rank to an effective rank, so
- * remaps chain. Chip values are NOT affected (they come from the card's nominal, not id).
- */
-class RankMod(val map: (Int) -> Int) : Component
-
 /**
  * Poker hand types with their level-1 base (chips, mult) and per-level increments
  * (lChips, lMult) — all from Balatro's G.GAME.hands table. A planet card raises a hand's
@@ -30,6 +19,12 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     FIVE_OF_A_KIND(120, 12, 35, 3),
     FLUSH_HOUSE(140, 14, 40, 4),
     FLUSH_FIVE(160, 16, 50, 3),
+    // --- Cryptid-exclusive hand types (not returned by Hands.evaluate; stubs for joker dispatch) ---
+    CRY_BULWARK(0, 1),       // cry_Bulwark: whole-deck-suit hand (c_cry_asteroidbelt)
+    CRY_CLUSTERFUCK(0, 1),   // cry_Clusterfuck: specific multi-combo (cry_poker_hand_stuff)
+    CRY_ULTPAIR(0, 1),       // cry_UltPair: paired hand across many ranks (c_cry_marsmoons)
+    CRY_NONE(0, 1),          // cry_None: the "no valid hand" type (c_cry_nibiru)
+    CRY_WHOLEDECK(0, 1),     // cry_WholeDeck: all 52 cards scored at once (c_cry_universe)
 }
 
 /**
@@ -44,12 +39,15 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
  * collide (via PlayingCard.isSuit). rankOf composes active RankMods (Card:get_id patches).
  */
 object Hands {
+    /** (best hand, the cards forming it, AND the set of every hand type the cards satisfy). That set
+     *  is Balatro's `context.poker_hands` — jokers like the Cryptid "type" family fire when their
+     *  hand is merely PRESENT (e.g. High Card is always present), not only when it's the played hand. */
     fun evaluate(
         cards: List<PlayingCard>,
         rankOf: (PlayingCard) -> Int = { it.id },
         fourFingers: Boolean = false, shortcut: Boolean = false, smeared: Boolean = false,
-    ): Pair<HandType, List<PlayingCard>> {
-        if (cards.isEmpty()) return HandType.NONE to emptyList()
+    ): Triple<HandType, List<PlayingCard>, Set<HandType>> {
+        if (cards.isEmpty()) return Triple(HandType.NONE, emptyList(), emptySet())
 
         val _5 = getXSame(5, cards, rankOf)
         val _4 = getXSame(4, cards, rankOf)
@@ -85,7 +83,7 @@ object Hands {
         if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
 
         val best = top ?: HandType.HIGH_CARD
-        return best to (results[best] ?: emptyList())
+        return Triple(best, results[best] ?: emptyList(), results.keys.toSet())
     }
 
     /** get_X_same: groups of EXACTLY num cards sharing an id, ordered high-id first (source:592). */

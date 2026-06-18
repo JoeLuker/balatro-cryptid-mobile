@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
@@ -36,11 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
-import systems.balatro.content.Content
 import systems.balatro.content.Edition
-import systems.balatro.content.Editions
-import systems.balatro.engine.Entity
-import systems.balatro.engine.World
 import systems.balatro.game.*
 
 /**
@@ -49,9 +47,17 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, OVER }
+internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER }
+
+/** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
+ *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
+internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST }
+internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
-internal data class Owned(val entity: Entity, val offer: Offer, val fj: FJoker)
+internal data class Owned(val offer: Offer, val fj: FJoker)
+
+/** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
+private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
 internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
@@ -65,6 +71,20 @@ private val CATALOG = listOf(
     Offer("j_even_steven", "Even Steven", "+4 Mult / even card", 4),
     Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
     Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
+    // --- vanilla, individual (already faithful in calcJoker) ---
+    Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5),
+    Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5),
+    Offer("j_fibonacci", "Fibonacci", "+8 Mult / A,2,3,5,8", 8),
+    Offer("j_scary_face", "Scary Face", "+30 Chips / face card", 4),
+    Offer("j_smiley", "Smiley Face", "+5 Mult / face card", 4),
+    Offer("j_triboulet", "Triboulet", "x2 Mult / King or Queen", 8),
+    Offer("j_walkie_talkie", "Walkie Talkie", "10 or 4: +10 Chips & +4 Mult", 4),
+    Offer("j_photograph", "Photograph", "x2 Mult on first face card", 5),
+    // --- vanilla, joker_main flat ---
+    Offer("j_half", "Half Joker", "+20 Mult if <= 3 cards", 5),
+    Offer("j_stuntman", "Stuntman", "+250 Chips", 7),
+    Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6),
+    Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
@@ -76,6 +96,80 @@ private val CATALOG = listOf(
     Offer("j_cry_oldblueprint", "Old Blueprint", "copy joker to right", 7),
     Offer("j_cry_maximized", "Maximized", "face cards unify rank", 6),
     Offer("j_cry_primus", "Primus", "Emult if all-prime hand", 9),
+    // --- Cryptid "type" jokers (fire when the played cards contain that hand) ---
+    Offer("j_cry_giggly", "Giggly Joker", "+4 Mult if High Card", 1),
+    Offer("j_cry_silly", "Silly Joker", "+16 Mult if Full House", 4),
+    Offer("j_cry_nutty", "Nutty Joker", "+19 Mult if Four of a Kind", 4),
+    Offer("j_cry_manic", "Manic Joker", "+22 Mult if Straight Flush", 5),
+    Offer("j_cry_delirious", "Delirious Joker", "+22 Mult if Five of a Kind", 5),
+    Offer("j_cry_wacky", "Wacky Joker", "+30 Mult if Flush House", 6),
+    Offer("j_cry_kooky", "Kooky Joker", "+30 Mult if Flush Five", 6),
+    Offer("j_cry_dubious", "Dubious", "+20 Chips if High Card", 1),
+    Offer("j_cry_shrewd", "Shrewd", "+150 Chips if Four of a Kind", 4),
+    Offer("j_cry_tricksy", "Tricksy", "+170 Chips if Straight Flush", 5),
+    Offer("j_cry_foxy", "Foxy", "+130 Chips if Full House", 4),
+    Offer("j_cry_savvy", "Savvy", "+170 Chips if Five of a Kind", 5),
+    Offer("j_cry_subtle", "Subtle", "+240 Chips if Flush House", 6),
+    Offer("j_cry_discreet", "Discreet", "+240 Chips if Flush Five", 6),
+    Offer("j_cry_nuts", "Nuts", "x5 Mult if Straight Flush", 8),
+    Offer("j_cry_quintet", "Quintet", "x5 Mult if Five of a Kind", 8),
+    Offer("j_cry_unity", "Unity", "x9 Mult if Flush House", 8),
+    Offer("j_cry_swarm", "Swarm", "x9 Mult if Flush Five", 8),
+    Offer("j_cry_nice", "Nice", "+420 Chips if hand has a 6 and a 9", 4),
+    Offer("j_cry_nosound", "No Sound?", "retrigger scored 7s x3", 5),
+    Offer("j_cry_exposed", "Exposed", "retrigger scored non-faces x2", 5),
+    Offer("j_cry_mask", "Mask", "retrigger scored faces x3", 5),
+    Offer("j_cry_wee_fib", "Wee Fibonacci", "+3 Mult per scored A/2/3/5/8 (scaling)", 6),
+    Offer("j_cry_meteor", "Meteor", "+75 Chips per Foil joker", 5),
+    Offer("j_cry_exoplanet", "Exoplanet", "+15 Mult per Holo joker", 5),
+    Offer("j_cry_stardust", "Stardust", "x2 Mult per Poly joker", 7),
+    Offer("j_cry_duos", "Duos", "x2.5 Mult if Two Pair or Full House", 7),
+    Offer("j_cry_home", "Home", "x3.5 Mult if Full House", 7),
+    Offer("j_cry_filler", "Filler", "x1.00000000000003 Mult", 1),
+    Offer("j_cry_zooble", "Zooble", "+1 Mult per distinct scored rank (scaling)", 6),
+    Offer("j_cry_cursor", "Cursor", "+8 Chips per card bought (scaling)", 5),
+    Offer("j_cry_eternalflame", "Eternal Flame", "+0.1 X Mult per card sold (scaling)", 6),
+    Offer("j_cry_whip", "The WHIP", "+0.5 X Mult if hand has a 2 and 7 of diff suits (scaling)", 7),
+    Offer("j_cry_big_cube", "Big Cube", "x6 Chips", 6),
+    Offer("j_cry_antennastoheaven", "Antennas to Heaven", "+0.1 X Chips per scored 4/7 (scaling)", 7),
+    Offer("j_cry_night", "Night", "mult^3 (Emult) on the final hand", 8),
+    // --- batch-16: accumulator Xmult + Emult jokers ---
+    Offer("j_cry_verisimile", "Verisimile", "Xmult scales per pseudorandom_result hit", 7),
+    Offer("j_cry_duplicare", "Duplicare", "Xmult scales +1 per post_trigger / card played", 7),
+    Offer("j_cry_formidiulosus", "Formidiulosus", "Emult = 1 + 0.01*candy joker count (scaling)", 8),
+    Offer("j_cry_happyhouse", "Happy House", "Emult^4 after 114+ hands played", 8),
+    // --- exotic jokers (iterum + exponentia + batch-15) ---
+    Offer("j_cry_iterum", "Iterum", "x2 Mult per scored card; +1 retrigger per card", 9),
+    Offer("j_cry_exponentia", "Exponentia", "Emult scales +0.03 per xmult event; applies mult^Emult", 9),
+    Offer("j_cry_kittyprinter", "Kittyprinter", "x2 Mult every hand", 7),
+    Offer("j_cry_clicked_cookie", "Clicked Cookie", "+Chips (starts 200, -1 per click)", 6),
+    Offer("j_cry_monkey_dagger", "Monkey Dagger", "+10*sell_cost Chips when left joker sold", 7),
+    Offer("j_cry_unjust_dagger", "Unjust Dagger", "+0.2*sell_cost Xmult when left joker sold", 8),
+    Offer("j_cry_jimball", "Jimball", "Xmult scales +0.15 when this hand type is least-played", 7),
+    Offer("j_cry_pizza_slice", "Pizza Slice", "Xmult scales +0.5 per other pizza slice sold", 6),
+    Offer("j_cry_wheelhope", "Wheelhope", "Xmult scales +0.5 per Wheel of Fortune trigger", 7),
+    Offer("j_cry_fspinner", "Fspinner", "+6 Chips each hand another type played as much (scaling)", 6),
+    Offer("j_cry_pirate_dagger", "Pirate Dagger", "+0.25*sell_cost Xchips when right joker sold", 7),
+    // --- Cryptid custom hand-type jokers (dispatch wired; dormant until CRY_* hand evaluation ported) ---
+    Offer("j_cry_stronghold", "Stronghold", "x5 Mult if cry_Bulwark", 8),
+    Offer("j_cry_wtf", "WTF", "x10 Mult if cry_Clusterfuck", 8),
+    Offer("j_cry_clash", "Clash", "x12 Mult if cry_UltPair", 8),
+    Offer("j_cry_the", "The", "x2 Mult if cry_None", 7),
+    Offer("j_cry_annihalation", "Annihalation", "Emult^5.2 if cry_WholeDeck", 9),
+    Offer("j_cry_words_cant_even", "Words Can't Even", "x52000000 Mult if cry_WholeDeck", 9),
+    Offer("j_cry_bonkers", "Bonkers Joker", "+20 Mult if cry_Bulwark", 6),
+    Offer("j_cry_fuckedup", "Fucked-Up Joker", "+37 Mult if cry_Clusterfuck", 7),
+    Offer("j_cry_foolhardy", "Foolhardy Joker", "+42 Mult if cry_UltPair", 7),
+    Offer("j_cry_undefined", "Undefined Joker", "+5 Mult if cry_None", 5),
+    Offer("j_cry_adroit", "Adroit Joker", "+170 Chips if cry_Bulwark", 6),
+    Offer("j_cry_penetrating", "Penetrating Joker", "+270 Chips if cry_Clusterfuck", 7),
+    Offer("j_cry_treacherous", "Treacherous Joker", "+300 Chips if cry_UltPair", 7),
+    Offer("j_cry_nebulous", "Nebulous Joker", "+30 Chips if cry_None", 5),
+    Offer("j_cry_many_lost_minds", "Many Lost Minds", "+52! Chips if cry_WholeDeck", 9),
+    Offer("j_cry_jtron", "J-Tron", "mult^(1 + Jokers on board)", 9),
+    // --- vanilla hands/discards-remaining jokers (now wired) ---
+    Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
+    Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -110,20 +204,27 @@ private val TAROTS = listOf(
 /** 2 tarots per ante; each enhances a random deck card. */
 private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
 
-/** Compose-observable run state; mutations drive recomposition. The engine is persistent. */
+/** Compose-observable run state; mutations drive recomposition. Scoring is the faithful Score engine. */
 internal class RunState {
-    val world = World()
-    val effects = Effects()
-
     var money by mutableStateOf(4)
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
     var phase by mutableStateOf(Phase.ROUND)
+    val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
+
+    // ── cash-out (ROUND_EVAL) state — the reward breakdown shown after a blind is beaten ──
+    var evalRows by mutableStateOf<List<EvalRow>>(emptyList()); private set
+    var cashOutTotal by mutableStateOf(0); private set
 
     /** Mirrors G.GAME.hands[h].played — cumulative times each hand type was played in the run. */
     private val _handPlayed = mutableStateMapOf<HandType, Int>()
     fun handPlayed(h: HandType): Int = _handPlayed[h] ?: 0
     private fun recordHandPlayed(h: HandType) { _handPlayed[h] = handPlayed(h) + 1 }
+
+    // ── game-over (Phase.OVER) stats — round_scores_row equivalents the run actually tracks ──
+    val handsPlayedTotal: Int get() = _handPlayed.values.sum()
+    val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
+    val timesRerolled: Int get() = rerolls
 
     val ante: Int get() = blindIndex / 3 + 1
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
@@ -181,9 +282,10 @@ internal class RunState {
      *  scale=0.001 in source; blind_chip_UI_scale springs to 0.5 on round start (implemented in HudColumn). */
     val chipText: String get() = fmtR(target)
 
-    /** Mirrors G.GAME.current_round.dollars_to_be_earned — reward payout shown on the blind panel.
-     *  Balatro formula: 4 + hands_left (+ gold cards, deferred). Matches scoreCommit's reward calc. */
-    val dollarsToBeEarned: Int get() = 4 + handsLeft
+    /** The blind's $ reward shown on the HUD blind panel — config.dollars (Small=3/Big=4/Boss=5),
+     *  matching the coins Balatro draws on the blind token. (The per-hand/interest bonuses appear at
+     *  cash-out, not here.) */
+    val dollarsToBeEarned: Int get() = rewardForSlot(slot)
 
     // ── contents.hand bindings — mirror current_round.current_hand ──────────────
     // These feed the DynaText Os in hudHand(). Compose recomposes when the mutableStateOf
@@ -196,13 +298,13 @@ internal class RunState {
     /** Mirrors current_hand.chip_text — live cascade counter for the chips box (blank when idle). */
     /** contents.dollars_chips round-score readout (G.GAME.chips_text); always shown ("0" at start). */
     val chipsText: String get() = fmtR(roundScore)
-    val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else ""
+    val chipText2: String get() = if (scoring || lastResult != null) fmtR(displayChips) else "0"
 
     /** Mirrors current_hand.chip_total_text — cumulative round score shown in the top-row readout. */
     val chipTotalText: String get() = if (scoring || lastResult != null) fmtR(roundScore) else ""
 
     /** Mirrors current_hand.mult_text — the mult DynaText (blank when idle). */
-    val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else ""
+    val multText: String get() = if (scoring || lastResult != null) fmtR(displayMult) else "0"
 
     /** Mirrors current_hand.hand_level — the Lv badge T node. */
     val currentHandLevel: Int get() = lastResult?.let { handLevel(it.handType) } ?: 0
@@ -245,9 +347,11 @@ internal class RunState {
         val maxi = fjokers.any { it.key == "j_cry_maximized" }
         val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
         val handType = Hands.evaluate(sel, rankOf).first
-        val level = Levels.get(world)?.level(handType) ?: 1
+        val level = handLevels.level(handType)
         val trace = ArrayList<ScoreStep>()
-        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, trace)
+        // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
+        // count AFTER this hand (Balatro decrements before scoring), discards_left is the current count.
+        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         scoreCards = sel; popIndex = -1
@@ -274,27 +378,50 @@ internal class RunState {
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
         if (roundScore >= target) {
-            val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
-            val reward = 4 + handsLeft + gold * 3
-            money += reward
-            Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to reward)
-            // END_OF_ROUND: fire joker self-destruct handlers (e.g. Broken Home). Remove destroyed
-            // entities from the owned list; they are already unregistered from effects by dispatchEndOfRound.
-            val destroyed = effects.dispatchEndOfRound(world)
-            if (destroyed.isNotEmpty()) {
-                owned.removeAll { it.entity in destroyed }
-                Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
-            }
-            blindIndex += 1
-            shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
-            // Pre-seed boss so blind-select and shop screens show correct name/desc.
-            // startRound() re-derives the same deterministic value.
-            boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
-            phase = Phase.SHOP
+            buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
+            Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
+            phase = Phase.ROUND_EVAL
         } else if (handsLeft <= 0) {
             phase = Phase.OVER
             Telemetry.event("ROUND_LOSE", "blind" to blindName, "total" to roundScore)
         }
+    }
+
+    /** Build the cash-out rows the way evaluate_round (state_events.lua:1147) does — in order:
+     *  blind reward (config.dollars 3/4/5), then bonus rows for remaining hands ($1 each), gold-
+     *  enhancement cards held ($3 each, their end-of-round calculate_dollar_bonus), and interest
+     *  ($1 per $5 held, capped at $5 — interest_amount=1, interest_cap=25). Interest reads `money`
+     *  as it stands now (the bankroll BEFORE this cash-out is paid), matching G.GAME.dollars. */
+    private fun buildCashOut() {
+        val rows = ArrayList<EvalRow>()
+        rows += EvalRow(EvalKind.BLIND, rewardForSlot(slot), blindName)
+        if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft, "\$1 per remaining hand", handsLeft.toString())
+        val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
+        if (gold > 0) rows += EvalRow(EvalKind.GOLD, gold * 3, "Gold cards held", gold.toString())
+        val interest = minOf(money / 5, 5)
+        if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$5)")
+        evalRows = rows
+        cashOutTotal = rows.sumOf { it.dollars }
+    }
+
+    /** Cash Out (button='cash_out'): ease_dollars(current_round.dollars) banks the total, then the
+     *  blind→shop transition runs (END_OF_ROUND self-destructs, advance blind, roll the next shop). */
+    fun cashOut() {
+        if (phase != Phase.ROUND_EVAL) return
+        money += cashOutTotal
+        // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
+        val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
+        if (destroyed.isNotEmpty()) {
+            owned.removeAll(destroyed)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
+        }
+        blindIndex += 1
+        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        // Pre-seed boss so blind-select and shop screens show correct name/desc.
+        // startRound() re-derives the same deterministic value.
+        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        phase = Phase.SHOP
+        Telemetry.event("CASH_OUT", "total" to cashOutTotal, "money" to money)
     }
 
     fun discard() {
@@ -307,28 +434,32 @@ internal class RunState {
     fun buy(offer: Offer, free: Boolean = false) {
         if (!free && money < offer.cost) return
         if (!free) money -= offer.cost
-        val e = Editions.spawn(world, effects, offer.key, offer.edition)   // composition entity: END_OF_ROUND only
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
+        onCardBought()                               // context.buying_card: scale cursors before the new card lands
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
         val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
-        owned.add(Owned(e, offer, fj))
+        owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
     }
 
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
-        effects.unregister(o.entity); world.destroy(o.entity)        // remove live, no residue
         owned.remove(o)
+        owned.forEach { if (it.fj.key == "j_cry_eternalflame") it.fj.x += 0.1 }   // context.selling_card: +0.1 X per sell
         val refund = maxOf(1, o.offer.cost / 2)
         money += refund
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
     }
 
+    /** context.buying_card — every Cryptid Cursor on the board gains +8 Chips when any card is bought. */
+    private fun onCardBought() { owned.forEach { if (it.fj.key == "j_cry_cursor") it.fj.chips += 8.0 } }
+
     fun buyPlanet(po: PlanetOffer) {
         if (money < po.cost) return
         money -= po.cost
-        Levels.ensure(world).levelUp(po.planet.hand)        // raises the hand's base for the whole run
+        onCardBought()
+        handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
         Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
@@ -336,13 +467,14 @@ internal class RunState {
     fun buyTarot(t: TarotOffer) {
         if (money < t.cost) return
         money -= t.cost
+        onCardBought()
         val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
         if (card != null) enhancedCount += 1
         shopTarots = shopTarots.filterNot { it === t }
         Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
     }
 
-    fun handLevel(h: HandType): Int = Levels.get(world)?.level(h) ?: 1
+    fun handLevel(h: HandType): Int = handLevels.level(h)
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
 
@@ -351,6 +483,9 @@ internal class RunState {
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         phase = Phase.SHOP
     }
+
+    /** Build a sample cash-out and jump to it — for the --es screen eval parity-screenshot deep-link only. */
+    fun toEvalForPreview() { buildCashOut(); phase = Phase.ROUND_EVAL }
 
     /** Reroll the shop stock (button='reroll_shop'). Balatro charges a flat reroll cost ($5 base). */
     var rerollCost by mutableStateOf(5)
@@ -402,6 +537,8 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
             "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
+            "eval" -> s.toEvalForPreview()
+            "over" -> s.phase = Phase.OVER
         }
     }
 
@@ -413,6 +550,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     val cardBase by produceState<ImageBitmap?>(null) {
         value = withContext(Dispatchers.Default) { CardArt.base(ctx) }
     }
+    // Red Deck card back for the deck stack (bottom-right).
+    val cardBack by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { CardArt.back(ctx) }
+    }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
         value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
@@ -421,40 +562,62 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { StakeArt.whiteChip(ctx) }
     }
 
-    Box(Modifier.fillMaxSize().background(Balatro.Felt)) {                       // the green felt table
-        Row(Modifier.fillMaxSize().padding(10.dp)) {
-            // Balatro's left sidebar: rendered at natural unit-size, then scaled to fit the screen
-            // height by FitToHeight (like Balatro scaling the HUD to the device). Width = the HUD's
-            // widest row (contents.hand ≈ 4.7u); the scaled result is ~the same on every screen.
-            FitToHeight(Modifier.width((4.7f * U).dp).fillMaxHeight()) {
-                HudColumn(s, Modifier.fillMaxWidth(), onClose, stakeBmp)
-            }
-            Spacer(Modifier.width(10.dp))
-            Box(Modifier.weight(1f).fillMaxHeight()) {                          // the play area
-                when (s.phase) {
-                    Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase)
-                    Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
-                    Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
-                    Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
-                    Phase.OVER -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Panel {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                BTxt("Game Over", Balatro.Mult, 24.sp)
-                                BTxt("lost ${s.blindName} · Ante ${s.ante}", Balatro.White, 13.sp)
-                                Spacer(Modifier.height(10.dp))
-                                BButton("New Run", Balatro.Orange) { onRestart() }
-                            }
+    BoxWithConstraints(                                                          // the green felt table — full surface
+        Modifier.fillMaxSize().background(
+            // lit-centre → darker-edge vignette, like Balatro's felt depth (no texture asset needed)
+            // measured to Balatro's felt (dominant ~#2D5A45): lit centre, gentle vignette (not black)
+            Brush.radialGradient(listOf(Color(0xFF42926E), Color(0xFF356650), Color(0xFF2E5A46)))
+        )
+    ) {
+        // Balatro fits its virtual room (22×12.9u) into the live window every resize; we derive the
+        // dp-per-unit from THIS surface (density-correct, any display/stream) and centre a room-sized
+        // box, felt filling the letterbox — same result as the game's love.resize, done in Compose.
+        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+        CompositionLocalProvider(LocalUIScale provides u) {
+            Box(
+                Modifier.size((ROOM_W * u).dp, (ROOM_H * u).dp).align(Alignment.Center)
+            ) {
+                Row(Modifier.fillMaxSize()) {
+                    // Balatro's left sidebar: the REAL create_UIBox_HUD tree at the room scale. Its
+                    // dark panel is minh=30u — deliberately taller than the room — so it bleeds off
+                    // top & bottom (the full-height sidebar look) with content vertically centred
+                    // (align "cm"). Pinned centre-left, vertical overflow clipped — exactly how the
+                    // game positions G.HUD ('cli'). No fit-to-height shrink.
+                    Box(
+                        // full room height, clips the 30u panel's vertical overflow; width wraps to
+                        // the HUD's natural width so nothing is cut horizontally (the injected blind
+                        // panel can make it a touch wider than the source's empty-row_blind 5.25u).
+                        Modifier.fillMaxHeight().clipToBounds(),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Box(Modifier.wrapContentHeight(Alignment.CenterVertically, unbounded = true)) {
+                            HudColumn(s, Modifier, stakeBmp)
+                        }
+                    }
+                    Box(Modifier.weight(1f).fillMaxHeight()) {                  // the play area
+                        when (s.phase) {
+                            Phase.ROUND -> RoundPlay(s, cells, jokerCells, cardBase, cardBack)
+                            Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
+                            Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
+                            Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
+                            Phase.ROUND_EVAL -> RoundEvalScreen(s)
+                            Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
                         }
                     }
                 }
             }
+        }
+        // Minimal close affordance (NOT part of Balatro's HUD) — a small corner overlay so the
+        // sidebar itself stays a faithful create_UIBox_HUD with no injected dev chrome.
+        Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+            BButton("✕", Balatro.Mult) { onClose() }
         }
     }
 }
 
 /** Balatro's left sidebar: blind token + score target, round score, Hands/Discards, money, Ante/Round. */
 @Composable
-private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stakeBmp: ImageBitmap? = null) {
+private fun HudColumn(s: RunState, modifier: Modifier, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
     // Load blind sprite for the current ante's boss (Small row=0, Big row=1, Boss->row from atlas).
     // Re-runs when s.boss changes (next ante always changes the boss). Null while loading -> B spacer.
@@ -479,22 +642,15 @@ private fun HudColumn(s: RunState, modifier: Modifier, onClose: () -> Unit, stak
         label = "chipTargetScale"
     )
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            BButton("✕", Balatro.Mult) { onClose() }
-            Spacer(Modifier.weight(1f))
-            BTxt("Ante ${s.ante}/8", Balatro.White, 12.sp)
+    // The HUD body is Balatro's ACTUAL create_UIBox_HUD tree, loaded from hud_tree.json
+    // (tools/uiref/extract.sh) — NO hand-transcription. Descriptors bind to live RunState via
+    // HudBind; the blind token UIBox is injected into the (source-empty) row_blind node.
+    val root = remember { HudSpec.root(ctx) }
+    if (root != null) {
+        val bind = HudBind(s, stakeBmp).apply {
+            blindContent = hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale)
         }
-        // The HUD body is Balatro's ACTUAL create_UIBox_HUD tree, loaded from hud_tree.json
-        // (tools/uiref/extract.sh) — NO hand-transcription. Descriptors bind to live RunState via
-        // HudBind; the blind token UIBox is injected into the (source-empty) row_blind node.
-        val root = remember { HudSpec.root(ctx) }
-        if (root != null) {
-            val bind = HudBind(s, stakeBmp).apply {
-                blindContent = hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale)
-            }
-            RenderUI(HudSpec.build(root, bind))
-        }
+        Box(modifier) { RenderUI(HudSpec.build(root, bind)) }
     }
 }
 
@@ -652,6 +808,12 @@ private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)?
 private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?, chipTargetScale: Float = 0.001f): UI {
     val panel = Balatro.Panel   // G.C.BLACK = G.C.DYN_UI.MAIN = G.C.DYN_UI.DARK = #374244
     val light = Balatro.White   // G.C.UI.TEXT_LIGHT
+    // The blind-name header is tinted by the blind colour (measured from real Balatro: small=#005A9C).
+    val nameBg = when {
+        s.boss != null -> Color(0xFF8C3A3A)                 // boss blind (reddish)
+        s.blindName.startsWith("Big") -> Color(0xFFCB7A2A)  // big blind (amber)
+        else -> Color(0xFF005A9C)                           // small blind (measured blue)
+    }
 
     // G.UIT.O blind sprite (1.5u x 1.5u after change_dim). When bitmap not yet loaded, a B spacer
     // of the same size preserves the layout so nothing shifts when art arrives.
@@ -666,54 +828,41 @@ private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?
     else
         B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips))
 
+    // Boss debuff lines exist only for boss blinds. On Small/Big blinds the source has empty strings
+    // here, but empty T("") nodes still render a line of text-height each — that was the gap under the
+    // blind name. So omit the debuff block entirely unless there's a boss description to show.
+    val bossDesc = s.boss?.desc
+    val debuffBlock: UI? = if (!bossDesc.isNullOrBlank())
+        R(Cfg(align = "cm", padding = 0.05f),
+            R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
+                T(Cfg(scale = 0.36f, textColour = light), bossDesc)))
+    else null
+
+    // blind sprite + chip-target card (Score at least / target / reward)
+    val spriteScore: UI = R(Cfg(align = "cm", padding = 0.15f),
+        blindO,
+        C(Cfg(align = "cm", r = 0.1f, padding = 0.05f, emboss = 0.05f, minw = 2.9f, colour = panel),
+            R(Cfg(align = "cm", maxw = 2.8f),
+                T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
+            // stake sprite + 0.1u spacer + chip target (chipTargetScale springs in on ROUND start)
+            R(Cfg(align = "cm", minh = 0.6f),
+                stakeO,
+                B(Cfg(minw = 0.1f, minh = 0.1f)),
+                T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)),
+            // reward row — "Reward: " has NO shadow per source; DynaText has shadow=true
+            R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
+                T(Cfg(scale = 0.3f, textColour = light), "Reward: "),
+                O(Cfg(), DynaT(seg({ "\$${s.dollarsToBeEarned}" }, Balatro.Money, scale = 0.45f), shadow = true)))))
+
+    // body sizes to its content (no fixed minh) → no empty band under the name on non-boss blinds.
+    val body: UI = Ro(Cfg(align = "cm", r = 0.1f, colour = panel), listOfNotNull(debuffBlock, spriteScore))
+
     return R(Cfg(align = "cm", minw = 4.5f, r = 0.1f, colour = panel, emboss = 0.05f, padding = 0.05f),
         // ── name strip (G.C.DYN_UI.MAIN = panel) ──────────────────────────────
-        R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, colour = panel, emboss = 0.05f),
+        R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, colour = nameBg, emboss = 0.05f),
             C(Cfg(align = "cm", minw = 3f),
-                // DynaText: blind.loc_name — scale=1.6*0.4=0.64, shadow=true; animate flags deferred
-                O(Cfg(),
-                    DynaT(seg({ s.blindName }, light, scale = 0.64f), shadow = true))
-            )
-        ),
-        // ── body panel (G.C.DYN_UI.DARK = panel) ──────────────────────────────
-        R(Cfg(align = "cm", minh = 2.74f, r = 0.1f, colour = panel),
-            // debuff rows — loc_debuff_lines[1] = boss description; [2] = second line (unused in vanilla)
-            // HUD_blind_debuff_prefix T is always "" until the func system is wired
-            R(Cfg(align = "cm", padding = 0.05f),
-                R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                    T(Cfg(scale = 0.36f, textColour = light), ""),              // HUD_blind_debuff_prefix
-                    T(Cfg(scale = 0.36f, textColour = light), s.boss?.desc ?: "") // loc_debuff_lines[1]
-                ),
-                R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                    T(Cfg(scale = 0.36f, textColour = light), "")               // loc_debuff_lines[2]
-                )
-            ),
-            // blind sprite + chip-target card
-            R(Cfg(align = "cm", padding = 0.15f),
-                blindO,
-                C(Cfg(align = "cm", r = 0.1f, padding = 0.05f, emboss = 0.05f, minw = 2.9f, colour = panel),
-                    // "Score at least" — localize('ph_blind_score_at_least'), shadow=true per source
-                    R(Cfg(align = "cm", maxw = 2.8f),
-                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")
-                    ),
-                    // stake sprite + 0.1u spacer + chip target (chipTargetScale springs in on ROUND start)
-                    R(Cfg(align = "cm", minh = 0.6f),
-                        stakeO,
-                        B(Cfg(minw = 0.1f, minh = 0.1f)),
-                        // chip_text T: springs from 0.001 → 0.5 when round starts (blind_chip_UI_scale).
-                        // chipTargetScale driven by animateFloatAsState in HudColumn.
-                        T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)
-                    ),
-                    // reward row — func=HUD_blind_reward (always show until wired)
-                    // "Reward: " has NO shadow per source; DynaText has shadow=true
-                    R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
-                        T(Cfg(scale = 0.3f, textColour = light), "Reward: "),
-                        O(Cfg(),
-                            DynaT(seg({ "\$${s.dollarsToBeEarned}" }, Balatro.Money, scale = 0.45f), shadow = true))
-                    )
-                )
-            )
-        )
+                O(Cfg(), DynaT(seg({ s.blindName }, light, scale = 0.64f), shadow = true)))),
+        body
     )
 }
 
@@ -887,7 +1036,7 @@ private fun CardFace(
 }
 
 @Composable
-private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null) {
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null) {
     LaunchedEffect(s.scoring) {
         if (s.scoring) {
             for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
@@ -895,15 +1044,26 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             s.scoreCommit()
         }
     }
-    Column(Modifier.fillMaxSize()) {
-        // jokers across the top — CENTERED, like Balatro's G.jokers CardArea (a flat centered row,
-        // not an arc). Cards at G.CARD_W aspect (142x190), nearest-neighbour so the art stays crisp.
-        Row(Modifier.fillMaxWidth().height(84.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+    // Everything in the play area is sized in Balatro units × the live scale, so it scales with the
+    // room exactly like the HUD: card = G.CARD_W/H = 2.4×{35,47}/41 units, labels at the HUD's scale.
+    val u = LocalUIScale.current
+    val cardW = (2.0488f * u).dp
+    val cardH = (2.7512f * u).dp
+    val countSp = (0.5f * u * FONT_RATIO).sp
+    val badgeSp = (0.33f * u * FONT_RATIO).sp
+    Box(Modifier.fillMaxSize()) {
+      Column(Modifier.fillMaxSize()) {
+        // Jokers + consumables at the VERY top of the play field (G.jokers/G.consumeables CardAreas,
+        // both T.y=0), left-aligned where the HUD sidebar ends and consumables immediately to the
+        // right of the jokers — exactly set_screen_positions (common_events.lua). Balatro shows NO
+        // count labels in the run HUD and empty slots are invisible, so this is just the held cards.
+        // (The rebuild auto-applies consumables, so none are ever held → the consumable area is empty.)
+        Row(Modifier.fillMaxWidth().padding(top = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
             s.owned.forEach { o ->
                 jokerCells[o.offer.key]?.let {
-                    Image(it, o.offer.name, Modifier.padding(horizontal = 3.dp).size(56.dp, 76.dp),
+                    Image(it, o.offer.name, Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH),
                         contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                } ?: Box(Modifier.padding(horizontal = 3.dp).size(56.dp, 76.dp).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                } ?: Box(Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
             }
         }
 
@@ -911,24 +1071,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // (contents.hand) lives in the LEFT HUD sidebar per create_UIBox_HUD, NOT here.
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (!s.scoring && s.lastResult == null) {
-                    Spacer(Modifier.height(4.dp))
-                    BTxt("select up to 5 cards, then Play", Balatro.White, 13.sp)
-                }
+                // (no idle prompt — Balatro shows an empty play area until cards are played)
                 if (s.scoring) {
                     Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        s.scoreCards.forEachIndexed { i, card ->
-                            val active = i == s.popIndex
-                            val popped = i <= s.popIndex
-                            val sc by animateFloatAsState(if (active) 1.3f else if (popped) 1.05f else 0.9f,
-                                spring(Spring.DampingRatioMediumBouncy, 520f), label = "pop$i")
-                            val lf by animateFloatAsState(if (active) -20f else 0f, spring(Spring.DampingRatioMediumBouncy, 520f), label = "pl$i")
-                            Box(Modifier.padding(horizontal = 2.dp).graphicsLayer { scaleX = sc; scaleY = sc; translationY = lf }) {
-                                CardFace(card, cells[card], cardBase, Modifier.size(44.dp, 60.dp))
-                            }
-                        }
-                    }
+                    ScoredCardsRow(s, cells, cardBase)
                 }
             }
         }
@@ -938,11 +1084,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Box(Modifier.weight(1f)) {
-                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = 56.dp, onToggle = { s.toggle(it) }) { card ->
+                    SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
                         CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, 8.sp,
+                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
                                 Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, 8.sp,
+                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
                                 Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
                         }
                     }
@@ -952,8 +1098,144 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             // Balatro's create_UIBox_buttons: play (left), sort cluster (centre), discard (right).
             // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
             RenderUI(buttonsRow(s, cells))
-            BTxt("deck ${s.deckRemaining}", Balatro.White, 10.sp, Modifier.align(Alignment.CenterHorizontally).padding(top = 2.dp))
         }
+      }
+      // Deck card-back + N/52 count, bottom-right (Balatro's deck stack — card-sized).
+      Column(Modifier.align(Alignment.BottomEnd).padding(end = (0.3f * u).dp, bottom = (0.3f * u).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+          cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
+          BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
+      }
+    }
+}
+
+/**
+ * The played cards popping during the scoring cascade — each springs with Balatro's juice_up
+ * (Spring.kt's damped sine: scale = amt·sin(50.8·t)·decay³, the iconic card.lua juice_up(0.3)),
+ * fired when the cascade's popIndex reaches that card. Replaces the old sustained scale tween,
+ * which never bounced. A single frame clock ticks every card's spring.
+ */
+@Composable
+private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, cardBase: ImageBitmap?) {
+    val springs = remember(s.scoreCards) { s.scoreCards.map { BalatroSpring() } }
+    var frame by remember(s.scoreCards) { mutableStateOf(0L) }
+    var nowSec by remember(s.scoreCards) { mutableStateOf(0f) }
+    LaunchedEffect(s.scoreCards) {
+        var last = 0L
+        while (true) {
+            withFrameNanos { t ->
+                val dt = if (last == 0L) 0.016f else ((t - last) / 1e9f).coerceIn(0.0001f, 0.05f)
+                last = t; nowSec = t / 1e9f
+                springs.forEach { it.move(dt, nowSec) }
+                frame = t
+            }
+        }
+    }
+    // Pop the scored card when the cascade reaches it (popIndex 0..n-1; step 0 is the hand base).
+    LaunchedEffect(s.popIndex) {
+        s.popIndex.takeIf { it in springs.indices }?.let { springs[it].juiceUp(amount = 0.4f, now = nowSec) }
+    }
+    val u = LocalUIScale.current
+    val cardW = (2.0488f * u).dp
+    val cardH = (2.7512f * u).dp
+    frame.let {}    // read frame -> recompose each tick so graphicsLayer re-reads the spring values
+    Row(verticalAlignment = Alignment.Bottom) {
+        s.scoreCards.forEachIndexed { i, card ->
+            val sp = springs[i]
+            Box(
+                Modifier.padding(horizontal = (0.04f * u).dp).graphicsLayer {
+                    scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
+                }
+            ) { CardFace(card, cells[card], cardBase, Modifier.size(cardW, cardH)) }
+        }
+    }
+}
+
+/**
+ * Port of create_UIBox_round_evaluation (UI_definitions.lua:1808): the cash-out panel shown
+ * after a blind is beaten, before the shop. A dark panel lists the reward rows built by
+ * evaluate_round (state_events.lua:1147) — blind reward, $/remaining-hand, gold cards, interest —
+ * with an ORANGE "Cash Out: $N" button (button='cash_out', b_cash_out + current_round.dollars).
+ * Each row shows a description on the left and the gold $ payout on the right.
+ */
+@Composable
+private fun RoundEvalScreen(s: RunState) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Panel(Modifier.width(300.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Cash Out button — G.C.ORANGE (#FDA200), label "Cash Out: $TOTAL".
+                BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
+                Spacer(Modifier.height(2.dp))
+                s.evalRows.forEach { EvalRowView(it) }
+            }
+        }
+    }
+}
+
+/** One add_round_eval_row: left = [coloured count] description, right = gold $ payout pips. */
+@Composable
+private fun EvalRowView(row: EvalRow) {
+    val accent = when (row.kind) {
+        EvalKind.BLIND -> Balatro.Money; EvalKind.HANDS -> Balatro.Chips
+        EvalKind.GOLD -> Balatro.Gold; EvalKind.INTEREST -> Balatro.Money
+    }
+    Row(
+        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (row.leadNum != null) { BTxt(row.leadNum, accent, 16.sp); Spacer(Modifier.width(4.dp)) }
+            BTxt(row.label, Balatro.White, 11.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        // Balatro renders num_dollars gold "$" pips; collapse to "$N" past 7 to stay on one line.
+        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Balatro.Panel).padding(horizontal = 8.dp, vertical = 2.dp)) {
+            BTxt(if (row.dollars <= 7) "\$".repeat(row.dollars) else "\$${row.dollars}", Balatro.Money, 16.sp)
+        }
+    }
+}
+
+/**
+ * Port of create_UIBox_game_over (UI_definitions.lua): "Game Over" title, a dark stats panel
+ * (create_UIBox_round_scores_row), and the Start New Run (RED, notify_then_setup_run) / Main Menu
+ * (RED, go_to_menu) buttons. Only stats the run actually tracks are shown — cards
+ * played/discarded/purchased and seed aren't tracked yet, so they're omitted rather than faked.
+ */
+@Composable
+private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Panel(Modifier.width(320.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BTxt("Game Over", Balatro.Mult, 26.sp)
+                BTxt("Defeated by ${s.blindName}", Balatro.White, 12.sp)
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    s.mostPlayedHand?.let { (h, n) -> StatRow("Most played hand", "${handName(h)} ($n)", Balatro.Orange) }
+                    StatRow("Hands played", s.handsPlayedTotal.toString(), Balatro.Chips)
+                    StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
+                    StatRow("Furthest Ante", s.ante.toString(), Balatro.Orange)        // round_scores_row 'furthest_ante'
+                    StatRow("Furthest Round", (s.blindIndex + 1).toString(), Balatro.Orange)  // 'furthest_round'
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BButton("New Run", Balatro.Mult) { onRestart() }
+                    BButton("Main Menu", Balatro.Mult) { onMainMenu() }
+                }
+            }
+        }
+    }
+}
+
+/** One create_UIBox_round_scores_row: label on the left, coloured value on the right. */
+@Composable
+private fun StatRow(label: String, value: String, accent: Color) {
+    Row(
+        Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BTxt(label, Balatro.White, 11.sp)
+        Spacer(Modifier.width(8.dp))
+        BTxt(value, accent, 13.sp)
     }
 }
 

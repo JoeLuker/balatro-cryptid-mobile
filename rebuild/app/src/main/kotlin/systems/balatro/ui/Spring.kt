@@ -127,7 +127,7 @@ fun SpringHand(
     val cardWpx = with(density) { cardWidth.toPx() }
     val unit = cardWpx / 1.8f                       // a card is ~1.8 Balatro units wide
     val cardHpx = cardWpx * 190f / 142f
-    BoxWithConstraints(Modifier.fillMaxWidth().height(with(density) { (cardHpx * 1.7f).toDp() })) {
+    BoxWithConstraints(Modifier.fillMaxWidth().height(with(density) { (cardHpx * 1.5f).toDp() })) {
         val n = hand.size
         if (n == 0) return@BoxWithConstraints
         val centerXpx = with(density) { maxWidth.toPx() } / 2f

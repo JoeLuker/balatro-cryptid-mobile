@@ -1,0 +1,749 @@
+[
+ {
+  "key": "j_cry_foodm",
+  "name": "cry-foodm",
+  "fires": "joker_main",
+  "kotlin": "if (j.mult > 0.0) return Fx().apply { multMod = j.mult }",
+  "accumulator": "mult / j.mult starts at 40 (config.extra.mult); decrements each round (end_of_round), self-destructs when rounds_remaining hits 0; replenished by selling jolly jokers (selling_card context)",
+  "confidence": "high",
+  "notes": "+j.mult Mult; perishable M-pool joker; same mult-accumulator-read pattern as j_green_joker; default mult=40; Oracle: Pair of aces + foodm @mult=40 \u2192 1344"
+ },
+ {
+  "key": "j_cry_mstack",
+  "name": "cry-mstack",
+  "fires": "repetition",
+  "kotlin": "if (ctx.cardarea == \"play\") return Fx().apply { repetitions = j.n }",
+  "accumulator": "n / j.n = card.ability.extra.retriggers (default 1, integer); gains +1 per 3 jolly jokers sold (selling_card context); immutable max 40",
+  "confidence": "high",
+  "notes": "+j.n retriggers per scored played card; M-pool joker; j.n=1 by default; same repetition pattern as j_cry_iterum but variable count; Oracle: Pair of aces + mstack @n=1 \u2192 108"
+ },
+ {
+  "key": "j_cry_biggestm",
+  "name": "cry-biggestm",
+  "fires": "joker_main",
+  "kotlin": "if (j.n > 0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "n / j.n is a boolean flag (0=inactive, 1=active); set to 1 in the 'before' pass when scoring_name matches config.extra.type (Pair); reset to 0 at end_of_round. x / j.x = card.ability.extra.x_mult (default 7)",
+  "confidence": "high",
+  "notes": "X(j.x=7) Mult when the joker was activated this hand (Pair scored); j.n gate models the runtime check flag; same n-guard pattern as j_cry_happyhouse; Oracle: Pair of aces + biggestm @x=7,n=1 \u2192 448"
+ },
+ {
+  "key": "j_cry_longboi",
+  "name": "cry-longboi",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x / j.x = card.ability.extra.monster; initialized from G.GAME.monstermult at equip time (starts 1); scales +bonus(0.75) per end_of_round via G.GAME.monstermult; same > 1.0 guard as j_cry_m",
+  "confidence": "high",
+  "notes": "X(G.GAME.monstermult) Mult; M-pool joker; monster value read from runtime global at equip but stored in j.x; identical branch shape to j_cry_m (xMultMod = j.x when x > 1.0); Oracle: Pair of aces + longboi @x=2.0 \u2192 128"
+ },
+ {
+  "key": "j_cry_number_blocks",
+  "name": "cry-Number Blocks",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "money; +money_mod per held card matching the round's target rank (individual/held context); paid out via calc_dollar_bonus at end of round",
+  "confidence": "high",
+  "notes": "Economy joker: SMODS.scale_card increments card.ability.extra.money in context.individual/cardarea==G.hand for the target rank card; calc_dollar_bonus returns that money. No chips/mult/xmult produced during evaluate_play."
+ },
+ {
+  "key": "j_cry_Double Scale",
+  "name": "cry-Double Scale",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Has no calculate function at all. Uses calc_scaling hook to intercept SMODS.scale_card calls on other jokers and double (or accelerate) their scalar increment. Purely a scaling-rate modifier, emits no chips/mult/xmult during evaluate_play."
+ },
+ {
+  "key": "j_cry_oldcandy",
+  "name": "cry-Nostalgic Candy",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Sell-triggered: context.selling_self calls G.hand:change_size(+3). No scoring output whatsoever; effect is a permanent hand-size increase on sale."
+ },
+ {
+  "key": "j_cry_circus",
+  "name": "cry-circus",
+  "fires": "other_joker",
+  "kotlin": "if (oj !== j) {\n    val xm = when (oj.rarity) {\n        \"3\" -> 2.0\n        \"cry_epic\" -> 3.0\n        \"4\" -> 4.0\n        \"cry_exotic\" -> 20.0\n        else -> 1.0\n    }\n    if (xm > 1.0) return Fx().apply { xMultMod = xm }\n}",
+  "accumulator": "",
+  "confidence": "medium",
+  "notes": "For each other joker being evaluated, returns X2/X3/X4/X20 XMult based on that joker's rarity (rare/cry_epic/legendary/cry_exotic). Base values from circus_rarities: rare=2, cry_epic=3, legendary=4, cry_exotic=20. The per-rarity xmult values are stored in card.ability.extra (scalable at runtime), so live values may differ from base; medium confidence because FJoker has no per-rarity field, engine uses base config.extra values."
+ },
+ {
+  "key": "j_cry_caramel",
+  "name": "cry-caramel",
+  "fires": "individual",
+  "kotlin": "return Fx().apply { xMult = 1.75 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Gives X1.75 Mult to every scored played card (context.individual, cardarea==G.play). Self-destructs after 11 rounds via end_of_round countdown \u2014 that lifecycle is non-scoring. Base x_mult from config.extra = 1.75 (modest variant uses 1.5)."
+ },
+ {
+  "key": "j_cry_curse_sob",
+  "name": "cry-Sob",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Creates Negative Absolute Eternal Obelisk jokers on add_to_deck and in numerous non-scoring contexts (selling, discarding, rerolling, buying, skipping, using consumables, etc.). Returns card_eval_status_text only. No chips/mult/xmult produced during evaluate_play."
+ },
+ {
+  "key": "j_cry_bonusjoker",
+  "name": "cry-Bonus Joker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "When a played Bonus-enhancement card is scored (individual/cardarea==G.play), 1-in-8 chance to increase joker or consumable slot limit by 1, up to 2 times per round. No chips/mult/xmult returned; effect is deck-meta slot expansion only."
+ },
+ {
+  "key": "j_cry_multjoker",
+  "name": "cry-Mult Joker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "When a played Mult-enhancement card is scored (individual/cardarea==G.play), 1-in-3 chance to create a Cryptid spectral consumable (if room). Returns nil,true or nothing; no chips/mult/xmult produced during evaluate_play."
+ },
+ {
+  "key": "j_cry_goldjoker",
+  "name": "cry-gold Joker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "n; +percent_mod (=2) per scored Gold-enhancement card (individual/cardarea==G.play via SMODS.scale_card on card.ability.extra.percent); paid out as percentage-of-gold dollars via calc_dollar_bonus at end of round",
+  "confidence": "high",
+  "notes": "Economy joker: SMODS.scale_card increments card.ability.extra.percent by 2 each time a played Gold card is scored. calc_dollar_bonus pays out floor(0.01 * percent * current_dollars). No chips/mult/xmult produced during evaluate_play."
+ },
+ {
+  "key": "j_cry_altgoogol",
+  "name": "cry-altgoogol",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Only fires on context.selling_self; duplicates the leftmost joker card. No chips/mult/xmult emitted during evaluate_play."
+ },
+ {
+  "key": "j_cry_soccer",
+  "name": "cry-soccer (One For All)",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "No calculate() at all; effect is entirely in add_to_deck/remove_from_deck (grants +1 joker slot, consumable slot, hand size, booster slot, voucher slot). No scoring output."
+ },
+ {
+  "key": "j_cry_fleshpanopticon",
+  "name": "cry-fleshpanopticon (Flesh Panopticon)",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on context.setting_blind (multiplies boss blind chip requirement by 20) and context.end_of_round (self-destructs, creates a Negative Gateway consumable). Neither context is part of evaluate_play scoring."
+ },
+ {
+  "key": "j_cry_spectrogram",
+  "name": "cry-Spectrogram",
+  "fires": "other_joker",
+  "kotlin": "// No direct engine mapping: Spectrogram uses context.retrigger_joker_check\n// (count Echo-enhanced cards in scoring_hand during before, then retrigger rightmost joker that many times).\n// Engine has no retrigger_joker_check dispatch guard; cannot emit Fx here.",
+  "accumulator": "",
+  "confidence": "medium",
+  "notes": "Counts Echo-enhancement cards in scoring hand during context.before, then on context.retrigger_joker_check returns repetitions=echonum for the rightmost joker. Engine dispatch lacks a retrigger_joker_check analog; the other_joker guard is the closest but cannot represent joker-retrigger repetitions via Fx."
+ },
+ {
+  "key": "j_cry_jtron",
+  "name": "cry-jtron",
+  "fires": "joker_main",
+  "kotlin": "\"j_cry_jtron\" -> {\n    val jokerCount = /* SMODS.find_card(\"j_joker\") count \u2014 dynamic run state */ 0\n    val current = 1.0 + j.n.toDouble() * jokerCount  // j.n holds bonus (config extra.bonus=1)\n    if (current > 1.0) return Fx().apply { eMult = current }\n}",
+  "accumulator": "",
+  "confidence": "low",
+  "notes": "Returns Emult_mod = 1 + bonus * (number of j_joker copies in play); config.extra.bonus=1. The count of j_joker is dynamic run-state not available in FJoker fields, so kotlin is best-effort. At base with 0 j_jokers present, eMult=1 (no-op); with N copies eMult=1+N."
+ },
+ {
+  "key": "j_cry_clockwork",
+  "name": "cry-clockwork",
+  "fires": "joker_main",
+  "kotlin": "\"j_cry_clockwork\" -> {\n    // xmult starts at config.extra.xmult=1.0, incremented by +0.25 every 3rd hand played (in before context)\n    if (j.x > 1.0) return Fx().apply { xMultMod = j.x }\n}",
+  "accumulator": "x; +0.25 (xmult_mod) every 3rd hand played (tracked via immutable counter c2 in context.before)",
+  "confidence": "medium",
+  "notes": "Has four effects: (1) joker_main xmult (scales up +0.25 every 3rd hand, config.extra.xmult starts at 1.0); (2) held/individual steel card xmult (steelenhc starts at 1.0, +0.1 every 7th hand); (3) repetition retrigger for held steel cards every 2nd hand; (4) before: set first full-hand card to steel every 5th hand. Only joker_main xmult branch is represented here; steelenhc held-card xmult and repetition branches also score but require separate dispatch entries not shown."
+ },
+ {
+  "key": "j_cry_demicolon",
+  "name": "cry-demicolon",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on context.joker_main but calls Cryptid.forcetrigger on the next joker to the right (index i+1), propagating that joker's own scoring output. Does not directly emit chips/mult/xmult/eMult itself; it is a joker-trigger relay, not a direct scoring source. Disabled in modest and mainline gamesets."
+ },
+ {
+  "key": "j_cry_starfruit",
+  "name": "cry-starfruit",
+  "fires": "joker_main",
+  "kotlin": "\"j_cry_starfruit\" -> return Fx().apply { eMult = j.x }",
+  "accumulator": "x; -0.2 (emult_mod) on each shop reroll (context.reroll_shop); self-destructs when emult reaches <=1. Starts at config.emult=2.0.",
+  "confidence": "high",
+  "notes": "Returns Emult_mod = card.ability.emult (starts at 2.0, decrements by 0.2 on each shop reroll via SMODS.scale_card; self-destructs at <=1). Engine reads j.x for the accumulated emult value. reroll_shop is non-scoring; joker_main is the scoring branch."
+ },
+ {
+  "key": "j_cry_sundial",
+  "name": "cry-sundail (Sundial)",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on context.before (decrements handleft counter via SMODS.scale_card) and context.selling_self (if handleft<1, sets G.GAME.sundial=true permanently and banishes itself). No chips/mult/xmult emitted during evaluate_play; effect is a sell-to-activate passive modifier."
+ },
+ {
+  "key": "j_cry_kittyprinter",
+  "name": "cry-kittyprinter",
+  "fires": "joker_main",
+  "kotlin": "return Fx().apply { xMultMod = 2.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Flat X2 Xmult every hand. config.extra.Xmult=2. Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_clicked_cookie",
+  "name": "cry-Clicked Cookie",
+  "fires": "joker_main",
+  "kotlin": "return Fx().apply { chipMod = j.chips }",
+  "accumulator": "chips; starts at 200, decremented by chip_mod(1) on each cry_press click event (non-scoring UI context)",
+  "confidence": "high",
+  "notes": "Flat +chips in joker_main equal to j.chips (starts 200, decreases 1 per click). Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_monkey_dagger",
+  "name": "cry-Monkey Dagger",
+  "fires": "joker_main",
+  "kotlin": "if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }",
+  "accumulator": "chips; +10 * sell_cost of joker immediately to the left (which is destroyed) at setting_blind",
+  "confidence": "high",
+  "notes": "Scaling +Chips dagger. On setting_blind destroys left joker and adds +10*sell_cost to j.chips. No-op until first kill (starts at 0). Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_unjust_dagger",
+  "name": "cry-Unjust Dagger",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; +0.2 * sell_cost of joker immediately to the left (which is destroyed) at setting_blind",
+  "confidence": "high",
+  "notes": "Scaling Xmult dagger. On setting_blind destroys left joker and adds +0.2*sell_cost to x_mult (j.x). No-op until first kill (starts at 1). Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_jimball",
+  "name": "cry-Jimball",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; multiplied by x_mult_mod(0.15) each context.before when this hand type has been played fewer times than every other hand type (resets to 1.0 if any other type ties/exceeds); starts at 1",
+  "confidence": "high",
+  "notes": "Scaling Xmult read at joker_main; accumulator scales up in context.before when this hand type is least-played, resets otherwise. Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_pizza_slice",
+  "name": "cry-pizza_slice",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; +0.5 per other pizza_slice sold (context.selling_card with key==j_cry_pizza_slice); starts at 1",
+  "confidence": "medium",
+  "notes": "Fires Xmult_mod=j.x in joker_main; x_mult starts at 1 and grows +0.5 each time another pizza_slice is sold. Typically spawned by j_cry_pizza. Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_wheelhope",
+  "name": "cry-Wheelhope",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; +0.5 per Wheel of Fortune pseudorandom_result trigger (context.pseudorandom_result with identifier==\"wheel_of_fortune\"); starts at 1",
+  "confidence": "medium",
+  "notes": "Scaling Xmult read at joker_main; x_mult grows +0.5 each time Wheel of Fortune fires. Accumulation is non-scoring (probability hook). Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_fspinner",
+  "name": "cry-fspinner",
+  "fires": "joker_main",
+  "kotlin": "if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }",
+  "accumulator": "chips; +6 per context.before trigger when another hand type has been played at least as many times as the current hand type (SMODS.scale_card, scalar_value=chip_mod=6); starts at 0",
+  "confidence": "high",
+  "notes": "Accumulates +Chips in context.before (not individual/joker_main directly); joker_main reads j.chips if non-zero. Wired in batch-15; oracle 88/88."
+ },
+ {
+  "key": "j_cry_pirate_dagger",
+  "name": "cry-Pirate Dagger",
+  "fires": "joker_main",
+  "kotlin": "if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }",
+  "accumulator": "xc; +0.25 * sell_cost of joker immediately to the right (which is destroyed) at setting_blind; starts at 1",
+  "confidence": "high",
+  "notes": "Scaling X-Chips dagger. On setting_blind destroys right joker and adds +0.25*sell_cost to x_chips (j.xc). joker_main returns xChipMod=j.xc when >1. Translations JSON classified this non-scoring because xChipMod wasn't in Fx yet; now wired. Oracle 88/88."
+ },
+ {
+  "key": "j_cry_stronghold",
+  "name": "cry-stronghold",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_BULWARK) return Fx().apply { xMultMod = 5.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "X5 Xmult when scored hand is cry_Bulwark. CRY_BULWARK added to HandType enum as stub; dispatch dormant until Cryptid hand evaluation is ported. config.extra.Xmult=5."
+ },
+ {
+  "key": "j_cry_wtf",
+  "name": "cry-wtf",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "X10 Xmult when scored hand is cry_Clusterfuck. CRY_CLUSTERFUCK added to HandType enum as stub; dormant until Cryptid hand evaluation ported. config.extra.Xmult=10."
+ },
+ {
+  "key": "j_cry_clash",
+  "name": "cry-clash",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_ULTPAIR) return Fx().apply { xMultMod = 12.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "X12 Xmult when scored hand is cry_UltPair. CRY_ULTPAIR added to HandType enum as stub; dormant until Cryptid hand evaluation ported. config.extra.Xmult=12."
+ },
+ {
+  "key": "j_cry_the",
+  "name": "cry-the",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_NONE) return Fx().apply { xMultMod = 2.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "X2 Xmult when scored hand is cry_None. Uses context.scoring_name direct comparison in Lua (not poker_hands table). CRY_NONE added to HandType enum; dormant until ported. config.extra.Xmult=2."
+ },
+ {
+  "key": "j_cry_annihalation",
+  "name": "cry-annihalation",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_WHOLEDECK) return Fx().apply { xMultMod = 5.2 }",
+  "accumulator": "",
+  "confidence": "low",
+  "notes": "Lua fires Emult=5.2 (Cryptid exponential mult) not standard Xmult when scored hand is cry_WholeDeck; approximated as xMultMod=5.2 (loses power-mult semantic). CRY_WHOLEDECK added to HandType enum; dormant until ported. config.extra.emult=5.2."
+ },
+ {
+  "key": "j_cry_words_cant_even",
+  "name": "cry-Words Cant Even",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_WHOLEDECK) return Fx().apply { xMultMod = 52000000.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "X52000000 Xmult when scored hand is cry_WholeDeck. Uses Xmult_mod in Lua. Dormant until CRY_WHOLEDECK hand evaluation ported. config.extra.xmult=52000000."
+ },
+ {
+  "key": "j_cry_bonkers",
+  "name": "cry-Bonkers Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_BULWARK) return Fx().apply { multMod = 20.0 }",
+  "accumulator": "",
+  "confidence": "medium",
+  "notes": "+20 Mult when scored hand is cry_Bulwark. HandType.CRY_BULWARK added as stub; dormant until ported. config.extra.mult=20."
+ },
+ {
+  "key": "j_cry_fuckedup",
+  "name": "cry-Fucked-Up Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { multMod = 37.0 }",
+  "accumulator": "",
+  "confidence": "medium",
+  "notes": "+37 Mult when scored hand is cry_Clusterfuck. HandType.CRY_CLUSTERFUCK stub; dormant until ported. config.extra.mult=37."
+ },
+ {
+  "key": "j_cry_foolhardy",
+  "name": "cry-Foolhardy Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_ULTPAIR) return Fx().apply { multMod = 42.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+42 Mult when scored hand is cry_UltPair. HandType.CRY_ULTPAIR stub; dormant until ported. config.extra.mult=42."
+ },
+ {
+  "key": "j_cry_undefined",
+  "name": "cry-undefined Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_NONE) return Fx().apply { multMod = 5.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+5 Mult when scored hand is cry_None. HandType.CRY_NONE stub; dormant until ported. config.extra.mult=5."
+ },
+ {
+  "key": "j_cry_adroit",
+  "name": "cry-Adroit Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_BULWARK) return Fx().apply { chipMod = 170.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+170 Chips when scored hand is cry_Bulwark. HandType.CRY_BULWARK stub; dormant until ported. config.extra.t_chips=170."
+ },
+ {
+  "key": "j_cry_penetrating",
+  "name": "cry-Penetrating Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { chipMod = 270.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+270 Chips when scored hand is cry_Clusterfuck. HandType.CRY_CLUSTERFUCK stub; dormant until ported. config.extra.t_chips=270."
+ },
+ {
+  "key": "j_cry_treacherous",
+  "name": "cry-Treacherous Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_ULTPAIR) return Fx().apply { chipMod = 300.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+300 Chips when scored hand is cry_UltPair. HandType.CRY_ULTPAIR stub; dormant until ported. config.extra.t_chips=300."
+ },
+ {
+  "key": "j_cry_nebulous",
+  "name": "cry-Nebulous Joker",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_NONE) return Fx().apply { chipMod = 30.0 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+30 Chips when scored hand is cry_None. Uses context.scoring_name not poker_hands check. HandType.CRY_NONE stub; dormant until ported. config.extra.t_chips=30."
+ },
+ {
+  "key": "j_cry_many_lost_minds",
+  "name": "cry-Many Lost Minds",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.scoringName == HandType.CRY_WHOLEDECK) return Fx().apply { chipMod = 8.0658175e67 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "+8.0658175e67 Chips (52!) when scored hand is cry_WholeDeck. HandType.CRY_WHOLEDECK stub; dormant until ported. config.extra.chips=8.0658175e67."
+ },
+ {
+  "key": "j_cry_verisimile",
+  "name": "cry-Verisimile",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; incremented by denominator each pseudorandom_result hit; joker_main reads accumulated x_mult when >1",
+  "confidence": "medium",
+  "notes": "Scaling Xmult joker; x_mult grows each time a probabilistic effect fires via context.pseudorandom_result. Pattern matches dropshot/keychange accumulator-read group. Wired in batch-16."
+ },
+ {
+  "key": "j_cry_duplicare",
+  "name": "cry-Duplicare",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; +Xmult_mod(1) per post_trigger or per individual card played (non-scoring); joker_main reads j.x when >1",
+  "confidence": "medium",
+  "notes": "Scaling Xmult joker; accumulates via post_trigger context each time any joker fires a probability trigger. Pattern matches standard accumulator-read group. Wired in batch-16."
+ },
+ {
+  "key": "j_cry_formidiulosus",
+  "name": "cry-Formidiulosus",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { eMult = j.x }",
+  "accumulator": "x; Emult = 1 + 0.01*candy_count computed in update() hook (non-scoring); joker_main reads j.x as eMult when >1",
+  "confidence": "medium",
+  "notes": "Emult joker; j.x stores 1 + 0.01*candy_joker_count updated each frame. joker_main applies mult^j.x when j.x>1. Wired in batch-16 alongside stella_mortis (same eMult read pattern)."
+ },
+ {
+  "key": "j_cry_happyhouse",
+  "name": "cry-Happy House",
+  "fires": "joker_main",
+  "kotlin": "if (j.n > 0) return Fx().apply { eMult = 4.0 }",
+  "accumulator": "n; set to 1 (truthy) when immutable.check counter exceeds the 114-hand trigger; j.n is pre-set externally before score() call",
+  "confidence": "high",
+  "notes": "Emult=4 applied at joker_main once 114 hands have been played (tracked by immutable.check). j.n > 0 is the fired gate. Wired in batch-16; oracle case: Pair of aces + happyhouse @n=1 \u2192 512 (2^4 * 32)."
+ },
+ {
+  "key": "j_cry_crustulum",
+  "name": "cry-crustulum",
+  "fires": "joker_main",
+  "kotlin": "if (j.chips > 0.0) return Fx().apply { chipMod = j.chips }",
+  "accumulator": "chips; +chip_mod(4) per reroll_shop (non-scoring, outside evaluate_play)",
+  "confidence": "high",
+  "notes": "Chips accumulate via SMODS.scale_card on reroll_shop; joker_main reads j.chips and emits +Chips. Starts at 0 so guard j.chips>0 matches Lua to_big check."
+ },
+ {
+  "key": "j_cry_primus",
+  "name": "cry-primus",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { eMult = j.x }",
+  "accumulator": "x (proxy for Emult); +0.17 per hand played where every card in full_hand has id 2,3,5,7 or 14 (before context, non-scoring)",
+  "confidence": "low",
+  "notes": "Lua accumulates card.ability.extra.Emult (starts 1.01, +0.17 per qualifying before-hand). FJoker has no dedicated Emult field; mapping to j.x since xMult is not otherwise used. Scaling context is context.before in cardarea==jokers \u2014 non-scoring. joker_main applies eMult when Emult>1."
+ },
+ {
+  "key": "j_cry_Scalae",
+  "name": "cry-Scalae",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Purely a meta-scaling joker: end_of_round grows its own scale counter, and calc_scaling hook modifies other jokers' scalar rates using a power-law formula. No joker_main/individual/held/repetition scoring branch exists."
+ },
+ {
+  "key": "j_cry_stella_mortis",
+  "name": "cry-Stella Mortis",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { eMult = j.x }",
+  "accumulator": "x (proxy for Emult); +0.4 per planet card destroyed at ending_shop (non-scoring)",
+  "confidence": "low",
+  "notes": "Lua accumulates card.ability.extra.Emult (starts 1, +Emult_mod=0.4 per planet destroyed in ending_shop). FJoker has no dedicated Emult field; mapped to j.x. joker_main fires when Emult>1 and applies eMult (mult^eMult). Accumulation context is ending_shop \u2014 non-scoring."
+ },
+ {
+  "key": "j_cry_circulus_pistoris",
+  "name": "cry-Circulus Pistoris",
+  "fires": "joker_main",
+  "kotlin": "if (ctx.handsLeft == 3) return Fx().apply { xChipMod = Math.PI; eMult = Math.PI }",
+  "accumulator": "",
+  "confidence": "medium",
+  "notes": "Fires when hands_left == 3 (Lua: hands_left >= hands_remaining(3) && < hands_remaining+1). Lua's Echip_mod maps to xChipMod (X-chips) and Emult_mod maps to eMult. Values are fixed at math.pi (~3.14159). handsLeft in Sctx is post-decrement so ctx.handsLeft==3 matches. Does not fire if the joker has cry_oversat edition (tau=2*pi) \u2014 edition variant not modeled here."
+ },
+ {
+  "key": "j_cry_equilib",
+  "name": "Ace Aequilibrium",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires in context.before (cardarea==jokers): creates negative-edition joker cards and emplaces them into G.jokers. Pure card-generation economy effect, no chips/mult/xmult emitted during evaluate_play."
+ },
+ {
+  "key": "j_cry_facile",
+  "name": "cry-facile",
+  "fires": "joker_main",
+  "kotlin": "return Fx().apply { eMult = j.x }",
+  "accumulator": "x (proxy for Emult=3, fixed); condition: fires only if scored-card count this hand <= check(10); check2 counter is runtime state reset each joker_main trigger",
+  "confidence": "low",
+  "notes": "Lua increments check2 in context.individual per played card, then joker_main fires Emult=3 (fixed, from config.extra) only if check2 <= check(10), then resets check2. FJoker has no check2 field; in practice most scoring hands have <=5 cards so condition nearly always holds. eMult=3 is constant; mapped to j.x=3.0 as proxy. Needs engine-side transient counter for full fidelity."
+ },
+ {
+  "key": "j_cry_gemino",
+  "name": "cry-Gemino",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "end_of_round only \u2014 calls Cryptid.manipulate to upgrade the first joker in the jokers area (doubles its value); no joker_main/individual/held/repetition branch"
+ },
+ {
+  "key": "j_cry_energia",
+  "name": "cry-Energia",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "tag_added context only \u2014 duplicates any added tag up to max_tags (40); SMODS.scale_card increments extra.tags each trigger; pure economy/meta effect, never fires during evaluate_play"
+ },
+ {
+  "key": "j_cry_verisimile",
+  "name": "cry-verisimile",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; += context.denominator per pseudorandom_result win (probability-event context outside evaluate_play)",
+  "confidence": "medium",
+  "notes": "config.extra.xmult starts at 1; grows by the probability denominator each time a probability result fires (pseudorandom_result context, not during scoring); joker_main reads j.x and applies as Xmult; low confidence on exact denominator increment since pseudorandom_result is a Cryptid-specific context whose value is run-dependent"
+ },
+ {
+  "key": "j_cry_duplicare",
+  "name": "cry-duplicare",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; += Xmult_mod (=1.0 base) per scored play card (individual context) AND per other-joker probability trigger (post_trigger context); additive SMODS.scale_card with default '+' op",
+  "confidence": "medium",
+  "notes": "config.extra = {Xmult=1, Xmult_mod=1}; individual branch during scoring calls SMODS.scale_card to add Xmult_mod to Xmult (no return, state-mutation only); joker_main fires when Xmult>1 and returns Xmult_mod key (=current Xmult) as Xmult; j.x maps to extra.Xmult; confidence medium because post_trigger scaling path is Cryptid-specific and duplicare's Xmult_mod is fixed at 1 in base config"
+ },
+ {
+  "key": "j_cry_rescribere",
+  "name": "cry-Rescribere",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "selling_card context only \u2014 monkey-patches calculate_joker on all other jokers to also invoke the sold joker's calculate logic; meta card-manipulation effect, no joker_main/individual/held/repetition path"
+ },
+ {
+  "key": "j_cry_formidiulosus",
+  "name": "cry-Formidiulosus",
+  "fires": "joker_main",
+  "kotlin": "if (j.n > 0) return Fx().apply { eMult = 1.0 + 0.01 * j.n }",
+  "accumulator": "n; = count of cry_candy jokers on board (read from Cryptid.advanced_find_joker in the update() hook each frame, not set during evaluate_play)",
+  "confidence": "medium",
+  "notes": "config.extra = {Emult_mod=0.01, Emult=1}; Emult is recomputed every frame as 1 + 0.01 * #cry_candy_jokers; joker_main returns Emult_mod key (=Emult value) as eMult (mult^eMult) when Emult>1; j.n holds the candy count; confidence medium because cry_candy count is run-state not tracked by the engine; also spawns cry_candy jokers on ending_shop and buying cry_cursed jokers (non-scoring side effects)"
+ },
+ {
+  "key": "j_cry_caeruleum",
+  "name": "cry-Caeruleum",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "monkey-patches SMODS.calculate_individual_effect in init() to redirect chip-type effects (a_chips/a_xchips/a_powchips) from adjacent jokers; calculate fires on context.before/after to tag adjacent jokers with cry_caeruleum flag; no joker_main/individual/held/repetition scoring branch"
+ },
+ {
+  "key": "j_cry_jollysus",
+  "name": "cry-jollysus Joker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Creates copies of itself when selling jokers (selling_card), selling itself (selling_self), or on forcetrigger; resets spawn flag at end_of_round. No joker_main/individual/repetition/held branch \u2014 purely a card-creation economy joker."
+ },
+ {
+  "key": "j_cry_bubblem",
+  "name": "cry-bubblem",
+  "fires": "before_scaling",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires in context.before (cardarea==G.jokers, before scoring begins): if Three of a Kind is in poker_hands, destroys itself and creates a Foil Jolly Joker (j_jolly). The before context does not add chips/mult/xmult; this is a card-creation/destruction effect, not a scoring branch."
+ },
+ {
+  "key": "j_cry_foodm",
+  "name": "cry-foodm",
+  "fires": "joker_main",
+  "kotlin": "if (j.mult > 0) return Fx().apply { multMod = j.mult }",
+  "accumulator": "mult; initial 40, decremented (self-destructs after 2 rounds via end_of_round countdown, extended by selling Jolly Jokers)",
+  "confidence": "medium",
+  "notes": "joker_main gives +mult equal to j.mult (config.extra.mult=40) while mult>0; end_of_round decrements a round counter and destroys the joker at 0; selling_jolly_card extends the round counter. Confidence medium because j.mult is the live run value (decrements at end_of_round) not a static field."
+ },
+ {
+  "key": "j_cry_mstack",
+  "name": "cry-mstack",
+  "fires": "repetition",
+  "kotlin": "return Fx().apply { repetitions = j.n.coerceAtMost(40) }",
+  "accumulator": "n; starts at 1, +1 each time sell_req (3) Jolly Jokers are sold",
+  "confidence": "medium",
+  "notes": "repetition context with cardarea==G.play: gives min(retriggers, max_retriggers=40) extra retriggers to every scored card. j.n maps to card.ability.extra.retriggers. Confidence medium: retrigger count is run-accumulated; initial value is 1 per config.extra.retriggers."
+ },
+ {
+  "key": "j_cry_mneon",
+  "name": "cry-mneon",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "end_of_round economy joker: accumulates money each round based on count of M-pool/Jolly jokers * bonus; pays out via calc_dollar_bonus. No scoring branch (no joker_main/individual/repetition/held)."
+ },
+ {
+  "key": "j_cry_notebook",
+  "name": "cry-notebook",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Expands joker slot limit on reroll_shop (probabilistically or if enough Jolly Jokers present); resets eligibility each end_of_round. Purely a deck/joker-slot manipulation effect, no scoring branch."
+ },
+ {
+  "key": "j_cry_bonk",
+  "name": "cry-bonk",
+  "fires": "other_joker",
+  "kotlin": "val oj = ctx.otherJoker; if (oj != null) when (j.key) { \"j_cry_bonk\" -> { val isJolly = oj.key == \"j_jolly\" || oj.key.startsWith(\"j_cry_\"); val chipAmt = if (isJolly) j.chips * 3.0 else j.chips; return Fx().apply { chipMod = chipAmt } } }",
+  "accumulator": "chips; +bonus(1) each time a Pair (config.extra.type) is played, read as chips*xchips for jolly jokers or chips for non-jolly in other_joker branch",
+  "confidence": "low",
+  "notes": "other_joker context: gives chip_mod = chips*xchips to jolly jokers, chip_mod = chips to non-jolly jokers. Scaling (chips += bonus) happens in context.before when scoring_name==Pair \u2014 non-scoring. Confidence low: is_jolly() is a Lua method checking internal Cryptid tags; no direct FJoker field maps cleanly to it in the engine \u2014 approximation uses key prefix. config.extra.chips=6, xchips=3, bonus=1."
+ },
+ {
+  "key": "j_cry_loopy",
+  "name": "cry-loopy",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on retrigger_joker_check context (not context.repetition for cards): retriggers OTHER jokers by min(retrigger, 40) times. The counter increments when Jolly Jokers are sold. This is a joker-retrigger effect, not a card scoring repetition \u2014 no matching dispatch guard in the engine."
+ },
+ {
+  "key": "j_cry_scrabble",
+  "name": "cry-scrabble",
+  "fires": "before_scaling",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires in context.before (cardarea==G.jokers, before scoring): probabilistically (1 in 4) creates a Scrabble Tile joker. Purely a card-creation effect in the before context \u2014 no chips/mult/xmult output."
+ },
+ {
+  "key": "j_cry_sacrifice",
+  "name": "cry-sacrifice",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on using_consumeable (Spectral cards only): creates jollies (3) Jolly Jokers and unc (1) copies of itself; resets at end_of_round. Purely a card-creation consumable-reaction effect \u2014 no scoring branch."
+ },
+ {
+  "key": "j_cry_reverse",
+  "name": "cry-reverse",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "pre_discard economy: destroys itself and spawns Holo Jolly Jokers when the highlighted hand matches the configured type (Pair); no chips/mult/xmult contribution during evaluate_play"
+ },
+ {
+  "key": "j_cry_doodlem",
+  "name": "cry-doodlem",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "setting_blind economy: creates Negative consumables (count = init + add * jolly_count); never fires during evaluate_play scoring cascade"
+ },
+ {
+  "key": "j_cry_virgo",
+  "name": "cry-virgo",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "before-hand scales card sell value via SMODS.scale_card when a Pair is played; selling_self spawns Polychrome Jolly Jokers; neither path contributes scoring Fx"
+ },
+ {
+  "key": "j_cry_smallestm",
+  "name": "cry-smallestm",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "before-hand economy: adds a tag_cry_double_m Tag when scoring_name == Pair; no chips/mult contribution"
+ },
+ {
+  "key": "j_cry_biggestm",
+  "name": "cry-biggestm",
+  "fires": "joker_main",
+  "kotlin": "if (j.n > 0) return Fx().apply { xMultMod = 7.0 }",
+  "accumulator": "n; set to 1 by before-hand when scoring_name==Pair, reset to 0 at end_of_round",
+  "confidence": "medium",
+  "notes": "X7 Mult when the toggle flag is active (set in context.before when hand is Pair, cleared at end_of_round); j.n used as 0/1 boolean flag for card.ability.extra.check; x_mult=7 from config.extra"
+ },
+ {
+  "key": "j_cry_mprime",
+  "name": "cry-mprime",
+  "fires": "other_joker",
+  "kotlin": "if (oj !== j && (oj.key == \"j_jolly\" || oj.rarity == \"cry_m\")) return Fx().apply { eMult = j.mult }",
+  "accumulator": "mult; starts at 1.05 (config.extra.mult), increases by +0.04 (config.extra.bonus) each time a Jolly Joker is sold (selling_card context)",
+  "confidence": "low",
+  "notes": "Emult_mod = extra.mult (starts 1.05, scales +0.04 per Jolly sold) applied to every adjacent M/Jolly joker; engine FJoker has no is_jolly() or pool membership check so the pool guard is best-effort using oj.key/oj.rarity; scaling happens in selling_card not during scoring"
+ },
+ {
+  "key": "j_cry_macabre",
+  "name": "cry-Macabre Joker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "setting_blind economy: destroys all non-M, non-Jolly, non-eternal jokers and replaces each with one Jolly Joker; never fires during evaluate_play"
+ },
+ {
+  "key": "j_cry_megg",
+  "name": "cry-megg",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "end_of_round scales internal amount counter; selling_self spawns floor(amount) Jolly Jokers (up to max_amount=200); no scoring path in evaluate_play"
+ },
+ {
+  "key": "j_cry_longboi",
+  "name": "cry-longboi",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; mirrors G.GAME.monstermult which starts at 1 and scales by +0.75 (config.extra.bonus) each end_of_round",
+  "confidence": "medium",
+  "notes": "Xmult = extra.monster (global G.GAME.monstermult snapshot loaded at card creation) only fires when monster > 1; j.x used to hold the monster value since it is a run-global scaling accumulator; scaling happens at end_of_round not during scoring"
+ }
+]

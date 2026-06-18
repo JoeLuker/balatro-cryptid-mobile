@@ -1,0 +1,218 @@
+[
+ {
+  "key": "j_cry_cotton_candy",
+  "name": "Cotton Candy",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Only fires on selling_self: grants negative edition to adjacent jokers in the joker row. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_wrapped",
+  "name": "Wrapped",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Only fires on end_of_round (round countdown, self-destructs and spawns a replacement Food joker) and forcetrigger. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_chocolate_dice",
+  "name": "Chocolate Dice",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Only fires on end_of_round when boss blind \u2014 rolls a random SMODS Event (choco1-chocoN) that applies global modifiers. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_spy",
+  "name": "Spy",
+  "fires": "joker_main",
+  "kotlin": "return Fx().apply { xMultMod = 0.5 }",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Flat \u00d70.5 Xmult (cursed debuff joker). config.x_mult = 0.5; joker_main always returns Xmult_mod = card.ability.x_mult."
+ },
+ {
+  "key": "j_cry_trick_or_treat",
+  "name": "Trick or Treat",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Only fires on selling_self (3-in-odds chance to spawn num_candies candy jokers, else spawns a cursed joker) and forcetrigger. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_candy_basket",
+  "name": "Candy Basket",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Accumulates a candy count via SMODS.scale_card on end_of_round; spawns candy jokers on selling_self. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_blacklist",
+  "name": "Blacklist",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires in joker_main but zeroes hand_chips and mult as a global side-effect (hand_chips = to_big(0); mult = to_big(0)) rather than returning an Fx; no calcJoker Fx field models this nullification."
+ },
+ {
+  "key": "j_cry_ghost",
+  "name": "Ghost",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Only fires on end_of_round: probabilistically self-destructs (and dissolves possessed jokers) or possesses a random joker by setting ability.cry_possessed. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_rotten_egg",
+  "name": "Rotten Egg",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on end_of_round (decrements sell_cost of all jokers) and selling_card (tracks money lost, self-destructs when threshold reached). Economy / meta effect only; no evaluate_play hook."
+ },
+ {
+  "key": "j_cry_candy_dagger",
+  "name": "Candy Dagger",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Fires on setting_blind: destroys the joker immediately to its right and spawns a candy joker. Also forcetrigger path. No evaluate_play hook."
+ },
+ {
+  "key": "j_cry_candy_cane",
+  "name": "Candy Cane",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "individual context fires an economy effect ($4 per scored card on second trigger via candy_caned flag); end_of_round decrements rounds counter and self-destructs at 0; no chips/mult/xmult/xchips output during evaluate_play"
+ },
+ {
+  "key": "j_cry_candy_buttons",
+  "name": "Candy Buttons",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "only fires in context.reroll_shop \u2014 decrements reroll count by 1 each shop reroll and self-destructs when count reaches 0; also adjusts reroll cost via add_to_deck/remove_from_deck hooks; never fires during evaluate_play"
+ },
+ {
+  "key": "j_cry_jawbreaker",
+  "name": "Jawbreaker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "only fires in context.end_of_round during boss blinds \u2014 calls Cryptid.manipulate({value=2}) on adjacent jokers to upgrade them, then self-destructs; pure joker mutation effect, no scoring output"
+ },
+ {
+  "key": "j_cry_mellowcreme",
+  "name": "Mellowcreme",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "only fires in context.selling_self \u2014 multiplies sell value of all consumable cards in hand by sell_mult (4); economy/shop effect, never fires during evaluate_play"
+ },
+ {
+  "key": "j_cry_brittle",
+  "name": "Brittle",
+  "fires": "before_scaling",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "fires in context.before (cardarea==jokers, scoring_hand present) \u2014 randomly sets the last scoring card's enhancement to stone/gold/steel each hand; decrements rounds counter (starts at 9) and self-destructs at 0; card mutation before scoring, produces no chips/mult/xmult output itself"
+ },
+ {
+  "key": "j_cry_monopoly_money",
+  "name": "Monopoly Money",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "fires in context.buying_card (1-in-4 chance to dissolve/destroy purchased card) and context.selling_self (halves player money via ease_dollars); economy/shop disruption effect, never fires during evaluate_play"
+ },
+ {
+  "key": "j_cry_candy_sticks",
+  "name": "Candy Sticks",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "fires in context.setting_blind to disable boss blind for 1 hand, context.after to decrement hands counter, and context.end_of_round/selling_self to re-enable blind and self-destruct; blind-manipulation effect, no scoring output"
+ },
+ {
+  "key": "j_cry_wonka_bar",
+  "name": "Wonka Bar",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "only fires in context.selling_self \u2014 calls SMODS.change_play_limit(+1) and SMODS.change_discard_limit(+1) to permanently increase hand/discard selection limits; sell-trigger economy/meta effect, no scoring output"
+ },
+ {
+  "key": "j_cry_buttercup",
+  "name": "Buttercup",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "maintains a cry_storage CardArea on the joker; fires in context.selling_self to release stored shop cards into G.GAME.next_shop_cards so they appear next shop; shop-storage utility effect, no scoring output"
+ },
+ {
+  "key": "j_cry_CodeJoker",
+  "name": "cry-CodeJoker",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Creates a negative Code consumable when entering a Boss blind (context.setting_blind) or on forcetrigger; no joker_main/individual/held/repetition branch exists"
+ },
+ {
+  "key": "j_cry_copypaste",
+  "name": "cry-copypaste",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Copies a Code consumable when used (context.using_consumeable / context.pull_card) and resets a per-round lock at end_of_round; purely consumable economy, no scoring branch"
+ },
+ {
+  "key": "j_cry_cut",
+  "name": "cry-cut",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; +0.5 per Code card destroyed when leaving shop (context.ending_shop via SMODS.scale_card); base 1.0",
+  "confidence": "high",
+  "notes": "Destroys a random Code consumable each time you leave the shop and gains +0.5 Xmult (starting at 1); joker_main emits that accumulated Xmult when above 1.0"
+ },
+ {
+  "key": "j_cry_blender",
+  "name": "cry-blender",
+  "fires": "non-scoring",
+  "kotlin": "",
+  "accumulator": "",
+  "confidence": "high",
+  "notes": "Creates a random consumable when a Code card is used (context.using_consumeable); no config.extra values and no scoring branch"
+ },
+ {
+  "key": "j_cry_python",
+  "name": "cry-python",
+  "fires": "joker_main",
+  "kotlin": "if (j.x > 1.0) return Fx().apply { xMultMod = j.x }",
+  "accumulator": "x; +0.15 per Code card used (context.using_consumeable); base 1.0",
+  "confidence": "high",
+  "notes": "Gains +0.15 Xmult each time a Code consumable is used; joker_main emits the accumulated Xmult when above 1.0; config.extra.Xmult_mod = 0.15, starting Xmult = 1"
+ }
+]

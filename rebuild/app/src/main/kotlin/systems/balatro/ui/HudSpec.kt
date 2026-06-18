@@ -95,7 +95,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
 
     fun loc(key: Any?): String = when (key) {
         "k_hud_hands" -> "Hands"; "k_hud_discards" -> "Discards"
-        "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "Score at least"
+        "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "score"
         "$" -> "$"; "b_options" -> "Options"; "b_run_info_1" -> "Run"; "b_run_info_2" -> "Info"
         else -> key?.toString() ?: ""
     }
@@ -124,10 +124,12 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         padding = c.optDouble("padding", 0.0).toFloat(),
         r = c.optDouble("r", 0.0).toFloat(),
         minw = c.optDouble("minw", 0.0).toFloat(),
-        // minh=30 on the BOSS_DARK panel is Balatro's "fill the sidebar height" sentinel; taken
-        // literally it inflates the natural height to 30u so FitToHeight shrinks the HUD to a sliver.
-        // Drop sentinel mins (>=20u) so the panel sizes to its real ~9u content.
-        minh = c.optDouble("minh", 0.0).toFloat().let { if (it >= 20f) 0f else it },
+        // Use Balatro's real minh verbatim. minh=30 on the BOSS_DARK panel is NOT a sentinel to
+        // drop — it makes the dark panel intentionally taller than the screen so it bleeds off
+        // top/bottom (the full-height sidebar look) with content centered (align "cm"). The render
+        // site draws the HUD at fixed scale and lets it overflow, exactly like the real game; the
+        // hand-name row keeps its 1.1u reservation (the played-hand name floats into it).
+        minh = c.optDouble("minh", 0.0).toFloat(),
         maxw = c.optDouble("maxw", 0.0).toFloat(),
         scale = c.optDouble("scale", 1.0).toFloat(),
         textColour = colour(c.optJSONObject("colour")) ?: Balatro.White,
@@ -164,7 +166,13 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         val shadow = o.optBoolean("shadow", true)
         val segs = (0 until segsJ.length()).map { i ->
             val sj = segsJ.getJSONObject(i)
-            val col = colsJ?.optString(i.coerceAtMost((colsJ.length() - 1).coerceAtLeast(0)))?.let { colourByName(it) } ?: Balatro.White
+            // The extracted tree statically colours chip/mult text UI.TEXT_LIGHT, but Balatro
+            // colours them at runtime (chip_UI_set -> blue, mult -> red). Restore that.
+            val col = when (sj.optString("value")) {
+                "chip_text" -> Balatro.Chips
+                "mult_text" -> Balatro.Mult
+                else -> colsJ?.optString(i.coerceAtMost((colsJ.length() - 1).coerceAtLeast(0)))?.let { colourByName(it) } ?: Balatro.White
+            }
             val prefix = sj.optJSONObject("prefix")?.let { loc(it.opt("loc")) } ?: (sj.opt("prefix") as? String ?: "")
             val reader: () -> String = when {
                 sj.has("value") -> read(sj.getString("value"))
