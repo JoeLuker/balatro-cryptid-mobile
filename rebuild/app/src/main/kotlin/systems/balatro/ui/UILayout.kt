@@ -296,12 +296,17 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
         T -> {
             val tx = (n.ui as Tx)
             val size = (n.cfg.scale * u * fontRatio)
-            // glyph box at the node's exact (centred) rect; centre the text within it so it lands exactly.
+            // Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the
+            // DESCENT (bottom), so the glyph sits high in the box. Compose centres the glyph in the
+            // line box, so it lands (1-0.83)/2 = 0.085·lineHeight too LOW. Shift up by that to match.
+            val vshift = -((1f - TEXT_H) / 2f * n.cfg.scale * u)
             Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
-                if (cfg.shadow) Box {
-                    BTxt(tx.text, Color.Black.copy(alpha = 0.3f), size.sp, Modifier.offset(y = 2.dp))
-                    BTxt(tx.text, cfg.textColour, size.sp)
-                } else BTxt(tx.text, cfg.textColour, size.sp)
+                Box(Modifier.offset(y = vshift.dp)) {
+                    if (cfg.shadow) Box {
+                        BTxt(tx.text, Color.Black.copy(alpha = 0.3f), size.sp, Modifier.offset(y = 2.dp))
+                        BTxt(tx.text, cfg.textColour, size.sp)
+                    } else BTxt(tx.text, cfg.textColour, size.sp)
+                }
             }
         }
         O -> {

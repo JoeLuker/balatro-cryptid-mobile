@@ -616,7 +616,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         val u = if (s.repro) maxWidth.value / ROOM_W else uiScaleFor(maxWidth.value, maxHeight.value)
         val roomTx = (maxWidth.value / u - ROOM_W) / 2f + ROOM_PADDING_W
         val roomTy = (maxHeight.value / u - ROOM_H) / 2f + ROOM_PADDING_H
-        CompositionLocalProvider(LocalUIScale provides u) {
+        CompositionLocalProvider(LocalUIScale provides u, LocalStaticUi provides s.repro) {
             // ROUND's play field is positioned at ABSOLUTE room coordinates over the full surface
             // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
             // weight box to the right of the HUD. Card areas span the whole room; the HUD sits on top

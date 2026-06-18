@@ -51,6 +51,16 @@ import androidx.compose.ui.unit.sp
 // ROOM_W/ROOM_H and uiScaleFor() for the fit math. Default is a sane fallback before the root sets it.
 val LocalUIScale = staticCompositionLocalOf { 32f }   // dp per Balatro UI unit (set at the root)
 
+// When true (the repro/parity path), idle animations (DynaText float, card/joker bob, value bump) are
+// FROZEN at rest so a static screenshot is an apples-to-apples pixel match with the reference (which is
+// one frame at some animation phase). Live play leaves it false so the UI breathes like the real game.
+val LocalStaticUi = staticCompositionLocalOf { false }
+
+// Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the DESCENT, so the
+// glyph sits high in the box. Compose centres the glyph in the line box, landing it (1-0.83)/2 lower; this
+// is the per-scale upward correction (in units) to match Balatro's vertical text placement.
+const val TEXT_VSHIFT = 0.085f   // (1 - 0.83)/2
+
 // fontSize (sp) per (unit × text-scale). Balatro loads m6x11plus at TILESIZE*10 with FONTSCALE=0.1,
 // so a text node's font line-height in UI units == its scale (getHeight*scale*FONTSCALE/TILESIZE =
 // scale·1.0). Thus fontSize should be exactly scale×u (ratio 1.0) — measured against the reference
@@ -266,6 +276,7 @@ private fun Modifier.objSize(cfg: Cfg, obj: Obj, u: Float): Modifier {
 @Composable
 fun BalatroFloat(seed: Float, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val u = LocalUIScale.current
+    if (LocalStaticUi.current) { Box(modifier) { content() }; return }   // frozen for parity screenshots
     val phase by rememberInfiniteTransition(label = "flt").animateFloat(
         0f, TWO_PI, infiniteRepeatable(tween(9430, easing = LinearEasing), RepeatMode.Restart), label = "fltp")
     val ampY = with(LocalDensity.current) { (0.06f * u).dp.toPx() }
@@ -281,26 +292,28 @@ fun RenderDynaText(dt: DynaText) {
     val maxW = if (dt.maxw > 0) Modifier.widthIn(max = (dt.maxw * u).dp) else Modifier
     // Balatro DynaText floats: every dynamic readout perpetually bobs (text.lua:287, the float pass,
     // 2.666 rad/s, phase-offset per letter so the value ripples). The numbers are never dead-static.
+    val static = LocalStaticUi.current
     val phase by rememberInfiniteTransition(label = "dyna").animateFloat(
         0f, TWO_PI, infiniteRepeatable(tween(2357, easing = LinearEasing), RepeatMode.Restart), label = "floatPhase")
-    val amp = with(LocalDensity.current) { (0.06f * u).dp.toPx() }
+    val amp = if (static) 0f else with(LocalDensity.current) { (0.06f * u).dp.toPx() }
     Row(maxW, verticalAlignment = Alignment.CenterVertically) {
         dt.segs.forEachIndexed { i, s ->
             val text = s.value()                    // live read -> recomposes on RunState change
             val size = (s.scale * u * FONT_RATIO).sp
+            // descent-trim correction: glyph sits 0.085·lineHeight too low when centred (see TEXT_VSHIFT)
+            val vshift = -(TEXT_VSHIFT * s.scale * u)
             // bump: when the value changes (chips tick up, money earned), the number pops and settles
-            // with a springy overshoot — Balatro's juice_up on update. Initial value doesn't bump.
+            // with a springy overshoot — Balatro's juice_up on update. Initial value doesn't bump (frozen for parity).
             val bump = remember { Animatable(1f) }
             var prev by remember { mutableStateOf(text) }
             LaunchedEffect(text) {
                 if (text != prev) {
                     prev = text
-                    bump.snapTo(1.22f)
-                    bump.animateTo(1f, spring(dampingRatio = 0.36f, stiffness = 520f))
+                    if (!static) { bump.snapTo(1.22f); bump.animateTo(1f, spring(dampingRatio = 0.36f, stiffness = 520f)) }
                 }
             }
             Box(Modifier.graphicsLayer {
-                translationY = amp * sin(phase + i * 0.7f)      // perpetual float
+                translationY = amp * sin(phase + i * 0.7f) + vshift * density   // float + descent correction
                 scaleX = bump.value; scaleY = bump.value         // pop on change
             }) {
                 if (dt.shadow) {
