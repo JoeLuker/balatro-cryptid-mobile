@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
@@ -562,13 +561,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { StakeArt.whiteChip(ctx) }
     }
 
-    BoxWithConstraints(                                                          // the green felt table — full surface
-        Modifier.fillMaxSize().background(
-            // lit-centre → darker-edge vignette, like Balatro's felt depth (no texture asset needed)
-            // measured to Balatro's felt (dominant ~#2D5A45): lit centre, gentle vignette (not black)
-            Brush.radialGradient(listOf(Color(0xFF42926E), Color(0xFF356650), Color(0xFF2E5A46)))
-        )
-    ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {                                 // full surface
+        // Balatro's real paint-swirl felt (background.fs ported to AGSL), full-bleed behind
+        // everything — the moving green felt, not a static gradient. Gradient fallback below API 33.
+        BalatroFelt(Modifier.matchParentSize())
         // Balatro fits its virtual room (22×12.9u) into the live window every resize; we derive the
         // dp-per-unit from THIS surface (density-correct, any display/stream) and centre a room-sized
         // box, felt filling the letterbox — same result as the game's love.resize, done in Compose.
