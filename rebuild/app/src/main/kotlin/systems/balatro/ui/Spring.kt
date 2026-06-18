@@ -107,6 +107,7 @@ fun SpringHand(
     enabled: Boolean,
     cardWidth: Dp,
     onToggle: (Int) -> Unit,
+    handLimit: Int = 8,     // Balatro temp_limit (hand size) — fan spread normalizes to this
     cardContent: @Composable (PlayingCard) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -130,16 +131,24 @@ fun SpringHand(
     BoxWithConstraints(Modifier.fillMaxWidth().height(with(density) { (cardHpx * 1.5f).toDp() })) {
         val n = hand.size
         if (n == 0) return@BoxWithConstraints
-        val centerXpx = with(density) { maxWidth.toPx() } / 2f
-        val spacingU = 1.45f
+        val areaW = with(density) { maxWidth.toPx() }
+        val centerXpx = areaW / 2f
+        // Balatro CardArea:align_cards (cardarea.lua:50): cards distribute across the hand area
+        // (T.w − card_w), spacing NORMALIZED by max_cards = max(#cards, hand-size limit), so a full
+        // hand exactly fills the area and fewer cards left-shift — NOT a fixed per-card spread that
+        // spills past the area edge. wu = area width in card-widths; tx is the card-centre offset
+        // from the area centre, in the spring's 1.8-units-per-card space.
+        val wu = areaW / cardWpx
+        val maxCards = maxOf(n, handLimit)
+        val denom = maxOf(maxCards - 1, 1).toFloat()
         frame.let {}                                // read frame -> recompose each tick
         hand.forEachIndexed { i, card ->
             val d = i - (n - 1) / 2f
-            val sp = springs.getOrPut(i) { BalatroSpring(d * spacingU, 0f) }
-            sp.tx = d * spacingU
-            // Balatro CardArea:align_cards (cardarea.lua:454,460) for a hand: a SHALLOW arc and fan,
-            // both normalized by card count so total spread is constant. Arc is abs(d) (a gentle V,
-            // depth ~0.22u), NOT d² — and rotation is 0.2*d/n (~±5° at the edges), not a fixed per-card tilt.
+            val frac = i / denom - 0.5f * (n - maxCards) / denom        // align_cards fraction (0..1)
+            val tx = 1.8f * (wu - 1f) * (frac - 0.5f)
+            val sp = springs.getOrPut(i) { BalatroSpring(tx, 0f) }
+            sp.tx = tx
+            // arc + rotation already match align_cards: rotation 0.2*d/n (~±5° at edges), gentle V arc.
             sp.ty = (if (i in selected) -0.95f else 0f) + 0.5f * abs(d) / n - 0.2f   // arc + select lift
             sp.tr = 0.2f * d / n                                                     // gentle fan, normalized
             val px = centerXpx + sp.vx * unit - cardWpx / 2f

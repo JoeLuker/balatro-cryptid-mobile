@@ -1049,10 +1049,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val u = LocalUIScale.current
     val cardW = (2.0488f * u).dp
     val cardH = (2.7512f * u).dp
+    val handW = (6f * 2.0488f * u).dp     // G.hand area = 6 × CARD_W (set_screen_positions)
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
     Box(Modifier.fillMaxSize()) {
-      Column(Modifier.fillMaxSize()) {
+      // The play field (jokers, played cards, hand) shares ONE left-aligned frame the width of the
+      // hand area, so the joker row's left edge lines up with the hand's exactly as Balatro does
+      // (jokers.x = hand.x - 0.1). The deck stays pinned bottom-right (its own room position).
+      Column(Modifier.fillMaxHeight().width(handW)) {
         // Jokers + consumables at the VERY top of the play field (G.jokers/G.consumeables CardAreas,
         // both T.y=0), left-aligned where the HUD sidebar ends and consumables immediately to the
         // right of the jokers — exactly set_screen_positions (common_events.lua). Balatro shows NO
