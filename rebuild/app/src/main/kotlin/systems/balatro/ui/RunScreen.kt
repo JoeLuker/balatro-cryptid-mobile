@@ -694,9 +694,9 @@ private fun HudColumn(s: RunState, modifier: Modifier, stakeBmp: ImageBitmap? = 
         val ui = remember(root, stakeBmp) { HudSpec.build(root, HudBind(s, stakeBmp)) }
         Box(modifier) {
             RenderUIBoxAbsolute(ui, u, roomH = ROOM_H) { bx, by, bw, bh ->
-                Box(Modifier.absoluteOffset((bx * u).dp, (by * u).dp).size((bw * u).dp, (bh * u).dp)) {
-                    RenderUI(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale))
-                }
+                // The blind token UIBox laid out by the SAME exact engine, centred in the row_blind slot.
+                RenderUIBoxAt(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale),
+                    u, bx, by, bw, bh)
             }
         }
     }
@@ -854,63 +854,57 @@ private fun hudButtons(onRunInfo: (() -> Unit)? = null, onOptions: (() -> Unit)?
  * blind_chip_UI_scale: implemented — chipTargetScale springs in via HudColumn animateFloatAsState.
  */
 private fun hudBlind(s: RunState, blindBmp: ImageBitmap?, stakeBmp: ImageBitmap?, chipTargetScale: Float = 0.001f): UI {
-    val panel = Balatro.Panel   // G.C.BLACK = G.C.DYN_UI.MAIN = G.C.DYN_UI.DARK = #374244
+    val black = Balatro.Panel   // G.C.BLACK = #374244 (ROOT + score inset)
     val light = Balatro.White   // G.C.UI.TEXT_LIGHT
-    // The blind-name header is tinted by the blind colour (measured from real Balatro: small=#005A9C).
-    val nameBg = when {
-        s.boss != null -> Color(0xFF8C3A3A)                 // boss blind (reddish)
-        s.blindName.startsWith("Big") -> Color(0xFFCB7A2A)  // big blind (amber)
-        else -> Color(0xFF005A9C)                           // small blind (measured blue)
+    // DYN_UI colours tinted by the current blind (blind.lua change_colour). For a non-boss blind:
+    //   MAIN = get_blind_main_colour = mix(BLUE|ORANGE, BLACK, 0.6);  DARK = mix(MAIN, BLACK, 0.4).
+    // Small = blue (mix(BLUE,BLACK,0.6)=#1679B4), Big = amber, Boss = the boss colour.
+    fun mix(a: Color, b: Color, p: Float) = Color(a.red*p + b.red*(1-p), a.green*p + b.green*(1-p), a.blue*p + b.blue*(1-p))
+    // DYN_UI.MAIN/DARK per blind. The formula is mix(BLUE|ORANGE,BLACK,0.6) then mix(MAIN,BLACK,0.4),
+    // but the on-screen panel is darker than that pure mix (Balatro composites a shadow under the HUD
+    // that the headless geometry can't expose); for Small the measured values are #0068AD / #0E4360.
+    val (mainCol, darkCol) = when {
+        s.boss != null -> Color(0xFF8C3A3A).let { it to mix(it, black, 0.4f) }
+        s.blindName.startsWith("Big") -> mix(Balatro.OrangeTrue, black, 0.6f).let { it to mix(it, black, 0.4f) }
+        else -> Color(0xFF0068AD) to Color(0xFF0E4360)   // Small Blind (measured from the reference)
     }
 
-    // G.UIT.O blind sprite (1.5u x 1.5u after change_dim). When bitmap not yet loaded, a B spacer
-    // of the same size preserves the layout so nothing shifts when art arrives.
-    val blindO: UI = if (blindBmp != null)
-        O(Cfg(), Spr(blindBmp, 1.5f, 1.5f))
-    else
-        B(Cfg(minw = 1.5f, minh = 1.5f))
+    // G.UIT.O blind sprite (1.5u x 1.5u after change_dim). Fallback B spacer keeps layout identical.
+    val blindO: UI = if (blindBmp != null) O(Cfg(), Spr(blindBmp, 1.5f, 1.5f)) else B(Cfg(wCfg = 1.5f, hCfg = 1.5f))
+    // G.UIT.O stake sprite (config.w/h = 0.5, colour=BLUE). Same fallback.
+    val stakeO: UI = if (stakeBmp != null) O(Cfg(wCfg = 0.5f, hCfg = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
+                     else B(Cfg(wCfg = 0.5f, hCfg = 0.5f, colour = Balatro.Chips))
 
-    // G.UIT.O stake sprite (0.5u x 0.5u, colour=Chips tint). Same fallback pattern.
-    val stakeO: UI = if (stakeBmp != null)
-        O(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
-    else
-        B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips))
-
-    // Boss debuff lines exist only for boss blinds. On Small/Big blinds the source has empty strings
-    // here, but empty T("") nodes still render a line of text-height each — that was the gap under the
-    // blind name. So omit the debuff block entirely unless there's a boss description to show.
+    // Boss-only debuff lines; non-boss blinds have an empty debuff R (no text). Omit unless boss.
     val bossDesc = s.boss?.desc
     val debuffBlock: UI? = if (!bossDesc.isNullOrBlank())
-        R(Cfg(align = "cm", padding = 0.05f),
-            R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f),
-                T(Cfg(scale = 0.36f, textColour = light), bossDesc)))
+        R(Cfg(align = "cm"), R(Cfg(align = "cm", minh = 0.3f, maxw = 4.2f), T(Cfg(scale = 0.36f, textColour = light), bossDesc)))
     else null
 
-    // blind sprite + chip-target card (Score at least / target / reward)
-    val spriteScore: UI = R(Cfg(align = "cm", padding = 0.15f),
-        blindO,
-        C(Cfg(align = "cm", r = 0.1f, padding = 0.05f, emboss = 0.05f, minw = 2.9f, colour = panel),
-            R(Cfg(align = "cm", maxw = 2.8f),
-                T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
-            // stake sprite + 0.1u spacer + chip target (chipTargetScale springs in on ROUND start)
-            R(Cfg(align = "cm", minh = 0.6f),
-                stakeO,
-                B(Cfg(minw = 0.1f, minh = 0.1f)),
-                T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)),
-            // reward row — "Reward: " has NO shadow per source; DynaText has shadow=true
-            R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
-                T(Cfg(scale = 0.3f, textColour = light), "Reward: "),
-                O(Cfg(), DynaT(seg({ "\$${s.dollarsToBeEarned}" }, Balatro.Money, scale = 0.45f), shadow = true)))))
-
-    // body sizes to its content (no fixed minh) → no empty band under the name on non-boss blinds.
-    val body: UI = Ro(Cfg(align = "cm", r = 0.1f, colour = panel), listOfNotNull(debuffBlock, spriteScore))
-
-    return R(Cfg(align = "cm", minw = 4.5f, r = 0.1f, colour = panel, emboss = 0.05f, padding = 0.05f),
-        // ── name strip (G.C.DYN_UI.MAIN = panel) ──────────────────────────────
-        R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, colour = nameBg, emboss = 0.05f),
+    // create_UIBox_HUD_blind (UI_definitions.lua:1353), 1:1:
+    //   ROOT(minw=4.5, colour=BLACK, emboss=0.05, padding=0.05)
+    //     R(minh=0.7, colour=DYN_UI.MAIN)        — name strip (blue)
+    //     R(minh=2.74, colour=DYN_UI.DARK)       — body (dark blue): blind sprite + score inset(BLACK)
+    return R(Cfg(align = "cm", minw = 4.5f, r = 0.1f, colour = black, emboss = 0.05f, padding = 0.05f),
+        R(Cfg(align = "cm", minh = 0.7f, r = 0.1f, emboss = 0.05f, colour = mainCol),
             C(Cfg(align = "cm", minw = 3f),
                 O(Cfg(), DynaT(seg({ s.blindName }, light, scale = 0.64f), shadow = true)))),
-        body
+        Ro(Cfg(align = "cm", minh = 2.74f, r = 0.1f, colour = darkCol), listOfNotNull(
+            debuffBlock,
+            R(Cfg(align = "cm", padding = 0.15f),
+                blindO,
+                C(Cfg(align = "cm", r = 0.1f, padding = 0.05f, emboss = 0.05f, minw = 2.9f, colour = black),
+                    R(Cfg(align = "cm", maxw = 2.8f),
+                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
+                    R(Cfg(align = "cm", minh = 0.6f),
+                        stakeO,
+                        B(Cfg(wCfg = 0.1f, hCfg = 0.1f)),
+                        T(Cfg(scale = chipTargetScale, textColour = Balatro.Mult, shadow = true), s.chipText)),
+                    R(Cfg(align = "cm", minh = 0.45f, maxw = 2.8f),
+                        T(Cfg(scale = 0.3f, textColour = light), "Reward: "),
+                        // reward shown as repeated '$' (one per dollar), as in the real game ("$$$" for $3)
+                        O(Cfg(), DynaT(seg({ "$".repeat(s.dollarsToBeEarned.coerceIn(0, 8)) }, Balatro.Money, scale = 0.45f), shadow = true)))))
+        ))
     )
 }
 

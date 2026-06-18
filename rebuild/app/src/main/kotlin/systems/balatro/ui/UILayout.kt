@@ -247,6 +247,21 @@ fun RenderUIBoxAbsolute(
     }
 }
 
+/**
+ * Render a self-contained UIBox tree CENTRED in a given rect (units) — used for sub-boxes that the
+ * real game attaches separately (e.g. HUD_blind, which floats over the source-empty row_blind slot).
+ * Laid out at its natural size; no clip (the caller's box clips). Same exact layout engine.
+ */
+@Composable
+fun RenderUIBoxAt(root: UI, u: Float, rectX: Float, rectY: Float, rectW: Float, rectH: Float, fontRatio: Float = FONT_RATIO) {
+    val laid = layout(root)
+    val dx = rectX + (rectW - laid.w) / 2f
+    val dy = rectY + (rectH - laid.h) / 2f
+    val placed = ArrayList<Placed>()
+    flatten(laid, dx, dy, placed)
+    Box(Modifier) { for (p in placed) renderNode(p, u, fontRatio) }
+}
+
 /** row_blind is the single source-empty R reserved at minh=3.75 (the blind UIBox attaches separately). */
 private fun findRowBlind(n: LNode): LNode? {
     if (n.type == R && n.kids.isEmpty() && kotlin.math.abs(n.cfg.minh - 3.75f) < 0.01f) return n
