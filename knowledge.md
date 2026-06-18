@@ -444,3 +444,47 @@ Each joker fires in a specific context — `individual` (per scored card, cardar
 ### UI-reference extractor
 `tools/uiref/extract.lua` + `extract.sh` pull faithful layout/HUD values directly from the Lua source so the Kotlin HUD is data-driven rather than eyeballed.
 <!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:tools/uiref/extract.lua,tools/uiref/extract.sh | area:tools | date:2026-06-15 -->
+
+### Cryptid joker firing-context taxonomy
+The bulk of Cryptid epic/exotic/M and spooky/code jokers are *non-scoring* — they fire only on lifecycle/economy contexts (`selling_self`, `end_of_round`, `setting_blind`, `buying_card`, `using_consumeable`, `reroll_shop`, `add_to_deck`/`remove_from_deck`) and emit no chips/mult/xMult during `evaluate_play`. Only a minority map to `joker_main`/`individual`/`repetition` and produce an `Fx`. When porting, the first classification is scoring vs non-scoring; non-scoring jokers get an empty `kotlin` body.
+<!-- session:2026-06-16-63583927 | commit:770ae8918fadbefa882569c29f592280fa5cc34b | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+
+### Accumulator pattern for scaling jokers
+Scaling jokers store their current value in `card.ability.extra` fields (`mult`, `n`, `x`, `percent`) mutated via `SMODS.scale_card` in non-scoring contexts, then `joker_main` reads that accumulated value guarded by a threshold (e.g. `if (j.x > 1.0) xMultMod = j.x`). The engine models this by reading `j.x`/`j.mult`/`j.n` directly; the scaling increments themselves happen outside the scoring path. Examples: `j_cry_cut` (+0.5 xMult per Code card destroyed), `j_cry_python` (+0.15 xMult per Code consumable used), `j_cry_green_joker`-style mult accumulators.
+<!-- session:2026-06-16-63583927 | commit:770ae8918fadbefa882569c29f592280fa5cc34b | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+
+### Economy jokers use `calc_dollar_bonus`, not Fx
+Jokers like `j_cry_number_blocks`, `j_cry_goldjoker` accumulate a `money`/`percent` field via `SMODS.scale_card` during `individual` scoring, but pay out through `calc_dollar_bonus` at end of round — they produce no scoring `Fx` despite firing during `individual`.
+<!-- session:2026-06-16-63583927 | commit:770ae8918fadbefa882569c29f592280fa5cc34b | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+
+### Engine dispatch gaps
+Some Cryptid jokers can't be faithfully represented because the engine lacks the dispatch hook. `j_cry_spectrogram` and `j_cry_mstack`-adjacent retriggering rely on `context.retrigger_joker_check` (retrigger *other jokers* N times), which has no `Fx` analog. `j_cry_blacklist` zeroes `hand_chips`/`mult` as a global side-effect rather than returning an `Fx`. `j_cry_circus` reads per-rarity xMult from runtime `card.ability.extra` that `FJoker` has no field for (falls back to base config values — medium confidence). These were flagged rather than forced.
+<!-- session:2026-06-16-63583927 | commit:770ae8918fadbefa882569c29f592280fa5cc34b | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+
+### Two-branch joker scoring pattern
+Scaling Cryptid jokers follow a consistent shape in the Kotlin engine — an accumulator branch (e.g. `individual`, `before`, `selling_card`, `buying_card`) mutates `j.mult`/`j.x`/`j.chips`, and a `joker_main` read branch emits `Fx().apply { multMod/xMultMod/chipMod = ... }` guarded by `> 0`/`> 1`. Reference exemplars: `j_cry_krustytheclown` (mult), `j_cry_wee_fib` (mult), `j_cry_eternalflame` (xmult).
+<!-- session:2026-06-16-3d6357a8 | commit:c0519035010a8593d15910b499b7889c036167ab | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+
+### Fx class field gaps block several Cryptid jokers
+The engine's `Fx` class supports only `chipMod` (+chips), `multMod` (+mult), `xMultMod` (Xmult), and `repetitions`. Cryptid-specific effects can't be represented faithfully: `j_cry_big_cube` needs Xchip (chip multiplier, not flat chips), and `j_cry_happyhouse` needs Emult (exponential mult). These were left empty pending an engine extension rather than mis-mapped to chipMod.
+<!-- session:2026-06-16-3d6357a8 | commit:c0519035010a8593d15910b499b7889c036167ab | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+
+### Many Cryptid "jokers" have no scoring effect
+A large fraction are economy/utility jokers (Lucky Joker, Compound Interest, Booster, Pickle, Pot of Jokes, Queen's Gambit, Seal The Deal) that fire on non-scoring contexts (`end_of_round`, `skip_blind`, `buying_card`, `destroying_card`) and contribute no chips/mult/xmult — correctly producing empty Kotlin branches.
+<!-- session:2026-06-16-3d6357a8 | commit:c0519035010a8593d15910b499b7889c036167ab | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile--claude-worktrees-dp-head/480c94b5-aea2-4c07-b84d-fe02a3e8978c/workflows/scripts/cryptid-joker-parity-wf_ebf56ad9-315.js,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:.claude | date:2026-06-16 -->
+
+### External-state dependencies
+Some accumulators depend on per-round game state unavailable at engine call time — e.g. `j_cry_dropshot` needs `G.GAME.current_round.cry_dropshot_card.suit`. These require external state wiring beyond the scoring branch.
+<!-- session:2026-06-16-3d6357a8 | commit:c0519035010a8593d15910b499b7889c036167ab | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile--claude-worktrees-dp-head/480c94b5-aea2-4c07-b84d-fe02a3e8978c/workflows/scripts/cryptid-joker-parity-wf_ebf56ad9-315.js,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:.claude | date:2026-06-16 -->
+
+### Vanilla reference capture
+`test/ref-autorun.lua` boots the real LÖVE Balatro headless to a known state (SELECTING_HAND) and captures a screenshot to use as a pixel-diff target; the tutorial must be skipped to get a clean reference.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:test/ref-autorun.lua | area:test | date:2026-06-16 -->
+
+### Multi-lens visual diff
+A workflow ran 6 parallel "lens" agents (card rendering, felt/background, HUD sidebar embossing, typography/palette, buttons, overall composition) each producing ranked deltas with file:line fixes — an effective harness for grounding UI parity work against a reference image.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/rebuild-oracle-harness-headless.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,.claude/worktrees/dp-head/test/kt-oracle.sh,.claude/worktrees/dp-head/justfile,.claude/worktrees/dp-head/rebuild/port-notes/cryptid-jokers-translations.json | area:.claude | date:2026-06-16 -->
+
+### RunScreen parity levers
+card width (`cardWidth`), felt radial gradient center/edge colors, `UIBox` emboss alpha/width for chunky beveled panels, `Spring.kt` SpringHand height multiplier, and button `canPlay` logic all directly govern how close the play screen reads to real Balatro.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/Spring.kt | area:rebuild | date:2026-06-16 -->

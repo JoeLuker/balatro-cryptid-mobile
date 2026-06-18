@@ -116,3 +116,18 @@ File was modified across multiple consecutive turns — may indicate the AI stru
 ### Flame effect handler asserted without basis
 The assistant stated a "flame handler should be emitted" → developer challenged "why do you get to say that... how are we doing the flame effect?" → the flame/fire visual approach was not actually established, so emitting a handler for it was premature. Correct approach: determine the faithful flame rendering technique from the Lua source before asserting HUD handlers.
 <!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt | area:rebuild | date:2026-06-15 -->
+### Repeated modifications to .claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-16-3d6357a8 for the correct approach.
+<!-- session:2026-06-16-3d6357a8 | commit:c0519035010a8593d15910b499b7889c036167ab | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:.claude | date:2026-06-16 -->
+### Fidelity overclaim
+Prior memory/notes claimed the UI was a "faithful 1:1 port" and the game was "indistinguishable from the real thing" → developer corrected that it's nowhere close → memories updated to stop overclaiming and separate goal from achieved state.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:(memory: dont-overclaim-fidelity.md,rebuild-architecture-pivots.md) | date:2026-06-16 | rule:WHEN describing the remake NEVER call it "faithful"/"1:1"/"indistinguishable" — state it as aimed-at, not achieved -->
+### Home screen bleeding through play screen
+play screen showed the home screen in the background → RunScreen background/layering fixed.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-16 -->
+### Play/Discard buttons rendered grey (disabled)
+buttons showed muted/disabled colors instead of bold blue/red → an over-strict `canPlay` check (`cells.isNotEmpty()`) was disabling them even with cards selected → relax the canPlay condition.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-16 -->
+### Repeated modifications to /home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-16-9cbada53 for the correct approach.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md | area:memory | date:2026-06-16 -->

@@ -96,3 +96,15 @@ Developer repeatedly pressed "are you reusing the hud code EXACTLY?" → committ
 ### Sonnet fan-out for mechanical joker translation
 ~111 jokers needed Lua→Kotlin branch translation → ran a parallel Workflow of Sonnet agents (staggered to avoid rate limits) since most branches are mechanical pattern-application against a locked template, not novel design.
 <!-- session:2026-06-15-b057a023 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-15 | rule:WHEN fanning out mechanical port work ALWAYS tier sub-agents to Sonnet and stagger to respect rate limits. -->
+### Confidence-flagging for unrepresentable jokers
+Several jokers (`j_cry_circus`, `j_cry_spectrogram`) depend on runtime state or dispatch hooks the engine doesn't model → ported at the base-config approximation and explicitly marked medium-confidence rather than omitted or hacked (preserves Oracle-testable behavior for the common case without inventing engine features).
+<!-- session:2026-06-16-63583927 | commit:770ae8918fadbefa882569c29f592280fa5cc34b | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 -->
+### Don't mis-map unrepresentable effects
+Cryptid Xchip (`big_cube`) and Emult (`happyhouse`) effects → left as empty branches rather than approximating with `chipMod` (reasoning: a flat +6 chips is not X6 chips; faithful representation requires a new `Fx` field, and a wrong mapping is worse than an absent one).
+<!-- session:2026-06-16-3d6357a8 | commit:c0519035010a8593d15910b499b7889c036167ab | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-16 | rule:WHEN a Cryptid joker effect has no matching `Fx` field NEVER approximate it with a different field — leave the branch empty pending engine extension. -->
+### Hard pivot to visual parity
+UI was "good enough" functionally but unmotivating → developer mandated the UI must look just like Balatro before continuing, making pixel-perfect parity the active goal (motivation hinges on visual fidelity).
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-16 | rule:WHEN describing the rebuild ALWAYS separate the aimed-at goal (faithful 1:1) from achieved state (not yet faithful) -->
+### Reference-driven over eyeballing
+Rather than tuning UI by guesswork, capture a real vanilla Balatro screenshot and pixel-compare → adopted reference-capture + multi-lens diff workflow.
+<!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:test/ref-autorun.lua | area:test | date:2026-06-16 -->
