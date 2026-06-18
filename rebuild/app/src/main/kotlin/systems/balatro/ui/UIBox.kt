@@ -51,9 +51,11 @@ import androidx.compose.ui.unit.sp
 // ROOM_W/ROOM_H and uiScaleFor() for the fit math. Default is a sane fallback before the root sets it.
 val LocalUIScale = staticCompositionLocalOf { 32f }   // dp per Balatro UI unit (set at the root)
 
-// text sp per (unit × text-scale). Balatro text height ≈ 0.83×scale units; this ratio pairs the
-// pixel font to the box scale so text fills its boxes the same at any UIScale (resolution-independent).
-const val FONT_RATIO = 0.667f
+// fontSize (sp) per (unit × text-scale). Balatro loads m6x11plus at TILESIZE*10 with FONTSCALE=0.1,
+// so a text node's font line-height in UI units == its scale (getHeight*scale*FONTSCALE/TILESIZE =
+// scale·1.0). Thus fontSize should be exactly scale×u (ratio 1.0) — measured against the reference
+// ("40" digit 112px) confirms ~1.0, not the old eyeballed 0.667 (which rendered text ~1.5× too small).
+const val FONT_RATIO = 1.0f
 private const val TWO_PI = 6.2831855f   // float-bob period for DynaText idle juice
 
 // Balatro's virtual window in UI units: the room (TILE_W×TILE_H = 20×11.5) plus padding (1, 0.7) on

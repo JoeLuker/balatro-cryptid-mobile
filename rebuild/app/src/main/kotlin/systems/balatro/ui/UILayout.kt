@@ -205,6 +205,9 @@ private fun layout(root: UI): LNode {
 }
 
 // ── absolute renderer ───────────────────────────────────────────────────────────────────────────
+/** Emboss lip colour: the fill darkened ~40% (the shaded 3-D edge under a box). */
+private fun embossLip(c: Color) = Color(c.red * 0.6f, c.green * 0.6f, c.blue * 0.6f, c.alpha)
+
 /** A flattened node with its absolute rect (units) — pre-order so parents paint under children. */
 private class Placed(val node: LNode, val x: Float, val y: Float)
 
@@ -263,12 +266,16 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
     val at = Modifier.absoluteOffset((p.x * u).dp, (p.y * u).dp)
     when (n.type) {
         R, C, ROOT, B -> {
-            // container/box: paint fill (+ emboss lip) at the exact rect (no padding — layout consumed it)
+            // container/box: paint fill at the exact rect (no padding — layout consumed it). emboss is
+            // Balatro's 3-D lip: a DARKER rounded rect peeking out the bottom by `emboss` units, drawn
+            // BEHIND the full-size fill (an inset border instead shrank the fill ~10% vs the reference).
             if (cfg.colour != null && cfg.colour != Color.Transparent && n.w > 0 && n.h > 0) {
                 val shape = RoundedCornerShape((cfg.r * u).dp)
-                var m = at.requiredSize((n.w * u).dp, (n.h * u).dp)
-                if (cfg.emboss > 0) m = m.border((cfg.emboss * u).dp, Color.Black.copy(alpha = 0.35f), shape)
-                Box(m.clip(shape).background(cfg.colour))
+                if (cfg.emboss > 0f) {
+                    Box(at.requiredSize((n.w * u).dp, ((n.h + cfg.emboss) * u).dp).clip(shape)
+                        .background(embossLip(cfg.colour)))
+                }
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp).clip(shape).background(cfg.colour))
             }
         }
         T -> {
