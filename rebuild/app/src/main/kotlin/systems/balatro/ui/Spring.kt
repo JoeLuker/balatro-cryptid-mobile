@@ -3,6 +3,8 @@ package systems.balatro.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -156,6 +158,11 @@ fun SpringHand(
             sp.ty = (if (i in selected) -0.95f else 0f) + 0.5f * abs(d) / n - 0.2f +
                 0.026f * sin(0.666f * t + tx)                                       // + idle float
             sp.tr = 0.2f * d / n + 0.02f * sin(2f * t + tx)                          // fan + idle wobble
+            // tactile feel: the card grows while held (Balatro move_scale drag +0.1). Press state
+            // feeds the spring's `drag`, so the scale eases in/out with momentum instead of snapping.
+            val interaction = remember(i) { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            sp.drag = pressed
             val px = centerXpx + sp.vx * unit - cardWpx / 2f
             val py = (cardHpx * 0.55f) + sp.vy * unit
             Box(
@@ -166,7 +173,7 @@ fun SpringHand(
                         rotationZ = sp.vr * 57.2958f
                         scaleX = sp.vscale; scaleY = sp.vscale
                     }
-                    .clickable(enabled = enabled) { onToggle(i) }
+                    .clickable(interaction, indication = null, enabled = enabled) { onToggle(i) }
             ) { cardContent(card) }
         }
     }
