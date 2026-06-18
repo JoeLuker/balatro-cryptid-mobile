@@ -8,10 +8,18 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.sin
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +49,7 @@ val LocalUIScale = staticCompositionLocalOf { 32f }   // dp per Balatro UI unit 
 // text sp per (unit × text-scale). Balatro text height ≈ 0.83×scale units; this ratio pairs the
 // pixel font to the box scale so text fills its boxes the same at any UIScale (resolution-independent).
 const val FONT_RATIO = 0.667f
+private const val TWO_PI = 6.2831855f   // float-bob period for DynaText idle juice
 
 // Balatro's virtual window in UI units: the room (TILE_W×TILE_H = 20×11.5) plus padding (1, 0.7) on
 // each side (globals.lua/game.lua init_window). The whole game is this rect, fit into the surface.
@@ -234,17 +243,24 @@ private fun Modifier.objSize(cfg: Cfg, obj: Obj, u: Float): Modifier {
 private fun RenderDynaText(dt: DynaText) {
     val u = LocalUIScale.current
     val maxW = if (dt.maxw > 0) Modifier.widthIn(max = (dt.maxw * u).dp) else Modifier
+    // Balatro DynaText floats: every dynamic readout perpetually bobs (text.lua:287, the float pass,
+    // 2.666 rad/s, phase-offset per letter so the value ripples). The numbers are never dead-static.
+    val phase by rememberInfiniteTransition(label = "dyna").animateFloat(
+        0f, TWO_PI, infiniteRepeatable(tween(2357, easing = LinearEasing), RepeatMode.Restart), label = "floatPhase")
+    val amp = with(LocalDensity.current) { (0.06f * u).dp.toPx() }
     Row(maxW, verticalAlignment = Alignment.CenterVertically) {
-        dt.segs.forEach { s ->
+        dt.segs.forEachIndexed { i, s ->
             val text = s.value()                    // live read -> recomposes on RunState change
             val size = (s.scale * u * FONT_RATIO).sp
-            if (dt.shadow) {
-                Box {
-                    BTxt(text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
+            Box(Modifier.graphicsLayer { translationY = amp * sin(phase + i * 0.7f) }) {  // perpetual float
+                if (dt.shadow) {
+                    Box {
+                        BTxt(text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
+                        BTxt(text, s.colour, size)
+                    }
+                } else {
                     BTxt(text, s.colour, size)
                 }
-            } else {
-                BTxt(text, s.colour, size)
             }
         }
     }

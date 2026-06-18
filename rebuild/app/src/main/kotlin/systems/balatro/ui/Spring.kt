@@ -141,16 +141,21 @@ fun SpringHand(
         val wu = areaW / cardWpx
         val maxCards = maxOf(n, handLimit)
         val denom = maxOf(maxCards - 1, 1).toFloat()
-        frame.let {}                                // read frame -> recompose each tick
+        val t = frame / 1e9f                        // read frame -> recompose each tick; seconds for the idle juice
         hand.forEachIndexed { i, card ->
             val d = i - (n - 1) / 2f
             val frac = i / denom - 0.5f * (n - maxCards) / denom        // align_cards fraction (0..1)
             val tx = 1.8f * (wu - 1f) * (frac - 0.5f)
             val sp = springs.getOrPut(i) { BalatroSpring(tx, 0f) }
             sp.tx = tx
-            // arc + rotation already match align_cards: rotation 0.2*d/n (~±5° at edges), gentle V arc.
-            sp.ty = (if (i in selected) -0.95f else 0f) + 0.5f * abs(d) / n - 0.2f   // arc + select lift
-            sp.tr = 0.2f * d / n                                                     // gentle fan, normalized
+            // Balatro align_cards (cardarea.lua:54): the hand is NEVER still — each card perpetually
+            // floats (0.03·sin(0.666·t + x)) and rotation-wobbles (0.02·sin(2·t + x)), phase-offset by
+            // the card's x so the row ripples. The spring tracks the moving target → continuous gentle
+            // motion (the bob is 0.03 room-units ≈ 0.026 in the spring's 1.8u-per-card space). Plus the
+            // static arc (gentle V) + select lift + fan, which already matched.
+            sp.ty = (if (i in selected) -0.95f else 0f) + 0.5f * abs(d) / n - 0.2f +
+                0.026f * sin(0.666f * t + tx)                                       // + idle float
+            sp.tr = 0.2f * d / n + 0.02f * sin(2f * t + tx)                          // fan + idle wobble
             val px = centerXpx + sp.vx * unit - cardWpx / 2f
             val py = (cardHpx * 0.55f) + sp.vy * unit
             Box(
