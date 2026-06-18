@@ -1065,11 +1065,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // count labels in the run HUD and empty slots are invisible, so this is just the held cards.
         // (The rebuild auto-applies consumables, so none are ever held → the consumable area is empty.)
         Row(Modifier.fillMaxWidth().padding(top = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
-            s.owned.forEach { o ->
-                jokerCells[o.offer.key]?.let {
-                    Image(it, o.offer.name, Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH),
-                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                } ?: Box(Modifier.padding(horizontal = (0.04f * u).dp).size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+            s.owned.forEachIndexed { i, o ->
+                // jokers float/wobble like cards (G.jokers is a CardArea — same align_cards idle juice)
+                BalatroFloat(seed = i * 0.7f, modifier = Modifier.padding(horizontal = (0.04f * u).dp)) {
+                    jokerCells[o.offer.key]?.let {
+                        Image(it, o.offer.name, Modifier.size(cardW, cardH),
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                }
             }
         }
 

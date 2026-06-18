@@ -239,6 +239,24 @@ private fun Modifier.objSize(cfg: Cfg, obj: Obj, u: Float): Modifier {
  * (reading RunState's mutableStateOf inside it makes Compose recompose on change — no polling).
  * shadow draws the black 0.3a parallax pass under each segment, matching draw_self's text shadow.
  */
+/**
+ * Balatro idle "juice" — wrap any sprite (joker, consumable, deck card) so it perpetually floats and
+ * rotation-wobbles like a Card in a CardArea (align_cards: 0.06u·sin(t) bob, ±1.3° wobble at 2×). One
+ * infinite transition drives both (sin(p) and sin(2p) are both seamless at p=2π). `seed` phase-offsets
+ * each item so a row ripples instead of moving in lockstep.
+ */
+@Composable
+fun BalatroFloat(seed: Float, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val u = LocalUIScale.current
+    val phase by rememberInfiniteTransition(label = "flt").animateFloat(
+        0f, TWO_PI, infiniteRepeatable(tween(9430, easing = LinearEasing), RepeatMode.Restart), label = "fltp")
+    val ampY = with(LocalDensity.current) { (0.06f * u).dp.toPx() }
+    Box(modifier.graphicsLayer {
+        translationY = ampY * sin(phase + seed)
+        rotationZ = 1.3f * sin(2f * phase + seed)
+    }) { content() }
+}
+
 @Composable
 private fun RenderDynaText(dt: DynaText) {
     val u = LocalUIScale.current
