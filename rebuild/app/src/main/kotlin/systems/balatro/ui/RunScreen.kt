@@ -636,10 +636,11 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     // game positions G.HUD ('cli'). No fit-to-height shrink.
                     Box(
                         // Balatro attaches G.HUD with align='cli', offset={x=-0.7} to the play area
-                        // (ROOM_ATTACH left = roomTx): HUD left edge = roomTx - 0.765 (the -0.7 attach
-                        // offset, +0.065 for the HUD's emboss/padding, matched to the reference's panel-
-                        // left). Tracks the room horizontally so it's correct under pillarboxing too.
-                        Modifier.fillMaxHeight().absoluteOffset(x = ((roomTx - 0.765f) * u).dp),
+                        // (ROOM_ATTACH left = roomTx): HUD left edge = roomTx - 0.7. (The earlier -0.765
+                        // fudge over-corrected to a fuzzy panel-left read and left the HUD ~8-11px LEFT
+                        // of the reference — confirmed by an empirical shift search.) Tracks the room
+                        // horizontally so it's correct under pillarboxing too.
+                        Modifier.fillMaxHeight().absoluteOffset(x = ((roomTx - 0.7f) * u).dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         HudColumn(s, Modifier, stakeBmp)
