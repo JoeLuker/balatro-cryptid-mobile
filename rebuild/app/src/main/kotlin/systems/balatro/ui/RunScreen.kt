@@ -571,13 +571,15 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // Balatro's real paint-swirl felt (background.fs ported to AGSL), full-bleed behind
         // everything — the moving green felt, not a static gradient. Gradient fallback below API 33.
         BalatroFelt(Modifier.matchParentSize())
-        // Balatro fits its virtual room (22×12.9u) into the live window every resize; we derive the
-        // dp-per-unit from THIS surface (density-correct, any display/stream) and centre a room-sized
-        // box, felt filling the letterbox — same result as the game's love.resize, done in Compose.
+        // Scale: dp-per-unit fitting the room into the live surface (density/resolution-correct).
+        // Layout: Balatro pins the HUD to the screen's LEFT edge and the play field fills to the RIGHT
+        // edge — it does NOT centre a letterboxed room with felt bars on both sides. So fill the full
+        // surface WIDTH (no side margins); height is the room (12.9u) centred vertically (felt top/bottom
+        // only when the surface is narrower than the design aspect).
         val u = uiScaleFor(maxWidth.value, maxHeight.value)
         CompositionLocalProvider(LocalUIScale provides u) {
             Box(
-                Modifier.size((ROOM_W * u).dp, (ROOM_H * u).dp).align(Alignment.Center)
+                Modifier.fillMaxWidth().height((ROOM_H * u).dp).align(Alignment.Center)
             ) {
                 Row(Modifier.fillMaxSize()) {
                     // Balatro's left sidebar: the REAL create_UIBox_HUD tree at the room scale. Its
@@ -1064,21 +1066,32 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // right of the jokers — exactly set_screen_positions (common_events.lua). Balatro shows NO
         // count labels in the run HUD and empty slots are invisible, so this is just the held cards.
         // (The rebuild auto-applies consumables, so none are ever held → the consumable area is empty.)
+        // Top: jokers (left, with the N/5 slot count) + consumables count N/2 (top-right). Balatro DOES
+        // show these slot counts in the run HUD (they're on the card-area corners) — confirmed against
+        // a real play screenshot. Jokers float/wobble (G.jokers CardArea idle juice).
         Row(Modifier.fillMaxWidth().padding(top = (0.1f * u).dp), verticalAlignment = Alignment.Top) {
-            s.owned.forEachIndexed { i, o ->
-                // jokers float/wobble like cards (G.jokers is a CardArea — same align_cards idle juice)
-                BalatroFloat(seed = i * 0.7f, modifier = Modifier.padding(horizontal = (0.04f * u).dp)) {
-                    jokerCells[o.offer.key]?.let {
-                        Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                    } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+            Column(horizontalAlignment = Alignment.Start) {
+                BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp, bottom = (0.03f * u).dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    s.owned.forEachIndexed { i, o ->
+                        BalatroFloat(seed = i * 0.7f, modifier = Modifier.padding(horizontal = (0.04f * u).dp)) {
+                            jokerCells[o.offer.key]?.let {
+                                Image(it, o.offer.name, Modifier.size(cardW, cardH),
+                                    contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                            } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                        }
+                    }
                 }
             }
+            Spacer(Modifier.weight(1f))
+            BTxt("0/2", Balatro.White, countSp, Modifier.padding(end = (0.05f * u).dp))
         }
 
         // The played-cards area (G.play) sits JUST ABOVE the hand (play.y = hand.y − 3.6), not in the
         // dead centre — so bottom-align it with a small lift, not vertical-centre. Empty until played.
-        Box(Modifier.fillMaxWidth().weight(1f).padding(bottom = (0.6f * u).dp), contentAlignment = Alignment.BottomCenter) {
+        // Played cards (G.play) sit in the upper-middle of the play field (play.y = hand.y − 3.6 ≈ 46%
+        // height), NOT just above the hand — vertically centred in the area between jokers and hand.
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             if (s.scoring) ScoredCardsRow(s, cells, cardBase)
         }
 
@@ -1097,6 +1110,8 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     }
                 }
             }
+            // hand-size count under the hand (G.hand area count, e.g. 4/8) — shown in the real HUD.
+            BTxt("${s.hand.size}/8", Balatro.White, countSp, Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally))
             Spacer(Modifier.height(4.dp))
             // Balatro's create_UIBox_buttons: play (left), sort cluster (centre), discard (right).
             // Guards map to config.func='can_play'/'can_discard': onClick=null disables the button.
