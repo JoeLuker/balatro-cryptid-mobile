@@ -111,9 +111,12 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         "chips_text" -> { { s.chipsText } }   // dollars_chips round-score readout
         "chip_text" -> { { s.chipText2 } }
         "mult_text" -> { { s.multText } }
+        // hand name, played-hand chip total, and level share one row (hand_text_area top). They're
+        // separate nodes with no inter-node padding in the source, so space them in the text itself
+        // ("High Card  75  lvl.1") instead of jamming ("High Card75Lv1").
         "handname_text" -> { { s.handNameText } }
-        "chip_total_text" -> { { s.chipTotalText } }
-        "hand_level" -> { { if (s.currentHandLevel > 0) "Lv${s.currentHandLevel}" else "" } }
+        "chip_total_text" -> { { s.chipTotalText.let { if (it.isBlank()) "" else "  $it" } } }
+        "hand_level" -> { { if (s.currentHandLevel > 0) "  lvl.${s.currentHandLevel}" else "" } }
         else -> { { "" } }
     }
 
