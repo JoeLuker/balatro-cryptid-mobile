@@ -1,6 +1,7 @@
 package systems.balatro.engine
 
 import kotlin.math.abs
+import kotlin.math.floor
 
 /**
  * Standalone verification for the P0 spine root (GameClock + Event/EventManager). Pure logic, no
@@ -202,6 +203,17 @@ fun main() {
             check("cascade step2→commit gap ≈0.75 (+0.30 trailing,+0.45 commit,+frames)", (tc - t2) in 0.74..0.85, "gap=${tc - t2}")
         }
         check("cascade queue drained", em.pending() == 0)
+    }
+
+    // 13. floor-ease (ease_chips): the readout counts UP to the target in integer steps over 0.3s.
+    run {
+        val c = GameClock(); val em = EventManager(c)
+        var v = 40.0; var allInt = true; var sawMid = false
+        em.addEvent(Event(trigger = "ease", delay = 0.3,
+            ease = EaseSpec(get = { v }, set = { v = it }, easeTo = 88.0), easeFunc = { floor(it) }))
+        repeat(30) { c.advance(DT); em.update(DT); if (v != floor(v)) allInt = false; if (v > 40.0 && v < 88.0) sawMid = true }
+        check("floor-ease reached integer target", v == 88.0, "v=$v")
+        check("floor-ease stayed integer (counts up)", allInt && sawMid)
     }
 
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")

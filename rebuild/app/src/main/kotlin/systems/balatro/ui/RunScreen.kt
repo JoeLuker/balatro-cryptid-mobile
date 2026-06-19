@@ -39,8 +39,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.content.Edition
+import systems.balatro.engine.EaseSpec
 import systems.balatro.engine.EngineHost
 import systems.balatro.engine.Event
+import kotlin.math.floor
 import systems.balatro.game.*
 
 /**
@@ -1166,9 +1168,21 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // (repro freezes the scored frame — no cascade/commit.)
     LaunchedEffect(s.scoring) {
         if (s.scoring && !s.repro) {
-            s.scoreStep(0)
+            s.scoreStep(0)                                          // base readout (the starting value)
             for (i in 1 until s.lastSteps.size) {
-                host.events.addEvent(Event(trigger = "after", delay = if (i == 1) 0.14 else 0.30, func = { s.scoreStep(i); true }))
+                val step = s.lastSteps[i]
+                host.events.addEvent(Event(trigger = "after", delay = if (i == 1) 0.14 else 0.30, func = {
+                    s.popIndex = i - 1                              // pop the scored card
+                    // ease_chips/ease_mult (common_events.lua): the readout COUNTS UP to this step's
+                    // value over 0.3s instead of jumping. Non-blocking so the cascade keeps marching;
+                    // chips floor to integers (ease_chips uses math.floor), mult stays fractional.
+                    host.events.addEvent(Event(trigger = "ease", delay = 0.3, blocking = false,
+                        ease = EaseSpec(get = { s.displayChips }, set = { s.displayChips = it }, easeTo = step.chips),
+                        easeFunc = { floor(it) }))
+                    host.events.addEvent(Event(trigger = "ease", delay = 0.3, blocking = false,
+                        ease = EaseSpec(get = { s.displayMult }, set = { s.displayMult = it }, easeTo = step.mult)))
+                    true
+                }))
             }
             host.events.addEvent(Event(trigger = "after", delay = 0.30, func = { true }))          // trailing post-step gap
             host.events.addEvent(Event(trigger = "after", delay = 0.45, func = { s.scoreCommit(); true }))
