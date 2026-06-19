@@ -76,8 +76,10 @@ love.update = function(dt, ...)
         if elapsed - at('SELECTING_HAND') >= 3.0 then
             print('CPS: ==== DUMP A (settled SELECTING_HAND — resting hand) ====')
             pcall(dump_positions)
+            -- play ONE card (always a valid High Card) so the OTHER hand cards stay un-highlighted —
+            -- a clean non-highlighted scoring-frame hand (the earlier 4-card play left stuck highlights).
             local ok, err = pcall(function()
-                for i = 1, math.min(4, #G.hand.cards) do G.hand:add_to_highlighted(G.hand.cards[i]) end
+                G.hand:add_to_highlighted(G.hand.cards[1])
                 G.FUNCS.play_cards_from_highlighted()
             end)
             print('CPS: play ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))))
@@ -85,17 +87,19 @@ love.update = function(dt, ...)
         end
     end
 
-    -- scoring animates after play (state leaves SELECTING_HAND) -> let the played cards lift, then
-    -- dump the SCORING frame (this is the state bref_3 captured: hand + lifted played cards).
+    -- scoring animates after play (state leaves SELECTING_HAND). Clear any residual highlight, let
+    -- align_cards re-settle the non-highlighted hand, then dump the clean SCORING frame.
     if phase == 'playing' and G and G.STATE ~= G.STATES.SELECTING_HAND then
         mark('SCORING')
-        if elapsed - at('SCORING') >= 0.6 then
-            print('CPS: ==== DUMP B (scoring frame — state=' .. tostring(G.STATE) .. ') ====')
-            pcall(dump_positions)
-            print('CPS: PASS')
-            phase = 'done'
-            love.event.quit(0)
-        end
+        pcall(function() if G.hand.unhighlight_all then G.hand:unhighlight_all() end end)
+        phase = 'scoring_settle'
+    end
+    if phase == 'scoring_settle' and elapsed - at('SCORING') >= 0.5 then
+        print('CPS: ==== DUMP B (clean scoring frame — state=' .. tostring(G.STATE) .. ') ====')
+        pcall(dump_positions)
+        print('CPS: PASS')
+        phase = 'done'
+        love.event.quit(0)
     end
 
     if phase ~= 'done' and elapsed > BOOT_BUDGET then
