@@ -84,7 +84,7 @@ Status legend: ☐ todo · ◐ in progress · ☑ done (verified).
 - **Accept:** a Moveable's VT lerps to T with the exact constants; HUD stays 80/80 once it becomes
   Moveable-driven (the `tools/uiref`/`verify_layout.py` rest-geometry gate).
 
-### P0-T7 ViewportTransform + RoomAndStageObjects — UPGRADE — ☐
+### P0-T7 ViewportTransform + RoomAndStageObjects — ☑ (engine/Room.kt; HUD still reads PF — wiring is the rewire)
 - **Source:** `game.lua` `love.resize`/room transform; `set_screen_positions` (`functions/common_events.lua`).
 - **Depends on:** P0-T3, P0-T6.
 - **Target:** `engine/Room.kt` (+ fold `ui/UIBox.kt`'s `uiScaleFor`).

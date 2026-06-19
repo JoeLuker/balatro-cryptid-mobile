@@ -135,6 +135,38 @@ fun main() {
         check("flush compacts removed", scene.moveables.size == before - 1 && scene.moveables.contains(b), "size=${scene.moveables.size}")
     }
 
+    // 9. set_screen_positions DERIVES the play-field origins from TILE_W/TILE_H + CAI dims — the PF.*
+    //    constants are no longer measured but computed (closes the curve-fit debt).
+    run {
+        val hd = Room.hand; val j = Room.jokers; val cs = Room.consumeables
+        val pl = Room.play; val ck = Room.deck
+        check("hand.x derived = PF.HAND_X (4.8573)", abs(hd.x - 4.8573) < 1e-3, "hand.x=${hd.x}")
+        check("hand.y derived = PF.HAND_Y (8.8863)", abs(hd.y - 8.8863) < 1e-3, "hand.y=${hd.y}")
+        check("jokers.x derived = PF.JOKERS_X (4.7573)", abs(j.x - 4.7573) < 1e-3, "jokers.x=${j.x}")
+        check("joker width derived = PF.JOKER_W (10.039)", abs(j.w - 10.039) < 1e-3, "joker_W=${j.w}")
+        check("consum.x derived = PF.CONSUM_X (14.9963)", abs(cs.x - 14.9963) < 1e-3, "consum.x=${cs.x}")
+        check("play.x derived = PF.PLAY_X (5.5744)", abs(pl.x - 5.5744) < 1e-3, "play.x=${pl.x}")
+        check("play.y derived = PF.PLAY_RESTING_Y (5.2863)", abs(pl.y - 5.2863) < 1e-3, "play.y=${pl.y}")
+        check("deck.x derived = PF.DECK_X (17.2463)", abs(ck.x - 17.2463) < 1e-3, "deck.x=${ck.x}")
+        // EXPOSED curve-fit error: measured PF.DECK_Y=8.8953, but set_screen_positions gives
+        // TILE_H - deck_H = hand.y = 8.8863. The derived value is engine-true; 8.8953 was a ~0.009u
+        // measurement error in the hand-tuned constant.
+        check("deck.y derived = hand.y, NOT measured 8.8953", abs(ck.y - hd.y) < 1e-9 && abs(ck.y - 8.8863) < 1e-3,
+            "deck.y=${ck.y} (PF.DECK_Y was 8.8953 — off by ${"%.4f".format(8.8953 - ck.y)}u)")
+    }
+
+    // 10. Faithful love.resize (the live-play transform): width-constrained when the surface is
+    //     narrower than the room ratio (22/12.9≈1.705), else height-constrained. (The bref_3 repro
+    //     path FORCES width-constrain to match that press-kit capture — a fixture, not this transform.)
+    run {
+        val tall = Room.transform(1080.0, 2400.0)            // phone portrait, 0.45 < 1.705 → width-fit
+        check("tall surface width-constrained (u=W/22)", abs(tall.u - 1080.0 / 22.0) < 1e-9, "u=${tall.u}")
+        check("tall surface originX = ROOM_PADDING_W", abs(tall.originX - 1.0) < 1e-9, "tx=${tall.originX}")
+        val wide = Room.transform(3840.0, 2160.0)            // 16:9, 1.778 > 1.705 → height-fit
+        check("wide 16:9 height-constrained (u=H/12.9)", abs(wide.u - 2160.0 / 12.9) < 1e-6, "u=${wide.u}")
+        check("wide surface originY = ROOM_PADDING_H", abs(wide.originY - 0.7) < 1e-9, "ty=${wide.originY}")
+    }
+
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
 }

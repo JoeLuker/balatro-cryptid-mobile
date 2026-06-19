@@ -1222,7 +1222,10 @@ private object PF {
     const val PLAY_SCORING_Y = 3.7925f          // cards lifted while scoring (bref_3 frozen frame)
     const val HAND_X = 4.8573f;  const val HAND_Y = 8.8863f; const val HAND_W = 12.2927f  // TILE_W-w-2.85 ; TILE_H-h
     const val HAND_SPRING_OFFSET = 1.4f          // SpringHand card-top resting offset below its box top
-    const val DECK_X = 17.2463f; const val DECK_Y = 8.8953f; const val DECK_W = 2.2537f   // TILE_W - w - 0.5
+    // DECK_Y corrected 8.8953 -> 8.8863: set_screen_positions gives deck.y = TILE_H - deck_H = hand.y
+    // (deck_H == hand_H == 0.95*CARD_H). The old value was a ~0.009u measurement error that the Room
+    // derivation (engine/Room.kt, P0-T7) exposed; origins move to Room as the source of truth in the rewire.
+    const val DECK_X = 17.2463f; const val DECK_Y = 8.8863f; const val DECK_W = 2.2537f   // TILE_W - w - 0.5
 }
 
 /**
