@@ -70,11 +70,27 @@ love.update = function(dt, ...)
         end
     end
 
-    -- at SELECTING_HAND with cards dealt -> let it settle, then dump the real transforms
+    -- at SELECTING_HAND with cards dealt -> dump the RESTING hand, then PLAY a hand to reach scoring
     if phase == 'selecting' and G and G.STATE == G.STATES.SELECTING_HAND and G.hand and #G.hand.cards > 0 then
         mark('SELECTING_HAND')
         if elapsed - at('SELECTING_HAND') >= 3.0 then
-            print('CPS: ==== DUMP (settled SELECTING_HAND) ====')
+            print('CPS: ==== DUMP A (settled SELECTING_HAND — resting hand) ====')
+            pcall(dump_positions)
+            local ok, err = pcall(function()
+                for i = 1, math.min(4, #G.hand.cards) do G.hand:add_to_highlighted(G.hand.cards[i]) end
+                G.FUNCS.play_cards_from_highlighted()
+            end)
+            print('CPS: play ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))))
+            phase = 'playing'
+        end
+    end
+
+    -- scoring animates after play (state leaves SELECTING_HAND) -> let the played cards lift, then
+    -- dump the SCORING frame (this is the state bref_3 captured: hand + lifted played cards).
+    if phase == 'playing' and G and G.STATE ~= G.STATES.SELECTING_HAND then
+        mark('SCORING')
+        if elapsed - at('SCORING') >= 0.6 then
+            print('CPS: ==== DUMP B (scoring frame — state=' .. tostring(G.STATE) .. ') ====')
             pcall(dump_positions)
             print('CPS: PASS')
             phase = 'done'
