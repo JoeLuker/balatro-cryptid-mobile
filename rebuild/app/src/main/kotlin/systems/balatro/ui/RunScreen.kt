@@ -1135,13 +1135,26 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // (the derived Room origin) at rest, so the play field is pixel-identical to the old static PF.*
     // placement, but is now engine-driven and can spring once something moves an area's T.
     val host = remember { EngineHost() }
+    val frame = remember { mutableStateOf(0L) }    // bumped each engine tick → redraw cards at their VT
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
             withFrameNanos { now ->
                 val dt = if (last == 0L) 1.0 / 60.0 else ((now - last) / 1e9).coerceIn(1e-4, 0.05)
                 last = now
-                host.tick(dt, paused = s.repro)   // repro freezes game time; static areas are a no-op either way
+                // The engine always RUNS (cards spring to rest); repro only freezes the idle wobble
+                // (reducedMotion) — not movement — so cards still settle to their resting T for the
+                // parity screenshot. (Pausing move() would strand cards at their spawn point.)
+                val frozen = s.repro
+                // MainUpdateLoop body (game.lua Game:update order): advance clock → align card areas
+                // (CardArea:update) → drain events → sweep every Moveable's move → flush removals.
+                host.clock.advance(dt, reducedMotion = frozen)
+                if (host.jokers.cards.size != s.owned.size) host.jokers.setCardCount(s.owned.size)
+                host.jokers.alignCards(host.clock, reducedMotion = frozen)
+                host.events.update(dt)
+                for (m in host.scene.moveables) m.move(host.clock)
+                host.scene.flushRemovals()
+                frame.value = now
             }
         }
     }
@@ -1152,33 +1165,26 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val consumX = host.consumeables.VT.x.toFloat()
 
     Box(Modifier.fillMaxSize()) {
-        // ── JOKERS (G.jokers): cards distributed across the area by align_cards (cardarea.lua:565
-        // joker branch). The 2-card, non-consumeables case spreads each card at
-        // x = area.x + (area.w - card_w)·((k-0.5)/n); a subtle fan rotation r = 0.1·(-n/2-0.5+k)/n
-        // tilts the first card CCW and the last CW. Cards sit (joker_H-card_h)/2 above the area top.
-        // The N/5 slot count sits BELOW the area corner, not above — matching the real game.
-        val nj = s.owned.size
+        // ── JOKERS (G.jokers): each joker is an engine Moveable (a Card IS a Moveable) owned by the
+        // host's joker CardArea. align_cards (cardarea.lua:565) sets each card's target T (spread +
+        // fan + idle wobble) in the loop above; move() springs VT toward it; here we just draw at VT.
+        // This retires the old ad-hoc BalatroFloat sine — jokers now lean/settle through the engine.
+        // (repro freezes the wobble, so VT==T==the spread slot → pixel-identical to the static render.)
+        frame.value.let {}    // subscribe to the engine tick so the cards redraw at their new VT each frame
         s.owned.forEachIndexed { i, o ->
-            val k = i + 1
-            val dx = when {
-                nj > 2 -> (PF.JOKER_W - PF.CARD_W) * ((k - 1f) / (nj - 1f))
-                nj > 1 -> (PF.JOKER_W - PF.CARD_W) * ((k - 0.5f) / nj)
-                else   -> PF.JOKER_W / 2f - PF.CARD_W / 2f
-            }
-            val rDeg = 0.1f * (-nj / 2f - 0.5f + k) / nj * 57.29578f
-            Box(off(jokersX + dx, jokersY + PF.JOKER_DY)) {
-                BalatroFloat(seed = i * 0.7f) {
-                    Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
-                        jokerCells[o.offer.key]?.let {
-                            // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
-                            Image(it, null, Modifier.size(cardW, cardH)
-                                .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
-                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
-                                colorFilter = ColorFilter.tint(Color.Black))
-                            Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                        } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
-                    }
+            val m = host.jokers.cards.getOrNull(i) ?: return@forEachIndexed
+            val rDeg = (m.VT.r * 57.2958).toFloat()
+            Box(off(m.VT.x.toFloat(), m.VT.y.toFloat())) {
+                Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
+                    jokerCells[o.offer.key]?.let {
+                        // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
+                        Image(it, null, Modifier.size(cardW, cardH)
+                            .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
+                            colorFilter = ColorFilter.tint(Color.Black))
+                        Image(it, o.offer.name, Modifier.size(cardW, cardH),
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
                 }
             }
         }
@@ -1235,9 +1241,6 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
  */
 private object PF {
     const val CARD_W = 2.04878f; const val CARD_H = 2.75122f
-    const val JOKER_W = 4.9f * CARD_W                               // CAI.joker_W = 4.9·G.CARD_W (area width)
-    const val JOKER_H = 0.95f * CARD_H                              // CAI.joker_H = 0.95·G.CARD_H
-    const val JOKER_DY = (JOKER_H - CARD_H) / 2f                    // card sits centred in the shorter area (≈ -0.069u)
     const val PLAY_W = 10.8585f                                     // CAI.play_W = 5.3·G.CARD_W
     const val PLAY_SCORING_Y = 3.7925f          // cards lifted while scoring (bref_3 frozen frame — a repro fixture)
     const val HAND_W = 12.2927f                                     // CAI.hand_W = 6·G.CARD_W

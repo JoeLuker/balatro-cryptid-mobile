@@ -70,7 +70,7 @@ Status legend: ☐ todo · ◐ in progress · ☑ done (verified).
   `draw`/`set_container`/`remove`; `add_to_drawhash` z-sort hook.
 - **Accept:** recursive remove detaches subtree; draw order stable.
 
-### P0-T6 Moveable — UPGRADE of `ui/Spring.kt` — ◐ (class ported + verified; play-field AREAS now Moveable-driven; card-level conversion next)
+### P0-T6 Moveable — UPGRADE of `ui/Spring.kt` — ◐ (class + areas + JOKER cards engine-driven via CardArea; hand cards next)
 - **Source:** `engine/moveable.lua` (`move`, `move_xy`/`move_r`/`move_scale`/`move_juice`, `juice_up`,
   RoleHierarchy `get_major`, AlignmentSystem, ShadowParallax).
 - **Depends on:** P0-T1 (clock/exp_times/move_dt), P0-T3 (Transform), P0-T5 (scene graph).

@@ -167,6 +167,21 @@ fun main() {
         check("wide surface originY = ROOM_PADDING_H", abs(wide.originY - 0.7) < 1e-9, "ty=${wide.originY}")
     }
 
+    // 11. CardArea joker branch lays out 2 jokers at the align_cards spread + fan (matches the render).
+    run {
+        val scene = SceneRegistry(); val c = GameClock()
+        val area = CardArea(scene, Transform(Room.jokers.x, Room.jokers.y, Room.jokers.w, Room.jokers.h), "joker", 5)
+        area.setCardCount(2)
+        area.alignCards(c, reducedMotion = true)
+        val a = area.cards[0].T; val b = area.cards[1].T
+        check("joker0 spread x = 6.7549", abs(a.x - 6.7549) < 1e-3, "x0=${a.x}")
+        check("joker1 spread x = 10.7499", abs(b.x - 10.7499) < 1e-3, "x1=${b.x}")
+        check("joker fan r (CCW / CW)", abs(a.r + 0.025) < 1e-9 && abs(b.r - 0.025) < 1e-9, "r0=${a.r} r1=${b.r}")
+        check("joker y centred in shorter area", abs(a.y - (0.95 * Room.CARD_H - Room.CARD_H) / 2) < 1e-9, "y=${a.y}")
+        area.setCardCount(0)
+        check("setCardCount(0) deregisters cards", area.cards.isEmpty())
+    }
+
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
 }

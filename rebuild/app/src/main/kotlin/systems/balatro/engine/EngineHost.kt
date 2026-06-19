@@ -18,16 +18,19 @@ class EngineHost {
     val scene = SceneRegistry()
     val events = EventManager(clock)
 
-    // The six RUN-stage card areas (set_screen_positions). Major Moveables whose T is the derived
-    // ROOM_ATTACH-frame origin; the render applies the device room transform (roomTx/roomTy·u) on top.
-    val jokers = areaMoveable(Room.jokers)
-    val hand = areaMoveable(Room.hand)
+    // The RUN-stage card areas (set_screen_positions). Their T is the derived ROOM_ATTACH-frame
+    // origin; the render applies the device room transform (roomTx/roomTy·u) on top. The areas that
+    // hold spread cards are CardAreas (own card Moveables + align_cards); the rest are plain anchors.
+    val jokers = cardArea(Room.jokers, "joker", 5)
+    val consumeables = cardArea(Room.consumeables, "joker", 2, isConsumeables = true)
+    val hand = cardArea(Room.hand, "hand", 8)
     val play = areaMoveable(Room.play)
     val deck = areaMoveable(Room.deck)
-    val consumeables = areaMoveable(Room.consumeables)
     val discard = areaMoveable(Room.discard)
 
     private fun areaMoveable(r: Room.AreaRect) = Moveable(scene, Transform(r.x, r.y, r.w, r.h))
+    private fun cardArea(r: Room.AreaRect, kind: String, limit: Int, isConsumeables: Boolean = false) =
+        CardArea(scene, Transform(r.x, r.y, r.w, r.h), kind, limit, isConsumeables)
 
     /** One simulation step (the body of game.lua Game:update): advance the clock, drain events,
      *  sweep every Moveable's move(), then flush deferred removals. */
