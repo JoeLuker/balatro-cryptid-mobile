@@ -39,6 +39,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.content.Edition
+import systems.balatro.engine.EngineHost
 import systems.balatro.game.*
 
 /**
@@ -1128,6 +1129,28 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // so they land correctly at the device's scale/letterboxing.
     fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
 
+    // ── Engine-driven play field (P0-T8). One EngineHost owns the clock + event queue + the CardArea
+    // Moveables (T from Room.set_screen_positions); the per-frame loop below ticks them (advance clock
+    // → drain events → sweep moveables). Area ORIGINS now come from each area's VT — which equals T
+    // (the derived Room origin) at rest, so the play field is pixel-identical to the old static PF.*
+    // placement, but is now engine-driven and can spring once something moves an area's T.
+    val host = remember { EngineHost() }
+    LaunchedEffect(host) {
+        var last = 0L
+        while (true) {
+            withFrameNanos { now ->
+                val dt = if (last == 0L) 1.0 / 60.0 else ((now - last) / 1e9).coerceIn(1e-4, 0.05)
+                last = now
+                host.tick(dt, paused = s.repro)   // repro freezes game time; static areas are a no-op either way
+            }
+        }
+    }
+    val jokersX = host.jokers.VT.x.toFloat(); val jokersY = host.jokers.VT.y.toFloat()
+    val handX = host.hand.VT.x.toFloat();     val handY = host.hand.VT.y.toFloat()
+    val playX = host.play.VT.x.toFloat()
+    val deckX = host.deck.VT.x.toFloat();     val deckY = host.deck.VT.y.toFloat()
+    val consumX = host.consumeables.VT.x.toFloat()
+
     Box(Modifier.fillMaxSize()) {
         // ── JOKERS (G.jokers): cards distributed across the area by align_cards (cardarea.lua:565
         // joker branch). The 2-card, non-consumeables case spreads each card at
@@ -1143,7 +1166,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 else   -> PF.JOKER_W / 2f - PF.CARD_W / 2f
             }
             val rDeg = 0.1f * (-nj / 2f - 0.5f + k) / nj * 57.29578f
-            Box(off(PF.JOKERS_X + dx, PF.JOKERS_Y + PF.JOKER_DY)) {
+            Box(off(jokersX + dx, jokersY + PF.JOKER_DY)) {
                 BalatroFloat(seed = i * 0.7f) {
                     Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                         jokerCells[o.offer.key]?.let {
@@ -1160,21 +1183,21 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
         // Slot counts at the BOTTOM-left of each card area (jokers N/5, consumables 0/2).
-        Box(off(PF.JOKERS_X, PF.JOKERS_Y + PF.CARD_H + 0.05f)) {
+        Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
         }
-        Box(off(PF.CONSUM_X, PF.JOKERS_Y + PF.CARD_H + 0.05f)) {
+        Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("0/2", Balatro.White, countSp)
         }
         // ── PLAYED (G.play): the played hand. bref_3 freezes mid-scoring with the cards risen to ~4.23u
         // (the resting area is 5.7238u; cards lift toward the jokers while scoring). Centre in the play area.
-        if (s.scoring) Box(off(PF.PLAY_X, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
+        if (s.scoring) Box(off(playX, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
             ScoredCardsRow(s, cells, cardBase)
         }
         // ── HAND (G.hand): fanned along the bottom, centred in the 12.29u hand area. SpringHand
         // anchors cards ~0.55·cardH below its box top (reserving lift-room above for selected cards),
         // so raise the box by that resting offset (~1.4u) to land the card tops at the area position.
-        Box(off(PF.HAND_X, PF.HAND_Y - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
+        Box(off(handX, handY - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
             SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
                 CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
                     if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
@@ -1185,15 +1208,15 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
         // hand-size count (N/8) under the hand area.
-        Box(off(PF.HAND_X, PF.HAND_Y + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
+        Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
             BTxt("${s.hand.size}/8", Balatro.White, countSp)
         }
         // action bar (Play Hand / Sort / Discard) below the hand — hidden during scoring (Balatro hides it).
-        if (!s.scoring) Box(off(PF.HAND_X, PF.HAND_Y + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
+        if (!s.scoring) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
             RenderUI(buttonsRow(s, cells))
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
-        Box(off(PF.DECK_X, PF.DECK_Y).size((PF.DECK_W * u).dp, cardH), contentAlignment = Alignment.TopEnd) {
+        Box(off(deckX, deckY).size((PF.DECK_W * u).dp, cardH), contentAlignment = Alignment.TopEnd) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
                 BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
@@ -1203,29 +1226,23 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
 }
 
 /**
- * Play-field room coordinates (screen-top-left UI units) from set_screen_positions, resolved by the
- * playfield-coords analysis (LÖVE oracle dump + bref_3 reference measurement). x/y already include the
- * room origin and vertical crop, so an element placed at absoluteOffset(x·u, y·u) lands at the reference
- * pixel. Width-constrained scale (u = surfaceW/22). See the workflow result for derivation/citations.
+ * Play-field GEOMETRY constants (card + area dimensions, in UI units). The area ORIGINS that used to
+ * live here (JOKERS_X/Y, HAND_X/Y, PLAY_X, DECK_X/Y, CONSUM_X, PLAY_RESTING_Y) are gone — they're now
+ * derived by set_screen_positions in engine/Room.kt and read off each area's live Moveable VT (the
+ * EngineHost) at render time, closing the curve-fit debt. What remains here is genuine dimension data
+ * plus the two repro/spring fixtures (PLAY_SCORING_Y, HAND_SPRING_OFFSET). These mirror Room's CAI
+ * dims (Room.CARD_W etc.) as Floats for the render; sourcing them from Room is a later cleanup.
  */
 private object PF {
     const val CARD_W = 2.04878f; const val CARD_H = 2.75122f
-    // ROOM_ATTACH-frame coordinates (set_screen_positions, common_events.lua); the room origin
-    // (ROOM.T) is added at render time, so these are device-aspect independent.
-    const val JOKERS_X = 4.7573f; const val JOKERS_Y = 0f          // jokers.T.x = hand.T.x - 0.1
     const val JOKER_W = 4.9f * CARD_W                               // CAI.joker_W = 4.9·G.CARD_W (area width)
     const val JOKER_H = 0.95f * CARD_H                              // CAI.joker_H = 0.95·G.CARD_H
     const val JOKER_DY = (JOKER_H - CARD_H) / 2f                    // card sits centred in the shorter area (≈ -0.069u)
-    const val CONSUM_X = 14.9963f                                   // jokers.T.x + jokers.T.w + 0.2
-    const val PLAY_X = 5.5744f;  const val PLAY_W = 10.8585f       // play.T.x = hand.T.x + (hand.T.w-play.T.w)/2
-    const val PLAY_RESTING_Y = 5.2863f          // play.T.y = hand.T.y - 3.6 (empty area, live)
-    const val PLAY_SCORING_Y = 3.7925f          // cards lifted while scoring (bref_3 frozen frame)
-    const val HAND_X = 4.8573f;  const val HAND_Y = 8.8863f; const val HAND_W = 12.2927f  // TILE_W-w-2.85 ; TILE_H-h
+    const val PLAY_W = 10.8585f                                     // CAI.play_W = 5.3·G.CARD_W
+    const val PLAY_SCORING_Y = 3.7925f          // cards lifted while scoring (bref_3 frozen frame — a repro fixture)
+    const val HAND_W = 12.2927f                                     // CAI.hand_W = 6·G.CARD_W
     const val HAND_SPRING_OFFSET = 1.4f          // SpringHand card-top resting offset below its box top
-    // DECK_Y corrected 8.8953 -> 8.8863: set_screen_positions gives deck.y = TILE_H - deck_H = hand.y
-    // (deck_H == hand_H == 0.95*CARD_H). The old value was a ~0.009u measurement error that the Room
-    // derivation (engine/Room.kt, P0-T7) exposed; origins move to Room as the source of truth in the rewire.
-    const val DECK_X = 17.2463f; const val DECK_Y = 8.8863f; const val DECK_W = 2.2537f   // TILE_W - w - 0.5
+    const val DECK_W = 2.2537f                                      // CAI.deck_W = 1.1·G.CARD_W
 }
 
 /**

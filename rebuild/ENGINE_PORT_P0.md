@@ -70,7 +70,7 @@ Status legend: ☐ todo · ◐ in progress · ☑ done (verified).
   `draw`/`set_container`/`remove`; `add_to_drawhash` z-sort hook.
 - **Accept:** recursive remove detaches subtree; draw order stable.
 
-### P0-T6 Moveable — UPGRADE of `ui/Spring.kt` — ◐ (class ported + verified; HUD rewiring pending T7 Room)
+### P0-T6 Moveable — UPGRADE of `ui/Spring.kt` — ◐ (class ported + verified; play-field AREAS now Moveable-driven; card-level conversion next)
 - **Source:** `engine/moveable.lua` (`move`, `move_xy`/`move_r`/`move_scale`/`move_juice`, `juice_up`,
   RoleHierarchy `get_major`, AlignmentSystem, ShadowParallax).
 - **Depends on:** P0-T1 (clock/exp_times/move_dt), P0-T3 (Transform), P0-T5 (scene graph).
@@ -93,7 +93,7 @@ Status legend: ☐ todo · ◐ in progress · ☑ done (verified).
 - **Accept:** computed area `T.x/T.y` match the current measured `PF.*` constants (so we *derive* the
   joker/hand/play origins instead of curve-fitting — closes the localthunk-debt).
 
-### P0-T8 MainUpdateLoop — NET-NEW — ☐
+### P0-T8 MainUpdateLoop — NET-NEW — ☑ (engine/EngineHost.tick + withFrameNanos loop in RoundPlay; Controller hook P3-stubbed)
 - **Source:** `game.lua` Game:update (~2616–2844): timers → `E_MANAGER:update` → state update →
   `ANIMATIONS.animate` → two-pass Moveable (`move(move_dt)` then `update`) → `Controller.update`.
 - **Depends on:** P0-T1, P0-T2, P0-T6 (Controller is P3 — stub the hook).
@@ -105,11 +105,17 @@ Status legend: ☐ todo · ◐ in progress · ☑ done (verified).
 
 ---
 
-**Progress:** T1, T2, T3, T4, T5 done and T6's Moveable class ported — all verified by 27/27
-standalone checks (EngineSpineCheck.kt) via nix kotlin, plus the HUD layout gate still 80/80
-(unaffected — the HUD is not yet Moveable-driven). What remains of T6 is the *integration*:
-rewiring the HUD/cards to set Moveable `T` and draw from `VT`, which needs **T7 (Room/
-ViewportTransform)** so element targets are computed from the live `G.ROOM_ATTACH` instead of the
-frozen `PF.*` constants. Then **T8 (MainUpdateLoop)** drives one clock + one EventManager + one
-moveable sweep per frame, and the 80/80 + pixel gate proves the Moveable-driven HUD didn't move.
-Order from here: **T7 → T6-integration → T8.**
+**Progress:** T1–T5, T7, T8 done; T6's Moveable class done and its first integration landed — all
+verified by 33/33 standalone checks (EngineSpineCheck.kt), HUD layout still 80/80, and a full
+deploy_diff at **16.8%** vs bref_3 (down from 17.0% — the exact set_screen_positions origins + the
+DECK_Y fix beat the rounded PF constants; no regression). The play-field card AREAS are now
+engine-Moveable-driven: EngineHost owns one clock + EventManager + the six CardArea Moveables (T
+from Room), the withFrameNanos loop in RoundPlay ticks them, and the render reads each area's VT
+(== T == derived Room origin at rest). The frozen PF.* origin constants are deleted (debt closed).
+
+**What remains of P0/T6:** card-LEVEL Moveable conversion — promote the hand cards (currently
+`ui/Spring.kt` SpringHand) and jokers (currently `BalatroFloat`) to engine Moveables driven by the
+same loop, so individual cards spring/lean/juice through the engine rather than ad-hoc Compose
+animators. That's the first place the loop produces VISIBLE engine-driven motion (gated by the
+pixel diff staying ≤17% at rest + the bref_3 mid-animation frame for dynamics). Then P0 is complete
+and the spine moves to P0.5 (the runtime object classes: Card/CardArea/Blind/Tag/Back).
