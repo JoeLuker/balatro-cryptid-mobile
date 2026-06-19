@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.content.Edition
 import systems.balatro.engine.EngineHost
+import systems.balatro.engine.Event
 import systems.balatro.game.*
 
 /**
@@ -1108,13 +1109,6 @@ private fun CardFace(
 
 @Composable
 private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null, roomTx: Float = 1f, roomTy: Float = 0.4375f) {
-    LaunchedEffect(s.scoring) {
-        if (s.scoring && !s.repro) {        // repro mode freezes the scored frame (no cascade/commit)
-            for (i in s.lastSteps.indices) { s.scoreStep(i); delay(if (i == 0) 140L else 300L) }
-            delay(450L)
-            s.scoreCommit()
-        }
-    }
     // Play field laid out at ABSOLUTE room coordinates — set_screen_positions (common_events.lua),
     // resolved to screen-top-left room units by the playfield-coords analysis (LÖVE oracle +
     // reference measurement). Card areas (jokers/play/hand/deck/consumeables) are placed via
@@ -1163,6 +1157,23 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val playX = host.play.VT.x.toFloat()
     val deckX = host.deck.VT.x.toFloat();     val deckY = host.deck.VT.y.toFloat()
     val consumX = host.consumeables.VT.x.toFloat()
+
+    // ── Scoring cascade (P4): drive the chip/mult readout + card pops off the engine EventManager
+    // instead of hard-coded coroutine delays. The steps are BLOCKING `after` events on the host's
+    // 'base' queue, so they fire strictly in sequence (each delay starts when the previous completes)
+    // exactly like Balatro chains its scoring events — and the one host loop drains them. Step 0 fires
+    // immediately; the same 140ms/300ms gaps and the 450ms pre-commit pause are preserved.
+    // (repro freezes the scored frame — no cascade/commit.)
+    LaunchedEffect(s.scoring) {
+        if (s.scoring && !s.repro) {
+            s.scoreStep(0)
+            for (i in 1 until s.lastSteps.size) {
+                host.events.addEvent(Event(trigger = "after", delay = if (i == 1) 0.14 else 0.30, func = { s.scoreStep(i); true }))
+            }
+            host.events.addEvent(Event(trigger = "after", delay = 0.30, func = { true }))          // trailing post-step gap
+            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = { s.scoreCommit(); true }))
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         // ── JOKERS (G.jokers): each joker is an engine Moveable (a Card IS a Moveable) owned by the

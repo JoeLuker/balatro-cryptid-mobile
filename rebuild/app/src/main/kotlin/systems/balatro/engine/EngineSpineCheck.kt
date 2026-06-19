@@ -182,6 +182,28 @@ fun main() {
         check("setCardCount(0) deregisters cards", area.cards.isEmpty())
     }
 
+    // 12. Scoring cascade (P4): the blocking after-events RunScreen schedules fire strictly in
+    //     sequence at the right cumulative gaps (140ms step0→1, 300ms between steps, 300+450ms to
+    //     commit), drained by the one loop — replacing the old hard-coded coroutine delays.
+    run {
+        val c = GameClock(); val em = EventManager(c)
+        val fired = HashMap<String, Double>()
+        // mirror RunScreen's schedule for a 3-step cascade (steps 0,1,2); step0 fires immediately.
+        em.addEvent(Event(trigger = "after", delay = 0.14, func = { fired["s1"] = c.total; true }))
+        em.addEvent(Event(trigger = "after", delay = 0.30, func = { fired["s2"] = c.total; true }))
+        em.addEvent(Event(trigger = "after", delay = 0.30, func = { true }))
+        em.addEvent(Event(trigger = "after", delay = 0.45, func = { fired["commit"] = c.total; true }))
+        repeat(150) { c.advance(DT); em.update(DT) }   // 2.5s
+        val t1 = fired["s1"]; val t2 = fired["s2"]; val tc = fired["commit"]
+        check("cascade fired step1<step2<commit", t1 != null && t2 != null && tc != null && t1 < t2 && t2 < tc)
+        if (t1 != null && t2 != null && tc != null) {
+            // gaps are nominal + ~1 fixed-step frame per event (the EventManager start-capture latency)
+            check("cascade step1→step2 gap ≈0.30", (t2 - t1) in 0.29..0.35, "gap=${t2 - t1}")
+            check("cascade step2→commit gap ≈0.75 (+0.30 trailing,+0.45 commit,+frames)", (tc - t2) in 0.74..0.85, "gap=${tc - t2}")
+        }
+        check("cascade queue drained", em.pending() == 0)
+    }
+
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
 }
