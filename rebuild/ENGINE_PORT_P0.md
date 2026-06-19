@@ -113,9 +113,21 @@ engine-Moveable-driven: EngineHost owns one clock + EventManager + the six CardA
 from Room), the withFrameNanos loop in RoundPlay ticks them, and the render reads each area's VT
 (== T == derived Room origin at rest). The frozen PF.* origin constants are deleted (debt closed).
 
-**What remains of P0/T6:** card-LEVEL Moveable conversion — promote the hand cards (currently
-`ui/Spring.kt` SpringHand) and jokers (currently `BalatroFloat`) to engine Moveables driven by the
-same loop, so individual cards spring/lean/juice through the engine rather than ad-hoc Compose
-animators. That's the first place the loop produces VISIBLE engine-driven motion (gated by the
-pixel diff staying ≤17% at rest + the bref_3 mid-animation frame for dynamics). Then P0 is complete
-and the spine moves to P0.5 (the runtime object classes: Card/CardArea/Blind/Tag/Back).
+**Card-level conversion — jokers DONE, hand deferred (with evidence):** the JOKERS now route through
+the real `engine/CardArea.kt` (joker `align_cards` branch); the loop sets each card's T, move()
+springs VT, the render draws at VT — retiring `BalatroFloat`. Pixel diff 16.9% (== baseline within
+felt noise), 38/38 checks, jokers visually correct.
+
+The HAND was attempted through the same CardArea (hand branch) and REVERTED — it regressed to 18.2%.
+Ground-truth measurement off bref_3 shows why: SpringHand matches the reference hand within ≤0.05u,
+but the literal `align_cards` hand branch (drawn sprite-top-left-at-T) sits ~0.16–0.20u too HIGH.
+The gap is the card SPRITE draw offset (how `Card:draw` anchors the sprite to T) — a P0.5 `Card`
+concern, not a layout-formula bug. So the hand stays on SpringHand (already the exact `BalatroSpring`
+== Moveable integrator, and the validated-against-bref_3 renderer); unify it into CardArea only once
+P0.5's `Card` models the draw offset. See memory `hand-align-vs-render-offset`.
+
+**P0 status: COMPLETE for the spine + integration.** T1–T8 done; Moveable class + play-field areas +
+joker cards engine-driven; hand on the equivalent Moveable integrator. Next is **P0.5** — the runtime
+object classes (Card with its draw offset, full CardArea, Blind/Tag/Back) — which also reconciles and
+unifies the hand. A LÖVE card-position oracle (dump real `G.hand.cards[i].T`) would settle the hand
+draw offset definitively.
