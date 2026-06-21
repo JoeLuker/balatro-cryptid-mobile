@@ -171,6 +171,8 @@ object Oracle {
         // --- boss debuffs ---
         Case("Pair of aces + The Flint", PlayingCard.hand("S_A", "H_A"), 27.0, debuff = Debuff.Flint),
         Case("Pair S_A,C_A + The Club", PlayingCard.hand("S_A", "C_A"), 42.0, debuff = Debuff.DebuffSuit(Suit.C)),
+        // Photograph + spade debuff: debuffed S_K is never a face, so X2 lands on the non-debuffed H_K: (10 + 10) * (2 * 2) = 80.
+        Case("Pair S_K,H_K + photograph under The Goad (X2 on H_K)", PlayingCard.hand("S_K", "H_K"), 80.0, j(FJoker("j_photograph")), debuff = Debuff.DebuffSuit(Suit.S)),
         // --- steel held ---
         Case("Pair of aces + 1 steel held", PlayingCard.hand("S_A", "H_A"), 96.0, held = listOf(en("S_K", Enhancement.STEEL))),
         Case("Pair of aces + 2 steel held", PlayingCard.hand("S_A", "H_A"), 144.0, held = listOf(en("S_K", Enhancement.STEEL), en("D_K", Enhancement.STEEL))),

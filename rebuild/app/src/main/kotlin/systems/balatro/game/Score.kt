@@ -54,6 +54,7 @@ class Sctx {
     var bossBlind = false                   // true when current blind is a boss blind (apjoker)
     var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
     var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
+    var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -111,7 +112,10 @@ object Score {
             "j_smiley"           -> if (oc.isFace || ctx.pareidolia) return Fx().apply { mult = 5.0 }                // +5 Mult/face
             "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
             "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
-            "j_photograph"       -> if ((oc.isFace || ctx.pareidolia) && ctx.scoringHand.firstOrNull { it.isFace || ctx.pareidolia } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
+            // X2 on the FIRST face. is_face (card.lua:1193) returns nil for a debuffed card BEFORE the Pareidolia
+            // check, so a debuffed card is never the "first face" — exclude it from the scan (and from oc's own test).
+            "j_photograph"       -> if ((oc.isFace || ctx.pareidolia) && oc.suit != ctx.debuffSuit &&
+                ctx.scoringHand.firstOrNull { (it.isFace || ctx.pareidolia) && it.suit != ctx.debuffSuit } == oc) return Fx().apply { xMult = 2.0 }
             // --- Cryptid individual ---
             "j_cry_iterum"            -> return Fx().apply { xMult = 2.0 }               // X2 Mult per scored played card (also retriggers in repetition block)
             "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
@@ -347,6 +351,7 @@ object Score {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
+            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
