@@ -16,7 +16,7 @@ import systems.balatro.bridge.Telemetry
 object JokerArt {
     // key -> (atlas asset file, col, row), from each joker's original `atlas` + `pos`.
     // Extracted from the source defs: vanilla from game.lua (set="Joker" -> Jokers.png), Cryptid
-    // from mods/Cryptid/items/*.lua (atlas + pos). 97/110 CATALOG jokers; the unmapped ones either
+    // from mods/Cryptid/items/*.lua (atlas + pos). 100/113 CATALOG jokers; the unmapped ones either
     // carry no `atlas` field in source (fspinner, jimball, wee_fib, wheelhope — Cryptid default) or
     // are later-batch additions awaiting a verified cell — both left to the name placeholder for now.
     private val MAP: Map<String, Triple<String, Int, Int>> = mapOf(
@@ -96,6 +96,7 @@ object JokerArt {
         "j_even_steven" to Triple("Jokers.png", 8, 3),
         "j_fibonacci" to Triple("Jokers.png", 1, 5),
         "j_flower_pot" to Triple("Jokers.png", 0, 6),
+        "j_four_fingers" to Triple("Jokers.png", 6, 6),  // Four Fingers — flush/straight need 4 (game.lua pos x=6,y=6)
         "j_gluttenous_joker" to Triple("Jokers.png", 9, 1),
         "j_greedy_joker" to Triple("Jokers.png", 6, 1),
         "j_half" to Triple("Jokers.png", 7, 0),
@@ -109,7 +110,9 @@ object JokerArt {
         "j_scary_face" to Triple("Jokers.png", 2, 3),
         "j_scholar" to Triple("Jokers.png", 0, 4),
         "j_seeing_double" to Triple("Jokers.png", 4, 4),
+        "j_shortcut" to Triple("Jokers.png", 3, 12),   // Shortcut — straights skip one rank (game.lua pos x=3,y=12)
         "j_sly" to Triple("Jokers.png", 0, 14),        // Sly Joker — Pair chips (game.lua pos x=0,y=14)
+        "j_smeared" to Triple("Jokers.png", 4, 6),     // Smeared Joker — red/black suits collide (game.lua pos x=4,y=6)
         "j_smiley" to Triple("Jokers.png", 6, 15),
         "j_splash" to Triple("Jokers.png", 6, 10),     // Splash — every played card scores (game.lua pos x=6,y=10)
         "j_stuntman" to Triple("Jokers.png", 8, 6),

@@ -48,6 +48,13 @@ object Oracle {
         // Splash: every played card scores. Same High Card as above (16 with only the Ace) now scores all five:
         // (5 base + 11+10+10+10+9 card chips) * 1 = 55.
         Case("HighCard A K Q J 9 + splash (all 5 score)", PlayingCard.hand("S_A", "H_K", "D_Q", "C_J", "S_9"), 55.0, j(FJoker("j_splash"))),
+        // --- hand-detection hooks: each flips the evaluated hand vs the same cards with no joker ---
+        // Four Fingers: 4 hearts (A,K,Q,9 — not a 4-run, so Flush not Straight Flush) = Flush (35 base + 11+10+10+9) * 4.
+        Case("4 hearts + four_fingers = Flush", PlayingCard.hand("H_A", "H_K", "H_Q", "H_9"), 300.0, j(FJoker("j_four_fingers"))),
+        // Shortcut: 5-6-7-9-10 (one gap) = Straight (30 base + 10+9+7+6+5) * 4.
+        Case("5,6,7,9,10 + shortcut = Straight", PlayingCard.hand("S_T", "H_9", "D_7", "C_6", "S_5"), 268.0, j(FJoker("j_shortcut"))),
+        // Smeared: 3 hearts + 2 diamonds (all "red") = Flush (35 base + 11+10+10+10+9) * 4.
+        Case("3H+2D + smeared = Flush", PlayingCard.hand("H_A", "H_K", "H_Q", "D_J", "D_9"), 340.0, j(FJoker("j_smeared"))),
         // --- Cryptid jokers ---
         Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, j(FJoker("j_cry_cube"))),
         Case("ThreeOfAKind 3s + triplet_rhythm (x3)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, j(FJoker("j_cry_triplet_rhythm"))),

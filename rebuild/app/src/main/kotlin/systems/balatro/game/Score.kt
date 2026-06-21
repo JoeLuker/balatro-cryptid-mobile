@@ -52,6 +52,7 @@ class Sctx {
     var handsLeft = -1                      // hands remaining this round (-1 = unknown; acrobat: ==0 last hand)
     var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
     var bossBlind = false                   // true when current blind is a boss blind (apjoker)
+    var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -94,16 +95,16 @@ object Score {
         val oc = ctx.otherCard
         // INDIVIDUAL: a joker reacting to each scored card (context.individual, cardarea == G.play)
         if (ctx.individual && ctx.cardarea == "play" && oc != null) when (j.key) {
-            "j_greedy_joker"     -> if (oc.isSuit(Suit.D)) return Fx().apply { mult = 3.0 }
-            "j_lusty_joker"      -> if (oc.isSuit(Suit.H)) return Fx().apply { mult = 3.0 }
-            "j_wrathful_joker"   -> if (oc.isSuit(Suit.S)) return Fx().apply { mult = 3.0 }
-            "j_gluttenous_joker" -> if (oc.isSuit(Suit.C)) return Fx().apply { mult = 3.0 }
+            "j_greedy_joker"     -> if (oc.isSuit(Suit.D, ctx.smeared)) return Fx().apply { mult = 3.0 }
+            "j_lusty_joker"      -> if (oc.isSuit(Suit.H, ctx.smeared)) return Fx().apply { mult = 3.0 }
+            "j_wrathful_joker"   -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { mult = 3.0 }
+            "j_gluttenous_joker" -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 3.0 }
             "j_even_steven"      -> if (oc.id in setOf(2, 4, 6, 8, 10)) return Fx().apply { mult = 4.0 }
             "j_odd_todd"         -> if (oc.id == 14 || oc.id in setOf(3, 5, 7, 9)) return Fx().apply { chips = 31.0 }
             "j_scholar"          -> if (oc.id == 14) return Fx().apply { chips = 20.0; mult = 4.0 }
             // --- vanilla individual jokers, faithful from calculate_joker (port-vanilla-jokers workflow) ---
-            "j_arrowhead"        -> if (oc.isSuit(Suit.S)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
-            "j_onyx_agate"       -> if (oc.isSuit(Suit.C)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
+            "j_arrowhead"        -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
+            "j_onyx_agate"       -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
             "j_fibonacci"        -> if (oc.id in setOf(2, 3, 5, 8, 14)) return Fx().apply { mult = 8.0 }  // +8 Mult per A/2/3/5/8
             "j_scary_face"       -> if (oc.isFace) return Fx().apply { chips = 30.0 }              // +30 Chips/face
             "j_smiley"           -> if (oc.isFace) return Fx().apply { mult = 5.0 }                // +5 Mult/face
@@ -135,11 +136,11 @@ object Score {
             "j_half"      -> if (ctx.fullHand.size <= 3) return Fx().apply { multMod = 20.0 }       // +20 Mult if <=3 cards
             "j_stuntman"  -> return Fx().apply { chipMod = 250.0 }                                  // +250 Chips
             "j_seeing_double" -> {                                                                  // X2 if a Club + a non-Club score
-                val club = ctx.scoringHand.any { it.isSuit(Suit.C) }
-                val other = ctx.scoringHand.any { it.enhancement != Enhancement.STONE && !it.isSuit(Suit.C) }
+                val club = ctx.scoringHand.any { it.isSuit(Suit.C, ctx.smeared) }
+                val other = ctx.scoringHand.any { it.enhancement != Enhancement.STONE && !it.isSuit(Suit.C, ctx.smeared) }
                 if (club && other) return Fx().apply { xMultMod = 2.0 }
             }
-            "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s) } })  // X3 if all 4 suits score
+            "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s, ctx.smeared) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
             // --- vanilla "+chips if played hand contains <type>" family (game.lua j_sly..j_crafty;
             //     config {t_chips,type}). The generic branch (card.lua:4209) fires when the played cards
@@ -317,7 +318,12 @@ object Score {
         val rankOf: (PlayingCard) -> Int =
             if (jokers.any { it.key == "j_cry_maximized" }) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } }
             else { c -> c.id }
-        val (handType, handCards, pokerHands) = Hands.evaluate(played, rankOf)
+        // Hand-detection hooks (each a board joker): Four Fingers → flush/straight need 4 not 5;
+        // Shortcut → straights may skip one rank; Smeared → red/black suits collide in is_suit.
+        val fourFingers = jokers.any { it.key == "j_four_fingers" }
+        val shortcut = jokers.any { it.key == "j_shortcut" }
+        val smeared = jokers.any { it.key == "j_smeared" }
+        val (handType, handCards, pokerHands) = Hands.evaluate(played, rankOf, fourFingers, shortcut, smeared)
         // final_scoring_hand (state_events.lua:743): a played card scores if it's in the evaluated hand,
         // always-scores (stone), or Splash is on the board — j_splash makes EVERY played card score.
         val splash = jokers.any { it.key == "j_splash" }
@@ -330,7 +336,7 @@ object Score {
         val ctx = Sctx().apply {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
-            this.boardKeys = jokers.map { it.key }
+            this.boardKeys = jokers.map { it.key }; this.smeared = smeared
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.

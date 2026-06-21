@@ -107,6 +107,10 @@ private val CATALOG = listOf(
     Offer("j_droll", "Droll Joker", "+10 Mult if hand has a Flush", 4),
     // --- vanilla scoring-set modifier ---
     Offer("j_splash", "Splash", "every played card counts in scoring", 3),
+    // --- vanilla hand-detection hooks ---
+    Offer("j_four_fingers", "Four Fingers", "Flushes & Straights need only 4 cards", 7),
+    Offer("j_shortcut", "Shortcut", "Straights can skip one rank", 7),
+    Offer("j_smeared", "Smeared Joker", "Hearts/Diamonds & Spades/Clubs count as one suit", 7),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
