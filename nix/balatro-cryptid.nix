@@ -16,10 +16,10 @@
     config = { allowUnfree = true; android_sdk.accept_license = true; };
   }
 , sources ? import ./sources.nix { inherit pkgs; }
-  # The lovely-merged game Lua. A generated input (regen-dump.sh, Linux-repro):
-  # MUST be regenerated from the pins above to avoid mod/dump drift — that
-  # consistency is a Phase 3 gate. Defaults to the working-tree dump.
-, dump ? ../src/dump
+  # The lovely-merged game Lua — generated FROM THE PINS by nix/regen-dump.sh and
+  # vendored at vendor/dump (stamped with the source revs in .source-revs). This
+  # is the consistency guarantee: dump and mod sources can't drift.
+, dump ? ../vendor/dump
 , overlay ? ../overlay
 , patchesDir ? ../patches   # Phase 5: owned modules consolidate into overlay/game
 }:

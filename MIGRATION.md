@@ -11,7 +11,8 @@ patches that fail loud, a thin build. Pattern: distro source-package
 |------:|-------------|-------|
 | 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified (pins realise, hashes valid) |
 | 2 | **Build derivation** — `nix/balatro-cryptid.nix`; `overlay/game/conf.lua` owned | 🟡 gameLove **build-verified** (785 files from pins); apk eval-verified |
-| 3 | **Patch conversion** — 72 `apply_*` → `overlay/patches/*.patch` + `series`, applied `--check` (hard-fail) | ⬜ |
+| 3a | **Dump from pins** — `stage-mods.sh` + `regen-dump.sh` → `vendor/dump` (stamped); gameLove self-contained | ✅ done & verified |
+| 3b | **Patch conversion** — 72 `apply_*` → `overlay/patches/*.patch` + `series`, applied `--check` (hard-fail) | ⬜ next |
 | 4 | **Config** — fold `config-overrides/` → `overlay/config/`; delete the clobber-reapply path | ⬜ |
 | 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ |
 | 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
@@ -55,7 +56,25 @@ flake.nix                 # exposes packages.balatro-cryptid + the dev shell
   signing-key wiring (`ensure_keystore`) — the apk stage currently emits an
   aligned-unsigned APK so the pipeline is verifiable.
 
-## Phase 3 mechanism — convert patches *mechanically*, and audit them
+## Phase 3a findings (dump from pins)
+
+- **The dump is now reproducible from the lockfile.** `nix/regen-dump.sh` stages
+  pinned Balatro.love + pinned mods (`stage-mods.sh`) and boots love+lovely under
+  Xvfb → `vendor/dump/` (34 lua), stamped with the source revs in `.source-revs`.
+  gameLove builds from it with no `--arg` → flake-pure-able.
+- **Fixed a latent bug doing it:** the old `regen-dump.sh` did `cp -r mods/Amulet`,
+  but Amulet unpacks **flat** at `mods/` root (no `mods/Amulet/`) — so the old
+  rig was dead against the current layout. `stage-mods.sh` puts every mod
+  (Amulet included) in a correct desktop `Mods/<Name>/` layout.
+- **Restart survived:** SMODS restarts LÖVE once after first load; seeding the
+  game at love's save-identity path + pinning `XDG_*` lets the re-exec reach
+  running state (without it only 5/34 files dumped).
+- **Known gap:** `SMODS/_/smods-https-thread.lua` isn't `require`d in a headless
+  boot, so it's absent from the from-pins dump (the old Mac dump had it). Network
+  path only — the smoke-test gate (Phase 3b) decides if it matters; if so,
+  supplement from pinned Steamodded.
+
+## Phase 3b mechanism — convert patches *mechanically*, and audit them
 
 Do **not** hand-rewrite 72 functions. Generate the diffs from the source of truth:
 
