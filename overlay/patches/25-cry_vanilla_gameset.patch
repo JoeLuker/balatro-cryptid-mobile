@@ -51,7 +51,7 @@ index 34c3414..a4ee1ef 100644
  	return {
  		{
 diff --git a/Mods/Cryptid/lib/gameset.lua b/Mods/Cryptid/lib/gameset.lua
-index 8e2e64d..6899afc 100644
+index 21d38db..8e0c874 100644
 --- a/Mods/Cryptid/lib/gameset.lua
 +++ b/Mods/Cryptid/lib/gameset.lua
 @@ -206,12 +206,26 @@ G.FUNCS.cry_intro_part = function(_part)
@@ -177,10 +177,10 @@ index 8e2e64d..6899afc 100644
  		for i = 1, #center.extra_gamesets do
  			if center.extra_gamesets[i] == "exp_" .. gameset then
 diff --git a/Mods/Cryptid/localization/en-us.lua b/Mods/Cryptid/localization/en-us.lua
-index 47d4787..eed1b9c 100644
+index 8f65425..9ee6553 100644
 --- a/Mods/Cryptid/localization/en-us.lua
 +++ b/Mods/Cryptid/localization/en-us.lua
-@@ -5006,6 +5006,10 @@ return {
+@@ -4976,6 +4976,10 @@ return {
  				"{s:0.8}Note: Gameset balancing is a heavy work in progress.",
  				"{s:0.8}Expect things to change frequently!",
  			},
@@ -191,7 +191,7 @@ index 47d4787..eed1b9c 100644
  			cry_modest_1 = {
  				"Seeking an experience close to vanilla?",
  				"Then the {C:cry_ascendant}Modest{} gameset is for you!",
-@@ -5319,6 +5323,8 @@ return {
+@@ -5289,6 +5293,8 @@ return {
  				"to apply to this card.",
  			},
  			cry_gameset_disabled = "Disabled",
@@ -200,11 +200,11 @@ index 47d4787..eed1b9c 100644
  			cry_gameset_modest = "Modest",
  			cry_gameset_mainline = "Mainline",
  			cry_gameset_madness = "Madness",
-@@ -5337,6 +5343,7 @@ return {
+@@ -5308,6 +5314,7 @@ return {
  			b_reset_gameset_modest = "Reset Gameset Config (Modest)",
  			b_reset_gameset_mainline = "Reset Gameset Config (Mainline)",
  			b_reset_gameset_madness = "Reset Gameset Config (Madness)",
 +			b_reset_gameset_vanilla = "Reset Gameset Config (Vanilla)",
  
- 			b_update_membership_cards = "Update Membership Card jokers",
- 
+ 			cry_circus_generic = "{V:#1#}#2#{} Jokers each give {X:mult,C:white} X#3# {} Mult",
+ 		},

@@ -57,9 +57,9 @@
 56-blind_select_defer.patch
 57-blind_select_tall.patch
 58-draw_shader_nil_reset.patch
-59-drag_self_drop_exclude.patch
-60-sticky_fingers_guard.patch
-61-drag_reject_feedback.patch
-62-structural_mods_lock.patch
-63-mod_toggle_removed.patch
-64-cursor_down_duration.patch
+manual/59-drag_self_drop_exclude.patch
+manual/60-sticky_fingers_guard.patch
+manual/61-drag_reject_feedback.patch
+manual/62-structural_mods_lock.patch
+manual/63-mod_toggle_removed.patch
+manual/64-cursor_down_duration.patch

@@ -86,7 +86,7 @@ index bf8c48f..932a6bc 100644
      }}
    elseif tab == 'Video' then
 diff --git a/globals.lua b/globals.lua
-index 493df72..8aa53f7 100644
+index ac34022..de68f86 100644
 --- a/globals.lua
 +++ b/globals.lua
 @@ -165,6 +165,7 @@ function Game:set_globals()

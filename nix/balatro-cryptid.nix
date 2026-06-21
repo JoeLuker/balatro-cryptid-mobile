@@ -81,6 +81,15 @@ let
       # reserve-shim mini-mod (owned)
       cp -r --no-preserve=mode ${patchesDir}/reserve-shim Mods/reserve-shim
 
+      # baked-in mod config overlay (was config-overrides/, applied at fetch-time
+      # by the legacy build). Intentional overrides layered over the pinned mod
+      # BEFORE the patch series — Cryptid's per-item toggle UI + gameplay config.
+      echo "[love] mod config overlay"
+      for moddir in ${overlay}/config/*/; do
+        name="$(basename "$moddir")"
+        [ -d "Mods/$name" ] && cp -r --no-preserve=mode "$moddir"/. "Mods/$name/"
+      done
+
       echo "[love] owned standalone modules"
       for m in android-telemetry trigger-collapse idle-joker-perf lazy-shader; do
         cp --no-preserve=mode ${patchesDir}/$m.lua ./$m.lua

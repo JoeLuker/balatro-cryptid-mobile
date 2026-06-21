@@ -1,5 +1,5 @@
 diff --git a/globals.lua b/globals.lua
-index 0041575..493df72 100644
+index 99d455e..ac34022 100644
 --- a/globals.lua
 +++ b/globals.lua
 @@ -213,10 +213,10 @@ function Game:set_globals()

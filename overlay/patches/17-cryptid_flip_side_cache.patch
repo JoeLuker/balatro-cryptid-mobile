@@ -1,5 +1,5 @@
 diff --git a/Mods/Cryptid/lib/overrides.lua b/Mods/Cryptid/lib/overrides.lua
-index d2196c7..e32bb9b 100644
+index cb76d3c..9a23fdd 100644
 --- a/Mods/Cryptid/lib/overrides.lua
 +++ b/Mods/Cryptid/lib/overrides.lua
 @@ -151,7 +151,9 @@ end

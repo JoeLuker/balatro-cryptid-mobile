@@ -22,6 +22,11 @@ GIT() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
         git -C "$B" -c core.autocrlf=false -c core.safecrlf=false \
             -c user.email=x@x -c user.name=x "$@"; }
 
+# gen-patches owns ONLY the mechanical top-level patches; overlay/patches/manual/
+# holds hand-maintained re-anchored ports (silent-skip fixes) that are NOT
+# mechanically derivable — never clobber those.
+rm -f "$OUT"/*.patch
+
 echo "[gen] materialising pristine gameLoveBase (pre-patch tree)..."
 GLB="$(nix-build "$ROOT_WT/nix/balatro-cryptid.nix" -A gameLoveBase --no-out-link)"
 mkdir -p "$B"; cp -r "$GLB"/. "$B"; chmod -R u+w "$B"
@@ -122,6 +127,16 @@ cap ui_func_throttle          apply_ui_func_throttle "$B/engine/ui.lua"
 cap blind_select_defer        apply_blind_select_defer "$B/game.lua"
 cap blind_select_tall         apply_blind_select_tall "$B/functions/UI_definitions.lua"
 cap draw_shader_nil_reset     apply_draw_shader_nil_reset "$B/engine/sprite.lua" "$B/SMODS/_/src/card_draw.lua" "$B/card.lua" "$B/blind.lua" "$B/functions/misc_functions.lua"
+
+# append hand-maintained patches (re-anchored silent-skip ports) after the
+# mechanical series, in name order — these apply last.
+if compgen -G "$OUT/manual/*.patch" >/dev/null 2>&1; then
+  echo "[gen] appending hand-maintained manual/ patches:"
+  for mp in "$OUT"/manual/*.patch; do
+    echo "manual/$(basename "$mp")" >> "$SERIES"
+    echo "  + manual/$(basename "$mp")"
+  done
+fi
 
 echo
 echo "===== SUMMARY ====="
