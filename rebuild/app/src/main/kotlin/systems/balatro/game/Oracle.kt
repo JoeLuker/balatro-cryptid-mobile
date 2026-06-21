@@ -227,6 +227,80 @@ object Oracle {
         Case("Pair of aces + throwback (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_throwback", x = 1.5))),
         // Runner: +Chips per Straight in run (j.chips); chips=30 → chips=32+30=62, mult=2 → 124.
         Case("Pair of aces + runner (chips=30)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_runner", chips = 30.0))),
+        // Square Joker: +4 Chips per 5-card hand (j.chips); chips=12 (3 plays) → chips=32+12=44, mult=2 → 88.
+        Case("Pair of aces + square (chips=12)", PlayingCard.hand("S_A", "H_A"), 88.0, j(FJoker("j_square", chips = 12.0))),
+        // Castle: +3 Chips per suited card discarded (j.chips); chips=9 (3 discards) → chips=32+9=41, mult=2 → 82.
+        Case("Pair of aces + castle (chips=9)", PlayingCard.hand("S_A", "H_A"), 82.0, j(FJoker("j_castle", chips = 9.0))),
+        // Wee Joker: +8 Chips per 4-card Straight played (j.chips); chips=16 (2 plays) → chips=32+16=48, mult=2 → 96.
+        Case("Pair of aces + wee (chips=16)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_wee", chips = 16.0))),
+        // --- vanilla suit-individual jokers ---
+        // Arrowhead: +50 Chips per Spade scored (INDIVIDUAL). S_A gets +50; H_A doesn't. chips=10+61+11=82, mult=2.
+        Case("Pair S_A+H_A + arrowhead", PlayingCard.hand("S_A", "H_A"), 164.0, j(FJoker("j_arrowhead"))),
+        // Onyx Agate: +7 Mult per Club scored (INDIVIDUAL). C_A gets +7 mult; S_A doesn't. chips=32, mult=2+7=9.
+        Case("Pair C_A+S_A + onyx_agate", PlayingCard.hand("C_A", "S_A"), 288.0, j(FJoker("j_onyx_agate"))),
+        // --- vanilla hand-type jokers (JOKER_MAIN, fire once) ---
+        // Sly: +50 Chips if Pair. chips=32+50=82, mult=2 → 164.
+        Case("Pair of aces + sly", PlayingCard.hand("S_A", "H_A"), 164.0, j(FJoker("j_sly"))),
+        // Wily: +100 Chips if Three of a Kind. ToaK aces: chips=63+100=163, mult=3 → 489.
+        Case("ToaK aces + wily", PlayingCard.hand("S_A", "H_A", "D_A"), 489.0, j(FJoker("j_wily"))),
+        // Devious: +100 Chips if Straight. Straight 5-9: chips=65+100=165, mult=4 → 660.
+        Case("Straight 5-9 + devious", PlayingCard.hand("S_5", "H_6", "D_7", "C_8", "S_9"), 660.0, j(FJoker("j_devious"))),
+        // Crafty: +80 Chips if Flush. Flush H-A-K-Q-J-9: chips=85+80=165, mult=4 → 660.
+        Case("Flush H-A-K-Q-J-9 + crafty", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "H_9"), 660.0, j(FJoker("j_crafty"))),
+        // Zany: +12 Mult if Three of a Kind. ToaK aces: chips=63, mult=3+12=15 → 945.
+        Case("ToaK aces + zany", PlayingCard.hand("S_A", "H_A", "D_A"), 945.0, j(FJoker("j_zany"))),
+        // Crazy: +12 Mult if Straight. Straight 5-9: chips=65, mult=4+12=16 → 1040.
+        Case("Straight 5-9 + crazy", PlayingCard.hand("S_5", "H_6", "D_7", "C_8", "S_9"), 1040.0, j(FJoker("j_crazy"))),
+        // Droll: +10 Mult if Flush. Flush H-A-K-Q-J-9: chips=85, mult=4+10=14 → 1190.
+        Case("Flush H-A-K-Q-J-9 + droll", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "H_9"), 1190.0, j(FJoker("j_droll"))),
+        // --- Cryptid hand-type jokers (JOKER_MAIN) ---
+        // cry_dubious: +20 Chips if HIGH_CARD in pokerHands (always true for Pair). chips=32+20=52, mult=2 → 104.
+        Case("Pair of aces + cry_dubious", PlayingCard.hand("S_A", "H_A"), 104.0, j(FJoker("j_cry_dubious"))),
+        // cry_foxy: +130 Chips if Full House. FH A/A/A/K/K: chips=93+130=223, mult=4 → 892.
+        Case("FullHouse A/A/A/K/K + cry_foxy", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 892.0, j(FJoker("j_cry_foxy"))),
+        // cry_tricksy: +170 Chips if Straight Flush. SF S-A-K-Q-J-T: chips=151+170=321, mult=8 → 2568.
+        Case("SF S-A-K-Q-J-T + cry_tricksy", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 2568.0, j(FJoker("j_cry_tricksy"))),
+        // cry_manic: +22 Mult if Straight Flush. SF S-A-K-Q-J-T: chips=151, mult=8+22=30 → 4530.
+        Case("SF S-A-K-Q-J-T + cry_manic", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 4530.0, j(FJoker("j_cry_manic"))),
+        // cry_delirious: +22 Mult if Five of a Kind. 5oaK (Wild S_A + H_A D_A C_A S_A): chips=175, mult=12+22=34 → 5950.
+        Case("5oaK Wild+4 aces + cry_delirious", listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("H_A"), PlayingCard.parse("D_A"), PlayingCard.parse("C_A"), PlayingCard.parse("S_A")), 5950.0, j(FJoker("j_cry_delirious"))),
+        // cry_savvy: +170 Chips if Five of a Kind. 5oaK: chips=175+170=345, mult=12 → 4140.
+        Case("5oaK Wild+4 aces + cry_savvy", listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("H_A"), PlayingCard.parse("D_A"), PlayingCard.parse("C_A"), PlayingCard.parse("S_A")), 4140.0, j(FJoker("j_cry_savvy"))),
+        // cry_quintet: X5 if Five of a Kind. 5oaK: chips=175, mult=12*5=60 → 10500.
+        Case("5oaK Wild+4 aces + cry_quintet", listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("H_A"), PlayingCard.parse("D_A"), PlayingCard.parse("C_A"), PlayingCard.parse("S_A")), 10500.0, j(FJoker("j_cry_quintet"))),
+        // cry_wacky: +30 Mult if Flush House. FlushHouse 3xH_A+2xH_K: chips=193, mult=14+30=44 → 8492.
+        Case("FlushHouse 3xH_A+2xH_K + cry_wacky", PlayingCard.hand("H_A", "H_A", "H_A", "H_K", "H_K"), 8492.0, j(FJoker("j_cry_wacky"))),
+        // cry_subtle: +240 Chips if Flush House. FlushHouse: chips=193+240=433, mult=14 → 6062.
+        Case("FlushHouse 3xH_A+2xH_K + cry_subtle", PlayingCard.hand("H_A", "H_A", "H_A", "H_K", "H_K"), 6062.0, j(FJoker("j_cry_subtle"))),
+        // cry_unity: X9 if Flush House. FlushHouse: chips=193, mult=14*9=126 → 24318.
+        Case("FlushHouse 3xH_A+2xH_K + cry_unity", PlayingCard.hand("H_A", "H_A", "H_A", "H_K", "H_K"), 24318.0, j(FJoker("j_cry_unity"))),
+        // cry_kooky: +30 Mult if Flush Five. FlushFive 5xH_A: chips=215, mult=16+30=46 → 9890.
+        Case("FlushFive 5xH_A + cry_kooky", PlayingCard.hand("H_A", "H_A", "H_A", "H_A", "H_A"), 9890.0, j(FJoker("j_cry_kooky"))),
+        // cry_discreet: +240 Chips if Flush Five. FlushFive: chips=215+240=455, mult=16 → 7280.
+        Case("FlushFive 5xH_A + cry_discreet", PlayingCard.hand("H_A", "H_A", "H_A", "H_A", "H_A"), 7280.0, j(FJoker("j_cry_discreet"))),
+        // cry_swarm: X9 if Flush Five. FlushFive: chips=215, mult=16*9=144 → 30960.
+        Case("FlushFive 5xH_A + cry_swarm", PlayingCard.hand("H_A", "H_A", "H_A", "H_A", "H_A"), 30960.0, j(FJoker("j_cry_swarm"))),
+        // --- Cryptid nosound retrigger ---
+        // cry_nosound: +3 retriggers per scored 7. Pair of 7s: each 7 scores 4 times (1+3). chips=10+4*7+4*7=66, mult=2 → 132.
+        Case("Pair of 7s + cry_nosound", PlayingCard.hand("S_7", "H_7"), 132.0, j(FJoker("j_cry_nosound"))),
+        // --- Cryptid edition-reactor jokers ---
+        // cry_exoplanet: +15 Mult per other Holo joker (OTHER_JOKER). Holo j_cry_bonkers: Holo adds +10 mult (edition pass), exoplanet adds +15. chips=32, mult=2+10+15=27 → 864.
+        Case("Pair of aces + cry_exoplanet + Holo bonkers", PlayingCard.hand("S_A", "H_A"), 864.0, j(FJoker("j_cry_exoplanet"), FJoker("j_cry_bonkers", edition = "Holo"))),
+        // cry_stardust: X2 per other Poly joker (OTHER_JOKER). Poly j_cry_bonkers: Poly ×1.5 (edition pass) → mult=3; stardust X2 → mult=6. chips=32 → 192.
+        Case("Pair of aces + cry_stardust + Poly bonkers", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_stardust"), FJoker("j_cry_bonkers", edition = "Poly"))),
+        // --- Cryptid Emult jokers ---
+        // cry_facile: eMult=3 unconditionally. Pair aces: chips=32, mult=2^3=8 → 256.
+        Case("Pair of aces + cry_facile", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_facile"))),
+        // cry_stella_mortis: eMult=j.x when j.x>1.0. j.x=2.0: chips=32, mult=2^2=4 → 128.
+        Case("Pair of aces + cry_stella_mortis (x=2.0)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_stella_mortis", x = 2.0))),
+        // cry_circulus_pistoris: xChipMod=PI, eMult=PI when handsLeft==3. chips=32*PI≈100.53, mult=2^PI≈8.825 → 887.
+        Case("Pair of aces + cry_circulus_pistoris (handsLeft=3)", PlayingCard.hand("S_A", "H_A"), 887.0, j(FJoker("j_cry_circulus_pistoris")), handsLeft = 3),
+        // cry_filler: xMultMod≈1.0 always (meme joker). Pair aces: mult=2*1.00000000000003≈2.0 → chips=32*2=64.
+        Case("Pair of aces + cry_filler (meme x1)", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_filler"))),
+        // cry_silly: +16 Mult if Full House. FH A/A/A/K/K: chips=93, mult=4+16=20 → 1860.
+        Case("FullHouse A/A/A/K/K + cry_silly", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1860.0, j(FJoker("j_cry_silly"))),
+        // cry_crustulum: +Chips per card scored in play (j.chips accumulated). chips=20 → 32+20=52, mult=2 → 104.
+        Case("Pair of aces + cry_crustulum (chips=20)", PlayingCard.hand("S_A", "H_A"), 104.0, j(FJoker("j_cry_crustulum", chips = 20.0))),
     )
 
     fun run(): Pair<Int, Int> {
