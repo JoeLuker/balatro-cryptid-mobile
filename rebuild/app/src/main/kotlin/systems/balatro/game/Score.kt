@@ -318,8 +318,10 @@ object Score {
             if (jokers.any { it.key == "j_cry_maximized" }) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } }
             else { c -> c.id }
         val (handType, handCards, pokerHands) = Hands.evaluate(played, rankOf)
-        // scoring_hand = hand cards + stones (always score), in played order (Splash would add all)
-        val scoringHand = played.filter { it in handCards || it.enhancement == Enhancement.STONE }
+        // final_scoring_hand (state_events.lua:743): a played card scores if it's in the evaluated hand,
+        // always-scores (stone), or Splash is on the board — j_splash makes EVERY played card score.
+        val splash = jokers.any { it.key == "j_splash" }
+        val scoringHand = played.filter { splash || it in handCards || it.enhancement == Enhancement.STONE }
 
         // hand base, raised by planet level (lvl 1 = unchanged), then halved by Flint (base only).
         var chips = (handType.baseChips + (level - 1) * handType.lChips).toDouble()

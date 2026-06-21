@@ -16,7 +16,7 @@ import systems.balatro.bridge.Telemetry
 object JokerArt {
     // key -> (atlas asset file, col, row), from each joker's original `atlas` + `pos`.
     // Extracted from the source defs: vanilla from game.lua (set="Joker" -> Jokers.png), Cryptid
-    // from mods/Cryptid/items/*.lua (atlas + pos). 96/109 CATALOG jokers; the unmapped ones either
+    // from mods/Cryptid/items/*.lua (atlas + pos). 97/110 CATALOG jokers; the unmapped ones either
     // carry no `atlas` field in source (fspinner, jimball, wee_fib, wheelhope — Cryptid default) or
     // are later-batch additions awaiting a verified cell — both left to the name placeholder for now.
     private val MAP: Map<String, Triple<String, Int, Int>> = mapOf(
@@ -111,6 +111,7 @@ object JokerArt {
         "j_seeing_double" to Triple("Jokers.png", 4, 4),
         "j_sly" to Triple("Jokers.png", 0, 14),        // Sly Joker — Pair chips (game.lua pos x=0,y=14)
         "j_smiley" to Triple("Jokers.png", 6, 15),
+        "j_splash" to Triple("Jokers.png", 6, 10),     // Splash — every played card scores (game.lua pos x=6,y=10)
         "j_stuntman" to Triple("Jokers.png", 8, 6),
         "j_triboulet" to Triple("Jokers.png", 4, 8),
         "j_walkie_talkie" to Triple("Jokers.png", 8, 15),

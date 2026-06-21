@@ -45,6 +45,9 @@ object Oracle {
         // "+Mult if hand contains <type>" family: Jolly on a Pair (32 chips * (2+8)), Mad on Two Pair (54 chips * (2+10)).
         Case("Pair of aces + jolly (Pair present, +8 Mult)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_jolly"))),
         Case("TwoPair 10s/7s + mad (Two Pair present, +10 Mult)", PlayingCard.hand("S_T", "H_T", "S_7", "D_7"), 648.0, j(FJoker("j_mad"))),
+        // Splash: every played card scores. Same High Card as above (16 with only the Ace) now scores all five:
+        // (5 base + 11+10+10+10+9 card chips) * 1 = 55.
+        Case("HighCard A K Q J 9 + splash (all 5 score)", PlayingCard.hand("S_A", "H_K", "D_Q", "C_J", "S_9"), 55.0, j(FJoker("j_splash"))),
         // --- Cryptid jokers ---
         Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, j(FJoker("j_cry_cube"))),
         Case("ThreeOfAKind 3s + triplet_rhythm (x3)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, j(FJoker("j_cry_triplet_rhythm"))),

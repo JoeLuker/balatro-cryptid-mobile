@@ -104,6 +104,8 @@ private val CATALOG = listOf(
     Offer("j_mad", "Mad Joker", "+10 Mult if hand has a Two Pair", 4),
     Offer("j_crazy", "Crazy Joker", "+12 Mult if hand has a Straight", 4),
     Offer("j_droll", "Droll Joker", "+10 Mult if hand has a Flush", 4),
+    // --- vanilla scoring-set modifier ---
+    Offer("j_splash", "Splash", "every played card counts in scoring", 3),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
