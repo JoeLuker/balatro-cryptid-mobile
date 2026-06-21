@@ -296,6 +296,17 @@ internal class RunState {
         phase = Phase.ROUND
     }
 
+    /** Like [loadRepro] but lets the scoring cascade actually RUN (repro = false) — a live-cascade
+     *  harness for verifying the P4 animation (chip/mult count-up + card pops via the EventManager).
+     *  Sets up the bref_3 jokers/deck, then plays the Two Pair fresh so the cascade fires live. */
+    fun loadReproLive() {
+        loadRepro()
+        repro = false; scoring = false
+        hand = listOf(PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
+        selected = setOf(0, 1, 2, 3)
+        play()
+    }
+
     /** The boss at THIS ante's Boss slot — for the blind-select preview. `boss` is only assigned
      *  once you're ON the boss slot, so the select screen (you're at Small) needs the upcoming one.
      *  Same RNG as the slot-2 assignment, keyed to the boss-slot index (current ante's 3rd blind). */
@@ -582,6 +593,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "eval" -> s.toEvalForPreview()
             "over" -> s.phase = Phase.OVER
             "repro" -> s.loadRepro()      // PROOF: freeze the exact reference-screenshot state for pixel-diff
+            "repro-live" -> s.loadReproLive()  // live-cascade harness: bref_3 state, plays the Two Pair so scoring animates
         }
     }
 
