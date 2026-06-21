@@ -59,3 +59,6 @@
 58-draw_shader_nil_reset.patch
 59-drag_self_drop_exclude.patch
 60-sticky_fingers_guard.patch
+61-drag_reject_feedback.patch
+62-structural_mods_lock.patch
+63-mod_toggle_removed.patch

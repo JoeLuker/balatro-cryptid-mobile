@@ -12,7 +12,7 @@ patches that fail loud, a thin build. Pattern: distro source-package
 | 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified (pins realise, hashes valid) |
 | 2 | **Build derivation** — `nix/balatro-cryptid.nix`; `overlay/game/conf.lua` owned | 🟡 gameLove **build-verified** (785 files from pins); apk eval-verified |
 | 3a | **Dump from pins** — `stage-mods.sh` + `regen-dump.sh` → `vendor/dump` (stamped); gameLove self-contained | ✅ done & verified |
-| 3b | **Patch conversion** — `gen-patches.sh` → 59 `overlay/patches/*.patch` + `series`, `git apply --check` (hard-fail) | 🟡 build green + 0 lua-syntax errors; 5 silent-skips remain |
+| 3b | **Patch conversion** — `gen-patches.sh` → 63 `overlay/patches/*.patch` + `series`, `git apply --check` (hard-fail) | 🟡 build green + 0 lua-syntax errors; 1 silent-skip remains (REDUNDANT, dropped) |
 | 4 | **Config** — fold `config-overrides/` → `overlay/config/`; delete the clobber-reapply path | ⬜ |
 | 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ |
 | 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
@@ -77,14 +77,13 @@ flake.nix                 # exposes packages.balatro-cryptid + the dev shell
 
 ## Phase 3b findings (patch conversion)
 
-- **60 patches generated** from build.sh's call order; **gameLove builds green**
-  with all 60 `git apply`'d (hard-fail series — the 93 log_warn silent-skips are
+- **63 patches generated** from build.sh's call order; **gameLove builds green**
+  with all 63 `git apply`'d (hard-fail series — the 93 log_warn silent-skips are
   gone). Patched `game.love`: **259 lua files, 0 syntax errors** (luajit -bl),
   sentinels present (CRY_EVENTS_GUARDED, DISABLED_CENTER_SKIP, MALI_RANGE_FIX, …).
-- **4 silent-skips remain** (legacy build ships without these too) — under
-  adversarial triage: `drag_reject_feedback`,
-  `structural_mods_lock` (target file gone — Steamodded de-drift), `mod_toggle_removed`,
-  `cryptid_oil_lamp_fix`.
+- **1 silent-skip remains** — `cryptid_oil_lamp_local_fix` is **REDUNDANT** (dropped):
+  the pinned Cryptid v0.5.16a Oil Lamp `calculate` already uses `local other_card`
+  (properly scoped); the bare `other_joker` leak the fix targeted is gone upstream.
 - **`sticky_fingers_guard` resolved (patch 60):** the original function targeted
   `functions/misc_functions.lua` expecting sticky-fingers' lovely/misc_functions.toml
   append to be present in the dump. Root cause: lovely's `append` + `dump_lua = true`
@@ -94,6 +93,25 @@ flake.nix                 # exposes packages.balatro-cryptid + the dev shell
   anywhere in the assembled tree. Fix: patch 60 appends all 7 guarded wrappers
   directly to `Mods/sticky-fingers/main.lua` (the only runtime-loaded lua in the
   embedded mod), with nil-guards baked in (STICKY_GUARD sentinel).
+- **`drag_reject_feedback` resolved (patch 61):** same root cause — the anchor
+  `e.config.release_func = nil` lives inside `G.FUNCS.check_drag_target_active`,
+  defined in sticky-fingers' `lovely/button_callbacks.lua` (the other append that
+  also did not land in the dump). Fix: patch 61 appends `check_drag_target_active`
+  to `Mods/sticky-fingers/main.lua` with the DRAG_REJECT_FEEDBACK logic built in
+  (rejected drop → cancel sound + card shake + red cost flash).
+- **`structural_mods_lock` resolved (patch 62):** target moved from
+  `Mods/Steamodded/src/loader.lua` to `Mods/Steamodded/src/preflight/loader.lua`
+  in Steamodded de-drift to commit `fdb7442`. Patch re-anchored to three
+  `NFS.getInfo(.../.lovelyignore)` checks in the new location, each guarded with
+  `and not STRUCTURAL_BAKED[mod.id]` (STRUCTURAL_MODS_LOCK sentinel).
+- **`mod_toggle_removed` resolved (patch 63):** the `create_toggle` callback in
+  `Mods/Steamodded/src/ui.lua` was rewritten in `fdb7442` to use
+  `require"SMODS.preflight.loader".addToBlacklist` instead of
+  `NFS.write(.../.lovelyignore)`. Re-anchored to the new 31-line block;
+  replacement is the same inert "baked" label (MOD_TOGGLE_REMOVED sentinel).
+- **`cryptid_oil_lamp_local_fix` dropped (REDUNDANT):** the pinned Cryptid
+  v0.5.16a Oil Lamp already uses `local other_card` in its `calculate` function;
+  the bare `other_joker` global-leak the fix targeted does not exist. No patch needed.
 - **`drag_self_drop_exclude` ported** (patch 59): the original anchor lived in the
   Lovely-modded TAP_DESC_HOLD_NODRAG block, absent from the pristine pinned engine.
   Fix re-anchored to `set_cursor_hover`'s collision-walk (`DRAG_SELF_DROP_EXCLUDE`

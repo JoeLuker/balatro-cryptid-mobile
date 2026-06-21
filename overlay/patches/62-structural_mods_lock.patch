@@ -1,0 +1,41 @@
+diff --git a/Mods/Steamodded/src/preflight/loader.lua b/Mods/Steamodded/src/preflight/loader.lua
+index 45e0d20..aa5871e 100644
+--- a/Mods/Steamodded/src/preflight/loader.lua
++++ b/Mods/Steamodded/src/preflight/loader.lua
+@@ -1,3 +1,9 @@
++-- STRUCTURAL_MODS_LOCK: these mods' lovely patches are baked into the
++-- shipped game files; the runtime toggle cannot remove that half, so
++-- disabling them only breaks the baked references (nil calls). The loader
++-- ignores their .lovelyignore markers.
++local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['eramdam.sticky-fingers'] = true, CardSleeves = true }
++
+ local sUtil = require "SMODS.preflight.sharedUtil"
+ 
+ local NFS = SMODS.NFS
+@@ -334,7 +340,7 @@ function loadMods(modsDirectory)
+                     sendErrorMessage(('Found invalid metadata JSON file at %s, ignoring: %s'):format(file_path, err), 'Loader')
+                 else
+                     sendInfoMessage('Valid JSON file found', 'Loader')
+-                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') then
++                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+                         mod.disabled = true
+                         mod.lovelyIgnored = true
+                     end
+@@ -409,7 +415,7 @@ function loadMods(modsDirectory)
+                     mod.blacklist_name = flags.name
+                     mod.load_type = flags.type
+ 
+-                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') then
++                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+                         mod.disabled = true
+                         mod.lovelyIgnored = true
+                     end
+@@ -539,7 +545,7 @@ function loadMods(modsDirectory)
+                 }
+ 
+             }
+-            if flags.type == "directory" and NFS.getInfo(path ..'.lovelyignore') then
++            if flags.type == "directory" and NFS.getInfo(path ..'.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+                 mod.disabled = true
+                 mod.can_load = false
+                 mod.lovelyIgnored = true
