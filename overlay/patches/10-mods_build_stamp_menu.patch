@@ -1,0 +1,13 @@
+diff --git a/Mods/Steamodded/src/ui.lua b/Mods/Steamodded/src/ui.lua
+index 668e827..b4478b3 100644
+--- a/Mods/Steamodded/src/ui.lua
++++ b/Mods/Steamodded/src/ui.lua
+@@ -333,7 +333,7 @@ function Game:main_menu(change_context)
+                     n = G.UIT.T,
+                     config = {
+                         scale = 0.3,
+-                        text = MODDED_VERSION,
++                        text = MODDED_VERSION .. " | " .. (G.CRYPTID_MOBILE_BUILD or "?"), -- BUILD_STAMP_MENU
+                         colour = G.C.UI.TEXT_LIGHT
+                     }
+                 }

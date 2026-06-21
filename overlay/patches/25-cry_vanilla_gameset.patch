@@ -1,0 +1,210 @@
+diff --git a/Mods/Cryptid/Cryptid.lua b/Mods/Cryptid/Cryptid.lua
+index 34c3414..a4ee1ef 100644
+--- a/Mods/Cryptid/Cryptid.lua
++++ b/Mods/Cryptid/Cryptid.lua
+@@ -424,6 +424,26 @@ local cryptidConfigTab = function()
+ 		ref_table = Cryptid_config,
+ 		ref_value = "menu",
+ 	})
++	-- CRY_VANILLA_GAMESET: gameset switcher (upstream has no post-intro
++	-- switcher at all; gameset applies to new runs)
++	cry_nodes[#cry_nodes + 1] = {
++		n = G.UIT.R,
++		config = { align = "cm", padding = 0.05 },
++		nodes = { { n = G.UIT.T, config = { text = localize("cry_current_gameset_label"), scale = 0.4, colour = G.C.UI.TEXT_LIGHT } } },
++	}
++	local _gs_row = { n = G.UIT.R, config = { align = "cm", padding = 0.05 }, nodes = {} }
++	for _, _gs in ipairs({ "modest", "mainline", "madness", "vanilla" }) do
++		_gs_row.nodes[#_gs_row.nodes + 1] = UIBox_button({
++			colour = (G.PROFILES[G.SETTINGS.profile].cry_gameset == _gs) and G.C.CRY_SELECTED or G.C.GREY,
++			button = "cry_cfg_set_gameset",
++			ref_table = { gameset = _gs },
++			func = "cry_cfg_gameset_colour",
++			label = { localize("cry_gameset_" .. _gs) },
++			minw = 2.2,
++			scale = 0.35,
++		})
++	end
++	cry_nodes[#cry_nodes + 1] = _gs_row
+ 	cry_nodes[#cry_nodes + 1] = UIBox_button({
+ 		colour = G.C.CRY_ALTGREENGRADIENT,
+ 		button = "reset_gameset_config",
+@@ -451,6 +471,20 @@ local cryptidConfigTab = function()
+ 	}
+ end
+ 
++-- CRY_VANILLA_GAMESET: config-tab gameset switcher handlers
++G.FUNCS.cry_cfg_set_gameset = function(e)
++	local _gs = e.config.ref_table and e.config.ref_table.gameset
++	if not _gs then return end
++	G.PROFILES[G.SETTINGS.profile].cry_gameset = _gs
++	G:save_settings()
++end
++G.FUNCS.cry_cfg_gameset_colour = function(e)
++	local _gs = e.config.ref_table and e.config.ref_table.gameset
++	if not _gs then return end
++	local _sel = (G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline") == _gs
++	e.config.colour = _sel and G.C.CRY_SELECTED or G.C.GREY
++end
++
+ local cryptidTabs = function()
+ 	return {
+ 		{
+diff --git a/Mods/Cryptid/lib/gameset.lua b/Mods/Cryptid/lib/gameset.lua
+index 8e2e64d..6899afc 100644
+--- a/Mods/Cryptid/lib/gameset.lua
++++ b/Mods/Cryptid/lib/gameset.lua
+@@ -206,12 +206,26 @@ G.FUNCS.cry_intro_part = function(_part)
+ 			colour = G.C.CRY_EXOTIC,
+ 			maxw = 3,
+ 		})
++		local vanillaSprite = Sprite(0, 0, 1, 1, G.ASSET_ATLAS["cry_gameset"], { x = 3, y = 0 })
++		vanillaSprite:define_draw_steps({
++			{ shader = "dissolve", shadow_height = 0.05 },
++			{ shader = "dissolve" },
++		})
++		G.vanillaBtn = create_UIBox_character_button_with_sprite({
++			sprite = vanillaSprite,
++			button = localize("cry_gameset_vanilla"),
++			id = "vanilla",
++			func = "cry_vanilla",
++			colour = mix_colours(G.C.RED, G.C.GREY, 0.7),
++			maxw = 3,
++		})
+ 		local gamesetUI = create_UIBox_generic_options({
+ 			infotip = false,
+ 			contents = {
+ 				G.modestBtn,
+ 				G.mainlineBtn,
+ 				G.madnessBtn,
++				G.vanillaBtn,
+ 			},
+ 			back_label = "Confirm",
+ 			back_colour = G.C.BLUE,
+@@ -255,11 +269,12 @@ G.FUNCS.cry_intro_part = function(_part)
+ 			no_button = true,
+ 		})
+ 	end
+-	if _part == "modest" or _part == "mainline" or _part == "madness" then
++	if _part == "modest" or _part == "mainline" or _part == "madness" or _part == "vanilla" then
+ 		local desc_length = { --number of times Jolly Joker speaks for each gameset
+ 			modest = 2,
+ 			mainline = 3,
+ 			madness = 3,
++			vanilla = 1,
+ 		}
+ 		G.E_MANAGER:clear_queue("tutorial")
+ 		if G.OVERLAY_TUTORIAL.content then
+@@ -295,6 +310,7 @@ G.FUNCS.cry_modest = function(e)
+ 	G.modestBtn.config.colour = G.C.CRY_SELECTED
+ 	G.mainlineBtn.config.colour = G.C.RED
+ 	G.madnessBtn.config.colour = G.C.CRY_EXOTIC
++	if G.vanillaBtn then G.vanillaBtn.config.colour = mix_colours(G.C.RED, G.C.GREY, 0.7) end
+ 	G.FUNCS.cry_intro_part("modest")
+ 	G.selectedGameset = "modest"
+ end
+@@ -302,6 +318,7 @@ G.FUNCS.cry_mainline = function(e)
+ 	G.modestBtn.config.colour = G.C.GREEN
+ 	G.mainlineBtn.config.colour = G.C.CRY_SELECTED
+ 	G.madnessBtn.config.colour = G.C.CRY_EXOTIC
++	if G.vanillaBtn then G.vanillaBtn.config.colour = mix_colours(G.C.RED, G.C.GREY, 0.7) end
+ 	G.FUNCS.cry_intro_part("mainline")
+ 	G.selectedGameset = "mainline"
+ end
+@@ -309,9 +326,18 @@ G.FUNCS.cry_madness = function(e)
+ 	G.modestBtn.config.colour = G.C.GREEN
+ 	G.mainlineBtn.config.colour = G.C.RED
+ 	G.madnessBtn.config.colour = G.C.CRY_SELECTED
++	if G.vanillaBtn then G.vanillaBtn.config.colour = mix_colours(G.C.RED, G.C.GREY, 0.7) end
+ 	G.FUNCS.cry_intro_part("madness")
+ 	G.selectedGameset = "madness"
+ end
++G.FUNCS.cry_vanilla = function(e)
++	G.modestBtn.config.colour = G.C.GREEN
++	G.mainlineBtn.config.colour = G.C.RED
++	G.madnessBtn.config.colour = G.C.CRY_EXOTIC
++	G.vanillaBtn.config.colour = G.C.CRY_SELECTED
++	G.FUNCS.cry_intro_part("vanilla")
++	G.selectedGameset = "vanilla"
++end
+ G.FUNCS.cry_gameset_confirm = function(e)
+ 	if G.selectedGameset then
+ 		G.PROFILES[G.SETTINGS.profile].cry_intro_complete = true
+@@ -547,9 +573,18 @@ end
+ 
+ -- designed to work on any object type
+ function Cryptid.gameset(card, center)
++	-- CRY_VANILLA_GAMESET: under the vanilla profile gameset every CENTER
++	-- resolution returns "disabled" -- Cryptid.enabled(), set_ability's
++	-- cry_disabled stamp, pool checks and tinting all follow. The bare
++	-- profile query still reports "vanilla" for UI callers. force_gameset
++	-- wins first so picker previews and the per-item config UI render.
++	-- The short-circuit sits BEFORE the per-item override lookup on
++	-- purpose: stale overrides from a profile's earlier gameset must not
++	-- resurrect items under vanilla.
++	local _profile_gameset = G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
+ 	if not center then
+ 		if not card then
+-			return G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
++			return _profile_gameset
+ 		end
+ 		center = card.config and card.config.center or card.effect and card.effect.center or card
+ 	end
+@@ -559,8 +594,11 @@ function Cryptid.gameset(card, center)
+ 	if center.force_gameset then
+ 		return center.force_gameset
+ 	end
++	if _profile_gameset == "vanilla" then
++		return "disabled"
++	end
+ 	if center.fake_card then
+-		return G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
++		return _profile_gameset
+ 	end
+ 	if not center.key then
+ 		if center.tag and center.tag.key then --dumb fix for tags
+@@ -569,10 +607,10 @@ function Cryptid.gameset(card, center)
+ 			if false then
+ 				print("Could not find key for center: " .. tprint(center))
+ 			end
+-			return G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
++			return _profile_gameset
+ 		end
+ 	end
+-	local gameset = G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"
++	local gameset = _profile_gameset
+ 	if Cryptid_config.experimental and center.extra_gamesets then
+ 		for i = 1, #center.extra_gamesets do
+ 			if center.extra_gamesets[i] == "exp_" .. gameset then
+diff --git a/Mods/Cryptid/localization/en-us.lua b/Mods/Cryptid/localization/en-us.lua
+index 47d4787..eed1b9c 100644
+--- a/Mods/Cryptid/localization/en-us.lua
++++ b/Mods/Cryptid/localization/en-us.lua
+@@ -5006,6 +5006,10 @@ return {
+ 				"{s:0.8}Note: Gameset balancing is a heavy work in progress.",
+ 				"{s:0.8}Expect things to change frequently!",
+ 			},
++			cry_vanilla_1 = {
++				"Just want plain Balatro? The {C:inactive}Vanilla{}",
++				"gameset turns all Cryptid content off.",
++			},
+ 			cry_modest_1 = {
+ 				"Seeking an experience close to vanilla?",
+ 				"Then the {C:cry_ascendant}Modest{} gameset is for you!",
+@@ -5319,6 +5323,8 @@ return {
+ 				"to apply to this card.",
+ 			},
+ 			cry_gameset_disabled = "Disabled",
++			cry_gameset_vanilla = "Vanilla",
++			cry_current_gameset_label = "Gameset (applies to new runs)",
+ 			cry_gameset_modest = "Modest",
+ 			cry_gameset_mainline = "Mainline",
+ 			cry_gameset_madness = "Madness",
+@@ -5337,6 +5343,7 @@ return {
+ 			b_reset_gameset_modest = "Reset Gameset Config (Modest)",
+ 			b_reset_gameset_mainline = "Reset Gameset Config (Mainline)",
+ 			b_reset_gameset_madness = "Reset Gameset Config (Madness)",
++			b_reset_gameset_vanilla = "Reset Gameset Config (Vanilla)",
+ 
+ 			b_update_membership_cards = "Update Membership Card jokers",
+ 

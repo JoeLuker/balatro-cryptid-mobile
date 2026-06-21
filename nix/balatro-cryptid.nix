@@ -1,41 +1,35 @@
 # nix/balatro-cryptid.nix — the modded-APK build (pattern A).
 #
-#   pristine pinned sources (sources.nix)
-#     → assemble game.love  [gameLove]
-#       → repackage + sign base.apk  [apk]
+#   pinned sources (sources.nix) + vendored from-pins dump
+#     → assemble pristine tree   [gameLoveBase]
+#       → apply patch series      [gameLove]  (overlay/patches/*, hard-fail)
+#         → repackage + sign      [apk]
 #
-# Two stages so the lua assembly (light) can be built/verified without the
-# android toolchain (heavy).
-#
-# STATUS (Phase 2): gameLove assembly is build-verified. The patch series
-# (Phase 3, overlay/patches/series — currently empty) and a dump regenerated
-# *from these pins* (see MIGRATION.md) are the remaining gates before the output
-# is a shippable, patched game. The apk stage is written but build-verify is the
-# next gate.
+# Split so gen-patches.sh can diff against gameLoveBase (the pristine base),
+# while gameLove = base + series is what ships. The lua stages build without the
+# android toolchain (heavy) — only `apk` needs it.
 { pkgs ? import <nixpkgs> {
     config = { allowUnfree = true; android_sdk.accept_license = true; };
   }
 , sources ? import ./sources.nix { inherit pkgs; }
   # The lovely-merged game Lua — generated FROM THE PINS by nix/regen-dump.sh and
-  # vendored at vendor/dump (stamped with the source revs in .source-revs). This
-  # is the consistency guarantee: dump and mod sources can't drift.
+  # vendored at vendor/dump (stamped with source revs). Dump/mod can't drift.
 , dump ? ../vendor/dump
 , overlay ? ../overlay
 , patchesDir ? ../patches   # Phase 5: owned modules consolidate into overlay/game
 }:
 
 let
-  inherit (pkgs) lib stdenv;
+  inherit (pkgs) stdenv;
 
   packageId = "com.unofficial.balatro.cryptid";
   appName = "Balatro Cryptid";
 
-  # ── stage 1: game.love ────────────────────────────────────────────────────
-  gameLove = stdenv.mkDerivation {
-    name = "balatro-cryptid-game.love";
+  # ── stage 1a: pristine assembled tree (NO patches) ────────────────────────
+  gameLoveBase = stdenv.mkDerivation {
+    name = "balatro-cryptid-gametree";
     dontUnpack = true;
-    nativeBuildInputs = [ pkgs.unzip pkgs.zip ];
-
+    nativeBuildInputs = [ pkgs.unzip ];
     buildPhase = ''
       runHook preBuild
       mkdir game && pushd game >/dev/null
@@ -99,24 +93,52 @@ let
       return { repo = "https://github.com/ethangreen-dev/lovely-injector", version = "0.9.0", mod_dir = "Mods" }
       LOVELY
 
-      # ── patch series (Phase 3) ──
-      # Apply overlay/patches/* in series order with hard-fail (no silent skips).
-      series=${overlay}/patches/series
+      # Normalise shader EOL → LF. Cryptid ships CRLF .fs files; GLSL is
+      # EOL-agnostic and the legacy build only ever appended a stray LF, so this
+      # is benign — and it makes the (git-diff) shader patch series byte-stable.
+      echo "[love] normalise shader EOL → LF"
+      find . \( -name '*.fs' -o -name '*.vs' \) -print0 \
+        | while IFS= read -r -d "" s; do sed -i 's/\r$//' "$s"; done
+
+      popd >/dev/null
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      cp -r game "$out"
+      runHook postInstall
+    '';
+  };
+
+  # ── stage 1b: apply the patch series → game.love ──────────────────────────
+  gameLove = stdenv.mkDerivation {
+    name = "balatro-cryptid-game.love";
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.zip pkgs.gitMinimal ];
+    buildPhase = ''
+      runHook preBuild
+      cp -r --no-preserve=mode ${gameLoveBase} game
+      chmod -R u+w game
+      pushd game >/dev/null
+
+      # Apply overlay/patches/* (git diffs) in series order with HARD-FAIL — no
+      # silent skips. git apply (not GNU patch) handles git's no-newline + CRLF
+      # semantics; ignore global git config so EOL is never normalised.
+      export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
       applied=0
       while IFS= read -r p; do
         case "$p" in ""|"#"*) continue;; esac
         echo "[patch] $p"
-        patch -p1 --dry-run < "${overlay}/patches/$p" >/dev/null
-        patch -p1          < "${overlay}/patches/$p"
+        git apply --check -p1 --whitespace=nowarn "${overlay}/patches/$p"
+        git apply        -p1 --whitespace=nowarn "${overlay}/patches/$p"
         applied=$((applied+1))
-      done < "$series"
+      done < "${overlay}/patches/series"
       echo "[patch] applied $applied patch(es)"
 
-      # TODO Phase 3: strip_en_us_assets (size-only; omitted from the proof build)
+      # TODO Phase 3: strip_en_us_assets (size-only)
       popd >/dev/null
       runHook postBuild
     '';
-
     installPhase = ''
       runHook preInstall
       ( cd game && zip -q -X -r "$out" . )
@@ -162,13 +184,13 @@ let
       runHook preInstall
       mkdir -p "$out"
       ${buildTools}/zipalign -f 4 unsigned.apk aligned.apk
-      # NOTE: signing key handling (was scripts/build.sh ensure_keystore) wires in
-      # next — emit the aligned APK for now so the pipeline is verifiable.
+      # NOTE: signing-key wiring (was ensure_keystore) is the next gate — emit the
+      # aligned APK for now so the pipeline is verifiable.
       cp aligned.apk "$out/${packageId}.unsigned-aligned.apk"
       runHook postInstall
     '';
   };
 in
 {
-  inherit gameLove apk;
+  inherit gameLoveBase gameLove apk;
 }

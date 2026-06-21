@@ -1,0 +1,39 @@
+diff --git a/engine/text.lua b/engine/text.lua
+index 0a867b3..c5fe9b6 100644
+--- a/engine/text.lua
++++ b/engine/text.lua
+@@ -139,12 +139,31 @@ function DynaText:update_text(first_pass)
+ 
+                 for _, c in utf8.chars(v) do
+                     local old_letter = old_letters and old_letters[current_letter] or nil
+-                    local let_tab = {letter = cached_glyph(self.font.FONT, c), char = c, scale = old_letter and old_letter.scale or part_scale} -- DYNATEXT_GLYPH_CACHE
++                    -- LETTER_TABLE_REUSE: reuse the old let_tab and its sub-tables when
++                    -- the same char is at the same position (common during number animation).
++                    -- Allocates fresh tables only on first appearance or char-position mismatch.
++                    local let_tab
++                    if old_letter and old_letter.char == c then
++                        let_tab = old_letter
++                    else
++                        let_tab = {char = c}
++                        if old_letter then
++                            let_tab.scale  = old_letter.scale
++                            let_tab.offset = old_letter.offset
++                        end
++                    end
++                    let_tab.letter = cached_glyph(self.font.FONT, c) -- DYNATEXT_GLYPH_CACHE
++                    if not let_tab.scale then let_tab.scale = part_scale end
+                     self.strings[k].letters[current_letter] = let_tab
+                     local tx = self.font.FONT:getWidth(c)*self.scale*part_scale*G.TILESCALE*self.font.FONTSCALE + 2.7*(self.config.spacing or 0)*G.TILESCALE*self.font.FONTSCALE
+                     local ty = self.font.FONT:getHeight(c)*self.scale*part_scale*G.TILESCALE*self.font.FONTSCALE*self.font.TEXT_HEIGHT_SCALE
+-                    let_tab.offset = old_letter and old_letter.offset or {x = 0, y = 0}
+-                    let_tab.dims = {x = tx/(self.font.FONTSCALE*G.TILESCALE), y = ty/(self.font.FONTSCALE*G.TILESCALE)}
++                    if not let_tab.offset then let_tab.offset = {x = 0, y = 0} end
++                    if let_tab.dims then
++                        let_tab.dims.x = tx/(self.font.FONTSCALE*G.TILESCALE)
++                        let_tab.dims.y = ty/(self.font.FONTSCALE*G.TILESCALE)
++                    else
++                        let_tab.dims = {x = tx/(self.font.FONTSCALE*G.TILESCALE), y = ty/(self.font.FONTSCALE*G.TILESCALE)}
++                    end
+                     let_tab.pop_in = first_pass and (old_letter and old_letter.pop_in or (self.config.pop_in and 0 or 1)) or 1
+                     let_tab.prefix = current_letter <= part_a and outer_colour or nil
+                     let_tab.suffix = current_letter > part_b and outer_colour or nil

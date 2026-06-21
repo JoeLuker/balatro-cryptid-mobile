@@ -1,0 +1,14 @@
+diff --git a/Mods/Cryptid/lib/overrides.lua b/Mods/Cryptid/lib/overrides.lua
+index d2196c7..e32bb9b 100644
+--- a/Mods/Cryptid/lib/overrides.lua
++++ b/Mods/Cryptid/lib/overrides.lua
+@@ -151,7 +151,9 @@ end
+ --Add context for after cards are played
+ local gfep = G.FUNCS.evaluate_play
+ function G.FUNCS.evaluate_play(e)
++	G._cry_flip_side_active = next(find_joker("cry-Flip Side"))
+ 	gfep(e)
++	G._cry_flip_side_active = nil
+ 	G.GAME.blind:cry_after_play()
+ end
+ 

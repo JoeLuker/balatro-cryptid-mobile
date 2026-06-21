@@ -1,0 +1,64 @@
+SKIP  sticky_fingers_guard
+OK    build_stamp                  -> 01-build_stamp.patch
+OK    crt_fix                      -> 02-crt_fix.patch
+OK    android_settings_fix         -> 03-android_settings_fix.patch
+OK    mobile_graphics_defaults     -> 04-mobile_graphics_defaults.patch
+OK    android_video_settings       -> 05-android_video_settings.patch
+OK    android_quit_fix             -> 06-android_quit_fix.patch
+SKIP  drag_reject_feedback
+OK    settings_debug_tab           -> 07-settings_debug_tab.patch
+OK    debug_overlay                -> 08-debug_overlay.patch
+OK    main_lua                     -> 09-main_lua.patch
+OK    mods_build_stamp_menu        -> 10-mods_build_stamp_menu.patch
+OK    shader_eof_newlines          -> 11-shader_eof_newlines.patch
+OK    blur_shader_reorder          -> 12-blur_shader_reorder.patch
+OK    glitch_shader_fix            -> 13-glitch_shader_fix.patch
+OK    glitch_shader_range_fix      -> 14-glitch_shader_range_fix.patch
+OK    glitched_b_fix               -> 15-glitched_b_fix.patch
+OK    cryptid_dead_copy_fix        -> 16-cryptid_dead_copy_fix.patch
+OK    cryptid_flip_side_cache      -> 17-cryptid_flip_side_cache.patch
+OK    cryptid_events_guard         -> 18-cryptid_events_guard.patch
+OK    amulet_config_hardening      -> 19-amulet_config_hardening.patch
+OK    amulet_calc_delay            -> 20-amulet_calc_delay.patch
+OK    amulet_overlay_fit           -> 21-amulet_overlay_fit.patch
+SKIP  structural_mods_lock
+OK    smods_disabled_pool_gate     -> 22-smods_disabled_pool_gate.patch
+SKIP  mod_toggle_removed
+OK    cryptid_to_big_elim          -> 23-cryptid_to_big_elim.patch
+OK    cryptid_demicolon            -> 24-cryptid_demicolon.patch
+SKIP  cryptid_oil_lamp_fix
+OK    cry_vanilla_gameset          -> 25-cry_vanilla_gameset.patch
+OK    cry_blind_choice_guard       -> 26-cry_blind_choice_guard.patch
+OK    cry_forcetrigger_guard       -> 27-cry_forcetrigger_guard.patch
+OK    hand_level_no_recalc         -> 28-hand_level_no_recalc.patch
+OK    shake_trig_guard             -> 29-shake_trig_guard.patch
+OK    forced_key_guard             -> 30-forced_key_guard.patch
+OK    disabled_center_skip         -> 31-disabled_center_skip.patch
+OK    tap_description_persist      -> 32-tap_description_persist.patch
+OK    cursor_down_uptime_fix       -> 33-cursor_down_uptime_fix.patch
+SKIP  drag_self_drop_exclude
+OK    ui_colour_guard              -> 34-ui_colour_guard.patch
+OK    ui_o_detached_guard          -> 35-ui_o_detached_guard.patch
+OK    drag_select                  -> 36-drag_select.patch
+OK    telemetry_toggles            -> 37-telemetry_toggles.patch
+OK    overlay_menu_fit             -> 38-overlay_menu_fit.patch
+OK    shadow_height_fix            -> 39-shadow_height_fix.patch
+OK    card_to_big_elim             -> 40-card_to_big_elim.patch
+OK    scoring_loop_cache           -> 41-scoring_loop_cache.patch
+OK    ctx_table_hoist              -> 42-ctx_table_hoist.patch
+OK    lvl_prefix_cache             -> 43-lvl_prefix_cache.patch
+OK    parse_highlighted_lean       -> 44-parse_highlighted_lean.patch
+OK    card_eval_config_elide       -> 45-card_eval_config_elide.patch
+OK    empty_pool_guard             -> 46-empty_pool_guard.patch
+OK    get_x_same_lean              -> 47-get_x_same_lean.patch
+OK    dynatext_glyph_cache         -> 48-dynatext_glyph_cache.patch
+OK    letter_table_reuse           -> 49-letter_table_reuse.patch
+OK    nugc_adaptive                -> 50-nugc_adaptive.patch
+OK    moveable_sleep               -> 51-moveable_sleep.patch
+OK    moveable_shadow_lists        -> 52-moveable_shadow_lists.patch
+OK    event_burst_attrib           -> 53-event_burst_attrib.patch
+OK    event_queue_compact          -> 54-event_queue_compact.patch
+OK    ui_func_throttle             -> 55-ui_func_throttle.patch
+OK    blind_select_defer           -> 56-blind_select_defer.patch
+OK    blind_select_tall            -> 57-blind_select_tall.patch
+OK    draw_shader_nil_reset        -> 58-draw_shader_nil_reset.patch

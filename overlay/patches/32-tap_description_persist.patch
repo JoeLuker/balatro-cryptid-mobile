@@ -1,0 +1,114 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 22cb880..ee5ac96 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -69,6 +69,7 @@ self.cardarea_context = {}
+ 
+ --Human Interface device flags, these are set per frame to ensure that correct controller updates are taking place
+ self.HID = {
++    touch_env = love.system.getOS() == 'Android', -- HID_TOUCH_ENV
+     last_type = '',
+     dpad = false,
+     pointer = true,
+@@ -175,6 +176,7 @@ function Controller:set_cursor_position()
+ 
+         --Set the position of the cursor to the love position of the mouse, derive cursor transform from that
+         self.cursor_position.x, self.cursor_position.y = love.mouse.getPosition()
++        if (self.HID.touch or self.HID.touch_env) and self.L_cursor_queue then self.cursor_position.x, self.cursor_position.y = self.L_cursor_queue.x, self.L_cursor_queue.y end -- TOUCH_PRESS_POS_SYNC
+         G.CURSOR.T.x = self.cursor_position.x/(G.TILESCALE*G.TILESIZE)
+         G.CURSOR.T.y = self.cursor_position.y/(G.TILESCALE*G.TILESIZE)
+         G.CURSOR.VT.x = G.CURSOR.T.x
+@@ -340,7 +342,7 @@ function Controller:update(dt)
+         if self.cursor_down.target then 
+             if (not self.cursor_down.target.click_timeout or self.cursor_down.target.click_timeout*G.SPEEDFACTOR > self.cursor_up.time - self.cursor_down.time) then
+                 if Vector_Dist(self.cursor_down.T, self.cursor_up.T) < G.MIN_CLICK_DIST then 
+-                    if self.cursor_down.target.states.click.can then
++                    if self.cursor_down.target.states.click.can and not ((self.HID.touch or self.HID.touch_env) and self.cursor_down.target.area == G.hand and ((self.cursor_up.time or 0) - (self.cursor_down.time or 0)) >= 0.2*G.SPEEDFACTOR) then -- TAP_DESC_HOLD_NOSELECT
+                         self.clicked.target = self.cursor_down.target
+                         self.clicked.handled = false
+                     end
+@@ -355,12 +357,12 @@ function Controller:update(dt)
+     end
+ 
+     --Cursor is currently hovering over something
+-    if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) then 
++    if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) and not ((self.HID.touch or self.HID.touch_env) and self.cursor_hover.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2) then -- TAP_DESC_HOLDGATE 
+         self.hovering.target = self.cursor_hover.target
+         if self.hovering.prev_target and self.hovering.prev_target ~= self.hovering.target then self.hovering.prev_target.states.hover.is = false end
+         self.hovering.target.states.hover.is = true
+         self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')
+-    elseif (self.cursor_hover.target == nil or (self.HID.touch and not self.is_cursor_down)) and self.hovering.target then
++    elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST
+         self.hovering.target.states.hover.is = false
+         self.hovering.target = nil
+     end
+@@ -384,11 +386,12 @@ function Controller:update(dt)
+ 
+     --The object released on
+     if not self.released_on.handled and self.dragging.prev_target then
+-        if self.dragging.prev_target == self.hovering.target then self.hovering.target:stop_hover();self.hovering.target = nil end
+-        self.released_on.target:release(self.dragging.prev_target)
++        if self.dragging.prev_target == self.hovering.target then self.hovering.target.states.hover.is = false; self.hovering.target:stop_hover();self.hovering.target = nil end -- DRAG_RELEASE_UNHOVER
++        if self.released_on.target then self.released_on.target:release(self.dragging.prev_target) else local _k = tostring(self.dragging.prev_target and self.dragging.prev_target.config and self.dragging.prev_target.config.center and self.dragging.prev_target.config.center.key or "?"); if ATLOG then ATLOG("G_REL_SKIP", {card=_k, state=tostring(G.STATE)}) else print("[TEL] G_REL_SKIP card=" .. _k .. " state=" .. tostring(G.STATE)) end end -- RELEASED_ON_NIL_GUARD
+         self.released_on.handled = true
+     end
+ 
++    if (self.HID.touch or self.HID.touch_env) and self.hovering.target and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target) then self.hovering.target.states.hover.is = false end -- TAP_DESC_RELAX
+     --The object being hovered over
+     if self.hovering.target then
+         self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')
+@@ -1110,6 +1113,7 @@ function Controller:L_cursor_press(x, y)
+     self.is_cursor_down = true
+ 
+     local press_node =  (self.HID.touch and self.cursor_hover.target) or self.hovering.target or self.focused.target
++    if press_node and press_node == self.hovering.target and not press_node.states.hover.is and not (press_node.children and press_node.children.h_popup) then self.hovering.target = nil end -- TAP_DESC_REHOVER
+ 
+     if press_node then 
+         self.cursor_down.target = press_node.states.click.can and press_node or press_node:can_drag() or nil
+diff --git a/engine/node.lua b/engine/node.lua
+index e8b8166..6fa94f1 100644
+--- a/engine/node.lua
++++ b/engine/node.lua
+@@ -238,6 +238,12 @@ function Node:drag()
+                 config = self.config.d_popup_config
+             }
+             self.children.h_popup.states.collide.can = false
++            self.children.h_popup.states.drag.can = false
++            local function _popup_nc(n) -- TAP_DESC_POPUP_NOCOLLIDE
++                n.states.collide.can = false
++                if n.children then for _, _c in pairs(n.children) do _popup_nc(_c) end end
++            end
++            _popup_nc(self.children.h_popup.UIRoot)
+             table.insert(G.I.POPUP, self.children.d_popup)
+             self.children.d_popup.states.drag.can = true
+         end
+@@ -273,6 +279,12 @@ function Node:hover()
+                 config = self.config.h_popup_config,
+             }
+             self.children.h_popup.states.collide.can = false
++            self.children.h_popup.states.drag.can = false
++            local function _popup_nc(n) -- TAP_DESC_POPUP_NOCOLLIDE
++                n.states.collide.can = false
++                if n.children then for _, _c in pairs(n.children) do _popup_nc(_c) end end
++            end
++            _popup_nc(self.children.h_popup.UIRoot)
+             self.children.h_popup.states.drag.can = true
+             -- Fixes styled info_queue names
+             -- This ensures show_infotip runs just after the main hover box is created instead of being able to fall one frame after
+@@ -288,6 +300,7 @@ function Node:stop_hover()
+     if self.children.h_popup and not (self.force_popup and self:force_popup() and Cryptid["force_tooltips"]) then
+         self.children.h_popup:remove()
+         self.children.h_popup = nil
++        if G.CONTROLLER and G.CONTROLLER.shown_desc == self then G.CONTROLLER.shown_desc = nil end -- TAP_DESC_STALE_CLEAR
+     end
+ end
+ 
+@@ -358,7 +371,7 @@ function Node:remove()
+     if G.CONTROLLER.hovering.target ==self then 
+         G.CONTROLLER.hovering.target = nil
+     end
+-    if G.CONTROLLER.released_on.target ==self then 
++    if G.CONTROLLER.released_on.target ==self and G.CONTROLLER.released_on.handled then -- RELEASED_ON_PENDING_KEEP 
+         G.CONTROLLER.released_on.target = nil
+     end
+     if G.CONTROLLER.cursor_down.target ==self then 

@@ -1,0 +1,23 @@
+diff --git a/cardarea.lua b/cardarea.lua
+index 6b22e68..ff36366 100644
+--- a/cardarea.lua
++++ b/cardarea.lua
+@@ -713,6 +713,10 @@ function CardArea:load(cardAreaTable)
+     
+ 
+     for i = 1, #cardAreaTable.cards do
++        local _dcs_ck = cardAreaTable.cards[i].save_fields and cardAreaTable.cards[i].save_fields.center -- DISABLED_CENTER_SKIP
++        if _dcs_ck and not G.P_CENTERS[_dcs_ck] then
++            if ATLOG then ATLOG("LOAD_CENTER_MISSING_SKIP", { key = tostring(_dcs_ck) }) end
++        else
+         loading = true
+         local card = Card(0, 0, G.CARD_W, G.CARD_H, G.P_CENTERS.j_joker, G.P_CENTERS.c_base)
+         loading = nil
+@@ -722,6 +726,7 @@ function CardArea:load(cardAreaTable)
+             self.highlighted[#self.highlighted + 1] = card
+         end
+         card:set_card_area(self)
++        end
+     end
+     self:set_ranks()
+     self:align_cards()

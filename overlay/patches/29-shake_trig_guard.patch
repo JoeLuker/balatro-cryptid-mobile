@@ -1,0 +1,24 @@
+diff --git a/functions/common_events.lua b/functions/common_events.lua
+index 67fe808..efede1a 100644
+--- a/functions/common_events.lua
++++ b/functions/common_events.lua
+@@ -1457,9 +1457,16 @@ function update_canvas_juice(dt)
+     if shake_amt < 0.05 then shake_amt = 0 end
+ 
+     G.ROOM.jiggle = (G.ROOM.jiggle or 0)*(1-5*dt)*(shake_amt > 0.05 and 1 or 0)
+-    G.ROOM.T.r = (0.001*math.sin(0.3*G.TIMERS.REAL)+ 0.002*(G.ROOM.jiggle)*math.sin(39.913*G.TIMERS.REAL))*shake_amt
+-    G.ROOM.T.x = G.ROOM_ORIG.x + (shake_amt)*(0.015*math.sin(0.913*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(19.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.x - 0.5*(G.ROOM.T.w + G.ROOM_ORIG.x))*0.01)
+-    G.ROOM.T.y = G.ROOM_ORIG.y + (shake_amt)*(0.015*math.sin(0.952*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(21.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.y - 0.5*(G.ROOM.T.h + G.ROOM_ORIG.y))*0.01)
++    -- SHAKE_TRIG_GUARDED: skip 6 math.sin calls when shake_amt==0 (default state)
++    if shake_amt > 0 then
++        G.ROOM.T.r = (0.001*math.sin(0.3*G.TIMERS.REAL)+ 0.002*(G.ROOM.jiggle)*math.sin(39.913*G.TIMERS.REAL))*shake_amt
++        G.ROOM.T.x = G.ROOM_ORIG.x + (shake_amt)*(0.015*math.sin(0.913*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(19.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.x - 0.5*(G.ROOM.T.w + G.ROOM_ORIG.x))*0.01)
++        G.ROOM.T.y = G.ROOM_ORIG.y + (shake_amt)*(0.015*math.sin(0.952*G.TIMERS.REAL)  + 0.01*(G.ROOM.jiggle*shake_amt)*math.sin(21.913*G.TIMERS.REAL) + (G.ARGS.eased_cursor_pos.y - 0.5*(G.ROOM.T.h + G.ROOM_ORIG.y))*0.01)
++    else
++        G.ROOM.T.r = 0
++        G.ROOM.T.x = G.ROOM_ORIG.x
++        G.ROOM.T.y = G.ROOM_ORIG.y
++    end
+ 
+     G.JIGGLE_VIBRATION = G.JIGGLE_VIBRATION*(1-5*dt)
+     G.CURR_VIBRATION = G.CURR_VIBRATION or 0

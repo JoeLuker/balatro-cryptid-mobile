@@ -1,0 +1,53 @@
+diff --git a/functions/misc_functions.lua b/functions/misc_functions.lua
+index 62a5f48..94717e0 100644
+--- a/functions/misc_functions.lua
++++ b/functions/misc_functions.lua
+@@ -658,27 +658,30 @@ function get_straight(hand)
+   end
+ end
+ 
+-function get_X_same(num, hand, or_more)
+-  local vals = {}
+-  for i = 1, SMODS.Rank.max_id.value do
+-      vals[i] = {}
++function get_X_same(num, hand, or_more) -- GET_X_SAME_LEAN_V2
++  -- Two-pass O(n): count ranks (no allocation), then build group tables ONLY
++  -- for qualifying ranks. Replaces the vanilla O(n²) scan that preallocated
++  -- ~16 empty rank buckets and a discarded `curr` per card — called 5x per
++  -- hand evaluation by the SMODS _2/_3/_4/_5/_all_pairs parts. Outputs are
++  -- differential-tested identical to vanilla: groups hold cards in hand
++  -- order, result ordered by descending rank id, ids < 1 excluded.
++  local counts = {}
++  local max_id = 0
++  for i = 1, #hand do
++    local id = hand[i]:get_id()
++    counts[id] = (counts[id] or 0) + 1
++    if id > max_id then max_id = id end
+   end
+-      vals[#vals + 1] = {}
+-  for i=#hand, 1, -1 do
+-    local curr = {}
+-    table.insert(curr, hand[i])
+-    for j=1, #hand do
+-      if hand[i]:get_id() == hand[j]:get_id() and i ~= j then
+-        table.insert(curr, hand[j])
++  local ret = {}
++  for id = math.floor(max_id), 1, -1 do
++    local n = counts[id]
++    if n and (or_more and (n >= num) or (n == num)) then
++      local g = {}
++      for i = 1, #hand do
++        if hand[i]:get_id() == id then g[#g + 1] = hand[i] end
+       end
++      ret[#ret + 1] = g
+     end
+-    if or_more and (#curr >= num) or (#curr == num) then
+-      vals[curr[1]:get_id()] = curr
+-    end
+-  end
+-  local ret = {}
+-  for i=#vals, 1, -1 do
+-    if next(vals[i]) then table.insert(ret, vals[i]) end
+   end
+   return ret
+ end

@@ -1,0 +1,29 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index 608abe2..bf8c48f 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2564,6 +2564,7 @@ function create_UIBox_settings()
+           tab_definition_function = require("debugplus.config").fakeConfigTab,
+       }
+   end
++  tabs[#tabs+1] = { label = "Debug", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }
+   local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(
+     {tabs = tabs,
+     tab_h = 7.05,
+@@ -2574,7 +2575,15 @@ return t
+ end
+ 
+ function G.UIDEF.settings_tab(tab)
+-  if tab == 'Game' then
++  if tab == 'Debug' then
++    return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
++      create_toggle({label = "Debug HUD (FPS + perf)", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),
++      create_toggle({label = "Debug Logging", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),
++      create_toggle({label = "Phone Home Telemetry", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),
++      create_toggle({label = "Trigger Collapsing", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),
++      {n=G.UIT.R, config={align = "cm", padding = 0.03}, nodes={{n=G.UIT.T, config={text = "build " .. (G.CRYPTID_MOBILE_BUILD or "?"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},
++    }}
++  elseif tab == 'Game' then
+     return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
+       create_option_cycle({label = localize('b_set_gamespeed'),scale = 0.8, options = {0.5, 1, 2, 4}, opt_callback = 'change_gamespeed', current_option = (G.SETTINGS.GAMESPEED == 0.5 and 1 or G.SETTINGS.GAMESPEED == 4 and 4 or G.SETTINGS.GAMESPEED + 1)}),
+       Talisman.config_sections.disable_anim(),

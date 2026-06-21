@@ -1,0 +1,73 @@
+diff --git a/SMODS/_/src/card_draw.lua b/SMODS/_/src/card_draw.lua
+index 56bc84b..a12e92e 100644
+--- a/SMODS/_/src/card_draw.lua
++++ b/SMODS/_/src/card_draw.lua
+@@ -608,4 +608,5 @@ function Card:draw(layer)
+     for _, k in ipairs(SMODS.DrawStep.obj_buffer) do
+         if SMODS.DrawSteps[k]:check_conditions(self, layer) then SMODS.DrawSteps[k].func(self, layer) end
+     end
++    love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per card
+ end
+diff --git a/blind.lua b/blind.lua
+index 8d41c82..13513df 100644
+--- a/blind.lua
++++ b/blind.lua
+@@ -508,7 +508,8 @@ function Blind:draw()
+ 
+     self.children.animatedSprite.role.draw_major = self
+     self.children.animatedSprite:draw_shader('dissolve', 0.1)
+-    self.children.animatedSprite:draw_shader('dissolve')    
++    self.children.animatedSprite:draw_shader('dissolve')
++    love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per blind
+ 
+     for k, v in pairs(self.children) do 
+         if k ~= 'animatedSprite' then
+diff --git a/card.lua b/card.lua
+index 55d3065..4e4a5d3 100644
+--- a/card.lua
++++ b/card.lua
+@@ -4960,6 +4960,8 @@ function Card:draw(layer)
+         self.shadow_height = 0*(0.08 + 0.4*math.sqrt(self.velocity.x^2)) + ((((self.highlighted and self.area == G.play) or self.states.drag.is) and 0.35) or self.states.hover.is and 0.2 or (self.area and self.area.config.type == 'title_2') and 0.04 or 0.1) -- HOVER_SHADOW_HEIGHT
+         G.shared_shadow:draw_shader('dissolve', self.shadow_height)
+     end
++    -- DRAW_SHADER_NIL_RESET: cover shadow draw when layer == 'shadow' (card block skipped)
++    if layer == 'shadow' then love.graphics.setShader() end
+ 
+     if (layer == 'card' or layer == 'both') and self.area ~= G.hand then 
+         if self.children.focused_ui then self.children.focused_ui:draw() end
+@@ -5180,6 +5182,7 @@ function Card:draw(layer)
+ 
+         add_to_drawhash(self)
+         self:draw_boundingrect()
++        love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET: one reset per card
+     end
+ end
+ 
+diff --git a/engine/sprite.lua b/engine/sprite.lua
+index 04e6d9c..448e953 100644
+--- a/engine/sprite.lua
++++ b/engine/sprite.lua
+@@ -128,8 +128,9 @@ function Sprite:draw_shader(_shader, _shadow_height, _send, _no_tilt, other_obj,
+     else 
+         self:draw_self()
+     end
+-
+-    love.graphics.setShader()
++    -- DRAW_SHADER_NIL_RESET: nil-reset removed; callers (Card:draw, Blind:draw,
++    -- stake closure) issue one setShader() after their last draw_shader call,
++    -- letting LAZY_SHADER collapse same-shader runs without the S->nil->S ping-pong.
+ 
+     if _shadow_height then 
+         self.VT.y = self.VT.y + _draw_major.shadow_parrallax.y*_shadow_height
+diff --git a/functions/misc_functions.lua b/functions/misc_functions.lua
+index 26f5068..5ee84da 100644
+--- a/functions/misc_functions.lua
++++ b/functions/misc_functions.lua
+@@ -2064,6 +2064,7 @@ function get_stake_sprite(_stake, _scale)
+ 
+       Sprite.draw_shader(_sprite, 'dissolve')
+       Sprite.draw_shader(_sprite, 'voucher', nil, _sprite.ARGS.send_to_shader)
++      love.graphics.setShader()  -- DRAW_SHADER_NIL_RESET
+     end
+   end
+   return stake_sprite

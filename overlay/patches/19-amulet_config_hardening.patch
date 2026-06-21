@@ -1,0 +1,44 @@
+diff --git a/talisman/configinit.lua b/talisman/configinit.lua
+index 8f9683f..a881ff3 100644
+--- a/talisman/configinit.lua
++++ b/talisman/configinit.lua
+@@ -39,8 +39,9 @@ end
+ function Talisman.config.load()
+     local conf = love.filesystem.read(Talisman.config.file_name)
+     if not conf then return end
+-    local parsed = STR_UNPACK(conf)
+-    if not parsed then return end
++    -- AMULET_CFG_SAFE_UNPACK: user data must not be able to crash boot
++    local _ok, parsed = pcall(STR_UNPACK, conf)
++    if not _ok or type(parsed) ~= "table" then return end
+ 
+     for k, v in pairs(parsed) do
+         Talisman.config_file[k] = v
+@@ -98,4 +99,27 @@ Talisman.current_calc = {}
+ Talisman.debug = {}
+ 
+ Talisman.config.load()
++-- AMULET_CFG_MIGRATE: one-time import of the Talisman-era on-device config
++-- (Mods/Talisman/config.lua in the save dir, written by the old
++-- TAL_CONFIG_PERSIST shim) so preferences like disable_anims survive the
++-- Talisman->Amulet migration. Only keys Amulet knows are taken; the
++-- Talisman-only backend keys are skipped. Saving immediately makes this a
++-- one-shot: next boot finds config/amulet.lua and never looks back.
++if not love.filesystem.getInfo(Talisman.config.file_name) then
++    local legacy = love.filesystem.read('Mods/Talisman/config.lua')
++    if legacy then
++        local _lok, _lt = pcall(STR_UNPACK, legacy)
++        if _lok and type(_lt) == 'table' then
++            for k, v in pairs(_lt) do
++                if Talisman.config_file[k] ~= nil and k ~= 'break_infinity' then
++                    Talisman.config_file[k] = v
++                end
++            end
++            pcall(Talisman.config.save)
++        end
++    end
++end
++-- AMULET_OMEGA_CLAMP: this pack requires the big-num backend (Cryptid math
++-- assumes Big); never honor a persisted disable_omega
++Talisman.config_file.disable_omega = false
+ Talisman.update_debug()

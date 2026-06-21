@@ -1,0 +1,15 @@
+diff --git a/functions/common_events.lua b/functions/common_events.lua
+index efede1a..e9a9628 100644
+--- a/functions/common_events.lua
++++ b/functions/common_events.lua
+@@ -2547,6 +2547,10 @@ function create_card(_type, area, legendary, _rarity, skip_materialize, soulable
+     -- Use SMODS object weight system when enabled
+     if not forced_key and SMODS.optional_features.object_weights then forced_key = SMODS.poll_object({type = _type, guaranteed = true, rarities = legendary and {'Legendary'} or _rarity and {_rarity} or nil, append = key_append}) end
+     
++    if forced_key and not G.P_CENTERS[forced_key] then -- FORCED_KEY_GUARD
++        if ATLOG then ATLOG("FORCED_KEY_MISSING", { key = tostring(forced_key), t = tostring(_type) }) end
++        forced_key = nil
++    end
+     if forced_key and not G.GAME.banned_keys[forced_key] then 
+         center = G.P_CENTERS[forced_key]
+         _type = (center.set ~= 'Default' and center.set or _type)

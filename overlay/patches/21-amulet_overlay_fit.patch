@@ -1,0 +1,27 @@
+diff --git a/talisman/coroutine.lua b/talisman/coroutine.lua
+index 09bfc36..2736a84 100644
+--- a/talisman/coroutine.lua
++++ b/talisman/coroutine.lua
+@@ -122,10 +122,20 @@ end
+ function co.create_overlay_ui(texts)
+ 	return {
+ 		n = G.UIT.ROOT,
++		-- AMULET_OVERLAY_FIT: padding=9999 was a fill-the-screen hack that
++		-- parks the laid-out content ~10k units off-screen (text child
++		-- measured at y=-9994 under the contain layout). Size the backdrop
++		-- to the real window (in room units; the room is centered in the
++		-- window, so a window-sized box centered on ROOM_ATTACH dims the
++		-- whole screen in any posture) and let align="cm" center the content.
++		-- Recomputed each summon, so it adapts per fold posture.
+ 		config = {
+ 			align = "cm",
+-			padding = 9999,
+-			offset = { x = 0, y = -3 },
++			padding = 0.2,
++			minw = (G.WINDOWTRANS and G.WINDOWTRANS.real_window_w / (G.TILESIZE * G.TILESCALE))
++				or (G.TILE_W + 2 * G.ROOM_PADDING_W),
++			minh = (G.WINDOWTRANS and G.WINDOWTRANS.real_window_h / (G.TILESIZE * G.TILESCALE))
++				or (G.TILE_H + 2 * G.ROOM_PADDING_H),
+ 			r = 0.1,
+ 			colour = { G.C.GREY[1], G.C.GREY[2], G.C.GREY[3], 0.7 }
+ 		},

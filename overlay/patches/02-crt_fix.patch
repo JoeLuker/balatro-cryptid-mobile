@@ -1,0 +1,20 @@
+diff --git a/resources/shaders/CRT.fs b/resources/shaders/CRT.fs
+index b8ad65c..a9e3a4b 100644
+--- a/resources/shaders/CRT.fs
++++ b/resources/shaders/CRT.fs
+@@ -93,9 +93,12 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc)
+ 	rgb_result += crt_tex.rgb * rgb_scanline * crt_intensity * artifact_amplifier;
+ 	
+     //Add in some noise
+-    MY_HIGHP_OR_MEDIUMP number x = (tc.x - mod(tc.x, 0.002)) * (tc.y - mod(tc.y, 0.0013)) * time * 1000.0;
+-	x = mod( x, 13.0 ) * mod( x, 123.0 );
+-	MY_HIGHP_OR_MEDIUMP number dx = mod( x, 0.11 )/0.11;
++    // Fixed for Pixel/Tensor GPU - hash-based noise
++    MY_HIGHP_OR_MEDIUMP number wrapped_time = mod(time, 100.0);
++    MY_HIGHP_OR_MEDIUMP number hash_input = tc.x * 12.9898 + tc.y * 78.233 + wrapped_time * 43.758;
++    MY_HIGHP_OR_MEDIUMP number x = fract(sin(hash_input) * 43758.5453);
++	// Original: x = mod( x, 13.0 ) * mod( x, 123.0 );
++	MY_HIGHP_OR_MEDIUMP number dx = x; // was: mod( x, 0.11 )/0.11
+ 	rgb_result = (1.0-clamp( noise_fac*artifact_amplifier, 0.0,1.0 ))*rgb_result + dx * clamp( noise_fac*artifact_amplifier, 0.0,1.0 ) * vec3(1.0,1.0,1.0);
+ 
+     //contrast and brightness correction for the CRT effect, also adjusting brightness for bloom

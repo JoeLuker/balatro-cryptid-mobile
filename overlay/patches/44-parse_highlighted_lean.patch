@@ -1,0 +1,60 @@
+diff --git a/cardarea.lua b/cardarea.lua
+index ff36366..4ff4c4c 100644
+--- a/cardarea.lua
++++ b/cardarea.lua
+@@ -182,25 +182,29 @@ function CardArea:add_to_highlighted(card, silent)
+     end
+ end
+ 
++local PH_CFG_PULSE = {immediate = true, nopulse = true, delay = 0} -- PARSE_HL_LEAN
++local PH_CFG_PLAIN = {immediate = true, delay = 0}
++local PH_JOKER_SCRATCH = {}
+ function CardArea:parse_highlighted()
+     G.boss_throw_hand = nil
+-    local text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(self.highlighted)
+     local text,disp_text,poker_hands
+     if self == G.hand then
+-    	local tbl = {}
++    	local tbl = PH_JOKER_SCRATCH
++    	for i = #tbl, 1, -1 do tbl[i] = nil end
++    	for i, v in ipairs(self.highlighted) do tbl[#tbl+1] = v end
+     	for i, v in pairs(G.jokers.cards) do
+     		if v.base.nominal and v.base.suit then
+     			tbl[#tbl+1] = v
+     		end
+     	end
+-    	text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(Cryptid.table_merge(self.highlighted, tbl))
++    	text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(tbl)
+     else
+     	text,disp_text,poker_hands = G.FUNCS.get_poker_hand_info(self.highlighted)
+     end
+     if text == 'NULL' then
+-        update_hand_text({immediate = true, nopulse = true, delay = 0}, {mult = 0, chips = 0, level = '', handname = ''})
++        update_hand_text(PH_CFG_PULSE, {mult = 0, chips = 0, level = '', handname = ''})
+         for name, parameter in pairs(SMODS.Scoring_Parameters) do
+-            update_hand_text({immediate = true, nopulse = true, delay = 0}, {[name] = parameter.default_value})
++            update_hand_text(PH_CFG_PULSE, {[name] = parameter.default_value})
+         end
+     else
+         if G.GAME.blind and G.GAME.blind:debuff_hand(self.highlighted, poker_hands, text, true) then
+@@ -215,16 +219,16 @@ function CardArea:parse_highlighted()
+             end
+         end
+         if backwards then
+-            update_hand_text({immediate = true, nopulse = nil, delay = 0}, {handname='????', level='?', mult = '?', chips = '?'})
++            update_hand_text(PH_CFG_PLAIN, {handname='????', level='?', mult = '?', chips = '?'})
+             for name, parameter in pairs(SMODS.Scoring_Parameters) do
+-                update_hand_text({immediate = true, nopulse = nil, delay = 0}, {[name] = '?'})
++                update_hand_text(PH_CFG_PLAIN, {[name] = '?'})
+             end
+         else
+             for name, parameter in pairs(SMODS.Scoring_Parameters) do
+                 parameter.current = G.GAME.hands[text][name] or parameter.default_value
+-                update_hand_text({immediate = true, nopulse = nil, delay = 0}, {[name] = parameter.current})
++                update_hand_text(PH_CFG_PLAIN, {[name] = parameter.current})
+             end
+-            update_hand_text({immediate = true, nopulse = nil, delay = 0}, {handname=disp_text, level=G.GAME.hands[text].level, mult = Cryptid.ascend(G.GAME.hands[text].mult), chips = Cryptid.ascend(G.GAME.hands[text].chips)})
++            update_hand_text(PH_CFG_PLAIN, {handname=disp_text, level=G.GAME.hands[text].level, mult = Cryptid.ascend(G.GAME.hands[text].mult), chips = Cryptid.ascend(G.GAME.hands[text].chips)})
+         end
+     end
+ end

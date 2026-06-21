@@ -1,0 +1,316 @@
+diff --git a/Mods/Cryptid/items/epic.lua b/Mods/Cryptid/items/epic.lua
+index 8202597..3af2c3b 100644
+--- a/Mods/Cryptid/items/epic.lua
++++ b/Mods/Cryptid/items/epic.lua
+@@ -52,7 +52,7 @@ local supercell = {
+ 	end,
+ 	calculate = function(self, card, context)
+ 		if context.joker_main then
+-			if to_big(card.ability.extra.stat2) > to_big(1) then --misprint deck moment
++			if tb_gt(card.ability.extra.stat2, 1) then --misprint deck moment
+ 				if Card.get_gameset(card) ~= "modest" then
+ 					return {
+ 						message = localize("cry_gaming_ex"),
+@@ -82,7 +82,7 @@ local supercell = {
+ 		end
+ 	end,
+ 	calc_dollar_bonus = function(self, card)
+-		if to_big(card.ability.extra.money) > to_big(0) then
++		if tb_gt(card.ability.extra.money, 0) then
+ 			return lenient_bignum(card.ability.extra.money)
+ 		end
+ 	end,
+@@ -157,7 +157,7 @@ local membershipcardtwo = {
+ 		}
+ 	end,
+ 	calculate = function(self, card, context)
+-		if (context.joker_main and to_big(card.ability.extra.chips) > to_big(0)) or context.forcetrigger then
++		if (context.joker_main and tb_gt(card.ability.extra.chips, 0)) or context.forcetrigger then
+ 			return {
+ 				chips = lenient_bignum(
+ 					to_big(card.ability.extra.chips)
+@@ -737,7 +737,7 @@ local m = {
+ 	end,
+ 	atlas = "atlasepic",
+ 	calculate = function(self, card, context)
+-		if context.joker_main and (to_big(card.ability.extra.x_mult) > to_big(1)) then
++		if context.joker_main and (tb_gt(card.ability.extra.x_mult, 1)) then
+ 			return {
+ 				xmult = card.ability.extra.x_mult,
+ 			}
+@@ -963,7 +963,7 @@ local number_blocks = {
+ 		end
+ 	end,
+ 	calc_dollar_bonus = function(self, card)
+-		if to_big(card.ability.extra.money) > to_big(0) then
++		if tb_gt(card.ability.extra.money, 0) then
+ 			return lenient_bignum(card.ability.extra.money)
+ 		end
+ 	end,
+@@ -1177,7 +1177,7 @@ local circus = {
+ 	calculate = function(self, card, context)
+ 		if context.other_joker and card ~= context.other_joker then
+ 			local mod_key = card.ability.immutable.rarity_map[context.other_joker.config.center.rarity]
+-			if mod_key and card.ability.extra[mod_key] and to_big(card.ability.extra[mod_key]) > to_big(1) then
++			if mod_key and card.ability.extra[mod_key] and tb_gt(card.ability.extra[mod_key], 1) then
+ 				if not Talisman.config_file.disable_anims then
+ 					G.E_MANAGER:add_event(Event({
+ 						func = function()
+@@ -1278,7 +1278,7 @@ local caramel = {
+ 			and not context.retrigger_joker
+ 		then
+ 			card.ability.extra.rounds_remaining = lenient_bignum(to_big(card.ability.extra.rounds_remaining) - 1)
+-			if to_big(card.ability.extra.rounds_remaining) > to_big(0) then
++			if tb_gt(card.ability.extra.rounds_remaining, 0) then
+ 				return {
+ 					message = localize("cry_minus_round"),
+ 					colour = G.C.FILTER,
+@@ -1701,7 +1701,7 @@ local goldjoker = {
+ 	calc_dollar_bonus = function(self, card)
+ 		local bonus =
+ 			lenient_bignum(math.max(0, math.floor(0.01 * to_big(card.ability.extra.percent) * (G.GAME.dollars or 0))))
+-		if to_big(bonus) > to_big(0) then
++		if tb_gt(bonus, 0) then
+ 			return bonus
+ 		end
+ 	end,
+@@ -2254,7 +2254,7 @@ local clockwork = { -- Steel Support: The Joker
+ 			and context.cardarea == G.hand
+ 			and not context.end_of_round
+ 			and SMODS.has_enhancement(context.other_card, "m_steel")
+-			and to_big(card.ability.extra.steelenhc) ~= to_big(1)
++			and tb_ne(card.ability.extra.steelenhc, 1)
+ 		then
+ 			if context.other_card.debuff then
+ 				return {
+@@ -2655,3 +2655,5 @@ return {
+ 		sundial,
+ 	},
+ }
++
++-- CRYPTID_TO_BIG_ELIM
+diff --git a/Mods/Cryptid/items/exotic.lua b/Mods/Cryptid/items/exotic.lua
+index 3d45a56..fb87377 100644
+--- a/Mods/Cryptid/items/exotic.lua
++++ b/Mods/Cryptid/items/exotic.lua
+@@ -188,7 +188,7 @@ local exponentia = {
+ 	order = 503,
+ 	soul_pos = { x = 2, y = 0, extra = { x = 1, y = 0 } },
+ 	calculate = function(self, card, context)
+-		if context.joker_main and (to_big(card.ability.extra.Emult) > to_big(1)) then
++		if context.joker_main and (tb_gt(card.ability.extra.Emult, 1)) then
+ 			return {
+ 				emult = lenient_bignum(card.ability.extra.Emult),
+ 			}
+@@ -541,7 +541,7 @@ local crustulum = {
+ 			})
+ 			return nil, true
+ 		end
+-		if context.joker_main and to_big(card.ability.extra.chips) > to_big(0) then
++		if context.joker_main and tb_gt(card.ability.extra.chips, 0) then
+ 			return {
+ 				chips = lenient_bignum(card.ability.extra.chips),
+ 			}
+@@ -619,7 +619,7 @@ local primus = {
+ 				return nil, true
+ 			end
+ 		end
+-		if context.joker_main and (to_big(card.ability.extra.Emult) > to_big(1)) then
++		if context.joker_main and (tb_gt(card.ability.extra.Emult, 1)) then
+ 			card.children.floating_sprite:set_sprite_pos({ x = 8, y = 6 })
+ 			return {
+ 				emult = lenient_bignum(card.ability.extra.Emult),
+@@ -814,7 +814,7 @@ local stella_mortis = {
+ 				end
+ 			end
+ 		end
+-		if (context.joker_main and (to_big(card.ability.extra.Emult) > to_big(1))) or context.forcetrigger then
++		if (context.joker_main and (tb_gt(card.ability.extra.Emult, 1))) or context.forcetrigger then
+ 			return {
+ 				emult = lenient_bignum(card.ability.extra.Emult),
+ 			}
+@@ -1002,8 +1002,8 @@ local facile = {
+ 				card.ability.immutable.check2 = lenient_bignum(card.ability.immutable.check2 + 1)
+ 			end
+ 		end
+-		if context.joker_main and (to_big(card.ability.extra.Emult) > to_big(1)) then
+-			if to_big(card.ability.immutable.check2) <= to_big(card.ability.extra.check) then
++		if context.joker_main and (tb_gt(card.ability.extra.Emult, 1)) then
++			if tb_le(card.ability.immutable.check2, card.ability.extra.check) then
+ 				card.ability.immutable.check2 = 0
+ 				return {
+ 					emult = lenient_bignum(card.ability.extra.Emult),
+@@ -1303,7 +1303,7 @@ local duplicare = {
+ 			})
+ 			return nil, true
+ 		end
+-		if (context.joker_main and (to_big(card.ability.extra.Xmult) > to_big(1))) or context.forcetrigger then
++		if (context.joker_main and (tb_gt(card.ability.extra.Xmult, 1))) or context.forcetrigger then
+ 			if context.forcetrigger then
+ 				SMODS.scale_card(card, {
+ 					ref_table = card.ability.extra,
+@@ -1455,7 +1455,7 @@ local formidiulosus = {
+ 				G.jokers:emplace(card)
+ 			end
+ 		end
+-		if context.cardarea == G.jokers and (to_big(card.ability.extra.Emult) > to_big(1)) and context.joker_main then
++		if context.cardarea == G.jokers and (tb_gt(card.ability.extra.Emult, 1)) and context.joker_main then
+ 			return {
+ 				emult = lenient_bignum(card.ability.extra.Emult),
+ 			}
+diff --git a/Mods/Cryptid/items/m.lua b/Mods/Cryptid/items/m.lua
+index a56fab2..167cf33 100644
+--- a/Mods/Cryptid/items/m.lua
++++ b/Mods/Cryptid/items/m.lua
+@@ -240,7 +240,7 @@ local foodm = {
+ 		}
+ 	end,
+ 	calculate = function(self, card, context)
+-		if context.joker_main and (to_big(card.ability.extra.mult) > to_big(0)) then
++		if context.joker_main and (tb_gt(card.ability.extra.mult, 0)) then
+ 			return {
+ 				mult = lenient_bignum(card.ability.extra.mult),
+ 			}
+@@ -253,7 +253,7 @@ local foodm = {
+ 			and not context.retrigger_joker
+ 		then
+ 			card.ability.extra.rounds_remaining = lenient_bignum(to_big(card.ability.extra.rounds_remaining) - 1)
+-			if to_big(card.ability.extra.rounds_remaining) > to_big(0) then
++			if tb_gt(card.ability.extra.rounds_remaining, 0) then
+ 				return {
+ 					message = localize("cry_minus_round"),
+ 					colour = G.C.FILTER,
+@@ -378,7 +378,7 @@ local mstack = {
+ 			and not context.retrigger_joker
+ 		then
+ 			card.ability.extra.check = true
+-			if to_big(card.ability.extra.sell) + 1 >= to_big(card.ability.extra.sell_req) then
++			if tb_ge(card.ability.extra.sell + 1, card.ability.extra.sell_req) then
+ 				if not context.blueprint or context.retrigger_joker then
+ 					card.ability.extra.retriggers = lenient_bignum(to_big(card.ability.extra.retriggers) + 1)
+ 				end
+@@ -404,7 +404,7 @@ local mstack = {
+ 	end,
+ 	add_to_deck = function(self, card, from_debuff) --Force retriggers to be 1 when bought/obtained on misprint deck (no 0.43 retriggers that do nothing)
+ 		card.ability.extra.retriggers = lenient_bignum(math.floor(card.ability.extra.retriggers))
+-		if to_big(card.ability.extra.retriggers) < to_big(1) and not card.ability.extra.check then
++		if tb_lt(card.ability.extra.retriggers, 1) and not card.ability.extra.check then
+ 			card.ability.extra.retriggers = 1
+ 		end
+ 	end,
+@@ -489,7 +489,7 @@ local mneon = {
+ 		end
+ 	end,
+ 	calc_dollar_bonus = function(self, card)
+-		if to_big(card.ability.extra.money) > to_big(0) then
++		if tb_gt(card.ability.extra.money, 0) then
+ 			return lenient_bignum(card.ability.extra.money)
+ 		end
+ 	end,
+@@ -570,7 +570,7 @@ local notebook = {
+ 					)
+ 				)
+ 
+-				if to_big(card.ability.immutable.slots) >= to_big(card.ability.immutable.max_slots) then
++				if tb_ge(card.ability.immutable.slots, card.ability.immutable.max_slots) then
+ 					card.ability.extra.add = 0
+ 				end
+ 
+@@ -910,10 +910,10 @@ local sacrifice = {
+ 						end,
+ 					}))
+ 				end
+-				if to_big(card.ability.extra.jollies) < to_big(1) then
++				if tb_lt(card.ability.extra.jollies, 1) then
+ 					card.ability.extra.jollies = 1
+ 				end
+-				if to_big(card.ability.extra.unc) < to_big(1) then
++				if tb_lt(card.ability.extra.unc, 1) then
+ 					card.ability.extra.unc = 1
+ 				end
+ 				for i = 1, math.min(card.ability.immutable.max_spawns, card.ability.extra.jollies) do
+@@ -949,10 +949,10 @@ local sacrifice = {
+ 			end
+ 		end
+ 		if context.forcetrigger then
+-			if to_big(card.ability.extra.jollies) < to_big(1) then
++			if tb_lt(card.ability.extra.jollies, 1) then
+ 				card.ability.extra.jollies = 1
+ 			end
+-			if to_big(card.ability.extra.unc) < to_big(1) then
++			if tb_lt(card.ability.extra.unc, 1) then
+ 				card.ability.extra.unc = 1
+ 			end
+ 			for i = 1, math.min(card.ability.immutable.max_spawns, card.ability.extra.jollies) do
+@@ -1163,7 +1163,7 @@ local doodlem = {
+ 					jollycount = lenient_bignum(to_big(jollycount) + math.floor(card.ability.extra.add))
+ 				end
+ 			end
+-			if to_big(jollycount) > to_big(card.ability.immutable.max_jollies) then
++			if tb_gt(jollycount, card.ability.immutable.max_jollies) then
+ 				jollycount = card.ability.immutable.max_jollies
+ 			end --reduce excessive consumeable spam (Lag)
+ 			for i = 1, jollycount do
+@@ -1207,7 +1207,7 @@ local function virgoJollies(card)
+ 								/ to_big(card.ability.extra.bonus)
+ 						)
+ 					)
+-					if summon == nil or to_big(summon) < to_big(1) then
++					if summon == nil or tb_lt(summon, 1) then
+ 						summon = 1
+ 					end --precautionary measure, just in case
+ 					for i = 1, math.min(card.ability.immutable.max_summons, summon) do --another precautionary measure
+@@ -1622,7 +1622,7 @@ local macabre = {
+ 			(context.setting_blind and not (context.blueprint or context.retrigger_joker) and not card.getting_sliced)
+ 			or context.forcetrigger
+ 		then
+-			if to_big(card.ability.extra.add) < to_big(1) then
++			if tb_lt(card.ability.extra.add, 1) then
+ 				card.ability.extra.add = 1
+ 			end
+ 			G.E_MANAGER:add_event(Event({
+@@ -1713,7 +1713,7 @@ local megg = {
+ 	calculate = function(self, card, context)
+ 		if
+ 			context.end_of_round
+-			and to_big(card.ability.extra.amount) < to_big(card.ability.immutable.max_amount)
++			and tb_lt(card.ability.extra.amount, card.ability.immutable.max_amount)
+ 			and not (context.individual or context.repetition or context.blueprint)
+ 		then
+ 			-- could be a bit unintuitive?
+@@ -1726,7 +1726,7 @@ local megg = {
+ 					message = localize("cry_jolly_ex"),
+ 				},
+ 			})
+-			if to_big(card.ability.extra.amount) > to_big(card.ability.immutable.max_amount) then
++			if tb_gt(card.ability.extra.amount, card.ability.immutable.max_amount) then
+ 				card.ability.extra.amount = lenient_bignum(card.ability.immutable.max_amount)
+ 			end
+ 			return nil, true
+@@ -1734,7 +1734,7 @@ local megg = {
+ 		if
+ 			context.selling_self
+ 			and not (context.blueprint or context.retrigger_joker_check or context.retrigger_joker)
+-			and to_big(card.ability.extra.amount) > to_big(0)
++			and tb_gt(card.ability.extra.amount, 0)
+ 		then
+ 			for i = 1, math.min(card.ability.immutable.max_amount, math.floor(card.ability.extra.amount)) do
+ 				local jolly_card = create_card("Joker", G.jokers, nil, nil, nil, nil, "j_jolly")
+@@ -1750,7 +1750,7 @@ local megg = {
+ 				scalar_value = "amount_mod",
+ 				no_message = true,
+ 			})
+-			if to_big(card.ability.extra.amount) > to_big(card.ability.immutable.max_amount) then
++			if tb_gt(card.ability.extra.amount, card.ability.immutable.max_amount) then
+ 				card.ability.extra.amount = lenient_bignum(card.ability.immutable.max_amount)
+ 			end
+ 			for i = 1, math.min(card.ability.immutable.max_amount, math.floor(card.ability.extra.amount)) do
+@@ -1817,7 +1817,7 @@ local longboi = {
+ 				},
+ 			})
+ 			return nil, true
+-		elseif context.joker_main and to_big(card.ability.extra.monster) > to_big(1) then
++		elseif context.joker_main and tb_gt(card.ability.extra.monster, 1) then
+ 			return {
+ 				xmult = lenient_bignum(card.ability.extra.monster),
+ 			}

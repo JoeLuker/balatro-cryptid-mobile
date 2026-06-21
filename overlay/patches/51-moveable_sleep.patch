@@ -1,0 +1,43 @@
+diff --git a/engine/moveable.lua b/engine/moveable.lua
+index fed5cbd..8f31dc5 100644
+--- a/engine/moveable.lua
++++ b/engine/moveable.lua
+@@ -280,6 +280,38 @@ function Moveable:move(dt)
+     self.FRAME.MOVE = G.FRAMES.MOVE
+     if not self.created_on_pause and G.SETTINGS.paused then return end
+ 
++    -- MOVEABLE_SLEEP: settled moveables exit before align_to_major (which
++    -- would falsely stamp NEW_ALIGNMENT) -- see build.sh applier comment for
++    -- the full wake-condition rationale
++    local _rt = self.role.role_type
++    if (
++            (_rt == 'Minor' and self.role.major
++                and self.role.major.FRAME.MOVE >= G.FRAMES.MOVE
++                and self.role.major.STATIONARY)
++            or (_rt == 'Major' and self.STATIONARY)
++        )
++        and not self.juice
++        and not self.NEW_ALIGNMENT
++        and not self.config.refresh_movement
++        and self.role.xy_bond ~= 'Weak' and self.role.r_bond ~= 'Weak'
++        and self.T.x == self._slp_tx and self.T.y == self._slp_ty
++        and self.T.r == self._slp_tr and self.T.w == self._slp_tw
++        and (not self.alignment or (
++            self.alignment.type == self.alignment.prev_type
++            and (not self.alignment.offset or (self.alignment.prev_offset
++                and self.alignment.offset.x == self.alignment.prev_offset.x
++                and self.alignment.offset.y == self.alignment.prev_offset.y))))
++    then
++        self.FRAME.OLD_MAJOR = self.FRAME.MAJOR
++        self.FRAME.MAJOR = nil
++        self.FRAME.MOVE = G.FRAMES.MOVE
++        self.CALCING = nil
++        if _rt == 'Minor' then self.STATIONARY = true end
++        return
++    end
++    self._slp_tx, self._slp_ty = self.T.x, self.T.y
++    self._slp_tr, self._slp_tw = self.T.r, self.T.w
++
+     --WHY ON EARTH DOES THIS LINE MAKE IT RUN 2X AS FAST???
+     -------------------------------------------------------
+     --local timestart = love.timer.getTime()

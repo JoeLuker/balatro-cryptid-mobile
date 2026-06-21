@@ -1,0 +1,12 @@
+diff --git a/Mods/Steamodded/src/utils.lua b/Mods/Steamodded/src/utils.lua
+index 00e660c..aff50e6 100644
+--- a/Mods/Steamodded/src/utils.lua
++++ b/Mods/Steamodded/src/utils.lua
+@@ -3497,6 +3497,7 @@ function ease_dollars(mod, instant)
+     })
+ end
+ function SMODS.add_to_pool(prototype_obj, args)
++    if prototype_obj.cry_disabled then return false end -- CRY_DISABLED_POOL_GATE
+     if type(prototype_obj.in_pool) == "function" then
+         return prototype_obj:in_pool(args)
+     end

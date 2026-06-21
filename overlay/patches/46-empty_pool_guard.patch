@@ -1,0 +1,20 @@
+diff --git a/functions/common_events.lua b/functions/common_events.lua
+index 2556a72..925ef40 100644
+--- a/functions/common_events.lua
++++ b/functions/common_events.lua
+@@ -2557,6 +2557,15 @@ function create_card(_type, area, legendary, _rarity, skip_materialize, soulable
+         end
+ 
+         center = G.P_CENTERS[center]
++        -- EMPTY_POOL_GUARD: see build.sh applier comment
++        if not center then
++            if ATLOG then ATLOG("EMPTY_POOL", { type = _type, pool = tostring(_pool_key), legendary = legendary and 1 or 0 }) end
++            center = G.P_CENTERS[_type == 'Joker' and 'j_joker'
++                or _type == 'Tarot' and 'c_fool'
++                or _type == 'Planet' and 'c_pluto'
++                or _type == 'Spectral' and 'c_incantation'
++                or 'c_base'] or G.P_CENTERS['c_base']
++        end
+     end
+ 
+     local front = SMODS.set_create_card_front or ((_type=='Base' or _type == 'Enhanced') and pseudorandom_element(G.P_CARDS, pseudoseed('front'..(key_append or '')..G.GAME.round_resets.ante))) or nil

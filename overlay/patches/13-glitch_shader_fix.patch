@@ -1,0 +1,32 @@
+diff --git a/Mods/Cryptid/assets/shaders/glitched.fs b/Mods/Cryptid/assets/shaders/glitched.fs
+index b48edb6..753c740 100644
+--- a/Mods/Cryptid/assets/shaders/glitched.fs
++++ b/Mods/Cryptid/assets/shaders/glitched.fs
+@@ -21,7 +21,7 @@ vec4 dissolve_mask(vec4 tex, vec2 texture_coords, vec2 uv)
+ 
+     float adjusted_dissolve = (dissolve*dissolve*(3.-2.*dissolve))*1.02 - 0.01; //Adjusting 0.0-1.0 to fall to -0.1 - 1.1 scale so the mask does not pause at extreme values
+ 
+-	float t = time * 10.0 + 2003.;
++	highp float t = time * 10.0 + 2003.;
+ 	vec2 floored_uv = (floor((uv*texture_details.ba)))/max(texture_details.b, texture_details.a);
+     vec2 uv_scaled_centered = (floored_uv - 0.5) * 2.3 * max(texture_details.b, texture_details.a);
+ 
+@@ -95,7 +95,7 @@ vec4 HSL(vec4 c)
+ }
+ 
+ //Shader by Samario
+-float rand(vec2 co){
++highp float rand(highp vec2 co){
+     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+ }
+ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords )
+@@ -109,7 +109,8 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
+     vec2 texCoordsG = texture_coords;
+     vec2 texCoordsB = texture_coords;
+ 
+-    float iTime = tan(2. * time);
++    highp float iTime = tan(2. * time);
++    iTime = (abs(iTime) < 1000.0) ? iTime : 0.0; // Mali NaN/inf guard: tan singularities render cards black
+ 
+     texCoordsR.x += (0.004 * rand(vec2(iTime, uv.y))) - 0.002 + (POLY_THROWAWAY * 0.0000001);
+     texCoordsG.x += (0.007 * rand(vec2(iTime*2., uv.y*0.9))) - 0.0035 + (POLY_THROWAWAY * 0.0000001);
