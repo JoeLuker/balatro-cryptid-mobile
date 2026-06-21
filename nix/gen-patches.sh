@@ -61,8 +61,10 @@ cap() {
 }
 
 # ── faithful replay of build.sh patch order ───────────────────────────────
+# NOTE: build_stamp is NOT captured — it is injected deterministically in
+# gameLoveBase (the legacy stamp was date+githash, non-reproducible). The
+# globals.lua here already carries CRYPTID_MOBILE_BUILD.
 cap sticky_fingers_guard      apply_sticky_fingers_guard "$B/functions/misc_functions.lua"
-cap build_stamp               apply_build_stamp "$B/globals.lua"
 cap crt_fix                   apply_crt_fix "$B/resources/shaders/CRT.fs"
 cap android_settings_fix      apply_android_settings_fix "$B/globals.lua"
 cap mobile_graphics_defaults  apply_mobile_graphics_defaults "$B/globals.lua"

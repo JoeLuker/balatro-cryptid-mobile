@@ -40,6 +40,13 @@ let
       echo "[love] lovely-merged dump over vanilla"
       cp -r --no-preserve=mode ${dump}/. .
 
+      # Deterministic build stamp (was a date+githash sed in build.sh — non-repro,
+      # and it churned the globals.lua patch chain). Derive from the pinned Cryptid
+      # rev so it is stable; the menu-badge patch displays G.CRYPTID_MOBILE_BUILD.
+      stamp="nix-$(awk -F'\t' '$1=="cryptid"{print substr($2,1,7)}' .source-revs 2>/dev/null || echo pinned)"
+      rm -f .source-revs
+      sed -i "s|    self.VERSION = VERSION|    self.VERSION = VERSION\n    self.CRYPTID_MOBILE_BUILD = '$stamp' -- BUILD_STAMP|" globals.lua
+
       echo "[love] android nativefs wrapper (owned)"
       cp --no-preserve=mode ${patchesDir}/android-nativefs.lua nativefs.lua
 
