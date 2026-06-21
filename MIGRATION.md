@@ -18,7 +18,29 @@ patches that fail loud, a thin build. Pattern: distro source-package
 | 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ next |
 | 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
 
-**The reproducible build is complete and shippable:** `pins (sources.json + flake.lock) → gameLoveBase → gameLove (63 patches) → apk` builds purely via `nix build`, and `nix/sign.sh` produces a signed, installable 89M APK. Phases 5–6 are cleanup/organization, not functionality.
+**Build pipeline is complete & build-verified:** `pins (sources.json + flake.lock)
+→ gameLoveBase → gameLove (63 patches) → apk` builds purely via `nix build`,
+`nix/sign.sh` → signed 89M APK (v1/v2/v3 verify), 259 lua / 0 syntax errors.
+
+## ⚠ Open runtime issue — Steamodded de-drift breaks SMODS load (BLOCKS shipping)
+
+The smoke gate (boot the built game headless, spoof Android) revealed: the
+from-pins build **crashes at boot — `main.lua: attempt to index global 'SMODS'
+(a nil value)`** — while the legacy build/game does NOT hit that crash.
+
+Root cause lead: the **Steamodded pin was de-drifted to current `main` (fdb7442)**,
+but the validated phone/legacy build used an **older Steamodded** (`1.0.0~BETA-1224a`).
+fdb7442 injects `main.lua` differently (1426 vs legacy 2578 lines) and its SMODS
+bootstrap doesn't load via the from-pins dump under the desktop spoof.
+
+Next step (pick one):
+1. **Re-pin Steamodded to the validated version** (the `1224a`-era commit the phone
+   shipped) → re-run `regen-dump.sh` + `gen-patches.sh` → re-smoke. Most likely fix.
+2. **Emulator-validate** (`just emu-test` on the Nix APK) to check whether it's a
+   desktop-spoof artifact vs a real boot failure on Android.
+
+**`scripts/build.sh` is retained** (Phase 5 deferred) — it is the runtime-validated
+fallback until the Nix APK boots clean. Do NOT retire it before this is resolved.
 
 ## Target layout
 
