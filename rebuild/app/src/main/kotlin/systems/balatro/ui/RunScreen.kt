@@ -324,9 +324,13 @@ internal class RunState {
     fun loadReproLive() {
         loadRepro()
         repro = false; scoring = false
-        // spike: make the first joker FOIL so the edition shader is visible in repro-live (the static
-        // repro keeps its plain jokers, so the parity gate is unaffected).
-        if (owned.isNotEmpty()) owned[0] = owned[0].copy(offer = owned[0].offer.copy(edition = Edition.FOIL))
+        // spike: edition the jokers (foil/holo) + add a poly one so all three shaders are visible in
+        // repro-live (the static repro keeps its plain jokers, so the parity gate is unaffected).
+        if (owned.size >= 2) {
+            owned[0] = owned[0].copy(offer = owned[0].offer.copy(edition = Edition.FOIL))
+            owned[1] = owned[1].copy(offer = owned[1].offer.copy(edition = Edition.HOLO))
+        }
+        buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
         // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
         hand = listOf(
@@ -1302,10 +1306,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             colorFilter = ColorFilter.tint(Color.Black))
                         Image(it, o.offer.name, Modifier.size(cardW, cardH),
                             contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                        // FOIL edition: overlay the foil shimmer (foil.fs → AGSL) over the base art.
-                        if (foilOn && o.offer.edition == Edition.FOIL) {
-                            Image(it, null, Modifier.size(cardW, cardH)
-                                .graphicsLayer { renderEffect = foilRenderEffect(cardWpx, cardHpx) },
+                        // EDITION (foil/holo/poly → AGSL): overlay the shimmer over the base art,
+                        // animated by the engine clock. (frame.value above forces the per-tick redraw.)
+                        val edEffect = if (foilOn && o.offer.edition != Edition.NONE)
+                            editionRenderEffect(o.offer.edition.tag, cardWpx, cardHpx, host.clock.real.toFloat()) else null
+                        if (edEffect != null) {
+                            Image(it, null, Modifier.size(cardW, cardH).graphicsLayer { renderEffect = edEffect },
                                 contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                         }
                     } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
