@@ -231,6 +231,32 @@ fun main() {
         check("transfer card springs into the hand area", abs(card.VT.x - card.T.x) < 0.05 && card.T.x in 5.0..17.0)
     }
 
+    // 15. startDissolve / shatter (Card:start_dissolve / Card:shatter): eases `dissolve` 0→1 over the
+    //     dissolve time, then fires onGone (the caller's removal). Glass shatter is faster (0.35s ease,
+    //     remove ~0.385s); the normal fiery dissolve eases over 0.7s, removes ~0.735s.
+    run {
+        val host = EngineHost()
+        val glass = Moveable(host.scene, Transform(5.0, 7.0, 1.0, 1.4))
+        var prev = -1.0; var monotonic = true; var goneFrame = -1; var n = 0
+        host.startDissolve(glass, shatter = true, now = host.clock.real, reducedMotion = true,
+            onGone = { goneFrame = n })
+        repeat(60) { n++; host.tick(DT); if (glass.dissolve < prev - 1e-9) monotonic = false; prev = glass.dissolve }
+        check("shatter eased dissolve 0→1", abs(glass.dissolve - 1.0) < 1e-6, "dissolve=${glass.dissolve}")
+        check("shatter dissolve monotonic", monotonic)
+        check("shatter set the shattered flag", glass.shattered)
+        check("shatter removed ~0.385s in", goneFrame in 22..27, "frame=$goneFrame (≈23+capture)")
+
+        val host2 = EngineHost()
+        val card = Moveable(host2.scene, Transform(5.0, 7.0, 1.0, 1.4))
+        var goneFrame2 = -1; var m = 0
+        host2.startDissolve(card, shatter = false, now = host2.clock.real, reducedMotion = true,
+            onGone = { goneFrame2 = m })
+        repeat(60) { m++; host2.tick(DT) }
+        check("normal dissolve reached 1", abs(card.dissolve - 1.0) < 1e-6, "dissolve=${card.dissolve}")
+        check("normal dissolve NOT flagged shattered", !card.shattered)
+        check("normal dissolve removed ~0.735s in", goneFrame2 in 43..48, "frame=$goneFrame2 (≈44+capture)")
+    }
+
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
 }

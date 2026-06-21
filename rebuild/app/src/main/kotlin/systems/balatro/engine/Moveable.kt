@@ -83,6 +83,11 @@ open class Moveable(
 
     var juice: Juice? = null
 
+    // card.lua Card.dissolve — the burn-away / materialize progress (a Card IS a Moveable). 0 = the
+    // whole card, 1 = gone (reverse to materialize). `shattered` = glass: a faster, white burn.
+    var dissolve: Double = 0.0
+    var shattered: Boolean = false
+
     init {
         scene.registerMoveable(this)
         calculateParallax()

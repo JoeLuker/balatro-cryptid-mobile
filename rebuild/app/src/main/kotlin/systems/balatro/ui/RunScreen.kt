@@ -333,8 +333,11 @@ internal class RunState {
         buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
         // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
+        // One played card is GLASS + forceGlassBreak so it SHATTERS (dissolve.fs) after the tally.
+        forceGlassBreak = true
         hand = listOf(
-            PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7),
+            PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
+            PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
             PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4),
         )
         selected = setOf(0, 1, 2, 3)
@@ -458,6 +461,12 @@ internal class RunState {
         displayChips = step.chips; displayMult = step.mult
         popIndex = i - 1                                        // step 0 is the base; 1.. are cards
     }
+
+    /** repro-live demo: force every played glass card to shatter (so the burn animation is visible). */
+    var forceGlassBreak = false
+    /** m_glass `extra = 4` → a played glass card has a 1-in-4 chance to shatter (Card:shatter) after
+     *  it scores. The demo flag forces it; real play rolls it. */
+    fun rollGlassBreak(): Boolean = forceGlassBreak || Random.nextInt(4) == 0
 
     /** Commit the scored hand: bank the score, refill, advance the run. */
     fun scoreCommit() {
@@ -1278,7 +1287,21 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 }))
             }
             host.events.addEvent(Event(trigger = "after", delay = 0.30, func = { true }))          // trailing post-step gap
-            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = { s.scoreCommit(); true }))
+            // post-tally: played GLASS cards shatter (Card:shatter, 1-in-4) — they DISSOLVE away (fast
+            // white burn) rather than being discarded. Roll per glass card; if any burns, hold the
+            // commit/refill until the dissolve finishes (0.55×0.7s) so it doesn't pop out mid-burn.
+            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = {
+                var burning = false
+                s.scoreCards.forEachIndexed { i, card ->
+                    if (card.enhancement == Enhancement.GLASS && s.rollGlassBreak()) {
+                        host.play.cards.getOrNull(i)?.let { host.startDissolve(it, shatter = true, now = host.clock.real) }
+                        burning = true
+                    }
+                }
+                host.events.addEvent(Event(trigger = "after", delay = if (burning) 0.55 * 0.7 else 0.0,
+                    func = { s.scoreCommit(); true }))
+                true
+            }))
         }
     }
     // juice the played card the cascade is popping (live; repro uses ScoredCardsRow's own juice).
@@ -1335,9 +1358,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         } else if (s.scoring) {
             s.scoreCards.forEachIndexed { i, card ->
                 val m = host.play.cards.getOrNull(i) ?: return@forEachIndexed
+                val diss = m.dissolve.toFloat()      // >0 once this card is shattering (dissolve.fs burn)
                 Box(off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
                     rotationZ = (m.VT.r * 57.2958).toFloat()
                     scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
+                    if (foilOn && diss > 0f)
+                        renderEffect = dissolveRenderEffect(diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered)
                 }) { CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {} }
             }
         }

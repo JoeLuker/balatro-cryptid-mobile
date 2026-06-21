@@ -32,6 +32,21 @@ class EngineHost {
     private fun cardArea(r: Room.AreaRect, kind: String, limit: Int, isConsumeables: Boolean = false, cardScale: Double = 1.0) =
         CardArea(scene, Transform(r.x, r.y, r.w, r.h), kind, limit, isConsumeables, cardScale)
 
+    /** Card:start_dissolve / Card:shatter (card.lua:2615 / 2541) — the card DESTROY animation. Juices
+     *  the card, then eases its `dissolve` 0→1 over the dissolve time and finally invokes [onGone] so
+     *  the caller drops it from its area/game list. [shatter] = glass: a faster (0.35s) white burn vs
+     *  the 0.7s fiery dissolve (dissolve_time 0.7; ease over 1×/0.5×, remove at 1.05×/0.55×). */
+    fun startDissolve(card: Moveable, shatter: Boolean = false, now: Double, reducedMotion: Boolean = false, onGone: () -> Unit = {}) {
+        val dt = 0.7
+        card.dissolve = 0.0
+        card.shattered = shatter
+        card.juiceUp(now = now, reducedMotion = reducedMotion)
+        events.addEvent(Event(trigger = "ease", blockable = false, delay = (if (shatter) 0.5 else 1.0) * dt,
+            ease = EaseSpec(get = { card.dissolve }, set = { card.dissolve = it }, easeTo = 1.0)))
+        events.addEvent(Event(trigger = "after", blockable = false, delay = (if (shatter) 0.55 else 1.05) * dt,
+            func = { onGone(); true }))
+    }
+
     /** One simulation step (the body of game.lua Game:update): advance the clock, drain events,
      *  sweep every Moveable's move(), then flush deferred removals. */
     fun tick(dt: Double, paused: Boolean = false) {

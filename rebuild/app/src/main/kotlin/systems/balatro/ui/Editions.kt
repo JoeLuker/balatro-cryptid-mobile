@@ -179,3 +179,67 @@ fun editionRenderEffect(edition: String, wPx: Float, hPx: Float, t: Float) = whe
     "Poly" -> shaderEffect(POLY_AGSL, "poly", t, 0f, t, wPx, hPx)
     else -> null
 }
+
+// dissolve.fs → AGSL: the card burn-away / materialize. Unlike editions this REPLACES the card render
+// (it eats pixels): a moving noise field `res` is compared to `adjusted_dissolve`; pixels below it go
+// transparent, the thin band at the threshold gets the fiery burn colour, and the whole card tints
+// toward burn as `dissolve` rises (0 = whole card, 1 = gone). Reverse the value to materialize.
+private const val DISSOLVE_AGSL = """
+uniform shader content;
+uniform float dissolve;
+uniform float time;
+uniform float2 size;
+uniform float4 burn1;
+uniform float4 burn2;
+
+half4 main(float2 fragCoord) {
+    half4 texh = content.eval(fragCoord);
+    float a0 = texh.a;
+    float3 col = a0 > 0.0 ? float3(texh.rgb) / a0 : float3(texh.rgb);
+    float2 uv = fragCoord / size;
+
+    if (dissolve > 0.01) {                 // tint the card toward the burn colour as it dissolves
+        if (burn2.a > 0.01) col = col*(1.0-0.6*dissolve) + 0.6*burn2.rgb*dissolve;
+        else if (burn1.a > 0.01) col = col*(1.0-0.6*dissolve) + 0.6*burn1.rgb*dissolve;
+    }
+    if (dissolve < 0.001) return half4(half3(col*a0), half(a0));
+
+    float adj = (dissolve*dissolve*(3.0-2.0*dissolve))*1.02 - 0.01;
+    float t = time*10.0 + 2003.0;
+    float2 td = float2(71.0, 95.0);                          // card source px (atlas cell)
+    float2 fuv = floor(uv * td) / max(td.x, td.y);
+    float2 c = (fuv - 0.5) * 2.3 * max(td.x, td.y);
+    float2 f1 = c + 50.0*float2(sin(-t/143.6340), cos(-t/99.4324));
+    float2 f2 = c + 50.0*float2(cos( t/53.1532),  cos( t/61.4532));
+    float2 f3 = c + 50.0*float2(sin(-t/87.53218), sin(-t/49.0000));
+    float field = (1.0 + (cos(length(f1)/19.483) + sin(length(f2)/33.155)*cos(f2.y/15.73) + cos(length(f3)/27.193)*sin(f3.x/21.92)))/2.0;
+    float2 b = float2(0.2, 0.8);
+    float res = (0.5 + 0.5*cos(adj/82.612 + (field - 0.5)*3.14))
+        - (fuv.x > b.y ? (fuv.x - b.y)*(5.0 + 5.0*dissolve) : 0.0)*dissolve
+        - (fuv.y > b.y ? (fuv.y - b.y)*(5.0 + 5.0*dissolve) : 0.0)*dissolve
+        - (fuv.x < b.x ? (b.x - fuv.x)*(5.0 + 5.0*dissolve) : 0.0)*dissolve
+        - (fuv.y < b.x ? (b.x - fuv.y)*(5.0 + 5.0*dissolve) : 0.0)*dissolve;
+
+    float3 rgb = col;
+    if (a0 > 0.01 && burn1.a > 0.01 && res < adj + 0.8*(0.5-abs(adj-0.5)) && res > adj) {
+        if (res < adj + 0.5*(0.5-abs(adj-0.5))) rgb = burn1.rgb;
+        else if (burn2.a > 0.01) rgb = burn2.rgb;
+    }
+    float aout = res > adj ? a0 : 0.0;
+    return half4(half3(rgb*aout), half(aout));
+}
+"""
+
+/** Card dissolve/materialize RenderEffect. [dissolve] 0 = whole card → 1 = gone (reverse to
+ *  materialize); [time] animates the burn field. Fiery orange→yellow edge by default; [glass] uses
+ *  the white shatter colour (Card:shatter's dissolve_colours = {{1,1,1,0.8}}). */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+fun dissolveRenderEffect(dissolve: Float, time: Float, wPx: Float, hPx: Float, glass: Boolean = false) =
+    RenderEffect.createRuntimeShaderEffect(
+        RuntimeShader(DISSOLVE_AGSL).apply {
+            setFloatUniform("dissolve", dissolve); setFloatUniform("time", time); setFloatUniform("size", wPx, hPx)
+            if (glass) { setFloatUniform("burn1", 1f, 1f, 1f, 0.8f); setFloatUniform("burn2", 0f, 0f, 0f, 0f) }
+            else { setFloatUniform("burn1", 1f, 0.35f, 0.1f, 1f); setFloatUniform("burn2", 1f, 0.75f, 0.15f, 1f) }
+        },
+        "content",
+    ).asComposeRenderEffect()
