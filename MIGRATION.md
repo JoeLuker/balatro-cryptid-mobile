@@ -77,14 +77,23 @@ flake.nix                 # exposes packages.balatro-cryptid + the dev shell
 
 ## Phase 3b findings (patch conversion)
 
-- **59 patches generated** from build.sh's call order; **gameLove builds green**
-  with all 59 `git apply`'d (hard-fail series — the 93 log_warn silent-skips are
+- **60 patches generated** from build.sh's call order; **gameLove builds green**
+  with all 60 `git apply`'d (hard-fail series — the 93 log_warn silent-skips are
   gone). Patched `game.love`: **259 lua files, 0 syntax errors** (luajit -bl),
   sentinels present (CRY_EVENTS_GUARDED, DISABLED_CENTER_SKIP, MALI_RANGE_FIX, …).
-- **5 silent-skips remain** (legacy build ships without these too) — under
-  adversarial triage: `sticky_fingers_guard`, `drag_reject_feedback`,
+- **4 silent-skips remain** (legacy build ships without these too) — under
+  adversarial triage: `drag_reject_feedback`,
   `structural_mods_lock` (target file gone — Steamodded de-drift), `mod_toggle_removed`,
   `cryptid_oil_lamp_fix`.
+- **`sticky_fingers_guard` resolved (patch 60):** the original function targeted
+  `functions/misc_functions.lua` expecting sticky-fingers' lovely/misc_functions.toml
+  append to be present in the dump. Root cause: lovely's `append` + `dump_lua = true`
+  combination did not produce output in the vendored dump boot — both of
+  sticky-fingers' lovely patches (misc_functions, button_callbacks) are absent from
+  `vendor/dump/`. The `sticky_can_*` wrapper functions are therefore not present
+  anywhere in the assembled tree. Fix: patch 60 appends all 7 guarded wrappers
+  directly to `Mods/sticky-fingers/main.lua` (the only runtime-loaded lua in the
+  embedded mod), with nil-guards baked in (STICKY_GUARD sentinel).
 - **`drag_self_drop_exclude` ported** (patch 59): the original anchor lived in the
   Lovely-modded TAP_DESC_HOLD_NODRAG block, absent from the pristine pinned engine.
   Fix re-anchored to `set_cursor_hover`'s collision-walk (`DRAG_SELF_DROP_EXCLUDE`
