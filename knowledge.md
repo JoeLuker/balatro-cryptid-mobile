@@ -488,3 +488,73 @@ A workflow ran 6 parallel "lens" agents (card rendering, felt/background, HUD si
 ### RunScreen parity levers
 card width (`cardWidth`), felt radial gradient center/edge colors, `UIBox` emboss alpha/width for chunky beveled panels, `Spring.kt` SpringHand height multiplier, and button `canPlay` logic all directly govern how close the play screen reads to real Balatro.
 <!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/Spring.kt | area:rebuild | date:2026-06-16 -->
+
+### Pixel-diff harness for UI parity
+A diff harness that forces the emulator to the reference resolution, then subtracts matching pixels so only divergences remain (magenta), is the effective tool for chasing pixel-perfect parity — visual side-by-side is too coarse. Pure black = match; any color = a real layout bug to fix, no cheating.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/MainActivity.kt | area:rebuild | date:2026-06-17 -->
+
+### Authoritative HUD geometry lives in the Lua
+HUD box sizes, numbers, and placements should be derived directly from the real Balatro Lua UI code (extracted via `tools/uiref/extract.lua`) rather than eyeballed — Joe repeatedly pushed back that values were "all wrong" until they were sourced from Lua.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:tools/uiref/extract.lua,tools/uiref/main.lua,rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt | area:tools | date:2026-06-17 -->
+
+### UIBox sizes to content
+Lua's UIBox sizes nodes to their content/stream; the Kotlin port initially did not. Match the *observed output* of Lua's layout, not a blind line-by-line transcription ("do it so it shows up exactly how it does in lua").
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt | area:rebuild | date:2026-06-17 -->
+
+### Emulator, not phone, for the iterate loop
+Build/deploy/capture cycles run on the emulator (`/tmp/fan.png`, `/tmp/diff` outputs); the phone (over Tailscale, `100.71.245.38:33203`) is only touched when Joe explicitly approves.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:.claude/worktrees/dp-head/.gitignore,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/do-not-merge-add-debugplus-into-main.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,tools/uiref/main.lua,tools/uiref/main.lua | area:memory | date:2026-06-17 -->
+
+### Balatro card shadows
+Shadows are an explicit rendered element in Balatro's draw code (offset/colour-driven), not a side effect of the rasterizer — port the shadow algorithm from source rather than attributing the gap to anti-aliasing.
+<!-- session:2026-06-18-3c3fcbf1 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 -->
+
+### Pixel-diff residuals have real causes
+Felt-masked diff gaps trace to concrete, fixable sources (descent-trim, descender clip, offset, colour, missing shadow, exact card positions, popup/art placement) — measure the cause, don't hand-wave "anti-aliasing."
+<!-- session:2026-06-18-3c3fcbf1 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 -->
+
+### Claude Desktop image rendering
+The user repeatedly could not see inline/attached images in the Claude Desktop app; delivering images one at a time (and using a magenta diff overlay) was the workaround that eventually rendered.
+<!-- session:2026-06-18-3c3fcbf1 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/BalatroStyle.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/BalatroStyle.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/BalatroStyle.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/BalatroStyle.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-18 -->
+
+### Room-unit layout model
+Balatro positions all card areas in a 22u × 12.9u "room" via `set_screen_positions` (common_events.lua). Each area's screen-space top-left = its `T.x/T.y` + `ROOM.T.x`(1.0)/`ROOM.T.y`(0.4375). Port the algorithm and place areas via absolute offsets in px (`xu*u`), not weight-based Compose Rows/Columns.
+<!-- session:2026-06-18-991f5a2f | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/UILayout.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 -->
+
+### Derived area constants (room units)
+jokers(5.7573, 0.4375), played(6.5744, 5.7238 resting), hand(5.8573, 9.3238 — exact match), deck(18.2463, 9.3328 — right-anchored in box), consumeables(15.9963, 0.4375 — oracle-only, unverified). Card sprite = 2.04878u × 2.75122u, taller than box H (2.614u) → 12px overhang, center sprite on box.
+<!-- session:2026-06-18-991f5a2f | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/UILayout.kt | area:rebuild | date:2026-06-18 -->
+
+### Unit-scale branch ambiguity
+`love.resize` (main.lua:1229) picks width- vs height-constrained `u` by aspect vs orig_ratio (22/12.9 = 1.70543). At true 16:9 (3840×2160) the game is height-constrained (u=167.44, side pillars). But `bref_3` is width-constrained (u=174.5455), meaning it was rendered at an aspect <1.70543. Matching bref_3 exactly requires forcing the width branch; a true-16:9 device will legitimately differ.
+<!-- session:2026-06-18-991f5a2f | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:tools/uiref/verify_layout.py,tools/uiref/extract.lua,tools/uiref/verify_layout.py,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt | area:tools | date:2026-06-18 -->
+
+### Box vs sprite parity
+Compare CardArea *box* positions, not rendered sprite pixels. Sprite bounds differ from box numbers by overhang, shadows, rounded corners, hover-lift, and fan rotation (10–50px gaps that are NOT positioning errors).
+<!-- session:2026-06-18-991f5a2f | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:tools/uiref/verify_layout.py,tools/uiref/extract.lua,tools/uiref/verify_layout.py,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,.claude/worktrees/dp-head/rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt | area:tools | date:2026-06-18 -->
+
+### Engine spine is the root dependency
+Every renderable, animation, and interaction in Balatro bottoms out in four live primitives — GameClock/TimerRegistry → Transform (T/VT double-buffer) → Moveable (spring/juice integrators) → EventManager (fixed 1/60 drain). Nothing above the spine (card rest positions, HUD bumps, scoring pops, shop slides, blind dissolves) can be faithful while the layer below is hard-coded; they are *outputs of the spine*, not independent effects.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/engine/GameClock.kt,rebuild/app/src/main/kotlin/systems/balatro/engine/Transform.kt,rebuild/app/src/main/kotlin/systems/balatro/engine/Moveable.kt,rebuild/app/src/main/kotlin/systems/balatro/engine/EventManager.kt,rebuild/ENGINE_PORT_P0.md | area:rebuild | date:2026-06-18 -->
+
+### Hard dependency ordering for the port
+Transform before everything; NodeLifecycle/SceneGraph before RoleHierarchy/AlignmentSystem/MoveOrchestrator; JuiceAnimation before LerpSpringR/Scale (they read juice.r/juice.scale); G_Timers/EventManager before Controller and all ease_*/scoring orchestration; UILayout passes (XYWH→SetWH→Alignment→VTInit) before UIBoxRecalculate; FontMetrics before XYWHPass and DynaTextCore; PCentersRegistry+SMODSGameObject before every Center subclass and before CalculateDispatch; CalculateDispatch before ScoringOrchestrator; PseudoRNG before deck/shop/pack generation.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/ENGINE_PORT_P0.md | area:rebuild | date:2026-06-18 -->
+
+### EventManager replaces fixed-delay scoring
+The old scoring cascade used a `LaunchedEffect` with hard 140/300/450ms delays; this diverges from the engine the moment a joker inserts a follow-on event. The engine timing is event-driven and fixed-step (1/60 drain, blocking/blockable gating, SPEEDFACTOR fast-forward), so the cascade must be modeled as chained Events on the EventManager.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/engine/EventManager.kt | area:rebuild | date:2026-06-18 -->
+
+### Coverage fidelity tiers
+Current rebuild state stratifies as: UIBox 3-pass layout + node types = live-faithful (geometry-at-rest, 80/80); Moveable integrator = live-faithful but only ran for hand cards (no per-frame loop driving it); DynaText value-bump = approximate spring (not exact juice_up); set_screen_positions = frame-matched (frozen oracle dump, not live-computed); Score.kt = logic-only. Carry these tiers forward as explicit not-done caveats rather than letting them imply "done."
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/UILayout.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt | area:rebuild | date:2026-06-18 -->
+
+### Card-position oracle
+`test/cardpos.sh` + `test/cardpos-autorun.lua` boot real LÖVE Balatro headless and dump actual `G.<area>`/card `T.x/T.y/T.r` transforms (including the HAND_PLAYED scoring frame) as the parity target for the Kotlin `align_cards`/CardArea port.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:test/cardpos.sh,test/cardpos-autorun.lua | area:test | date:2026-06-18 -->
+
+### Ported vanilla '+chips if hand contains <type>' joker family (j_sly/wily/clever/devious/crafty) in Score.kt joker_main dispatch. Uses ctx.pokerHands containment (1:1 with card.lua:4209 context.poker_hands[type]), not top rank — so Clever fires on a Full House too. t_chips/type/pos verified from src/dump/game.lua:394-398. Added to CATALOG + JokerArt map (Jokers.png row 14, cols 0-4) and locked with Oracle case 'TwoPair 10s/7s + clever' = 268. Oracle 100/100.
+<!-- session:2026-06-21-732a3b9f | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | date:2026-06-21 -->
+
+### Ported vanilla '+Mult if hand contains <type>' family (j_jolly/zany/mad/crazy/droll) alongside the t_chips family. Score.kt joker_main, ctx.pokerHands containment, 1:1 with card.lua:4203 (mult_mod=t_mult). t_mult/type/pos from src/dump/game.lua:389-393; art Jokers.png row 0 cols 2-6. Oracle baselines jolly Pair=320, mad Two Pair=648. Both families committed d209335; oracle 102/102.
+<!-- session:2026-06-21-732a3b9f | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | date:2026-06-21 -->

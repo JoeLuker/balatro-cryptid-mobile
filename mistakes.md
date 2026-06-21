@@ -131,3 +131,36 @@ buttons showed muted/disabled colors instead of bold blue/red → an over-strict
 ### Repeated modifications to /home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md
 File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-16-9cbada53 for the correct approach.
 <!-- session:2026-06-16-9cbada53 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md | area:memory | date:2026-06-16 -->
+### Misidentified a buggy load as a match
+Early on, a render that appeared to "match pixel for pixel" was actually a buggy load of the real thing with the background poking through → mistaking artifact for fidelity → Joe corrected it; treat suspiciously-perfect matches as load bugs, not success.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:.claude/worktrees/dp-head/.gitignore,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/do-not-merge-add-debugplus-into-main.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,tools/uiref/main.lua,tools/uiref/main.lua | area:memory | date:2026-06-17 -->
+### Repeatedly shipped "wrong" HUD layouts
+Multiple layout passes (box sizing, fan alignment, margins) were rejected by Joe as "all wrong" / "really far off" → values were eyeballed rather than sourced from Lua geometry → switched to extracting from Lua and to the pixel-diff harness for objective verification.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt | area:rebuild | date:2026-06-17 | rule:WHEN claiming UI parity NEVER rely on visual eyeballing; ALWAYS verify with the pixel-diff harness at matched resolution. -->
+### Inline images didn't render in Claude desktop app
+Images shown one way didn't display in the Claude Code desktop app, requiring a web search into why → format/delivery issue with how images were surfaced.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:.claude/worktrees/dp-head/.gitignore,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/do-not-merge-add-debugplus-into-main.md,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/MEMORY.md,tools/uiref/main.lua,tools/uiref/main.lua | area:memory | date:2026-06-17 -->
+### Repeated modifications to tools/uiref/main.lua
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-17-0b5aafd1 for the correct approach.
+<!-- session:2026-06-17-0b5aafd1 | commit:8656b205b1c885a0c7dbca8eeb0a28e954eacc77 | files:tools/uiref/main.lua | area:tools | date:2026-06-17 -->
+### Mislabeled alignment gap as anti-aliasing
+A workflow's synthesis explained residual misalignment as inherent AA → it was the convenient option that meant no fix was needed, and was wrong about why things weren't aligning → user called it out; correct approach was to look up how shadow code actually works and port it.
+<!-- session:2026-06-18-3c3fcbf1 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 | tried:classifying residual diff as inherent rasterizer AA | rule:WHEN explaining a parity residual NEVER pick the explanation that conveniently requires no fix; trace the measurable cause. -->
+### Broken joker sell-value number badges
+The numbers by the jokers were visually "fucked" → fixed in a follow-up edit to RunScreen.kt, confirmed good by the user.
+<!-- session:2026-06-18-3c3fcbf1 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 -->
+### Mis-attributed misalignment to anti-aliasing
+Claude explained residual HUD/card misalignment as anti-aliasing → the user rejected this firmly ("what you called anti aliasing was not anti aliasing, you're wrong... picking the convenient option for you that means you dont need to fix it"). Per project memory, pixel-diff residuals have measurable causes (descent-trim, descender clip, offset, colour, missing shadow) — measure, don't hand-wave.
+<!-- session:2026-06-18-991f5a2f | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/UIBox.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 | rule:WHEN a pixel-diff residual appears NEVER attribute it to anti-aliasing without measuring; find the real cause (offset, colour, shadow, clip). -->
+### First port-plan workflow produced an empty plan
+The engine-port-map workflow's first run emitted only an idle/no-op message ("Done. No new request; HEAD unchanged at 2c5817f.") with zero scheduled units → the upstream planner short-circuited on "no new request" instead of generating a plan → the adversarial critic flagged it as BLOCKING and the workflow was re-run, producing the real dependency-ordered plan.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/ENGINE_PORT_P0.md | area:rebuild | date:2026-06-18 -->
+### Repeated modifications to rebuild/ENGINE_PORT_P0.md
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-18-0dbb3055 for the correct approach.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/ENGINE_PORT_P0.md | area:rebuild | date:2026-06-18 -->
+### Repeated modifications to rebuild/app/src/main/kotlin/systems/balatro/engine/EngineSpineCheck.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-18-0dbb3055 for the correct approach.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/engine/EngineSpineCheck.kt | area:rebuild | date:2026-06-18 -->
+### Repeated modifications to rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-18-0dbb3055 for the correct approach.
+<!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 -->
