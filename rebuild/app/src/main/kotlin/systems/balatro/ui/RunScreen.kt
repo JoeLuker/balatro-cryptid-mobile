@@ -9,6 +9,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -42,6 +44,7 @@ import systems.balatro.content.Edition
 import systems.balatro.engine.EaseSpec
 import systems.balatro.engine.EngineHost
 import systems.balatro.engine.Event
+import systems.balatro.engine.Room
 import kotlin.math.floor
 import systems.balatro.game.*
 
@@ -302,7 +305,12 @@ internal class RunState {
     fun loadReproLive() {
         loadRepro()
         repro = false; scoring = false
-        hand = listOf(PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
+        // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
+        // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
+        hand = listOf(
+            PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7),
+            PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4),
+        )
         selected = setOf(0, 1, 2, 3)
         play()
     }
@@ -1159,6 +1167,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 host.clock.advance(dt, reducedMotion = frozen)
                 if (host.jokers.cards.size != s.owned.size) host.jokers.setCardCount(s.owned.size)
                 host.jokers.alignCards(host.clock, reducedMotion = frozen)
+                // HAND slide: the area Y is state-dependent (oracle: 6.986 selecting → 8.886 scoring).
+                // Setting host.hand.T.y on the transition makes each card's align target jump, so the
+                // card VT springs (slides, with overshoot) into the scoring position — the motion bref_3
+                // froze. Cards stay on CardArea; align_cards sets the fan/arc/lift each frame.
+                host.hand.T.y = (if (s.scoring) Room.handScoringY else Room.handSelectingY)
+                if (host.hand.cards.size != s.hand.size) host.hand.setCardCount(s.hand.size)
+                host.hand.highlighted.clear(); host.hand.highlighted.addAll(s.selected)
+                host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = 8)
                 host.events.update(dt)
                 for (m in host.scene.moveables) m.move(host.clock)
                 host.scene.flushRemovals()
@@ -1237,16 +1253,40 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         if (s.scoring) Box(off(playX, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
             ScoredCardsRow(s, cells, cardBase)
         }
-        // ── HAND (G.hand): fanned along the bottom, centred in the 12.29u hand area. SpringHand
-        // anchors cards ~0.55·cardH below its box top (reserving lift-room above for selected cards),
-        // so raise the box by that resting offset (~1.4u) to land the card tops at the area position.
-        Box(off(handX, handY - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
-            SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
-                CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                    if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
-                        Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                    if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
-                        Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+        // ── HAND (G.hand). LIVE: each card is an engine Moveable owned by host.hand (CardArea); the
+        // state-driven area-Y in the loop makes the hand SLIDE on play, and align_cards sets the
+        // fan/arc/lift each frame — drawn at VT, scale 0.95 (oracle). STATIC repro: SpringHand, which
+        // reproduces bref_3's exact frozen mid-slide (spring-overshoot) frame the static gate can't
+        // freeze. So repro = parity fixture, live = the engine.
+        if (s.repro) {
+            Box(off(handX, handY - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
+                SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
+                    CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
+                        if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
+                            Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                        if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
+                            Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                    }
+                }
+            }
+        } else {
+            s.hand.forEachIndexed { i, card ->
+                val m = host.hand.cards.getOrNull(i) ?: return@forEachIndexed
+                val interaction = remember(i) { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                m.states.drag.isOn = pressed
+                Box(
+                    off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
+                        rotationZ = (m.VT.r * 57.2958).toFloat()
+                        scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
+                    }.clickable(interaction, indication = null, enabled = !s.scoring) { s.toggle(i) }
+                ) {
+                    CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
+                        if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
+                            Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                        if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
+                            Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                    }
                 }
             }
         }
