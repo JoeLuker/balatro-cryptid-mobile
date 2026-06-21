@@ -37,6 +37,36 @@ class CardArea(
         while (cards.size > n) cards.removeAt(cards.size - 1).remove()
     }
 
+    /** Make a new card Moveable belonging to this area (the engine equivalent of Card construction
+     *  for areas that own their cards directly, e.g. the deck/hand population). */
+    fun newCard() = Moveable(scene, Transform(T.x, T.y, CARD_W, CARD_H, scale = cardScale)).also { it.zoom = true }
+
+    /** cardarea.lua:50 emplace — append a card here (deck inserts at front). The Card-level bits
+     *  (set_ability/set_ranks) are P0.5's Card; this owns only the Moveable membership + layout. */
+    fun emplace(card: Moveable) {
+        if (kind == "deck") cards.add(0, card) else cards.add(card)
+    }
+
+    /** cardarea.lua:85 remove_card — detach [card] from this area (it stays a live Moveable so a
+     *  draw_card_from can re-home it). Returns it, or null if not here. */
+    fun removeCard(card: Moveable): Moveable? {
+        val i = cards.lastIndexOf(card)
+        if (i < 0) return null
+        cards.removeAt(i)
+        return card
+    }
+
+    /** cardarea.lua:648 draw_card_from — TRANSFER a card from [area] into this one (deal/play
+     *  animation). It's the SAME Moveable, so it keeps its VT (current screen position); align_cards
+     *  then springs it to its new slot here — the faithful fly-in, no position reset. */
+    fun drawCardFrom(area: CardArea): Moveable? {
+        if (cards.size >= cardLimit && kind != "deck" && kind != "hand") return null
+        val card = (if (area.kind == "deck" || area.kind == "discard") area.cards.lastOrNull() else area.cards.firstOrNull()) ?: return null
+        area.removeCard(card)
+        emplace(card)
+        return card
+    }
+
     /**
      * Set each card's target T for this frame. Port of cardarea.lua align_cards — the `joker` branch
      * (565-582) and the `hand` branch (506-520). [reducedMotion] freezes the idle sin wobble (repro).

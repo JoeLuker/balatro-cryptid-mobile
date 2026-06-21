@@ -216,6 +216,21 @@ fun main() {
         check("floor-ease stayed integer (counts up)", allInt && sawMid)
     }
 
+    // 14. CardArea transfer (draw_card_from): a card moves between areas as the SAME Moveable,
+    //     keeping its VT (the deal/play fly-in), then springs to its new slot.
+    run {
+        val scene = SceneRegistry(); val c = GameClock()
+        val deck = CardArea(scene, Transform(17.0, 8.0, 2.0, 2.7), "deck", 52)
+        val hand = CardArea(scene, Transform(5.0, 7.0, 12.0, 2.7), "hand", 8)
+        deck.setCardCount(1)
+        val card = deck.cards[0]   // at the deck (VT == T == 17,8)
+        val drawn = hand.drawCardFrom(deck)
+        check("transfer moved the card to hand", drawn === card && hand.cards.contains(card) && deck.cards.isEmpty())
+        check("transfer CARRIED VT (still at the deck)", abs(card.VT.x - 17.0) < 1e-9 && abs(card.VT.y - 8.0) < 1e-9)
+        repeat(120) { c.advance(DT); hand.alignCards(c, reducedMotion = true, tempLimit = 8); scene.moveables.forEach { it.move(c) } }
+        check("transfer card springs into the hand area", abs(card.VT.x - card.T.x) < 0.05 && card.T.x in 5.0..17.0)
+    }
+
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
 }
