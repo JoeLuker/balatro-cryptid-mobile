@@ -62,3 +62,6 @@ manual/61-drag_reject_feedback.patch
 manual/62-structural_mods_lock.patch
 manual/63-mod_toggle_removed.patch
 manual/64-cursor_down_duration.patch
+manual/65-drag_self_drop_hover_fix.patch
+manual/66-tap_desc_hold_drag_hover.patch
+manual/67-tap_desc_toggle.patch
