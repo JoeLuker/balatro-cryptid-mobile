@@ -1,0 +1,12 @@
+# overlay/patches/series — quilt-style ordered patch list (Debian 3.0(quilt) pattern).
+#
+# Each line is a unified diff under overlay/patches/, applied in order against the
+# pinned pristine sources (nix/sources.json) during the build, with --check first:
+# a failed hunk is a HARD ERROR, never a silent skip (the current build.sh has 93
+# log_warn skips — that hazard is what this file removes).
+#
+# Populated in Phase 3 by nix/gen-patches.sh, which runs each legacy apply_* from
+# scripts/build.sh against the pinned source and captures the resulting diff.
+# Until then this list is empty and the legacy build.sh remains authoritative.
+#
+# Grouping (apply order): game(Balatro) → Steamodded → Cryptid → Amulet → others.
