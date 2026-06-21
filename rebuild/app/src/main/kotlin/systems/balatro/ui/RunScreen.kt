@@ -1178,6 +1178,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // Per-card engine Moveable, by card identity — persists as a card moves hand→play (the transfer
     // carries its VT). IdentityHashMap so value-equal duplicates (two 10s) stay distinct.
     val cardMv = remember { java.util.IdentityHashMap<PlayingCard, Moveable>() }
+    // Staggered deal: each newly-dealt card's clock time to start flying in from the deck; held at the
+    // deck until then so cards arrive one-by-one (~0.07s apart). dealClock[0] is the next reveal slot.
+    val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
+    val dealClock = remember { doubleArrayOf(0.0) }
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
@@ -1204,17 +1208,27 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // carries its exact hand VT into the play area: real hand→play transfer, the fly-in.
                 // newly-dealt hand cards are born at the DECK and fly into the hand (deck→hand deal);
                 // played cards born at the hand (hand→play). Cards already in cardMv keep their VT.
-                host.hand.cards.clear(); for (cd in s.hand) host.hand.cards.add(cardMv.getOrPut(cd) { host.hand.newCard(host.deck.T.x, host.deck.T.y) })
+                host.hand.cards.clear(); for (cd in s.hand) host.hand.cards.add(cardMv.getOrPut(cd) {
+                    if (dealClock[0] < host.clock.real) dealClock[0] = host.clock.real   // new batch starts now
+                    dealAt[cd] = dealClock[0]; dealClock[0] += 0.07                       // stagger 0.07s/card
+                    host.hand.newCard(host.deck.T.x, host.deck.T.y)
+                })
                 host.play.cards.clear(); for (cd in s.scoreCards) host.play.cards.add(cardMv.getOrPut(cd) { host.play.newCard(host.hand.T.x, host.hand.T.y) })
                 if (cardMv.size > s.hand.size + s.scoreCards.size) {        // prune Moveables for gone cards
                     val keep = java.util.IdentityHashMap<PlayingCard, Boolean>()
                     for (cd in s.hand) keep[cd] = true; for (cd in s.scoreCards) keep[cd] = true
                     val it2 = cardMv.entries.iterator()
-                    while (it2.hasNext()) { val e = it2.next(); if (!keep.containsKey(e.key)) { e.value.remove(); it2.remove() } }
+                    while (it2.hasNext()) { val e = it2.next(); val k = e.key; if (!keep.containsKey(k)) { e.value.remove(); it2.remove(); dealAt.remove(k) } }
                 }
                 host.hand.highlighted.clear(); host.hand.highlighted.addAll(s.selected)
                 host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = 8)
                 host.play.alignCards(host.clock, reducedMotion = frozen, tempLimit = maxOf(s.scoreCards.size, 1))
+                // staggered deal: hold each card at the deck until its reveal time so they fly in
+                // one-by-one. (skipped in repro — the static frame uses SpringHand, not these cards.)
+                if (!frozen) host.hand.cards.forEachIndexed { i, m ->
+                    val at = s.hand.getOrNull(i)?.let { dealAt[it] }
+                    if (at != null && host.clock.real < at) { m.T.x = host.deck.T.x; m.T.y = host.deck.T.y }
+                }
                 host.events.update(dt)
                 for (m in host.scene.moveables) m.move(host.clock)
                 host.scene.flushRemovals()
