@@ -130,9 +130,13 @@ object Score {
             "j_cry_mask"      -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
             "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
             // vanilla retrigger jokers (card.lua:3895): Sock and Buskin retriggers each face once;
-            // Hanging Chad retriggers the FIRST scored card twice (context.other_card == scoring_hand[1]).
+            // Hanging Chad retriggers the FIRST scored card twice (context.other_card == scoring_hand[1]);
+            // Dusk retriggers every played card on the last hand (hands_left == 0);
+            // Hack retriggers 2/3/4/5 once each.
             "j_sock_and_buskin" -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 1 }
             "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
+            "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
+            "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -388,14 +392,19 @@ object Score {
             trace?.add(ScoreStep("+ ${card.label}", chips, mult))
         }
 
-        // held-in-hand pass: the card's own held effect (steel x1.5) + each joker reacting to held cards
+        // held-in-hand pass: the card's own held effect (steel x1.5) + each joker reacting to held cards.
+        // Mime (j_mime) retriggers each held card once IF it produced any effect (card_effects non-empty).
+        val mime = jokers.any { it.key == "j_mime" }
         ctx.heldHand = held
         for (card in held) {
             ctx.cardarea = "hand"; ctx.held = true; ctx.otherCard = card
             val effects = ArrayList<Fx>()
             effects.add(evalCard(card, ctx))
             for (j in jokers) calcJoker(j, ctx)?.let { effects.add(it) }
-            for (fx in effects) { if (fx.xMult != 0.0) mult *= fx.xMult; if (fx.mult != 0.0) mult += fx.mult; if (fx.hMult != 0.0) mult += fx.hMult }
+            val heldReps = 1 + if (mime && effects.any { !it.empty }) 1 else 0
+            repeat(heldReps) {
+                for (fx in effects) { if (fx.xMult != 0.0) mult *= fx.xMult; if (fx.mult != 0.0) mult += fx.mult; if (fx.hMult != 0.0) mult += fx.hMult }
+            }
             ctx.held = false
         }
 

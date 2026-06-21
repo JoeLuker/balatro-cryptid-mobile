@@ -64,6 +64,26 @@ object Oracle {
         Case("Pair of aces + hanging_chad (first card 3x)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_hanging_chad"))),
         // Interaction: Pareidolia makes aces faces, so Sock and Buskin retriggers both (each 2x): (10 + 2*(11+11)) * 2.
         Case("Pair of aces + sock_and_buskin + pareidolia (all 2x)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_sock_and_buskin"), FJoker("j_pareidolia"))),
+        // Dusk: retriggers every played card once on last hand (handsLeft=0); same math as hanging_chad: (10 + 2*11 + 2*11) * 2.
+        Case("Pair of aces + dusk (last hand, all 2x)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_dusk")), handsLeft = 0),
+        // Hack: retriggers 2/3/4/5 once each — Pair of 2s: (10 + 2*2 + 2*2) * 2.
+        Case("Pair of 2s + hack (retrigger 2s)", PlayingCard.hand("S_2", "H_2"), 36.0, j(FJoker("j_hack"))),
+        // Mime: retriggers held cards that produce an effect; Steel card held fires X1.5 twice → mult^2:
+        // chips=(10+11+11)=32, mult=2*1.5*1.5=4.5, score=floor(32*4.5)=144.
+        Case("Pair of aces + mime (steel King held retriggers)", PlayingCard.hand("S_A", "H_A"), 144.0, j(FJoker("j_mime")), held = listOf(en("S_K", Enhancement.STEEL))),
+        // --- individual-card jokers (coverage baselines) ---
+        // Photograph: X2 on FIRST face only — Pair of Kings: X2 fires on S_K, not H_K: (10+10+10)*4=120.
+        Case("Pair of Kings + photograph (X2 first face)", PlayingCard.hand("S_K", "H_K"), 120.0, j(FJoker("j_photograph"))),
+        // Smiley: +5 Mult per scored face — Pair of Kings: (10+10+10)*(2+5+5)=360.
+        Case("Pair of Kings + smiley (+5 Mult/face)", PlayingCard.hand("S_K", "H_K"), 360.0, j(FJoker("j_smiley"))),
+        // Walkie Talkie: 10 or 4 → +10 Chips +4 Mult — Pair of 10s: (10+20+20)*(2+4+4)=500.
+        Case("Pair of 10s + walkie_talkie", PlayingCard.hand("S_T", "H_T"), 500.0, j(FJoker("j_walkie_talkie"))),
+        // Seeing Double: X2 if Club + non-Club both score — S_A + C_A Pair: (10+11+11)*4=128.
+        Case("Pair S_A+C_A + seeing_double (club+non-club X2)", PlayingCard.hand("S_A", "C_A"), 128.0, j(FJoker("j_seeing_double"))),
+        // Flower Pot: X3 if all 4 suits score — FoaK aces (all 4 suits): (60+44)*21=2184.
+        Case("FoaK aces + flower_pot (all 4 suits X3)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A"), 2184.0, j(FJoker("j_flower_pot"))),
+        // Exposed: +2 retriggers per non-face — Pair of 2s (non-faces): (10+3*2+3*2)*2=44.
+        Case("Pair of 2s + cry_exposed (+2 retriggers/non-face)", PlayingCard.hand("S_2", "H_2"), 44.0, j(FJoker("j_cry_exposed"))),
         // --- Cryptid jokers ---
         Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, j(FJoker("j_cry_cube"))),
         Case("ThreeOfAKind 3s + triplet_rhythm (x3)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, j(FJoker("j_cry_triplet_rhythm"))),
