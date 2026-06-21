@@ -23,14 +23,14 @@ class EngineHost {
     // hold spread cards are CardAreas (own card Moveables + align_cards); the rest are plain anchors.
     val jokers = cardArea(Room.jokers, "joker", 5)
     val consumeables = cardArea(Room.consumeables, "joker", 2, isConsumeables = true)
-    val hand = cardArea(Room.hand, "hand", 8)
-    val play = areaMoveable(Room.play)
+    val hand = cardArea(Room.hand, "hand", 8, cardScale = 0.95)    // oracle: hand cards render at 0.95
+    val play = cardArea(Room.play, "play", 5, cardScale = 0.95)    // played cards fly in here + juice
     val deck = areaMoveable(Room.deck)
     val discard = areaMoveable(Room.discard)
 
     private fun areaMoveable(r: Room.AreaRect) = Moveable(scene, Transform(r.x, r.y, r.w, r.h))
-    private fun cardArea(r: Room.AreaRect, kind: String, limit: Int, isConsumeables: Boolean = false) =
-        CardArea(scene, Transform(r.x, r.y, r.w, r.h), kind, limit, isConsumeables)
+    private fun cardArea(r: Room.AreaRect, kind: String, limit: Int, isConsumeables: Boolean = false, cardScale: Double = 1.0) =
+        CardArea(scene, Transform(r.x, r.y, r.w, r.h), kind, limit, isConsumeables, cardScale)
 
     /** One simulation step (the body of game.lua Game:update): advance the clock, drain events,
      *  sweep every Moveable's move(), then flush deferred removals. */

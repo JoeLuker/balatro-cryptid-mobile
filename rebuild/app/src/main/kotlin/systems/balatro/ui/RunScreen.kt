@@ -1175,6 +1175,16 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 if (host.hand.cards.size != s.hand.size) host.hand.setCardCount(s.hand.size)
                 host.hand.highlighted.clear(); host.hand.highlighted.addAll(s.selected)
                 host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = 8)
+                // PLAYED cards (G.play): on scoring the hand flies up into the play area. Spawn the
+                // cards at the hand Y so their VT springs UP to the play position (the fly-in the
+                // oracle showed: T at the play area, VT catching up from the hand). align distributes
+                // them across the play area; the cascade juices each as it pops.
+                val nPlay = if (s.scoring) s.scoreCards.size else 0
+                if (host.play.cards.size != nPlay) {
+                    host.play.setCardCount(nPlay)
+                    host.play.cards.forEach { it.VT.y = Room.handScoringY }
+                }
+                host.play.alignCards(host.clock, reducedMotion = frozen, tempLimit = maxOf(nPlay, 1))
                 host.events.update(dt)
                 for (m in host.scene.moveables) m.move(host.clock)
                 host.scene.flushRemovals()
@@ -1216,6 +1226,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             host.events.addEvent(Event(trigger = "after", delay = 0.45, func = { s.scoreCommit(); true }))
         }
     }
+    // juice the played card the cascade is popping (live; repro uses ScoredCardsRow's own juice).
+    LaunchedEffect(s.popIndex) {
+        if (!s.repro) host.play.cards.getOrNull(s.popIndex)?.juiceUp(amount = 0.4, now = host.clock.real)
+    }
 
     Box(Modifier.fillMaxSize()) {
         // ── JOKERS (G.jokers): each joker is an engine Moveable (a Card IS a Moveable) owned by the
@@ -1248,10 +1262,21 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("0/2", Balatro.White, countSp)
         }
-        // ── PLAYED (G.play): the played hand. bref_3 freezes mid-scoring with the cards risen to ~4.23u
-        // (the resting area is 5.7238u; cards lift toward the jokers while scoring). Centre in the play area.
-        if (s.scoring) Box(off(playX, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
-            ScoredCardsRow(s, cells, cardBase)
+        // ── PLAYED (G.play). STATIC repro: ScoredCardsRow, frozen at PLAY_SCORING_Y (bref_3's lifted
+        // frame). LIVE: the played cards are engine Moveables on host.play — they fly up from the hand
+        // into the play area and juice as the cascade pops each (juiceUp wired below). Drawn at VT.
+        if (s.scoring && s.repro) {
+            Box(off(playX, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
+                ScoredCardsRow(s, cells, cardBase)
+            }
+        } else if (s.scoring) {
+            s.scoreCards.forEachIndexed { i, card ->
+                val m = host.play.cards.getOrNull(i) ?: return@forEachIndexed
+                Box(off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
+                    rotationZ = (m.VT.r * 57.2958).toFloat()
+                    scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
+                }) { CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {} }
+            }
         }
         // ── HAND (G.hand). LIVE: each card is an engine Moveable owned by host.hand (CardArea); the
         // state-driven area-Y in the loop makes the hand SLIDE on play, and align_cards sets the
