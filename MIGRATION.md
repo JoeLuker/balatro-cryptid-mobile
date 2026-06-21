@@ -9,8 +9,8 @@ patches that fail loud, a thin build. Pattern: distro source-package
 
 | Phase | Deliverable | State |
 |------:|-------------|-------|
-| 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified (instantiates, no fetch) |
-| 2 | **Build derivation** — `nix/balatro-cryptid.nix`: fetch→assemble→sign; migrate owned files to `overlay/game/` | ⬜ next |
+| 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified (pins realise, hashes valid) |
+| 2 | **Build derivation** — `nix/balatro-cryptid.nix`; `overlay/game/conf.lua` owned | 🟡 gameLove **build-verified** (785 files from pins); apk eval-verified |
 | 3 | **Patch conversion** — 72 `apply_*` → `overlay/patches/*.patch` + `series`, applied `--check` (hard-fail) | ⬜ |
 | 4 | **Config** — fold `config-overrides/` → `overlay/config/`; delete the clobber-reapply path | ⬜ |
 | 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ |
@@ -31,6 +31,29 @@ overlay/
 flake.nix                 # exposes packages.balatro-cryptid + the dev shell
 # gone: scripts/build.sh, config-overrides/, src/dump*, tools/lovely*
 ```
+
+## Phase 2 findings
+
+- **`gameLove` builds from the pins** — `nix-build nix/balatro-cryptid.nix -A gameLove
+  --arg dump <tree>` produces a 785-file `game.love`: vanilla + dump, Amulet
+  `talisman/`+`big-num/` root-mounted, `Mods/{Steamodded,Cryptid,Amulet,
+  sticky-fingers,CardSleeves,DebugPlus,reserve-shim}`, owned modules + `conf.lua`.
+  It is **pre-patch** (series empty) and uses the working-tree dump — assembly-
+  correct, not yet shippable.
+- **The dump is a third pinned-input class.** `regen-dump.sh` already regenerates
+  it *on Linux* (builds lovely from source, boots love+Xvfb headless) — it is not
+  Mac-only. So it can be a pinned, generated input rather than a gitignored blob.
+- **Two gates this surfaces:**
+  1. *Flake purity* — a pure flake can't read the gitignored dump, so
+     `packages.default` waits until the dump is **vendored** (committed) or built
+     as a derivation. Until then the build runs via `nix-build … --arg dump`.
+  2. *Dump↔pin consistency* — the dump MUST be regenerated from the **pinned**
+     sources (esp. the de-drifted Steamodded `fdb7442`), else mod source and dump
+     drift — the exact bug class this whole effort kills. Phase 3 regenerates from
+     pins and vendors the result.
+- **Deferred (size/secrets, not correctness):** `strip_en_us_assets` (~60 MB) and
+  signing-key wiring (`ensure_keystore`) — the apk stage currently emits an
+  aligned-unsigned APK so the pipeline is verifiable.
 
 ## Phase 3 mechanism — convert patches *mechanically*, and audit them
 
