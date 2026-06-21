@@ -179,6 +179,54 @@ object Oracle {
         Case("4 hearts + plain spade = High Card", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "S_9"), 16.0),
         Case("Pair, red-seal ace retriggers", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A").copy(seal = Seal.RED)), 86.0),
         Case("Pair of aces + a stone card", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A"), en("D_5", Enhancement.STONE)), 164.0),
+        // --- held-in-hand jokers ---
+        // Baron: King held → X1.5 Mult; chips=32, mult=2*1.5=3 → 96.
+        Case("Pair of aces + baron (King held)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baron")), held = listOf(PlayingCard.parse("S_K"))),
+        // Shoot the Moon: Queen held → +13 Mult; chips=32, mult=2+13=15 → 480.
+        Case("Pair of aces + shoot_the_moon (Queen held)", PlayingCard.hand("S_A", "H_A"), 480.0, j(FJoker("j_shoot_the_moon")), held = listOf(PlayingCard.parse("S_Q"))),
+        // Raised Fist: +2x nominal of lowest held card; 7 held → +14 Mult; chips=32, mult=2+14=16 → 512.
+        Case("Pair of aces + raised_fist (7 held, lowest)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_raised_fist")), held = listOf(PlayingCard.parse("S_7"))),
+        // --- vanilla n-based jokers (joker_main; pre-set j.n via FJoker constructor) ---
+        // Abstract: +3 Mult per joker on board (n=2: abstract + one other) → chips=32, mult=2+6=8 → 256.
+        Case("Pair of aces + abstract (n=2 jokers)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_abstract", n = 2))),
+        // Supernova: +1 Mult per time this hand type played (n=3) → chips=32, mult=2+3=5 → 160.
+        Case("Pair of aces + supernova (n=3 plays)", PlayingCard.hand("S_A", "H_A"), 160.0, j(FJoker("j_supernova", n = 3))),
+        // Blue Joker: +2 Chips per deck card (n=52 full deck) → chips=32+104=136, mult=2 → 272.
+        Case("Pair of aces + blue_joker (n=52 deck)", PlayingCard.hand("S_A", "H_A"), 272.0, j(FJoker("j_blue_joker", n = 52))),
+        // Banner: +30 Chips per remaining discard (n=3) → chips=32+90=122, mult=2 → 244.
+        Case("Pair of aces + banner (n=3 discards)", PlayingCard.hand("S_A", "H_A"), 244.0, j(FJoker("j_banner", n = 3))),
+        // Steel Joker: X(1+0.2*n); n=2 → x1.4 → chips=32, mult=2*1.4=2.8 → floor(89.6)=89.
+        Case("Pair of aces + steel_joker (n=2 steel cards)", PlayingCard.hand("S_A", "H_A"), 89.0, j(FJoker("j_steel_joker", n = 2))),
+        // Stone Joker: +25 Chips per stone card (n=2) → chips=32+50=82, mult=2 → 164.
+        Case("Pair of aces + stone_joker (n=2 stone cards)", PlayingCard.hand("S_A", "H_A"), 164.0, j(FJoker("j_stone", n = 2))),
+        // Driver's License: X3 Mult when >=16 enhanced (n=16) → chips=32, mult=2*3=6 → 192.
+        Case("Pair of aces + drivers_license (n=16 enhanced)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_drivers_license", n = 16))),
+        // Baseball Card: X1.5 per Uncommon joker; 1 Uncommon (rarity=2) beside it → chips=32, mult=2*1.5=3 → 96.
+        // Use j_cry_bonkers (rarity=2) as dummy: its jokerMain fires only on CRY_BULWARK hand type, never on a Pair.
+        Case("Pair of aces + baseball (1 Uncommon on board)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baseball"), FJoker("j_cry_bonkers", rarity = 2))),
+        // --- vanilla accumulator-mult jokers (j.mult set via FJoker) ---
+        // Green Joker: +mult per hand (+1); j.mult=4 (4 hands) → chips=32, mult=2+4=6 → 192.
+        Case("Pair of aces + green_joker (mult=4)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_green_joker", mult = 4.0))),
+        // Swashbuckler: +Mult per joker sell value (j.mult); j.mult=8 (2 jokers at 4 each) → mult=2+8=10 → 320.
+        Case("Pair of aces + swashbuckler (mult=8)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_swashbuckler", mult = 8.0))),
+        // Red Card: +3 Mult per skip (j.mult); j.mult=6 (2 skips) → chips=32, mult=2+6=8 → 256.
+        Case("Pair of aces + red_card (mult=6)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_red_card", mult = 6.0))),
+        // Spare Trousers: +2 Mult per Two Pair / Full House played (j.mult); j.mult=4 → mult=2+4=6 → 192.
+        Case("Pair of aces + spare_trousers (mult=4)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_spare_trousers", mult = 4.0))),
+        // Obelisk: Xmult scales +0.2 per hand NOT this type (j.x); x=1.4 (2 non-Pair hands) → mult=2*1.4=2.8 → 89.
+        Case("Pair of aces + obelisk (x=1.4)", PlayingCard.hand("S_A", "H_A"), 89.0, j(FJoker("j_obelisk", x = 1.4))),
+        // Hologram: Xmult +0.25 per added card (j.x); x=1.75 (3 adds) → mult=2*1.75=3.5 → 112.
+        Case("Pair of aces + hologram (x=1.75)", PlayingCard.hand("S_A", "H_A"), 112.0, j(FJoker("j_hologram", x = 1.75))),
+        // Ramen: Xmult starts X2 −0.01/discard (j.x); x=1.8 (20 discards) → mult=2*1.8=3.6 → 115.
+        Case("Pair of aces + ramen (x=1.8)", PlayingCard.hand("S_A", "H_A"), 115.0, j(FJoker("j_ramen", x = 1.8))),
+        // Campfire: Xmult +0.25 per joker sold (j.x); x=1.5 (2 sold) → mult=2*1.5=3 → 96.
+        Case("Pair of aces + campfire (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_campfire", x = 1.5))),
+        // Loyalty Card: X4 when active (j.x=4.0); chips=32, mult=2*4=8 → 256.
+        Case("Pair of aces + loyalty_card (x=4.0 active)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_loyalty_card", x = 4.0))),
+        // Throwback: Xmult +0.25/skipped blind (j.x); x=1.5 (2 blinds) → mult=2*1.5=3 → 96.
+        Case("Pair of aces + throwback (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_throwback", x = 1.5))),
+        // Runner: +Chips per Straight in run (j.chips); chips=30 → chips=32+30=62, mult=2 → 124.
+        Case("Pair of aces + runner (chips=30)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_runner", chips = 30.0))),
     )
 
     fun run(): Pair<Int, Int> {

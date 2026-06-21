@@ -200,6 +200,36 @@ private val CATALOG = listOf(
     Offer("j_cry_nebulous", "Nebulous Joker", "+30 Chips if cry_None", 5),
     Offer("j_cry_many_lost_minds", "Many Lost Minds", "+52! Chips if cry_WholeDeck", 9),
     Offer("j_cry_jtron", "J-Tron", "mult^(1 + Jokers on board)", 9),
+    // --- vanilla held-in-hand jokers ---
+    Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8),
+    Offer("j_shoot_the_moon", "Shoot the Moon", "each Queen held gives +13 Mult", 1),
+    Offer("j_raised_fist", "Raised Fist", "+2x lowest held card's rank in Mult", 1),
+    // --- vanilla n-based flat jokers ---
+    Offer("j_abstract", "Abstract Joker", "+3 Mult per joker on board", 1),
+    Offer("j_supernova", "Supernova", "+1 Mult per times this hand type played", 1),
+    Offer("j_blue_joker", "Blue Joker", "+2 Chips per card left in deck", 1),
+    Offer("j_banner", "Banner", "+30 Chips per remaining discard", 1),
+    Offer("j_stone", "Stone Joker", "+25 Chips per Stone card in deck", 2),
+    Offer("j_steel_joker", "Steel Joker", "x1.2 Mult per Steel card in hand", 2),
+    Offer("j_drivers_license", "Driver's License", "x3 Mult if 16+ enhanced cards in deck", 8),
+    Offer("j_baseball", "Baseball Card", "x1.5 Mult per Uncommon joker on board", 8),
+    // --- vanilla accumulator-mult jokers ---
+    Offer("j_green_joker", "Green Joker", "+1 Mult per hand played, -1 per discard", 1),
+    Offer("j_spare_trousers", "Spare Trousers", "+2 Mult each time Two Pair or Full House played", 2),
+    Offer("j_swashbuckler", "Swashbuckler", "+Mult equal to total sell value of jokers", 1),
+    Offer("j_red_card", "Red Card", "+3 Mult each time a pack is skipped", 1),
+    // --- vanilla accumulator-Xmult jokers ---
+    Offer("j_obelisk", "Obelisk", "+0.2 Xmult per hand NOT this type played", 8),
+    Offer("j_hologram", "Hologram", "+0.25 Xmult per card added to deck", 2),
+    Offer("j_ramen", "Ramen", "starts x2 Mult, -0.01 per discarded card", 2),
+    Offer("j_campfire", "Campfire", "+0.25 Xmult per joker sold", 8),
+    Offer("j_loyalty_card", "Loyalty Card", "x4 Mult every 5 hands played", 2),
+    Offer("j_throwback", "Throwback", "+0.25 Xmult per blind skipped this run", 2),
+    // --- vanilla accumulator-chips jokers ---
+    Offer("j_runner", "Runner", "+15 Chips each Straight played", 1),
+    Offer("j_square", "Square Joker", "+4 Chips each time 5-card hand played", 1),
+    Offer("j_castle", "Castle", "+3 Chips per suit discarded from flush", 2),
+    Offer("j_wee", "Wee Joker", "+8 Chips each time 4-card Straight played", 8),
     // --- vanilla hands/discards-remaining jokers (now wired) ---
     Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
     Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
