@@ -1,0 +1,22 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index bad1893..84eee96 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -460,6 +460,17 @@ function Controller:update(dt)
+     if self.hovering.target and self.hovering.target == self.dragging.target and not self.HID.touch then
+         self.hovering.target:stop_hover()
+     end
++    -- CURSOR_DOWN_DURATION: per-frame hold time + max drag distance for TAP_DESC_HOLDGATE
++    -- (0.2 s gate) and DRAG_SELECT_HOLD_REORDER (0.1 s threshold).
++    -- cursor_down.uptime stamped at L_cursor_press (CURSOR_DOWN_UPTIME_FIX, patch 33).
++    -- Both fields nil when not held so consumers can safely use `(field or 0)`.
++    if self.is_cursor_down then
++        self.cursor_down.duration = G.TIMERS.UPTIME - (self.cursor_down.uptime or G.TIMERS.UPTIME) -- CURSOR_DOWN_DURATION
++        self.cursor_down.distance = math.max(Vector_Dist(self.cursor_down.T, self.cursor_hover.T), self.cursor_down.distance or 0) -- CURSOR_DOWN_DURATION
++    else
++        self.cursor_down.duration = nil -- CURSOR_DOWN_DURATION
++        self.cursor_down.distance = nil -- CURSOR_DOWN_DURATION
++    end
+ end
+ 
+ --Brute force remove all registries that no longer have valid nodes
