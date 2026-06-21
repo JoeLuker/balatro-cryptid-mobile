@@ -141,6 +141,22 @@ object Score {
             }
             "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
+            // --- vanilla "+chips if played hand contains <type>" family (game.lua j_sly..j_crafty;
+            //     config {t_chips,type}). The generic branch (card.lua:4209) fires when the played cards
+            //     CONTAIN the type via context.poker_hands — containment, not top rank (a Full House
+            //     contains a Pair + Three of a Kind), exactly the Cryptid "type" jokers below. ---
+            "j_sly"     -> if (HandType.PAIR in ctx.pokerHands)            return Fx().apply { chipMod = 50.0 }
+            "j_wily"    -> if (HandType.THREE_OF_A_KIND in ctx.pokerHands) return Fx().apply { chipMod = 100.0 }
+            "j_clever"  -> if (HandType.TWO_PAIR in ctx.pokerHands)        return Fx().apply { chipMod = 80.0 }
+            "j_devious" -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { chipMod = 100.0 }
+            "j_crafty"  -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { chipMod = 80.0 }
+            // --- vanilla "+Mult if played hand contains <type>" family (game.lua j_jolly..j_droll;
+            //     config {t_mult,type}). Same containment branch (card.lua:4203, mult_mod = t_mult). ---
+            "j_jolly"   -> if (HandType.PAIR in ctx.pokerHands)            return Fx().apply { multMod = 8.0 }
+            "j_zany"    -> if (HandType.THREE_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 12.0 }
+            "j_mad"     -> if (HandType.TWO_PAIR in ctx.pokerHands)        return Fx().apply { multMod = 10.0 }
+            "j_crazy"   -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { multMod = 12.0 }
+            "j_droll"   -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { multMod = 10.0 }
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib", "j_cry_zooble",
             "j_cry_poor_joker", "j_cry_foodm" ->

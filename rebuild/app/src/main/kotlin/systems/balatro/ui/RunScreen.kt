@@ -92,6 +92,18 @@ private val CATALOG = listOf(
     Offer("j_stuntman", "Stuntman", "+250 Chips", 7),
     Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6),
     Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6),
+    // --- vanilla "+Chips if hand contains <type>" family (j_sly..j_crafty) ---
+    Offer("j_sly", "Sly Joker", "+50 Chips if hand has a Pair", 3),
+    Offer("j_wily", "Wily Joker", "+100 Chips if hand has Three of a Kind", 4),
+    Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 4),
+    Offer("j_devious", "Devious Joker", "+100 Chips if hand has a Straight", 4),
+    Offer("j_crafty", "Crafty Joker", "+80 Chips if hand has a Flush", 4),
+    // --- vanilla "+Mult if hand contains <type>" family (j_jolly..j_droll) ---
+    Offer("j_jolly", "Jolly Joker", "+8 Mult if hand has a Pair", 3),
+    Offer("j_zany", "Zany Joker", "+12 Mult if hand has Three of a Kind", 4),
+    Offer("j_mad", "Mad Joker", "+10 Mult if hand has a Two Pair", 4),
+    Offer("j_crazy", "Crazy Joker", "+12 Mult if hand has a Straight", 4),
+    Offer("j_droll", "Droll Joker", "+10 Mult if hand has a Flush", 4),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
@@ -618,7 +630,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { CardArt.back(ctx) }
     }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
-        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key } + "j_clever") }
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
     // Stake sprite (White Chip, stake 1 — always-active). chips.png 2x: 58×58px, pos={x=0,y=0}.
     val stakeBmp by produceState<ImageBitmap?>(null) {
