@@ -12,7 +12,7 @@ patches that fail loud, a thin build. Pattern: distro source-package
 | 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified (pins realise, hashes valid) |
 | 2 | **Build derivation** — `nix/balatro-cryptid.nix`; `overlay/game/conf.lua` owned | 🟡 gameLove **build-verified** (785 files from pins); apk eval-verified |
 | 3a | **Dump from pins** — `stage-mods.sh` + `regen-dump.sh` → `vendor/dump` (stamped); gameLove self-contained | ✅ done & verified |
-| 3b | **Patch conversion** — 72 `apply_*` → `overlay/patches/*.patch` + `series`, applied `--check` (hard-fail) | ⬜ next |
+| 3b | **Patch conversion** — `gen-patches.sh` → 59 `overlay/patches/*.patch` + `series`, `git apply --check` (hard-fail) | 🟡 build green + 0 lua-syntax errors; 5 silent-skips remain |
 | 4 | **Config** — fold `config-overrides/` → `overlay/config/`; delete the clobber-reapply path | ⬜ |
 | 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ |
 | 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
@@ -69,10 +69,28 @@ flake.nix                 # exposes packages.balatro-cryptid + the dev shell
 - **Restart survived:** SMODS restarts LÖVE once after first load; seeding the
   game at love's save-identity path + pinning `XDG_*` lets the re-exec reach
   running state (without it only 5/34 files dumped).
-- **Known gap:** `SMODS/_/smods-https-thread.lua` isn't `require`d in a headless
-  boot, so it's absent from the from-pins dump (the old Mac dump had it). Network
-  path only — the smoke-test gate (Phase 3b) decides if it matters; if so,
-  supplement from pinned Steamodded.
+- **Resolved gap:** `SMODS/_/smods-https-thread.lua` absent from the from-pins
+  dump is **benign** — that path is a lovely runtime-registration hack name
+  (`newFileData(..., '=[SMODS _ "smods-https-thread.lua"]')`); the real HTTPS
+  code is `Mods/Steamodded/libs/https/smods-https.lua` (embedded) and loads from
+  there on Android (no lovely). Nothing `require`s the dump path.
+
+## Phase 3b findings (patch conversion)
+
+- **59 patches generated** from build.sh's call order; **gameLove builds green**
+  with all 59 `git apply`'d (hard-fail series — the 93 log_warn silent-skips are
+  gone). Patched `game.love`: **259 lua files, 0 syntax errors** (luajit -bl),
+  sentinels present (CRY_EVENTS_GUARDED, DISABLED_CENTER_SKIP, MALI_RANGE_FIX, …).
+- **5 silent-skips remain** (legacy build ships without these too) — under
+  adversarial triage: `sticky_fingers_guard`, `drag_reject_feedback`,
+  `structural_mods_lock` (target file gone — Steamodded de-drift), `mod_toggle_removed`,
+  `cryptid_oil_lamp_fix`.
+- **`drag_self_drop_exclude` ported** (patch 59): the original anchor lived in the
+  Lovely-modded TAP_DESC_HOLD_NODRAG block, absent from the pristine pinned engine.
+  Fix re-anchored to `set_cursor_hover`'s collision-walk (`DRAG_SELF_DROP_EXCLUDE`
+  sentinel, depth-8 parent walk, `_drag_anc` guard on the hover-candidate loop).
+- **Shader EOL** normalised to LF in gameLoveBase so the git-diff shader patches
+  are byte-stable (Cryptid ships CRLF; GLSL is EOL-agnostic).
 
 ## Phase 3b mechanism — convert patches *mechanically*, and audit them
 

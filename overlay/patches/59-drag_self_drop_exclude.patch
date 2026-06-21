@@ -1,0 +1,22 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 7611469..7a3e702 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -1101,8 +1101,16 @@ function Controller:set_cursor_hover()
+             end
+         end
+     else
++        local _drag_anc = self.dragging.target and function(n) -- DRAG_SELF_DROP_EXCLUDE: exclude dragged card's own subtree from drop-resolution
++            local p, d = n.parent, 0
++            while p and d < 8 do
++                if p == self.dragging.target then return true end
++                p = p.parent; d = d + 1
++            end
++            return false
++        end or nil
+         for _, v in ipairs(self.collision_list) do
+-            if v.states.hover.can and (not v.states.drag.is or self.HID.touch) then
++            if v.states.hover.can and (not v.states.drag.is or self.HID.touch) and not (_drag_anc and _drag_anc(v)) then -- DRAG_SELF_DROP_EXCLUDE
+                 self.cursor_hover.target = v
+                 break 
+             end

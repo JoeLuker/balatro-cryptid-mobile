@@ -57,3 +57,4 @@
 56-blind_select_defer.patch
 57-blind_select_tall.patch
 58-draw_shader_nil_reset.patch
+59-drag_self_drop_exclude.patch
