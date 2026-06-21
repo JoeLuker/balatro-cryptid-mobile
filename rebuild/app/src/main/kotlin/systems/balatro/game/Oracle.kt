@@ -55,6 +55,15 @@ object Oracle {
         Case("5,6,7,9,10 + shortcut = Straight", PlayingCard.hand("S_T", "H_9", "D_7", "C_6", "S_5"), 268.0, j(FJoker("j_shortcut"))),
         // Smeared: 3 hearts + 2 diamonds (all "red") = Flush (35 base + 11+10+10+10+9) * 4.
         Case("3H+2D + smeared = Flush", PlayingCard.hand("H_A", "H_K", "H_Q", "D_J", "D_9"), 340.0, j(FJoker("j_smeared"))),
+        // --- face / retrigger hooks ---
+        // Pareidolia: aces aren't faces, but Pareidolia makes them count → Scary Face fires (+30 each): (10 base + 22 card + 60) * 2.
+        Case("Pair of aces + scary_face + pareidolia (+30/ace)", PlayingCard.hand("S_A", "H_A"), 184.0, j(FJoker("j_scary_face"), FJoker("j_pareidolia"))),
+        // Sock and Buskin: each face retriggers once → Kings score twice: (10 base + 2*(10+10) card) * 2.
+        Case("Pair of Kings + sock_and_buskin (faces 2x)", PlayingCard.hand("S_K", "H_K"), 100.0, j(FJoker("j_sock_and_buskin"))),
+        // Hanging Chad: first scored card retriggers twice (3x total): (10 base + (3*11 + 1*11) card) * 2.
+        Case("Pair of aces + hanging_chad (first card 3x)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_hanging_chad"))),
+        // Interaction: Pareidolia makes aces faces, so Sock and Buskin retriggers both (each 2x): (10 + 2*(11+11)) * 2.
+        Case("Pair of aces + sock_and_buskin + pareidolia (all 2x)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_sock_and_buskin"), FJoker("j_pareidolia"))),
         // --- Cryptid jokers ---
         Case("Pair + j_cry_cube (+6 Chips)", PlayingCard.hand("S_A", "H_A"), 76.0, j(FJoker("j_cry_cube"))),
         Case("ThreeOfAKind 3s + triplet_rhythm (x3)", PlayingCard.hand("S_3", "H_3", "D_3"), 351.0, j(FJoker("j_cry_triplet_rhythm"))),

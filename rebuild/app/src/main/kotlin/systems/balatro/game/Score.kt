@@ -53,6 +53,7 @@ class Sctx {
     var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
     var bossBlind = false                   // true when current blind is a boss blind (apjoker)
     var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
+    var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -106,11 +107,11 @@ object Score {
             "j_arrowhead"        -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
             "j_onyx_agate"       -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
             "j_fibonacci"        -> if (oc.id in setOf(2, 3, 5, 8, 14)) return Fx().apply { mult = 8.0 }  // +8 Mult per A/2/3/5/8
-            "j_scary_face"       -> if (oc.isFace) return Fx().apply { chips = 30.0 }              // +30 Chips/face
-            "j_smiley"           -> if (oc.isFace) return Fx().apply { mult = 5.0 }                // +5 Mult/face
+            "j_scary_face"       -> if (oc.isFace || ctx.pareidolia) return Fx().apply { chips = 30.0 }              // +30 Chips/face
+            "j_smiley"           -> if (oc.isFace || ctx.pareidolia) return Fx().apply { mult = 5.0 }                // +5 Mult/face
             "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
             "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
-            "j_photograph"       -> if (oc.isFace && ctx.scoringHand.firstOrNull { it.isFace } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
+            "j_photograph"       -> if ((oc.isFace || ctx.pareidolia) && ctx.scoringHand.firstOrNull { it.isFace || ctx.pareidolia } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
             // --- Cryptid individual ---
             "j_cry_iterum"            -> return Fx().apply { xMult = 2.0 }               // X2 Mult per scored played card (also retriggers in repetition block)
             "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
@@ -125,9 +126,13 @@ object Score {
             "j_cry_iterum"    -> return Fx().apply { repetitions = 1 }                   // +1 retrigger per scored played card (base; immutable max 40)
             "j_cry_weegaming" -> if (oc.id == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2
             "j_cry_nosound"   -> if (oc.id == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7
-            "j_cry_exposed"   -> if (!oc.isFace) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
-            "j_cry_mask"      -> if (oc.isFace) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
+            "j_cry_exposed"   -> if (!(oc.isFace || ctx.pareidolia)) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
+            "j_cry_mask"      -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
             "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
+            // vanilla retrigger jokers (card.lua:3895): Sock and Buskin retriggers each face once;
+            // Hanging Chad retriggers the FIRST scored card twice (context.other_card == scoring_hand[1]).
+            "j_sock_and_buskin" -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 1 }
+            "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -327,6 +332,7 @@ object Score {
         // final_scoring_hand (state_events.lua:743): a played card scores if it's in the evaluated hand,
         // always-scores (stone), or Splash is on the board — j_splash makes EVERY played card score.
         val splash = jokers.any { it.key == "j_splash" }
+        val pareidolia = jokers.any { it.key == "j_pareidolia" }   // every card is a face (Card:is_face patch)
         val scoringHand = played.filter { splash || it in handCards || it.enhancement == Enhancement.STONE }
 
         // hand base, raised by planet level (lvl 1 = unchanged), then halved by Flint (base only).
@@ -336,7 +342,7 @@ object Score {
         val ctx = Sctx().apply {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
-            this.boardKeys = jokers.map { it.key }; this.smeared = smeared
+            this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.

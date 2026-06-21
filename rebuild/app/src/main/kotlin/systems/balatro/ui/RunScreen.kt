@@ -111,6 +111,10 @@ private val CATALOG = listOf(
     Offer("j_four_fingers", "Four Fingers", "Flushes & Straights need only 4 cards", 7),
     Offer("j_shortcut", "Shortcut", "Straights can skip one rank", 7),
     Offer("j_smeared", "Smeared Joker", "Hearts/Diamonds & Spades/Clubs count as one suit", 7),
+    // --- vanilla face / retrigger hooks ---
+    Offer("j_pareidolia", "Pareidolia", "every card counts as a face card", 5),
+    Offer("j_sock_and_buskin", "Sock and Buskin", "retrigger every played face card", 6),
+    Offer("j_hanging_chad", "Hanging Chad", "retrigger the first scored card 2x", 4),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),

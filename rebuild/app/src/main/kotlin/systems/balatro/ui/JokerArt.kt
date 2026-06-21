@@ -16,7 +16,7 @@ import systems.balatro.bridge.Telemetry
 object JokerArt {
     // key -> (atlas asset file, col, row), from each joker's original `atlas` + `pos`.
     // Extracted from the source defs: vanilla from game.lua (set="Joker" -> Jokers.png), Cryptid
-    // from mods/Cryptid/items/*.lua (atlas + pos). 100/113 CATALOG jokers; the unmapped ones either
+    // from mods/Cryptid/items/*.lua (atlas + pos). 103/116 CATALOG jokers; the unmapped ones either
     // carry no `atlas` field in source (fspinner, jimball, wee_fib, wheelhope — Cryptid default) or
     // are later-batch additions awaiting a verified cell — both left to the name placeholder for now.
     private val MAP: Map<String, Triple<String, Int, Int>> = mapOf(
@@ -100,12 +100,14 @@ object JokerArt {
         "j_gluttenous_joker" to Triple("Jokers.png", 9, 1),
         "j_greedy_joker" to Triple("Jokers.png", 6, 1),
         "j_half" to Triple("Jokers.png", 7, 0),
+        "j_hanging_chad" to Triple("Jokers.png", 9, 6),  // Hanging Chad — retrigger first scored card (game.lua pos x=9,y=6)
         "j_joker" to Triple("Jokers.png", 0, 0),
         "j_jolly" to Triple("Jokers.png", 2, 0),       // Jolly Joker — Pair mult (game.lua pos x=2,y=0)
         "j_lusty_joker" to Triple("Jokers.png", 7, 1),
         "j_mad" to Triple("Jokers.png", 4, 0),         // Mad Joker — Two Pair mult (game.lua pos x=4,y=0)
         "j_odd_todd" to Triple("Jokers.png", 9, 3),
         "j_onyx_agate" to Triple("Jokers.png", 2, 8),
+        "j_pareidolia" to Triple("Jokers.png", 6, 3),  // Pareidolia — every card is a face (game.lua pos x=6,y=3)
         "j_photograph" to Triple("Jokers.png", 2, 13),
         "j_scary_face" to Triple("Jokers.png", 2, 3),
         "j_scholar" to Triple("Jokers.png", 0, 4),
@@ -114,6 +116,7 @@ object JokerArt {
         "j_sly" to Triple("Jokers.png", 0, 14),        // Sly Joker — Pair chips (game.lua pos x=0,y=14)
         "j_smeared" to Triple("Jokers.png", 4, 6),     // Smeared Joker — red/black suits collide (game.lua pos x=4,y=6)
         "j_smiley" to Triple("Jokers.png", 6, 15),
+        "j_sock_and_buskin" to Triple("Jokers.png", 3, 1),  // Sock and Buskin — retrigger faces (game.lua pos x=3,y=1)
         "j_splash" to Triple("Jokers.png", 6, 10),     // Splash — every played card scores (game.lua pos x=6,y=10)
         "j_stuntman" to Triple("Jokers.png", 8, 6),
         "j_triboulet" to Triple("Jokers.png", 4, 8),
