@@ -9,13 +9,16 @@ patches that fail loud, a thin build. Pattern: distro source-package
 
 | Phase | Deliverable | State |
 |------:|-------------|-------|
-| 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified (pins realise, hashes valid) |
-| 2 | **Build derivation** — `nix/balatro-cryptid.nix`; `overlay/game/conf.lua` owned | 🟡 gameLove **build-verified** (785 files from pins); apk eval-verified |
-| 3a | **Dump from pins** — `stage-mods.sh` + `regen-dump.sh` → `vendor/dump` (stamped); gameLove self-contained | ✅ done & verified |
-| 3b | **Patch conversion** — `gen-patches.sh` → 63 `overlay/patches/*.patch` + `series`, `git apply --check` (hard-fail) | 🟡 build green + 0 lua-syntax errors; 1 silent-skip remains (REDUNDANT, dropped) |
-| 4 | **Config** — fold `config-overrides/` → `overlay/config/`; delete the clobber-reapply path | ⬜ |
-| 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ |
+| 1 | **Pinning** — `nix/sources.json` lockfile, `update-sources.sh`, `sources.nix` | ✅ done & verified |
+| 2 | **Build derivation** — `nix/balatro-cryptid.nix` (gameLoveBase/gameLove/apk) | ✅ done & verified |
+| 3a | **Dump from pins** — `stage-mods.sh` + `regen-dump.sh` → `vendor/dump` (stamped) | ✅ done & verified |
+| 3b | **Patch conversion** — `gen-patches.sh` → 57 mechanical + 6 `manual/` ports, `git apply` hard-fail | ✅ done & verified (idempotent; 259 lua/0 errors) |
+| 4 | **Config** — `config-overrides/` → `overlay/config/` baked overlays (incl. per-item toggle) | ✅ done & verified |
+| — | **Flake + signing** — `packages.default` pure build; `nix/sign.sh` → signed APK | ✅ done & verified (89M, v1/v2/v3 verify) |
+| 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ next |
 | 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
+
+**The reproducible build is complete and shippable:** `pins (sources.json + flake.lock) → gameLoveBase → gameLove (63 patches) → apk` builds purely via `nix build`, and `nix/sign.sh` produces a signed, installable 89M APK. Phases 5–6 are cleanup/organization, not functionality.
 
 ## Target layout
 
