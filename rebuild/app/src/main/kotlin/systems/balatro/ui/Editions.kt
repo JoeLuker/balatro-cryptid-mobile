@@ -230,16 +230,20 @@ half4 main(float2 fragCoord) {
 }
 """
 
-/** Card dissolve/materialize RenderEffect. [dissolve] 0 = whole card → 1 = gone (reverse to
- *  materialize); [time] animates the burn field. Fiery orange→yellow edge by default; [glass] uses
- *  the white shatter colour (Card:shatter's dissolve_colours = {{1,1,1,0.8}}). */
+/** Card dissolve/materialize RenderEffect. [dissolve] 0 = whole card → 1 = gone; reverse (1→0) to
+ *  materialize. [time] animates the burn field. Edge colour: [glass] = white (Card:shatter's
+ *  dissolve_colours {{1,1,1,0.8}}); [materialize] = green (start_materialize's G.C.GREEN #4BC292
+ *  fallback); otherwise the fiery orange→yellow destroy edge. */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-fun dissolveRenderEffect(dissolve: Float, time: Float, wPx: Float, hPx: Float, glass: Boolean = false) =
+fun dissolveRenderEffect(dissolve: Float, time: Float, wPx: Float, hPx: Float, glass: Boolean = false, materialize: Boolean = false) =
     RenderEffect.createRuntimeShaderEffect(
         RuntimeShader(DISSOLVE_AGSL).apply {
             setFloatUniform("dissolve", dissolve); setFloatUniform("time", time); setFloatUniform("size", wPx, hPx)
-            if (glass) { setFloatUniform("burn1", 1f, 1f, 1f, 0.8f); setFloatUniform("burn2", 0f, 0f, 0f, 0f) }
-            else { setFloatUniform("burn1", 1f, 0.35f, 0.1f, 1f); setFloatUniform("burn2", 1f, 0.75f, 0.15f, 1f) }
+            when {
+                glass -> { setFloatUniform("burn1", 1f, 1f, 1f, 0.8f); setFloatUniform("burn2", 0f, 0f, 0f, 0f) }
+                materialize -> { setFloatUniform("burn1", 0.294f, 0.761f, 0.573f, 1f); setFloatUniform("burn2", 0f, 0f, 0f, 0f) }
+                else -> { setFloatUniform("burn1", 1f, 0.35f, 0.1f, 1f); setFloatUniform("burn2", 1f, 0.75f, 0.15f, 1f) }
+            }
         },
         "content",
     ).asComposeRenderEffect()

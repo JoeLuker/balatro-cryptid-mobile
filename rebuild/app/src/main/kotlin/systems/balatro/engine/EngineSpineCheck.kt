@@ -255,6 +255,17 @@ fun main() {
         check("normal dissolve reached 1", abs(card.dissolve - 1.0) < 1e-6, "dissolve=${card.dissolve}")
         check("normal dissolve NOT flagged shattered", !card.shattered)
         check("normal dissolve removed ~0.735s in", goneFrame2 in 43..48, "frame=$goneFrame2 (≈44+capture)")
+
+        // start_materialize: the create half — dissolve eases 1→0 over 0.6s, card STAYS (no removal).
+        val host3 = EngineHost()
+        val mat = Moveable(host3.scene, Transform(5.0, 7.0, 1.0, 1.4))
+        var prevM = 2.0; var monoDown = true
+        host3.startMaterialize(mat, now = host3.clock.real, reducedMotion = true)
+        check("materialize starts fully dissolved (1)", abs(mat.dissolve - 1.0) < 1e-6 && mat.materializing)
+        repeat(45) { host3.tick(DT); if (mat.dissolve > prevM + 1e-9) monoDown = false; prevM = mat.dissolve }
+        check("materialize eased dissolve →0", abs(mat.dissolve) < 1e-6, "dissolve=${mat.dissolve}")
+        check("materialize was monotonic (1→0)", monoDown)
+        check("materialize did NOT remove the card", host3.scene.moveables.contains(mat))
     }
 
     println(if (failures == 0) "ALL P0 SPINE CHECKS PASSED" else "$failures CHECK(S) FAILED")

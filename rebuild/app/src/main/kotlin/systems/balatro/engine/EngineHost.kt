@@ -40,11 +40,25 @@ class EngineHost {
         val dt = 0.7
         card.dissolve = 0.0
         card.shattered = shatter
+        card.materializing = false
         card.juiceUp(now = now, reducedMotion = reducedMotion)
         events.addEvent(Event(trigger = "ease", blockable = false, delay = (if (shatter) 0.5 else 1.0) * dt,
             ease = EaseSpec(get = { card.dissolve }, set = { card.dissolve = it }, easeTo = 1.0)))
         events.addEvent(Event(trigger = "after", blockable = false, delay = (if (shatter) 0.55 else 1.05) * dt,
             func = { onGone(); true }))
+    }
+
+    /** Card:start_materialize (card.lua:2693) — the card CREATE animation (reverse dissolve): the card
+     *  starts fully dissolved (1) and eases its `dissolve` → 0 over the materialize time (0.6s), so it
+     *  burns INTO existence (green/set-coloured edge). No removal — the card stays once it's whole. */
+    fun startMaterialize(card: Moveable, now: Double, reducedMotion: Boolean = false) {
+        val dt = 0.6
+        card.dissolve = 1.0
+        card.shattered = false
+        card.materializing = true
+        card.juiceUp(now = now, reducedMotion = reducedMotion)
+        events.addEvent(Event(trigger = "ease", blockable = false, delay = 1.0 * dt,
+            ease = EaseSpec(get = { card.dissolve }, set = { card.dissolve = it }, easeTo = 0.0)))
     }
 
     /** One simulation step (the body of game.lua Game:update): advance the clock, drain events,

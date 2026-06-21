@@ -333,8 +333,10 @@ internal class RunState {
         buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
         // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
-        // One played card is GLASS + forceGlassBreak so it SHATTERS (dissolve.fs) after the tally.
+        // One played card is GLASS + forceGlassBreak so it SHATTERS (dissolve.fs) after the tally;
+        // materializeJokers fades the jokers IN at the start (start_materialize) — the create half.
         forceGlassBreak = true
+        materializeJokers = true
         hand = listOf(
             PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
             PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
@@ -464,6 +466,9 @@ internal class RunState {
 
     /** repro-live demo: force every played glass card to shatter (so the burn animation is visible). */
     var forceGlassBreak = false
+    /** repro-live demo: materialize the jokers IN on first frame (start_materialize, the create half
+     *  of the destroy/create pair) so the reverse-dissolve is visible. */
+    var materializeJokers = false
     /** m_glass `extra = 4` → a played glass card has a 1-in-4 chance to shatter (Card:shatter) after
      *  it scores. The demo flag forces it; real play rolls it. */
     fun rollGlassBreak(): Boolean = forceGlassBreak || Random.nextInt(4) == 0
@@ -1202,6 +1207,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // deck until then so cards arrive one-by-one (~0.07s apart). dealClock[0] is the next reveal slot.
     val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
     val dealClock = remember { doubleArrayOf(0.0) }
+    val jokerMatDone = remember { booleanArrayOf(false) }   // one-shot: jokers materialized IN (demo)
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
@@ -1216,6 +1222,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // (CardArea:update) → drain events → sweep every Moveable's move → flush removals.
                 host.clock.advance(dt, reducedMotion = frozen)
                 if (host.jokers.cards.size != s.owned.size) host.jokers.setCardCount(s.owned.size)
+                // one-shot: materialize the jokers IN (start_materialize) — the create half of the pair.
+                if (s.materializeJokers && !jokerMatDone[0] && host.jokers.cards.size == s.owned.size && s.owned.isNotEmpty()) {
+                    host.jokers.cards.forEach { host.startMaterialize(it, now = host.clock.real) }
+                    jokerMatDone[0] = true
+                }
                 host.jokers.alignCards(host.clock, reducedMotion = frozen)
                 // HAND slide: the area Y is state-dependent (oracle: 6.986 selecting → 8.886 scoring).
                 // Setting host.hand.T.y on the transition makes each card's align target jump, so the
@@ -1327,11 +1338,17 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
                             contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
                             colorFilter = ColorFilter.tint(Color.Black))
-                        Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        // base art — burned through dissolve.fs while the joker is materializing IN
+                        // (dissolve 1→0, green edge) or dissolving OUT (e.g. self-destruct, fiery).
+                        val diss = m.dissolve.toFloat()
+                        Image(it, o.offer.name, Modifier.size(cardW, cardH).graphicsLayer {
+                            if (foilOn && diss > 0f) renderEffect = dissolveRenderEffect(
+                                diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered, materialize = m.materializing)
+                        }, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                         // EDITION (foil/holo/poly → AGSL): overlay the shimmer over the base art,
                         // animated by the engine clock. (frame.value above forces the per-tick redraw.)
-                        val edEffect = if (foilOn && o.offer.edition != Edition.NONE)
+                        // Suppressed mid-burn — the card isn't whole yet, so the shimmer would look wrong.
+                        val edEffect = if (foilOn && o.offer.edition != Edition.NONE && diss <= 0f)
                             editionRenderEffect(o.offer.edition.tag, cardWpx, cardHpx, host.clock.real.toFloat()) else null
                         if (edEffect != null) {
                             Image(it, null, Modifier.size(cardW, cardH).graphicsLayer { renderEffect = edEffect },
