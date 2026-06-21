@@ -91,7 +91,6 @@ object JokerArt {
         "j_cry_words_cant_even" to Triple("atlasthree.png", 6, 7),
         "j_cry_wtf" to Triple("atlasthree.png", 7, 1),
         "j_cry_zooble" to Triple("atlasone.png", 1, 5),
-        "j_abstract" to Triple("Jokers.png", 3, 3),      // Abstract Joker — +3 Mult/joker (game.lua pos x=3,y=3)
         "j_banner" to Triple("Jokers.png", 1, 2),        // Banner — +30 Chips/remaining discard (game.lua pos x=1,y=2)
         "j_baron" to Triple("Jokers.png", 6, 12),        // Baron — King held: X1.5 Mult (game.lua pos x=6,y=12)
         "j_baseball" to Triple("Jokers.png", 6, 14),     // Baseball Card — X1.5/Uncommon joker (game.lua pos x=6,y=14)
