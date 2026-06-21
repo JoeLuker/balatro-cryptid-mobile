@@ -37,9 +37,11 @@ class CardArea(
         while (cards.size > n) cards.removeAt(cards.size - 1).remove()
     }
 
-    /** Make a new card Moveable belonging to this area (the engine equivalent of Card construction
-     *  for areas that own their cards directly, e.g. the deck/hand population). */
-    fun newCard() = Moveable(scene, Transform(T.x, T.y, CARD_W, CARD_H, scale = cardScale)).also { it.zoom = true }
+    /** Make a new card Moveable belonging to this area. [atX]/[atY] is its SPAWN position (defaults
+     *  to this area); pass another area's origin so the card flies IN from there (deck→hand deal,
+     *  hand→play) — its VT starts at the spawn and align_cards springs it to its slot here. */
+    fun newCard(atX: Double = T.x, atY: Double = T.y) =
+        Moveable(scene, Transform(atX, atY, CARD_W, CARD_H, scale = cardScale)).also { it.zoom = true }
 
     /** cardarea.lua:50 emplace — append a card here (deck inserts at front). The Card-level bits
      *  (set_ability/set_ranks) are P0.5's Card; this owns only the Moveable membership + layout. */

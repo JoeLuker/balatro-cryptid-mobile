@@ -1202,8 +1202,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // the hand. host.hand/host.play.cards are rebuilt each frame from the game lists,
                 // REUSING those Moveables — so a played card (now in s.scoreCards, gone from s.hand)
                 // carries its exact hand VT into the play area: real hand→play transfer, the fly-in.
-                host.hand.cards.clear(); for (cd in s.hand) host.hand.cards.add(cardMv.getOrPut(cd) { host.hand.newCard() })
-                host.play.cards.clear(); for (cd in s.scoreCards) host.play.cards.add(cardMv.getOrPut(cd) { host.hand.newCard() })
+                // newly-dealt hand cards are born at the DECK and fly into the hand (deck→hand deal);
+                // played cards born at the hand (hand→play). Cards already in cardMv keep their VT.
+                host.hand.cards.clear(); for (cd in s.hand) host.hand.cards.add(cardMv.getOrPut(cd) { host.hand.newCard(host.deck.T.x, host.deck.T.y) })
+                host.play.cards.clear(); for (cd in s.scoreCards) host.play.cards.add(cardMv.getOrPut(cd) { host.play.newCard(host.hand.T.x, host.hand.T.y) })
                 if (cardMv.size > s.hand.size + s.scoreCards.size) {        // prune Moveables for gone cards
                     val keep = java.util.IdentityHashMap<PlayingCard, Boolean>()
                     for (cd in s.hand) keep[cd] = true; for (cd in s.scoreCards) keep[cd] = true
