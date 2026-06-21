@@ -87,7 +87,10 @@ cap cryptid_events_guard      apply_cryptid_events_guard "$B/Mods/Cryptid/lib/ca
 cap amulet_config_hardening   apply_amulet_config_hardening "$B/talisman/configinit.lua"
 cap amulet_calc_delay         apply_amulet_calc_delay "$B/talisman/coroutine.lua"
 cap amulet_overlay_fit        apply_amulet_overlay_fit "$B/talisman/coroutine.lua"
-cap structural_mods_lock      apply_structural_mods_lock "$B/Mods/Steamodded/src/loader.lua"
+# structural_mods_lock: manual/62 covers all 3 lovelyignore sites (incl. lovely-compat);
+# apply_structural_mods_lock only guards the 2 SMODS.MODS_DIR sites. Keep as manual
+# to preserve the third-site guard — gen-patches must not also cap this.
+# cap structural_mods_lock      apply_structural_mods_lock "$B/Mods/Steamodded/src/preflight/loader.lua"
 cap smods_disabled_pool_gate  apply_smods_disabled_pool_gate "$B/Mods/Steamodded/src/utils.lua"
 cap mod_toggle_removed        apply_mod_toggle_removed "$B/Mods/Steamodded/src/ui.lua"
 cap cryptid_to_big_elim       apply_cryptid_to_big_elim "$B/Mods/Cryptid/items/epic.lua" "$B/Mods/Cryptid/items/exotic.lua" "$B/Mods/Cryptid/items/m.lua"

@@ -234,7 +234,7 @@ patch_mods_dir() {
     apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
     apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
-    apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
+    apply_structural_mods_lock    "$mods_dir/Steamodded/src/preflight/loader.lua"
     apply_smods_disabled_pool_gate "$mods_dir/Steamodded/src/utils.lua"
     apply_mod_toggle_removed      "$mods_dir/Steamodded/src/ui.lua"
     apply_cryptid_to_big_elim \
@@ -4572,11 +4572,13 @@ local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['era
 
 """
 
-old_check = """                    if NFS.getInfo(directory..'/.lovelyignore') then
+old_check = """                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') then
                         mod.disabled = true
+                        mod.lovelyIgnored = true
                     end"""
-new_check = """                    if NFS.getInfo(directory..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+new_check = """                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
                         mod.disabled = true
+                        mod.lovelyIgnored = true
                     end"""
 
 n = text.count(old_check)
