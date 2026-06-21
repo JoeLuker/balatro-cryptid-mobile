@@ -44,6 +44,7 @@ import systems.balatro.content.Edition
 import systems.balatro.engine.EaseSpec
 import systems.balatro.engine.EngineHost
 import systems.balatro.engine.Event
+import systems.balatro.engine.Moveable
 import systems.balatro.engine.Room
 import kotlin.math.floor
 import systems.balatro.game.*
@@ -429,6 +430,10 @@ internal class RunState {
         val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
+        // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
+        // identity-tracked card Moveables transfer hand→play carrying their VT (the fly-in). refill()
+        // keeps the held hand (selected is empty now) and draws back up to 8 at commit.
+        hand = held; selected = emptySet()
         scoreCards = sel; popIndex = -1
         displayChips = trace.firstOrNull()?.chips ?: r.chips    // start at the hand base
         displayMult = trace.firstOrNull()?.mult ?: r.mult
@@ -1166,6 +1171,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // placement, but is now engine-driven and can spring once something moves an area's T.
     val host = remember { EngineHost() }
     val frame = remember { mutableStateOf(0L) }    // bumped each engine tick → redraw cards at their VT
+    // Per-card engine Moveable, by card identity — persists as a card moves hand→play (the transfer
+    // carries its VT). IdentityHashMap so value-equal duplicates (two 10s) stay distinct.
+    val cardMv = remember { java.util.IdentityHashMap<PlayingCard, Moveable>() }
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
@@ -1186,19 +1194,21 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // card VT springs (slides, with overshoot) into the scoring position — the motion bref_3
                 // froze. Cards stay on CardArea; align_cards sets the fan/arc/lift each frame.
                 host.hand.T.y = (if (s.scoring) Room.handScoringY else Room.handSelectingY)
-                if (host.hand.cards.size != s.hand.size) host.hand.setCardCount(s.hand.size)
+                // IDENTITY-TRACKED cards: every PlayingCard keeps its own Moveable (cardMv), born in
+                // the hand. host.hand/host.play.cards are rebuilt each frame from the game lists,
+                // REUSING those Moveables — so a played card (now in s.scoreCards, gone from s.hand)
+                // carries its exact hand VT into the play area: real hand→play transfer, the fly-in.
+                host.hand.cards.clear(); for (cd in s.hand) host.hand.cards.add(cardMv.getOrPut(cd) { host.hand.newCard() })
+                host.play.cards.clear(); for (cd in s.scoreCards) host.play.cards.add(cardMv.getOrPut(cd) { host.hand.newCard() })
+                if (cardMv.size > s.hand.size + s.scoreCards.size) {        // prune Moveables for gone cards
+                    val keep = java.util.IdentityHashMap<PlayingCard, Boolean>()
+                    for (cd in s.hand) keep[cd] = true; for (cd in s.scoreCards) keep[cd] = true
+                    val it2 = cardMv.entries.iterator()
+                    while (it2.hasNext()) { val e = it2.next(); if (!keep.containsKey(e.key)) { e.value.remove(); it2.remove() } }
+                }
                 host.hand.highlighted.clear(); host.hand.highlighted.addAll(s.selected)
                 host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = 8)
-                // PLAYED cards (G.play): on scoring the hand flies up into the play area. Spawn the
-                // cards at the hand Y so their VT springs UP to the play position (the fly-in the
-                // oracle showed: T at the play area, VT catching up from the hand). align distributes
-                // them across the play area; the cascade juices each as it pops.
-                val nPlay = if (s.scoring) s.scoreCards.size else 0
-                if (host.play.cards.size != nPlay) {
-                    host.play.setCardCount(nPlay)
-                    host.play.cards.forEach { it.VT.y = Room.handScoringY }
-                }
-                host.play.alignCards(host.clock, reducedMotion = frozen, tempLimit = maxOf(nPlay, 1))
+                host.play.alignCards(host.clock, reducedMotion = frozen, tempLimit = maxOf(s.scoreCards.size, 1))
                 host.events.update(dt)
                 for (m in host.scene.moveables) m.move(host.clock)
                 host.scene.flushRemovals()
