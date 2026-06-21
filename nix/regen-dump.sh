@@ -52,3 +52,20 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 jq -r 'to_entries|map("\(.key)\t\(.value.rev // .value.tag // .value.sha256)")|.[]' \
   "$ROOT/nix/sources.json" > "$OUT/.source-revs"
 echo "[regen] dump: $(find "$OUT" -name '*.lua' | wc -l) lua files, stamped with pins"
+
+# Verify sticky-fingers patches landed. sticky-fingers' lovely/button_callbacks.toml
+# is a position=append patch — if SMODS excluded sticky-fingers during preflight
+# (e.g. dependency conflict on restart), lovely never appends check_drag_target_active
+# and the dump is silently incomplete. The 60/61 patches in overlay/patches/ work
+# around this for the APK build, but a future regen should capture it properly.
+if ! grep -q 'check_drag_target_active' "$OUT/functions/button_callbacks.lua" 2>/dev/null; then
+  echo "[regen] WARN: sticky-fingers lovely/button_callbacks.toml append is missing from dump" >&2
+  echo "[regen] WARN: check_drag_target_active not found in functions/button_callbacks.lua" >&2
+  echo "[regen] WARN: sticky-fingers was likely excluded by SMODS preflight during this boot." >&2
+  echo "[regen] WARN: The 60/61 overlay patches compensate, but investigate why sticky-fingers" >&2
+  echo "[regen] WARN: was blacklisted. Try: BOOT_SECONDS=180 nix/regen-dump.sh" >&2
+fi
+if ! grep -q 'create_drag_target_from_card' "$OUT/functions/misc_functions.lua" 2>/dev/null; then
+  echo "[regen] WARN: sticky-fingers lovely/misc_functions.toml append is missing from dump" >&2
+  echo "[regen] WARN: sticky_can_* wrappers not found in functions/misc_functions.lua" >&2
+fi

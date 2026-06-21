@@ -1,7 +1,18 @@
 diff --git a/engine/controller.lua b/engine/controller.lua
-index 7611469..7a3e702 100644
+index 7611469..bad1893 100644
 --- a/engine/controller.lua
 +++ b/engine/controller.lua
+@@ -361,8 +361,8 @@ function Controller:update(dt)
+                         self.clicked.handled = false
+                     end
+                 --if not, was the Cursor dragging some other thing?
+-                elseif self.dragging.prev_target and self.cursor_up.target and self.cursor_up.target.states.release_on.can then 
+-                    self.released_on.target = self.cursor_up.target
++                elseif self.dragging.prev_target and self.cursor_hover.target and self.cursor_hover.target.states.release_on.can then -- DRAG_SELF_DROP_EXCLUDE: use fresh cursor_hover.target (exclusion-aware) not stale cursor_up.target
++                    self.released_on.target = self.cursor_hover.target
+                     self.released_on.handled = false
+                 end
+             end
 @@ -1101,8 +1101,16 @@ function Controller:set_cursor_hover()
              end
          end
@@ -16,7 +27,7 @@ index 7611469..7a3e702 100644
 +        end or nil
          for _, v in ipairs(self.collision_list) do
 -            if v.states.hover.can and (not v.states.drag.is or self.HID.touch) then
-+            if v.states.hover.can and (not v.states.drag.is or self.HID.touch) and not (_drag_anc and _drag_anc(v)) then -- DRAG_SELF_DROP_EXCLUDE
++            if v.states.hover.can and (not v.states.drag.is or self.HID.touch) and not (self.dragging.target and (v == self.dragging.target or (_drag_anc and _drag_anc(v)))) then -- DRAG_SELF_DROP_EXCLUDE
                  self.cursor_hover.target = v
                  break 
              end
