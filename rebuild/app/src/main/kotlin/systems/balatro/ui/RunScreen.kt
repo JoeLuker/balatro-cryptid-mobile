@@ -324,6 +324,9 @@ internal class RunState {
     fun loadReproLive() {
         loadRepro()
         repro = false; scoring = false
+        // spike: make the first joker FOIL so the edition shader is visible in repro-live (the static
+        // repro keeps its plain jokers, so the parity gate is unaffected).
+        if (owned.isNotEmpty()) owned[0] = owned[0].copy(offer = owned[0].offer.copy(edition = Edition.FOIL))
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
         // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
         hand = listOf(
@@ -1162,6 +1165,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val u = LocalUIScale.current
     val cardW = (PF.CARD_W * u).dp
     val cardH = (PF.CARD_H * u).dp
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    val cardWpx = with(dens) { cardW.toPx() }; val cardHpx = with(dens) { cardH.toPx() }
+    // edition shaders are AGSL (API 33+); only on the live path (the static repro frame has no editions).
+    val foilOn = !s.repro && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
     // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
@@ -1295,6 +1302,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             colorFilter = ColorFilter.tint(Color.Black))
                         Image(it, o.offer.name, Modifier.size(cardW, cardH),
                             contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        // FOIL edition: overlay the foil shimmer (foil.fs → AGSL) over the base art.
+                        if (foilOn && o.offer.edition == Edition.FOIL) {
+                            Image(it, null, Modifier.size(cardW, cardH)
+                                .graphicsLayer { renderEffect = foilRenderEffect(cardWpx, cardHpx) },
+                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        }
                     } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
                 }
             }
