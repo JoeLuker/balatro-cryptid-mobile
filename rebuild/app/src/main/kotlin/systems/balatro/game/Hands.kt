@@ -19,12 +19,15 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     FIVE_OF_A_KIND(120, 12, 35, 3),
     FLUSH_HOUSE(140, 14, 40, 4),
     FLUSH_FIVE(160, 16, 50, 3),
-    // --- Cryptid-exclusive hand types (not returned by Hands.evaluate; stubs for joker dispatch) ---
-    CRY_BULWARK(0, 1),       // cry_Bulwark: whole-deck-suit hand (c_cry_asteroidbelt)
-    CRY_CLUSTERFUCK(0, 1),   // cry_Clusterfuck: specific multi-combo (cry_poker_hand_stuff)
-    CRY_ULTPAIR(0, 1),       // cry_UltPair: paired hand across many ranks (c_cry_marsmoons)
-    CRY_NONE(0, 1),          // cry_None: the "no valid hand" type (c_cry_nibiru)
-    CRY_WHOLEDECK(0, 1),     // cry_WholeDeck: all 52 cards scored at once (c_cry_universe)
+    // --- Cryptid-exclusive hand types ---
+    // Base chip/mult values for CRY_* hands are UNCONFIRMED placeholders (0,1); the Cryptid gameset
+    // configs for c_cry_asteroidbelt / c_cry_marsmoons / c_cry_nibiru are not in any available Lua
+    // dump. The joker dispatch is correct regardless; Oracle cases use card-level chips only.
+    CRY_BULWARK(0, 1),       // cry_Bulwark: all 5 played cards are Stone — LIVE (Hands.evaluate returns it)
+    CRY_CLUSTERFUCK(0, 1),   // cry_Clusterfuck: ≥8 no-pair/flush/straight cards — STUB (requires cry_poker_hand_stuff hand-size ≥8)
+    CRY_ULTPAIR(0, 1),       // cry_UltPair: two same-suit Two-Pairs of different suits — LIVE (Hands.evaluate returns it)
+    CRY_NONE(0, 1),          // cry_None: 0 cards played — LIVE (Hands.evaluate returns it for empty input)
+    CRY_WHOLEDECK(0, 1),     // cry_WholeDeck: all 52 cards scored — STUB (entirely special-cased mechanic)
 }
 
 /**
@@ -47,7 +50,13 @@ object Hands {
         rankOf: (PlayingCard) -> Int = { it.id },
         fourFingers: Boolean = false, shortcut: Boolean = false, smeared: Boolean = false,
     ): Triple<HandType, List<PlayingCard>, Set<HandType>> {
-        if (cards.isEmpty()) return Triple(HandType.NONE, emptyList(), emptySet())
+        if (cards.isEmpty()) return Triple(HandType.CRY_NONE, emptyList(), setOf(HandType.CRY_NONE))
+
+        // CRY_BULWARK: all 5 played cards are Stone (rankless, suitless — cry_Bulwark Lua description:
+        // "5 rankless, suitless cards"). Stone id=-1 skips rank grouping; isSuit=false skips flush.
+        // Without this check, 5 stones would fall through to HIGH_CARD via getHighest (nominal=-1000).
+        if (cards.size >= 5 && cards.all { it.enhancement == Enhancement.STONE })
+            return Triple(HandType.CRY_BULWARK, cards, setOf(HandType.CRY_BULWARK))
 
         val _5 = getXSame(5, cards, rankOf)
         val _4 = getXSame(4, cards, rankOf)
@@ -77,7 +86,17 @@ object Hands {
         if (_3.isNotEmpty()) set(HandType.THREE_OF_A_KIND, _3[0])
         if (_2.size == 2 || (_3.size == 1 && _2.size == 1)) {                      // Two Pair (source line 479)
             val a = _2[0]; val b = if (_2.size >= 2) _2[1] else _3[0]
-            set(HandType.TWO_PAIR, a + b)
+            // CRY_ULTPAIR: Two Two-Pairs where each pair is a single suit, two different suits total.
+            // (cry_UltPair: "Two Two Pairs, where each Two Pair is a single suit, for a total of
+            // two suits between them" — localization/en-us.lua:5035). Requires Wild or two identical
+            // cards; pairSuit() picks the first suit all cards in the pair satisfy via isSuit.
+            val sa = pairSuit(a, smeared); val sb = pairSuit(b, smeared)
+            if (sa != null && sb != null && sa != sb) {
+                set(HandType.CRY_ULTPAIR, a + b)
+                results[HandType.TWO_PAIR] = a + b  // still present in context.poker_hands
+            } else {
+                set(HandType.TWO_PAIR, a + b)
+            }
         }
         if (_2.isNotEmpty()) set(HandType.PAIR, _2[0])
         if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
@@ -128,6 +147,10 @@ object Hands {
         }
         return if (straight) listOf(t) else emptyList()
     }
+
+    /** pairSuit: the first Suit that ALL cards in a pair satisfy (via isSuit / Wild-aware), or null if none. */
+    private fun pairSuit(pair: List<PlayingCard>, smeared: Boolean): Suit? =
+        Suit.values().firstOrNull { s -> pair.all { it.isSuit(s, smeared) } }
 
     private fun getHighest(hand: List<PlayingCard>, idOf: (PlayingCard) -> Int): List<List<PlayingCard>> {
         val highest = hand.maxByOrNull { it.nominal } ?: return emptyList()

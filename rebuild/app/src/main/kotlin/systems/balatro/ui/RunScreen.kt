@@ -571,7 +571,7 @@ internal class RunState {
     fun scoreCommit() {
         val r = pending ?: return
         roundScore += r.score; handsLeft -= 1
-        if (r.handType != HandType.NONE) recordHandPlayed(r.handType)
+        if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)

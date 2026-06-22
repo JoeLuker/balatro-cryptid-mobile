@@ -343,6 +343,32 @@ object Oracle {
         Case("FullHouse A/A/A/K/K + cry_silly", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1860.0, j(FJoker("j_cry_silly"))),
         // cry_crustulum: +Chips per card scored in play (j.chips accumulated). chips=20 → 32+20=52, mult=2 → 104.
         Case("Pair of aces + cry_crustulum (chips=20)", PlayingCard.hand("S_A", "H_A"), 104.0, j(FJoker("j_cry_crustulum", chips = 20.0))),
+        // --- Cryptid custom hand types (CRY_NONE, CRY_BULWARK, CRY_ULTPAIR now live in Hands.evaluate) ---
+        // CRY_NONE: 0 cards played. Base chips=0, mult=1 (unconfirmed placeholders).
+        // j_cry_nebulous: +30 Chips when scoringName==CRY_NONE → chips=0+30=30, mult=1 → 30.
+        Case("CRY_NONE (empty hand) + cry_nebulous (+30 Chips)", emptyList(), 30.0, j(FJoker("j_cry_nebulous"))),
+        // j_cry_the X2 + j_cry_nebulous +30: chips=30, mult=1*2=2 → 60.
+        Case("CRY_NONE + cry_the(X2) + cry_nebulous(+30) → 60", emptyList(), 60.0, j(FJoker("j_cry_the"), FJoker("j_cry_nebulous"))),
+        // CRY_BULWARK: 5 Stone cards. Each Stone always scores +50 chips. Base chips=0, mult=1.
+        // 5 stones: chips=0+5*50=250. j_cry_stronghold X5 → mult=5 → floor(250*5)=1250.
+        Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 1250",
+            listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
+            1250.0, j(FJoker("j_cry_stronghold"))),
+        // j_cry_adroit +170 Chips: chips=250+170=420, mult=1 → 420.
+        Case("CRY_BULWARK (5 stones) + cry_adroit (+170 Chips) → 420",
+            listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
+            420.0, j(FJoker("j_cry_adroit"))),
+        // CRY_ULTPAIR: Two Two-Pairs each of a single suit (two different suits).
+        // [Wild_S_A, S_A, H_K, H_K]: pair-of-Aces all Spades (Wild+S), pair-of-Kings all Hearts.
+        // evalCard: Wild_S_A +11, S_A +11, H_K +10, H_K +10 → chips=42, mult=1.
+        // j_cry_clash X12 → mult=12 → floor(42*12)=504.
+        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_clash (X12) → 504",
+            listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
+            504.0, j(FJoker("j_cry_clash"))),
+        // j_cry_treacherous +300 Chips: chips=42+300=342, mult=1 → 342.
+        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_treacherous (+300 Chips) → 342",
+            listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
+            342.0, j(FJoker("j_cry_treacherous"))),
     )
 
     fun run(): Pair<Int, Int> {

@@ -325,9 +325,9 @@ object Score {
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
             "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
-            // --- Cryptid custom hand-type jokers (fire only when Cryptid-extended hand detection is active) ---
-            // These branches are dormant until CRY_* hand types are returned by hand evaluation;
-            // listed here so the dispatch is complete when those hand types are ported.
+            // --- Cryptid custom hand-type jokers ---
+            // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
+            // CRY_CLUSTERFUCK and CRY_WHOLEDECK remain DORMANT (feature-gated mechanics not yet ported).
             "j_cry_stronghold"       -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { xMultMod = 5.0 }
             "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
             "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
