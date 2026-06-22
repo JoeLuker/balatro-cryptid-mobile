@@ -387,6 +387,11 @@ internal class RunState {
     var totalHandsPlayed by mutableStateOf(0); private set
     /** Hand types played this round (j_cry_keychange: +0.25 Xmult per new type first seen; resets on startRound). */
     private val roundHandTypes = mutableSetOf<HandType>()
+    /** Discards used this round (mondrian: +0.25 Xmult when 0 used at end_of_round). Reset in startRound(). */
+    private var roundDiscardsUsed = 0
+    /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
+     *  Default Spades matches Cryptid's G.GAME.current_round.cry_dropshot_card = { suit = "Spades" }. */
+    private var dropShotSuit: Suit = Suit.S
     /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
      *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
      *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
@@ -615,6 +620,10 @@ internal class RunState {
         // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
         crimsonHeartDisabled = null; bellForcedIdx = null
         roundHandTypes.clear()    // j_cry_keychange resets each round
+        roundDiscardsUsed = 0   // mondrian: track discards used this round
+        // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
+        // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
+        dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
         maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
@@ -689,6 +698,53 @@ internal class RunState {
         if (boss == Boss.CERULEAN_BELL && bellIdx != null && bellIdx !in selIndices) return
         // CRIMSON_HEART: pass the currently-disabled joker key so calcJoker skips it
         val crimsonKey = if (boss == Boss.CRIMSON_HEART) crimsonHeartDisabled?.key else null
+        // ── per-hand pseudorandom joker pre-resolution (run loop owns RNG; score engine is pure) ──
+        // googol_play: X1e100 Mult with 1-in-odds (default 8) probability each hand (epic.lua:220-228).
+        // Roll here; score engine reads j.x (1e100 on hit, 1.0 on miss). Reset each hand before the roll.
+        for (o in owned) if (o.fj.key == "j_cry_googol_play") {
+            val odds = if (o.fj.n > 0) o.fj.n else 8
+            o.fj.x = if (Random.nextInt(odds) == 0) 1e100 else 1.0
+        }
+        // busdriver: +mult or -mult (default 50) each joker_main with 1-in-odds probability (misc_joker.lua:7653).
+        // j.mult = +default_mult on success, -default_mult on fail. j.n stores odds (default 2).
+        for (o in owned) if (o.fj.key == "j_cry_busdriver") {
+            val base = 50.0   // config.extra.mult_mod (default 50; could be stored in o.fj.chips if run loop tracks it)
+            val odds = if (o.fj.n > 0) o.fj.n else 2
+            o.fj.mult = if (Random.nextInt(odds) == 0) base else -base
+        }
+        // ── before-hand joker accumulator hooks (context.before, non-scoring) ──────────────────
+        // fspinner: +6 Chips when ANY other visible hand type has been played >= times this type has
+        // (misc_joker.lua:1872-1886: for k,v in pairs(G.GAME.hands): k ~= scoring_name and v.played >= played_count).
+        // "visible" = the hand is available to play; all standard hands visible in the engine.
+        // Approximation: check all other hand types in _handPlayed (played>=1 implies visible+played).
+        // But the Lua checks `v.played >= play_more_than` where play_more_than is THIS hand's played count
+        // (including the current hand, since played is incremented before the before pass in vanilla).
+        // Engine: use handPlayed(handType) for the current count (this hand NOT yet counted → use +1 to match).
+        for (o in owned) if (o.fj.key == "j_cry_fspinner") {
+            val thisCount = handPlayed(handType) + 1  // +1: vanilla increments played before before-pass
+            val yes = _handPlayed.any { (k, v) -> k != handType && v >= thisCount }
+            if (yes) o.fj.chips += 6.0
+        }
+        // spaceglobe: +0.2 Xchip each time the target hand type is played (misc_joker.lua:3432-3453).
+        // j.n stores the target hand type as its ordinal (0=HIGH_CARD by default from config.extra.type="High Card").
+        // After a match, the target rotates to a random OTHER hand type. Score engine reads j.xc when > 1.
+        for (o in owned) if (o.fj.key == "j_cry_spaceglobe") {
+            val targetType = HandType.values().getOrNull(o.fj.n) ?: HandType.HIGH_CARD
+            if (handType == targetType) {
+                o.fj.xc += 0.2
+                // Rotate to a random other standard hand type (exclude NONE and CRY_* custom types and current).
+                val candidates = HandType.values().filter { it != targetType && it != HandType.NONE
+                    && !it.name.startsWith("CRY_") }
+                if (candidates.isNotEmpty()) o.fj.n = candidates.random().ordinal
+            }
+        }
+        // dropshot: +0.2 Xmult per non-scoring (held) card of this round's target suit (misc_joker.lua:57-88).
+        // "non-scoring" = cards in full_hand but NOT in scoring_hand (cry_dropshot_incompat).
+        // dropShotSuit was chosen at startRound() from the deck, seeded by blindIndex.
+        for (o in owned) if (o.fj.key == "j_cry_dropshot") {
+            val nonScoring = held.filter { it.isSuit(dropShotSuit, smeared) }
+            if (nonScoring.isNotEmpty()) o.fj.x += 0.2 * nonScoring.size
+        }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
         lastResult = r; lastSteps = trace
@@ -748,7 +804,7 @@ internal class RunState {
         for (o in owned) when (o.fj.key) {
             // j_green_joker: +1 Mult per hand played; -1 per discard (below).
             "j_green_joker"    -> o.fj.mult += 1.0
-            // j_popcorn: +5 Mult base, -1 per hand played; self-destruct at ≤0 is deferred (no perishable system yet).
+            // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
             // j_spare_trousers: +2 Mult each time Two Pair or Full House played.
             "j_spare_trousers" -> if (r.handType == HandType.TWO_PAIR || r.handType == HandType.FULL_HOUSE) o.fj.mult += 2.0
@@ -765,6 +821,19 @@ internal class RunState {
             "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
             // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
             "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
+        }
+        // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
+        // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).
+        // j_ramen: self-destructs when x_mult drops to ≤1.0 (card.lua equivalent; default start 2.0).
+        // Both fire AFTER the per-hand loop so the score engine still reads the final value this hand.
+        val handSelfDestruct = owned.filter { o ->
+            (o.fj.key == "j_popcorn" && o.fj.mult <= 0.0) ||
+            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0)
+        }
+        if (handSelfDestruct.isNotEmpty()) {
+            owned.removeAll(handSelfDestruct)
+            Telemetry.event("HAND_DESTROY", "n" to handSelfDestruct.size,
+                "keys" to handSelfDestruct.joinToString { it.fj.key })
         }
         // ── boss blind effects triggered after each scored hand ────────────────────────────────
         pillarPlayedCards.addAll(pendingSel)                                              // THE_PILLAR: track cards played this Ante
@@ -837,6 +906,39 @@ internal class RunState {
             owned.removeAll(destroyed)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
+        // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
+        // chili_pepper: +0.5 Xmult per end_of_round; self-destruct when rounds_remaining hits 0
+        // (misc_joker.lua:1119-1177). j.x = Xmult accumulator; j.n = rounds_remaining (default 8).
+        // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
+        // Trigger: when chili_pepper's rounds_remaining reaches 0, notify fading/paved before removing.
+        val perishableExpired = ArrayList<Owned>()
+        for (o in owned) if (o.fj.key == "j_cry_chili_pepper") {
+            o.fj.x += 0.5
+            o.fj.n = maxOf(0, o.fj.n - 1)  // j.n = rounds_remaining (0 → self-destruct)
+            if (o.fj.n <= 0) perishableExpired.add(o)
+        }
+        // caramel: counts down rounds_remaining (j.n, init 11) each end_of_round; self-destructs at 0
+        // (epic.lua:1273-1312). j.x=1.75 (individual xMult per scored card) does NOT change — only
+        // j.n ticks. No Xmult scaling; the x_mult is fixed for caramel's lifetime.
+        for (o in owned) if (o.fj.key == "j_cry_caramel") {
+            o.fj.n = maxOf(0, o.fj.n - 1)
+            if (o.fj.n <= 0) perishableExpired.add(o)
+        }
+        // Notify fading_joker and paved_joker of each expiring perishable.
+        if (perishableExpired.isNotEmpty()) {
+            for (rem in owned) when (rem.fj.key) {
+                "j_cry_fading_joker", "j_cry_paved_joker" -> rem.fj.x += 1.0
+            }
+        }
+        // Remove expired perishables from the board.
+        if (perishableExpired.isNotEmpty()) {
+            owned.removeAll(perishableExpired)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to perishableExpired.size, "reason" to "perishable")
+        }
+        // mondrian: +0.25 Xmult when 0 discards were used this round (misc_joker.lua:3228-3246).
+        for (o in owned) if (o.fj.key == "j_cry_mondrian" && roundDiscardsUsed == 0) o.fj.x += 0.25
+        // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
+        for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
         val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
@@ -864,6 +966,7 @@ internal class RunState {
             faceDown = faceDown - hookIndices   // force-discarded face-down cards are revealed as they leave
         }
         discardsLeft -= 1
+        roundDiscardsUsed += 1   // mondrian: track discards used this round for end_of_round check
         // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
         val discardedCards = hand.filterIndexed { i, _ -> i in selected }
         val jackCount = discardedCards.count { it.id == 11 }
@@ -873,7 +976,7 @@ internal class RunState {
         for (o in owned) when (o.fj.key) {
             // j_green_joker: -1 Mult per discard (never below 0).
             "j_green_joker" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
-            // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01; self-destruct deferred).
+            // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01); self-destructs when x_mult ≤ 1.0.
             "j_ramen"       -> o.fj.x = maxOf(1.0, o.fj.x - 0.01 * discardedCards.size)
             // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
             "j_mail"        -> if (jackCount > 0) o.fj.mult += 2.0 * jackCount
@@ -894,17 +997,32 @@ internal class RunState {
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
         val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
         val fjMult = when (offer.key) {
-            "j_popcorn"    -> 20.0   // starts at +20 Mult, -1 per hand; self-destruct deferred
+            "j_popcorn"    -> 20.0   // starts at +20 Mult, -1 per hand; self-destructs when mult hits 0
             "j_ramen"      -> 0.0    // j.x starts at 2.0 (set below)
             "j_swashbuckler" -> owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }  // sum of current sell values
             else -> 0.0
         }
         val fjXInit = when (offer.key) {
-            "j_ramen"      -> 2.0   // starts at x2 Mult, depletes
-            "j_campfire"   -> 1.0   // starts at 1 (no bonus yet)
+            "j_ramen"          -> 2.0   // starts at x2 Mult, depletes per discard
+            "j_campfire"       -> 1.0   // starts at 1 (no bonus yet)
+            "j_cry_caramel"    -> 1.75  // config.extra.x_mult=1.75 (individual xMult per scored card)
+            "j_cry_starfruit"  -> 2.0   // config.emult=2 (Emult; -0.2 per reroll)
             else -> fjX
         }
-        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult)
+        val fjN = when (offer.key) {
+            // mstack: add_to_deck hook enforces retriggers >= 1 (m.lua add_to_deck; config.extra.retriggers=1).
+            "j_cry_mstack" -> 1
+            // chili_pepper: rounds_remaining starts at 8 (config.extra.rounds_remaining=8; perishable countdown).
+            "j_cry_chili_pepper" -> 8
+            // caramel: rounds_remaining starts at 11 (config.extra.rounds_remaining=11; end_of_round countdown).
+            // j.x holds x_mult=1.75 (does NOT deplete); only the countdown decides expiry.
+            "j_cry_caramel" -> 11
+            // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
+            "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
+            // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
+            else -> 0
+        }
+        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
@@ -917,17 +1035,24 @@ internal class RunState {
         money += refund
         // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
         val soldKey = o.fj.key
+        val sellCost = refund   // maxOf(1, cost/2) — used for sell_cost >= 2 gates below
         for (rem in owned) when (rem.fj.key) {
             // j_campfire: +0.25 Xmult per joker sold (config.extra xmult=0.25; any joker, incl. self — but self is gone).
             "j_campfire"       -> rem.fj.x += 0.25
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
             "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
-            // j_cry_eternalflame: +0.1 Xmult per any joker sold (already wired; moved here for consistency).
-            "j_cry_eternalflame" -> rem.fj.x += 0.1
+            // j_cry_eternalflame: +0.1 Xmult per any joker sold with sell_cost >= 2 (misc_joker.lua:1357-1369).
+            // Lua guard: context.card.sell_cost >= 2 (or not-modest gameset). sell_cost = maxOf(1, cost/2).
+            "j_cry_eternalflame" -> if (sellCost >= 2) rem.fj.x += 0.1
             // j_cry_m: +13 Xmult per Jolly Joker sold.
             "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
             // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
             "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
+            // j_cry_mstack: retriggers +1 per sell_req (3) Jolly Joker sells (m.lua selling_card hook).
+            // fj.chips repurposed as the sell-progress counter (0–2); never read as chips for this key.
+            "j_cry_mstack"     -> if (soldKey == "j_jolly") {
+                if (rem.fj.chips + 1 >= 3) { rem.fj.n += 1; rem.fj.chips = 0.0 } else rem.fj.chips += 1.0
+            }
         }
         // j_swashbuckler also recalculates when THIS joker is swashbuckler itself and sold;
         // that case is moot (the joker is gone), but set a clean 0 for the removed fj.
@@ -1028,6 +1153,21 @@ internal class RunState {
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
+        // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
+        // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
+        // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
+        val rerollSelfDestruct = ArrayList<Owned>()
+        for (o in owned) if (o.fj.key == "j_cry_starfruit") {
+            o.fj.x = maxOf(1.0, o.fj.x - 0.2)
+            if (o.fj.x <= 1.00000001) rerollSelfDestruct.add(o)  // Lua: <= 1.00000001 float guard
+        }
+        if (rerollSelfDestruct.isNotEmpty()) {
+            owned.removeAll(rerollSelfDestruct)
+            Telemetry.event("REROLL_DESTROY", "n" to rerollSelfDestruct.size, "reason" to "starfruit")
+        }
+        // j_cry_crustulum: +4 chips per reroll (config.extra.chip_mod=4, exotic.lua:514).
+        // j.chips accumulates; joker_main reads it when > 0.
+        for (o in owned) if (o.fj.key == "j_cry_crustulum") o.fj.chips += 4.0
     }
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
