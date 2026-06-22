@@ -917,6 +917,13 @@ internal class RunState {
             o.fj.n = maxOf(0, o.fj.n - 1)  // j.n = rounds_remaining (0 → self-destruct)
             if (o.fj.n <= 0) perishableExpired.add(o)
         }
+        // caramel: counts down rounds_remaining (j.n, init 11) each end_of_round; self-destructs at 0
+        // (epic.lua:1273-1312). j.x=1.75 (individual xMult per scored card) does NOT change — only
+        // j.n ticks. No Xmult scaling; the x_mult is fixed for caramel's lifetime.
+        for (o in owned) if (o.fj.key == "j_cry_caramel") {
+            o.fj.n = maxOf(0, o.fj.n - 1)
+            if (o.fj.n <= 0) perishableExpired.add(o)
+        }
         // Notify fading_joker and paved_joker of each expiring perishable.
         if (perishableExpired.isNotEmpty()) {
             for (rem in owned) when (rem.fj.key) {
@@ -996,8 +1003,10 @@ internal class RunState {
             else -> 0.0
         }
         val fjXInit = when (offer.key) {
-            "j_ramen"      -> 2.0   // starts at x2 Mult, depletes
-            "j_campfire"   -> 1.0   // starts at 1 (no bonus yet)
+            "j_ramen"          -> 2.0   // starts at x2 Mult, depletes per discard
+            "j_campfire"       -> 1.0   // starts at 1 (no bonus yet)
+            "j_cry_caramel"    -> 1.75  // config.extra.x_mult=1.75 (individual xMult per scored card)
+            "j_cry_starfruit"  -> 2.0   // config.emult=2 (Emult; -0.2 per reroll)
             else -> fjX
         }
         val fjN = when (offer.key) {
@@ -1005,6 +1014,9 @@ internal class RunState {
             "j_cry_mstack" -> 1
             // chili_pepper: rounds_remaining starts at 8 (config.extra.rounds_remaining=8; perishable countdown).
             "j_cry_chili_pepper" -> 8
+            // caramel: rounds_remaining starts at 11 (config.extra.rounds_remaining=11; end_of_round countdown).
+            // j.x holds x_mult=1.75 (does NOT deplete); only the countdown decides expiry.
+            "j_cry_caramel" -> 11
             // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
             "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
             // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
@@ -1141,6 +1153,21 @@ internal class RunState {
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
+        // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
+        // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
+        // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
+        val rerollSelfDestruct = ArrayList<Owned>()
+        for (o in owned) if (o.fj.key == "j_cry_starfruit") {
+            o.fj.x = maxOf(1.0, o.fj.x - 0.2)
+            if (o.fj.x <= 1.00000001) rerollSelfDestruct.add(o)  // Lua: <= 1.00000001 float guard
+        }
+        if (rerollSelfDestruct.isNotEmpty()) {
+            owned.removeAll(rerollSelfDestruct)
+            Telemetry.event("REROLL_DESTROY", "n" to rerollSelfDestruct.size, "reason" to "starfruit")
+        }
+        // j_cry_crustulum: +4 chips per reroll (config.extra.chip_mod=4, exotic.lua:514).
+        // j.chips accumulates; joker_main reads it when > 0.
+        for (o in owned) if (o.fj.key == "j_cry_crustulum") o.fj.chips += 4.0
     }
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
