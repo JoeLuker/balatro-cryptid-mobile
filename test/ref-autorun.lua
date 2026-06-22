@@ -63,12 +63,12 @@ love.update = function(dt, ...)
         mark('SELECTING_HAND')
         pcall(function() if G.hand.unhighlight_all then G.hand:unhighlight_all() end end)  -- clean resting row (no popped card)
         if elapsed - at('SELECTING_HAND') >= 3.0 then
-            -- start_run from MENU (vs the Play button) leaves the main-menu BALATRO logo (G.SPLASH_LOGO)
-            -- overlaying the board. By now its dissolve-in ease is long done, so :remove() is safe here
-            -- (removing it at start_run crashed ease_value on the still-active ease).
+            -- start_run from MENU (vs the Play button) may leave the main-menu BALATRO logo
+            -- (G.SPLASH_LOGO) overlaying the board. Remove it if present.
+            -- NOTE: do NOT remove G.SPLASH_BACK — that is the animated green felt background
+            -- shader and removing it leaves the board area black, corrupting the reference.
             pcall(function()
                 if G.SPLASH_FRONT then G.SPLASH_FRONT:remove(); G.SPLASH_FRONT = nil end
-                if G.SPLASH_BACK then G.SPLASH_BACK:remove(); G.SPLASH_BACK = nil end
                 if G.SPLASH_LOGO then G.SPLASH_LOGO:remove(); G.SPLASH_LOGO = nil end
             end)
             -- dump Balatro's room→screen transform so the capture window can be sized to WIDTH-FILL
