@@ -55,6 +55,7 @@ class Sctx {
     var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
     var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
+    var debuffFace: Boolean = false           // THE_PLANT: all face cards (J/Q/K, incl. Pareidolia) score/trigger nothing
     var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
@@ -155,10 +156,16 @@ object Score {
             "j_smiley"           -> if (oc.isFace || ctx.pareidolia) return Fx().apply { mult = 5.0 }                // +5 Mult/face
             "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
             "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
-            // X2 on the FIRST face. is_face (card.lua:1193) returns nil for a debuffed card BEFORE the Pareidolia
-            // check, so a debuffed card is never the "first face" — exclude it from the scan (and from oc's own test).
-            "j_photograph"       -> if ((oc.isFace || ctx.pareidolia) && oc.suit != ctx.debuffSuit &&
-                ctx.scoringHand.firstOrNull { (it.isFace || ctx.pareidolia) && it.suit != ctx.debuffSuit } == oc) return Fx().apply { xMult = 2.0 }
+            // X2 on the FIRST face. is_face returns nil for debuffed cards (suit-debuff or face-debuff)
+            // before the Pareidolia check, so debuffed cards never count as the first face.
+            // Exclude both suit-debuffed AND face-debuffed cards from the oc test and firstOrNull scan.
+            "j_photograph"       -> {
+                val faceOk = (oc.isFace || ctx.pareidolia) && oc.suit != ctx.debuffSuit && !(ctx.debuffFace && (oc.isFace || ctx.pareidolia))
+                val firstFace = ctx.scoringHand.firstOrNull {
+                    (it.isFace || ctx.pareidolia) && it.suit != ctx.debuffSuit && !(ctx.debuffFace && (it.isFace || ctx.pareidolia))
+                }
+                if (faceOk && firstFace == oc) return Fx().apply { xMult = 2.0 }
+            }
             // --- Cryptid individual ---
             "j_cry_iterum"            -> return Fx().apply { xMult = 2.0 }               // X2 Mult per scored played card (also retriggers in repetition block)
             "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
@@ -428,7 +435,8 @@ object Score {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
-            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit; this.board = jokers
+            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
+            this.debuffFace = debuff is Debuff.DebuffFace; this.board = jokers
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
@@ -459,7 +467,8 @@ object Score {
 
         // per scoring card: card's own scoring + each joker's individual reaction
         for (card in scoringHand) {
-            if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue   // debuffed: scores/triggers nothing
+            if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue       // suit-debuffed
+            if (debuff is Debuff.DebuffFace && (card.isFace || pareidolia)) continue      // THE_PLANT: face-debuffed (Pareidolia makes all cards faces)
             ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = card
             var reps = 1 + (if (card.seal == Seal.RED) 1 else 0)            // red seal repetition
             for (jk in jokers) { ctx.repetition = true; calcJoker(jk, ctx)?.let { reps += it.repetitions }; ctx.repetition = false }  // joker retriggers

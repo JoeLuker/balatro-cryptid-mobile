@@ -8,6 +8,8 @@ class HandLevels {
     private val lvl = HashMap<HandType, Int>()
     fun level(h: HandType): Int = lvl[h] ?: 1
     fun levelUp(h: HandType, by: Int = 1) { lvl[h] = level(h) + by }
+    /** THE_ARM: degrade the played hand level by 1 (minimum 1). */
+    fun degrade(h: HandType) { lvl[h] = maxOf(1, level(h) - 1) }
 }
 
 /** A planet card levels up one hand type. The names/targets are Balatro's. */
