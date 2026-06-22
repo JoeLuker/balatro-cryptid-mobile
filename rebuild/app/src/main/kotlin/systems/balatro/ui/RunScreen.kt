@@ -706,10 +706,10 @@ internal class RunState {
             o.fj.x = if (Random.nextInt(odds) == 0) 1e100 else 1.0
         }
         // busdriver: +mult or -mult (default 50) each joker_main with 1-in-odds probability (misc_joker.lua:7653).
-        // j.mult = +default_mult on success, -default_mult on fail. j.n stores odds (default 2).
+        // j.mult = +base on success, -base on fail. j.n = odds (config.extra.odds=4, init'd at buy).
         for (o in owned) if (o.fj.key == "j_cry_busdriver") {
-            val base = 50.0   // config.extra.mult_mod (default 50; could be stored in o.fj.chips if run loop tracks it)
-            val odds = if (o.fj.n > 0) o.fj.n else 2
+            val base = 50.0   // config.extra.mult (default 50; fixed — no scalable field tracked in j.chips)
+            val odds = maxOf(1, o.fj.n)  // j.n=4 from buy(); guard against 0 just in case
             o.fj.mult = if (Random.nextInt(odds) == 0) base else -base
         }
         // ── before-hand joker accumulator hooks (context.before, non-scoring) ──────────────────
@@ -1056,6 +1056,9 @@ internal class RunState {
             "j_cry_caramel" -> 11
             // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
             "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
+            // busdriver: config.extra.odds=4 (1-in-4 chance). Run loop uses j.n as odds; defaulting to 0 was
+            // falling through to the hardcoded 2 fallback — wrong probability (1/2 instead of 1/4).
+            "j_cry_busdriver" -> 4
             // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
             else -> 0
         }
