@@ -628,7 +628,12 @@ object Score {
             val effects = ArrayList<Fx>()
             effects.add(evalCard(card, ctx))
             for (j in jokers) calcJoker(j, ctx)?.let { effects.add(it) }
-            val heldReps = (1 + heldJokerReps) * (if (mime && effects.any { !it.empty }) 2 else 1)
+            // Held-card repetitions are ADDITIVE (SMODS): base 1 + joker retriggers + Red seal + Mime.
+            // Red seal retriggers a HELD card too (card.lua:2810 `repetitions=1` fires in G.hand, not just
+            // G.play) — this was previously missing. Mime adds 1 repetition, not a ×2 (card.lua:3487).
+            val redSealRep = if (card.seal == Seal.RED) 1 else 0
+            val mimeRep = if (mime && effects.any { !it.empty }) 1 else 0
+            val heldReps = 1 + heldJokerReps + redSealRep + mimeRep
             repeat(heldReps) {
                 for (fx in effects) {
                     if (fx.xMult != 0.0) {

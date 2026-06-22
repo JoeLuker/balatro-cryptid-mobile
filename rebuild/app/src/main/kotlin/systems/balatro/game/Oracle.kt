@@ -73,6 +73,10 @@ object Oracle {
         // Mime: retriggers held cards that produce an effect; Steel card held fires X1.5 twice → mult^2:
         // chips=(10+11+11)=32, mult=2*1.5*1.5=4.5, score=floor(32*4.5)=144.
         Case("Pair of aces + mime (steel King held retriggers)", PlayingCard.hand("S_A", "H_A"), 144.0, j(FJoker("j_mime")), held = listOf(en("S_K", Enhancement.STEEL))),
+        // Red seal retriggers a HELD card (no joker needed): a red-seal Steel King held fires X1.5 twice →
+        // mult=2*1.5*1.5=4.5 → floor(32*4.5)=144. Before the fix the held pass ignored Red seal → x1.5 once → 96.
+        Case("Pair of aces + red-seal Steel King held (red seal retriggers held)", PlayingCard.hand("S_A", "H_A"), 144.0,
+            held = listOf(en("S_K", Enhancement.STEEL).copy(seal = Seal.RED))),
         // --- individual-card jokers (coverage baselines) ---
         // Photograph: X2 on FIRST face only — Pair of Kings: X2 fires on S_K, not H_K: (10+10+10)*4=120.
         Case("Pair of Kings + photograph (X2 first face)", PlayingCard.hand("S_K", "H_K"), 120.0, j(FJoker("j_photograph"))),
