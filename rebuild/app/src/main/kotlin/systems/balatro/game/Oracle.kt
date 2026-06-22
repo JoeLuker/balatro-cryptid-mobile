@@ -419,6 +419,12 @@ object Oracle {
         Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_foolhardy (+42 Mult) → 16768",
             listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
             16768.0, j(FJoker("j_cry_foolhardy"))),
+        // Regression: Full House with suit-distinct triplet+pair must NOT be classified as CRY_ULTPAIR.
+        // [S_A, S_A, S_A(triplet), H_K, H_K(pair)] → Full House, not CRY_ULTPAIR. pairSuit(AAA)=Spades, pairSuit(KK)=Hearts
+        // (different suits) but top=FULL_HOUSE before Two Pair branch → CRY_ULTPAIR guard fires → no clash bonus.
+        // Full House base: chips=40, mult=4. Level 1: floor(40×4)=160. cry_clash checks scoringName==CRY_ULTPAIR → false.
+        Case("FullHouse S_A×3,H_K×2 + cry_clash: scoringName=FULL_HOUSE (not CRY_ULTPAIR) → 160",
+            PlayingCard.hand("S_A", "S_A", "S_A", "H_K", "H_K"), 160.0, j(FJoker("j_cry_clash"))),
     )
 
     fun run(): Pair<Int, Int> {

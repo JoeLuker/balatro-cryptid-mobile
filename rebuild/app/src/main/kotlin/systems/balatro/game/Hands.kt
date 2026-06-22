@@ -90,8 +90,12 @@ object Hands {
             // (cry_UltPair: "Two Two Pairs, where each Two Pair is a single suit, for a total of
             // two suits between them" — localization/en-us.lua:5035). Requires Wild or two identical
             // cards; pairSuit() picks the first suit all cards in the pair satisfy via isSuit.
+            // Guard: only consider ULTPAIR when the top hand is genuinely a Two Pair (not a Full House
+            // that also entered this branch via _3.size==1 && _2.size==1). A same-suit-distinct Full House
+            // would otherwise spuriously appear in pokerHands as CRY_ULTPAIR — harmless today (all wired
+            // ULTPAIR jokers check scoringName, not pokerHands) but wrong in principle.
             val sa = pairSuit(a, smeared); val sb = pairSuit(b, smeared)
-            if (sa != null && sb != null && sa != sb) {
+            if (top == null && sa != null && sb != null && sa != sb) {
                 set(HandType.CRY_ULTPAIR, a + b)
                 results[HandType.TWO_PAIR] = a + b  // still present in context.poker_hands
             } else {

@@ -108,11 +108,13 @@ object Score {
             "j_blueprint", "j_cry_oldblueprint", "j_brainstorm" -> {
                 val target = if (j.key == "j_brainstorm") ctx.board.firstOrNull()
                     else ctx.board.indexOfFirst { it === j }.let { i -> if (i < 0) null else ctx.board.getOrNull(i + 1) }
-                if (target == null || target === j || ctx.blueprintDepth > ctx.board.size) return null
+                if (target == null || target === j || ctx.blueprintDepth >= ctx.board.size) return null
                 ctx.blueprintDepth++
                 val ret = calcJoker(target, ctx)
                 ctx.blueprintDepth--
                 return ret
+                // NOTE: inline-intercept jokers (broken_sync_catalyst, sync_catalyst) are NOT copyable
+                // via Blueprint/Brainstorm — their effects live in the joker_main loop body, not in calcJoker.
             }
         }
         // RETRIGGER_JOKER_CHECK: each board joker votes whether to retrigger ctx.retriggeredJoker
