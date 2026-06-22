@@ -171,6 +171,18 @@ object Score {
                 // Pseudorandom — pseudoseed "cry_boredom_joker" is fixed per game state, so the run loop
                 // pre-resolves: j.n=1 if roll succeeded (retrigger), j.n=0 if failed. Fires for any oj.
                 "j_cry_boredom" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = 1 }
+                // canvas: retrigger jokers to the LEFT of canvas, once per non-Common joker to the RIGHT of canvas.
+                // Lua: card.rank < i counts non-Common jokers at positions to the right of canvas.
+                // Fires only when canvas is to the right of rj (card.rank > context.other_card.rank).
+                // epic.lua:365. Rarity 1 = Common; all other rarities (including cry_epic, cry_exotic) count.
+                "j_cry_canvas" -> {
+                    val canvasIdx = ctx.board.indexOf(j)
+                    val rjIdx = ctx.board.indexOf(rj)
+                    if (canvasIdx > rjIdx && rjIdx >= 0) {
+                        val numRetriggers = ctx.board.drop(canvasIdx + 1).count { it.rarity != 1 }
+                        if (numRetriggers > 0) return Fx().apply { repetitions = numRetriggers }
+                    }
+                }
             }
             return null
         }

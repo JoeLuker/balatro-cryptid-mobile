@@ -183,6 +183,19 @@ object Oracle {
         // Repetition: S_A retriggers (+11 chips), H_A retriggers (+11 chips) → chips=54.
         // Score: floor(54×2)=108.
         Case("Pair aces + boredom(n=1) — boredom retriggers scored cards → 108", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_boredom", n = 1))),
+        // canvas: retriggers jokers to the left, once per non-Common joker to its right (epic.lua:365).
+        // Board [brokenhome(r=3), canvas(r=5), kittyprinter(r=2)].
+        // Pair aces: chips=32, mult=2.
+        // j=brokenhome (idx=0) joker_main: mult×=11.4 → 22.8.
+        //   Retrigger sub-loop: canvas (idx=1) > brokenhome (idx=0) ✓; non-Common right of canvas=[kittyprinter(r=2)]→1.
+        //   brokenhome retriggers 1×: mult×=11.4 → 259.92.
+        // j=canvas (idx=1) joker_main: no scoring effect.
+        // j=kittyprinter (idx=2) joker_main: mult×=2.0 → 519.84.
+        //   canvas (idx=1) > kittyprinter (idx=2) = false → no retrigger.
+        // score = floor(32×519.84) = 16634.
+        Case("Pair aces + canvas retriggers brokenhome 1× via non-Common kittyprinter right → 16634",
+            PlayingCard.hand("S_A", "H_A"), 16634.0,
+            j(FJoker("j_cry_brokenhome", rarity = 3), FJoker("j_cry_canvas", rarity = 5), FJoker("j_cry_kittyprinter", rarity = 2))),
         // busdriver: +mult or -mult each joker_main, pseudorandom (misc_joker.lua:7653).
         // Run loop pre-resolves: j.mult=50 (success) or j.mult=-50 (fail, default odds=4).
         // Success: chips=32, mult=2+50=52 → floor(32×52)=1664.
