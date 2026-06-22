@@ -153,6 +153,14 @@ object JokerArt {
         "j_wily" to Triple("Jokers.png", 1, 14),       // Wily Joker — Three of a Kind chips (game.lua pos x=1,y=14)
         "j_wrathful_joker" to Triple("Jokers.png", 8, 1),
         "j_zany" to Triple("Jokers.png", 3, 0),        // Zany Joker — Three of a Kind mult (game.lua pos x=3,y=0)
+        // newly-acquirable cry jokers on LOADED atlases (atlas+pos from mods/Cryptid/items/*.lua).
+        // boredom/googol_play/membershipcardtwo (atlasepic) + blacklist (atlasspooky) aren't loaded → name placeholder.
+        "j_cry_bonk" to Triple("atlasone.png", 2, 2),
+        "j_cry_busdriver" to Triple("atlasthree.png", 5, 1),
+        "j_cry_jollysus" to Triple("atlastwo.png", 3, 1),
+        "j_cry_membershipcard" to Triple("atlasthree.png", 6, 2),
+        "j_cry_mprime" to Triple("atlasexotic.png", 0, 5),
+        "j_cry_paved_joker" to Triple("atlasone.png", 1, 6),
     )
 
     /** Crop the cells for `keys`, decoding each distinct atlas only once. */
