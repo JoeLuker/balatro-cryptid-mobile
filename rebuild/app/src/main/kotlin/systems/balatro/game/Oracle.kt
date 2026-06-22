@@ -93,6 +93,14 @@ object Oracle {
         Case("Pair + brokenhome (x11.4)", PlayingCard.hand("S_A", "H_A"), 729.0, j(FJoker("j_cry_brokenhome"))),
         Case("Pair + joker,waluigi (cross-joker x2.5^2)", PlayingCard.hand("S_A", "H_A"), 1200.0, j(FJoker("j_joker"), FJoker("j_cry_waluigi"))),
         Case("Pair + oldblueprint,joker (blueprint copy)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_oldblueprint"), FJoker("j_joker"))),
+        // Blueprint copies the joker to its RIGHT (j_joker, +4 Mult): mult 2+4+4 = 10, chips 32 → 320.
+        Case("Pair + blueprint,joker (copies right)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_blueprint"), FJoker("j_joker"))),
+        // Brainstorm copies the LEFTMOST joker (j_joker): same 2+4+4 = 10 → 320.
+        Case("Pair + joker,brainstorm (copies leftmost)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_joker"), FJoker("j_brainstorm"))),
+        // Blueprint copies an INDIVIDUAL per-card joker (Greedy, +3 Mult/Diamond): only D_A scores it, via greedy AND blueprint → mult 2+3+3 = 8, chips 32 → 256.
+        Case("Pair D_A,H_A + blueprint,greedy (per-card copy)", PlayingCard.hand("D_A", "H_A"), 256.0, j(FJoker("j_blueprint"), FJoker("j_greedy_joker"))),
+        // Blueprint copies a RETRIGGER joker (Sock and Buskin): each King retriggers via sock AND blueprint → 3x each: (10 + 6*10) * 2 = 140.
+        Case("Pair Kings + blueprint,sock_and_buskin (retrigger copy)", PlayingCard.hand("S_K", "H_K"), 140.0, j(FJoker("j_blueprint"), FJoker("j_sock_and_buskin"))),
         Case("J,Q,K + maximized (rank patch -> ToaK)", PlayingCard.hand("S_J", "H_Q", "D_K"), 180.0, j(FJoker("j_cry_maximized"))),
         Case("Flush A-2-3-5-7 + primus (Emult pow)", PlayingCard.hand("S_A", "S_2", "S_3", "S_5", "S_7"), 323.0, j(FJoker("j_cry_primus", x = 1.01))),
         // --- Cryptid "type" jokers (fire on context.poker_hands present) ---

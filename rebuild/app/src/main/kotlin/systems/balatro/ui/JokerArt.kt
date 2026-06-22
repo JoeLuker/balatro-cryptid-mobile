@@ -95,6 +95,8 @@ object JokerArt {
         "j_baron" to Triple("Jokers.png", 6, 12),        // Baron — King held: X1.5 Mult (game.lua pos x=6,y=12)
         "j_baseball" to Triple("Jokers.png", 6, 14),     // Baseball Card — X1.5/Uncommon joker (game.lua pos x=6,y=14)
         "j_blue_joker" to Triple("Jokers.png", 7, 10),   // Blue Joker — +2 Chips/deck card (game.lua pos x=7,y=10)
+        "j_blueprint" to Triple("Jokers.png", 0, 3),     // Blueprint — copies joker to the right (game.lua pos x=0,y=3)
+        "j_brainstorm" to Triple("Jokers.png", 7, 7),    // Brainstorm — copies leftmost joker (game.lua pos x=7,y=7)
         "j_campfire" to Triple("Jokers.png", 5, 15),     // Campfire — Xmult +0.25/joker sold (game.lua pos x=5,y=15)
         "j_castle" to Triple("Jokers.png", 9, 15),       // Castle — +3 Chips/suited card discarded (game.lua pos x=9,y=15)
         "j_devious" to Triple("Jokers.png", 3, 14),    // Devious Joker — Straight chips (game.lua pos x=3,y=14)

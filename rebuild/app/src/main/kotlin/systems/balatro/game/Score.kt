@@ -55,6 +55,8 @@ class Sctx {
     var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
     var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
+    var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
+    var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -94,6 +96,20 @@ object Score {
 
     /** Card:calculate_joker — every joker's effect, dispatched by key + context (1:1 with the Lua). */
     private fun calcJoker(j: FJoker, ctx: Sctx): Fx? {
+        // Copy-jokers (SMODS.blueprint_effect, utils.lua:2089) delegate to a target joker's calculate in EVERY
+        // context: Brainstorm copies the leftmost joker; Blueprint / Old Blueprint copy the joker to their right.
+        // Skip a missing/self target; the copy-chain depth is bounded by board size (stops Brainstorm⇄Blueprint cycles).
+        when (j.key) {
+            "j_blueprint", "j_cry_oldblueprint", "j_brainstorm" -> {
+                val target = if (j.key == "j_brainstorm") ctx.board.firstOrNull()
+                    else ctx.board.indexOfFirst { it === j }.let { i -> if (i < 0) null else ctx.board.getOrNull(i + 1) }
+                if (target == null || target === j || ctx.blueprintDepth > ctx.board.size) return null
+                ctx.blueprintDepth++
+                val ret = calcJoker(target, ctx)
+                ctx.blueprintDepth--
+                return ret
+            }
+        }
         val oc = ctx.otherCard
         // INDIVIDUAL: a joker reacting to each scored card (context.individual, cardarea == G.play)
         if (ctx.individual && ctx.cardarea == "play" && oc != null) when (j.key) {
@@ -210,6 +226,9 @@ object Score {
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
             // starfruit: Emult = j.x (starts at 2.0, decreases by 0.2 per reroll, self-destructs at <=1)
             "j_cry_stella_mortis", "j_cry_formidiulosus", "j_cry_starfruit" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // primus: Emult = j.x (base 1.01, +0.17 in the before-pass when the whole hand is prime); mult^x.
+            // Lives here (not the loop) so the copy-jokers can copy it like any other joker_main effect.
+            "j_cry_primus" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
             "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
@@ -356,7 +375,7 @@ object Score {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
-            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
+            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit; this.board = jokers
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
@@ -419,23 +438,19 @@ object Score {
         }
 
         // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly) — board order.
-        // j_cry_oldblueprint re-applies the joker to its right; j_cry_primus is the Emult pow (mult^x).
+        // calcJoker self-resolves the copy-jokers (Blueprint/Brainstorm/Old Blueprint) and primus (Emult pow).
         // GAP: no joker-RETRIGGER dispatch. Each joker_main fires exactly once; the only reps loop is
         // per-scored-card (above). Cryptid's context.retrigger_joker_check family — chad (retriggers the
         // leftmost joker), spectrogram, flip_side, blur, m_cry_loopy, m_cry_echo — is therefore UNWIRED
         // pending a dedicated joker-retrigger pass here. See port-notes/cryptid-jokers-translations.json (j_cry_chad).
-        for ((idx, j) in jokers.withIndex()) {
+        for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
-            val target = if (j.key == "j_cry_oldblueprint") jokers.getOrNull(idx + 1) else j
-            if (target != null) {
-                if (target.key == "j_cry_primus") { if (target.x > 1.0) mult = mult.pow(target.x) }
-                else calcJoker(target, ctx)?.let { fx ->
-                    if (fx.chipMod != 0.0) chips += fx.chipMod
-                    if (fx.xChipMod != 1.0) chips *= fx.xChipMod   // X-chips multiplies the running chip total
-                    if (fx.multMod != 0.0) mult += fx.multMod
-                    if (fx.xMultMod != 1.0) mult *= fx.xMultMod
-                    if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // Emult raises mult to a power (applied last)
-                }
+            calcJoker(j, ctx)?.let { fx ->
+                if (fx.chipMod != 0.0) chips += fx.chipMod
+                if (fx.xChipMod != 1.0) chips *= fx.xChipMod   // X-chips multiplies the running chip total
+                if (fx.multMod != 0.0) mult += fx.multMod
+                if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+                if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // Emult raises mult to a power (applied last)
             }
             when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
             ctx.jokerMain = false

@@ -213,6 +213,9 @@ private val CATALOG = listOf(
     Offer("j_steel_joker", "Steel Joker", "x1.2 Mult per Steel card in hand", 2),
     Offer("j_drivers_license", "Driver's License", "x3 Mult if 16+ enhanced cards in deck", 8),
     Offer("j_baseball", "Baseball Card", "x1.5 Mult per Uncommon joker on board", 8),
+    // --- vanilla copy-jokers (copy the target joker's effect in every context) ---
+    Offer("j_blueprint", "Blueprint", "copies the joker to the right", 10),
+    Offer("j_brainstorm", "Brainstorm", "copies the leftmost joker", 10),
     // --- vanilla accumulator-mult jokers ---
     Offer("j_green_joker", "Green Joker", "+1 Mult per hand played, -1 per discard", 1),
     Offer("j_spare_trousers", "Spare Trousers", "+2 Mult each time Two Pair or Full House played", 2),
