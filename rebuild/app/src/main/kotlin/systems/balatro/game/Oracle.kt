@@ -167,6 +167,20 @@ object Oracle {
         //   Joker fires twice more: mult=6+4+4=14. Score: floor(32×14)=448.
         Case("Pair Echo-Aces + spectrogram(n=0 accumulates to 2),joker → joker fires 3x → 448",
             listOf(en("S_A", Enhancement.ECHO), en("H_A", Enhancement.ECHO)), 448.0, j(FJoker("j_cry_spectrogram"), FJoker("j_joker"))),
+        // boredom: 1-in-odds pseudorandom retrigger of any other joker (epic.lua:868).
+        // Run loop pre-resolves: j.n=1 (roll wins) → retrigger, j.n=0 (roll loses) → no retrigger.
+        // Board [boredom(j.n=1), j_joker]. joker_main: j_joker+4→mult=6 → score=192.
+        // Retrigger sub-loop: boredom sees rj=j_joker, j.n=1, j!==rj → repetitions=1 → j_joker fires again: mult=10.
+        // Final: floor(32×10)=320.
+        Case("Pair aces + boredom(n=1,roll-wins)+joker — boredom retriggers joker → 320", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_boredom", n = 1), FJoker("j_joker"))),
+        // boredom(j.n=0, roll lost): no retrigger — j_joker fires once only → floor(32×6)=192.
+        Case("Pair aces + boredom(n=0,roll-loses)+joker — no retrigger → 192", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_boredom", n = 0), FJoker("j_joker"))),
+        // busdriver: +mult or -mult each joker_main, pseudorandom (misc_joker.lua:7653).
+        // Run loop pre-resolves: j.mult=50 (success) or j.mult=-50 (fail, default odds=4).
+        // Success: chips=32, mult=2+50=52 → floor(32×52)=1664.
+        Case("Pair aces + busdriver(mult=50, success) → 1664", PlayingCard.hand("S_A", "H_A"), 1664.0, j(FJoker("j_cry_busdriver", mult = 50.0))),
+        // Fail: mult=2+(-50)=-48 → floor(32×-48)=-1536.
+        Case("Pair aces + busdriver(mult=-50, fail) → -1536", PlayingCard.hand("S_A", "H_A"), -1536.0, j(FJoker("j_cry_busdriver", mult = -50.0))),
         Case("TwoPair 2s/As + duos (x2.5 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 230.0, j(FJoker("j_cry_duos"))),
         Case("FullHouse As/Ks + home (x3.5 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1302.0, j(FJoker("j_cry_home"))),
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),

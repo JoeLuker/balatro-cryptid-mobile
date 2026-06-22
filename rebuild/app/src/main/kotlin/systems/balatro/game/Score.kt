@@ -145,6 +145,10 @@ object Score {
                 "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && rj !== j && j.n > 0) return Fx().apply { repetitions = j.n }
                 // flip_side: retrigger any joker with the double-sided edition once.
                 "j_cry_flip_side" -> if (rj.edition == "cry_double_sided") return Fx().apply { repetitions = 1 }
+                // boredom: 1-in-odds (default 2) pseudorandom retrigger of any other joker (epic.lua:868).
+                // Pseudorandom — pseudoseed "cry_boredom_joker" is fixed per game state, so the run loop
+                // pre-resolves: j.n=1 if roll succeeded (retrigger), j.n=0 if failed. Fires for any oj.
+                "j_cry_boredom" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = 1 }
             }
             return null
         }
@@ -421,6 +425,10 @@ object Score {
             // Pseudorandom — the run loop sets j.x=1e100 when the roll succeeds, else j.x=1.0.
             // At score time, fire only when j.x > 1.0. Oracle tests must pre-set j.x=1e100 to exercise this path.
             "j_cry_googol_play" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
+            // busdriver: +mult or -mult (default 50) each joker_main with 1-in-odds probability (misc_joker.lua:7653).
+            // Pseudorandom — the run loop pre-resolves the roll: j.mult = +50 if success, -50 if fail (default).
+            // At score time, j.mult != 0 fires; j.mult may be negative (debuff on failed roll).
+            "j_cry_busdriver" -> if (j.mult != 0.0) return Fx().apply { multMod = j.mult }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
