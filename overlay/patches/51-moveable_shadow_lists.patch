@@ -1,0 +1,111 @@
+diff --git a/engine/moveable.lua b/engine/moveable.lua
+index 8f31dc5..02f9795 100644
+--- a/engine/moveable.lua
++++ b/engine/moveable.lua
+@@ -76,7 +76,18 @@ function Moveable:init(X,Y,W,H)
+     self:calculate_parrallax()
+ 
+     table.insert(G.MOVEABLES, self)
+-    if getmetatable(self) == Moveable then 
++    -- MOVEABLE_SHADOW_LISTS: route into the appropriate per-class shadow list.
++    -- MOVEABLES_O catches all subclasses not explicitly named (DynaText,
++    -- Card_Character, AnimatedSprite, mod-added classes) so they are still
++    -- processed every frame — correctness preserved, polymorphic but small.
++    local _mt = getmetatable(self)
++    if     _mt == Card      then table.insert(G.MOVEABLES_C,  self)
++    elseif _mt == Sprite    then table.insert(G.MOVEABLES_S,  self)
++    elseif _mt == UIBox     then table.insert(G.MOVEABLES_UB, self)
++    elseif _mt == UIElement then table.insert(G.MOVEABLES_UE, self)
++    else                         table.insert(G.MOVEABLES_O,  self)
++    end
++    if _mt == Moveable then
+         table.insert(G.I.MOVEABLE, self)
+     end
+ end
+@@ -532,16 +543,20 @@ end
+ 
+ function Moveable:remove()
+     for k, v in pairs(G.MOVEABLES) do
+-        if v == self then
+-            table.remove(G.MOVEABLES, k)
+-            break;
+-        end
++        if v == self then table.remove(G.MOVEABLES, k); break end
++    end
++    -- MOVEABLE_SHADOW_LISTS: mirror removal into the appropriate shadow list
++    local _mt = getmetatable(self)
++    local _sl = (_mt == Card and G.MOVEABLES_C)
++             or (_mt == Sprite and G.MOVEABLES_S)
++             or (_mt == UIBox and G.MOVEABLES_UB)
++             or (_mt == UIElement and G.MOVEABLES_UE)
++             or G.MOVEABLES_O
++    for k, v in pairs(_sl) do
++        if v == self then table.remove(_sl, k); break end
+     end
+     for k, v in pairs(G.I.MOVEABLE) do
+-        if v == self then
+-            table.remove(G.I.MOVEABLE, k)
+-            break;
+-        end
++        if v == self then table.remove(G.I.MOVEABLE, k); break end
+     end
+     Node.remove(self)
+ end
+diff --git a/game.lua b/game.lua
+index 1a01eda..54560be 100644
+--- a/game.lua
++++ b/game.lua
+@@ -2877,15 +2877,29 @@ function Game:update(dt)
+ 
+         G.exp_times.max_vel = 70*move_dt
+         
+-        for k, v in pairs(self.MOVEABLES) do
+-            if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end
+-        end
++        -- MOVEABLE_SHADOW_LISTS: monomorphic move-pass loops per class.
++        -- MOVEABLES_O catches all subclasses not explicitly listed (CardArea,
++        -- Blind, DynaText, Card_Character, AnimatedSprite, Particles, mods)
++        -- and iterates FIRST: majors (CardAreas) must stamp FRAME.MOVE before
++        -- their minor cards run, or the MOVEABLE_SLEEP minor gate
++        -- (major.FRAME.MOVE >= G.FRAMES.MOVE) can never pass and every first
++        -- card per area pays the full move path each frame. Order follows the
++        -- attachment chain: CardArea(O) -> Card(C) -> Sprite(S)/UIBox(UB) ->
++        -- UIElement(UE).
++        for k, v in ipairs(self.MOVEABLES_O)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
++        for k, v in ipairs(self.MOVEABLES_C)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
++        for k, v in ipairs(self.MOVEABLES_S)  do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
++        for k, v in ipairs(self.MOVEABLES_UB) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
++        for k, v in ipairs(self.MOVEABLES_UE) do if v.FRAME.MOVE < G.FRAMES.MOVE then v:move(move_dt) end end
+                     timer_checkpoint('move', 'update')
+         
+-        for k, v in pairs(self.MOVEABLES) do
+-            v:update(dt*self.SPEEDFACTOR, self.real_dt)
+-            v.states.collide.is = false
+-        end
++        -- MOVEABLE_SHADOW_LISTS: monomorphic update-pass loops per class,
++        -- majors-first (same order rationale as the move pass above)
++        for k, v in ipairs(self.MOVEABLES_O)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
++        for k, v in ipairs(self.MOVEABLES_C)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
++        for k, v in ipairs(self.MOVEABLES_S)  do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
++        for k, v in ipairs(self.MOVEABLES_UB) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
++        for k, v in ipairs(self.MOVEABLES_UE) do v:update(dt*self.SPEEDFACTOR, self.real_dt); v.states.collide.is = false end
+                     timer_checkpoint('update', 'update')
+     end
+     
+diff --git a/globals.lua b/globals.lua
+index bcf8759..42206e3 100644
+--- a/globals.lua
++++ b/globals.lua
+@@ -364,6 +364,12 @@ function Game:set_globals()
+     self.ANIMATION_ATLAS = {}
+     self.ASSET_ATLAS = {}
+     self.MOVEABLES = {}
++    -- MOVEABLE_SHADOW_LISTS: per-class shadow lists for JIT-friendly loops
++    self.MOVEABLES_C  = {}  -- Card
++    self.MOVEABLES_S  = {}  -- Sprite (exact; AnimatedSprite goes to MOVEABLES_O)
++    self.MOVEABLES_UB = {}  -- UIBox
++    self.MOVEABLES_UE = {}  -- UIElement
++    self.MOVEABLES_O  = {}  -- catch-all: DynaText, Card_Character, AnimatedSprite, mods
+     self.ANIMATIONS = {}
+     self.DRAW_HASH = {}
+ 

@@ -8,25 +8,38 @@ set shell := ["bash", "-euc"]
 default:
     @just --list
 
-# Check that all required tools are available
+# Check legacy tools (the Nix build supplies its own toolchain; deploy still uses adb)
 check:
     ./scripts/build.sh check
 
-# Fetch all sources (base.apk, Balatro.love, mods)
+# Sources are pinned in nix/sources.json and fetched by Nix at build time.
 fetch:
-    ./scripts/build.sh fetch
+    @echo "Sources are pinned in nix/sources.json — Nix fetches them on build."
+    @echo "Re-pin to newer upstreams with: nix/update-sources.sh"
 
-# Build the APK and prepare transfer files
+# Build game.love + signed APK via Nix (pinned, reproducible), then stage build/
+# for the local tests (build/game) and deploy (build/apk + build/phone-transfer).
 build:
-    ./scripts/build.sh build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "[build] game.love (Nix, pinned sources)…"
+    gl="$(nix-build nix/balatro-cryptid.nix -A gameLove --no-out-link)"
+    rm -rf build/game; mkdir -p build/game; unzip -q "$gl" -d build/game
+    echo "[build] signing APK…"
+    nix/sign.sh build/balatro-cryptid.apk
+    mkdir -p build/apk; cp build/balatro-cryptid.apk build/apk/com.unofficial.balatro.cryptid.apk
+    echo "[build] staging save-dir mods (build/phone-transfer)…"
+    rm -rf build/phone-transfer; mkdir -p build/phone-transfer
+    cp -r build/game/Mods build/phone-transfer/Mods
+    [ -f build/game/lovely.lua ] && cp build/game/lovely.lua build/phone-transfer/lovely.lua || true
+    echo "[build] done → build/balatro-cryptid.apk, build/game, build/phone-transfer"
 
-# Deploy APK and mods to connected phone
+# Deploy APK and mods to connected phone (installs build/apk + pushes build/phone-transfer)
 deploy:
     ./scripts/build.sh deploy
 
-# Full pipeline: fetch, build, deploy
-all:
-    ./scripts/build.sh all
+# Full pipeline: build (Nix) + deploy
+all: build deploy
 
 # Watch app logs from connected phone
 logs:
@@ -36,10 +49,8 @@ logs:
 clean:
     ./scripts/build.sh clean
 
-# Quick rebuild and deploy (skip fetch)
-quick:
-    ./scripts/build.sh build
-    ./scripts/build.sh deploy
+# Alias: build + deploy
+quick: build deploy
 
 # Local controller gesture tests — runs the REAL built controller.lua with
 # scripted touch gestures (tap/hold/drag/slide) in <1s. No phone, no display.

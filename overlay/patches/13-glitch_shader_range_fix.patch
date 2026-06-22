@@ -1,0 +1,28 @@
+diff --git a/Mods/Cryptid/assets/shaders/glitched.fs b/Mods/Cryptid/assets/shaders/glitched.fs
+index 753c740..3e01963 100644
+--- a/Mods/Cryptid/assets/shaders/glitched.fs
++++ b/Mods/Cryptid/assets/shaders/glitched.fs
+@@ -96,7 +96,13 @@ vec4 HSL(vec4 c)
+ 
+ //Shader by Samario
+ highp float rand(highp vec2 co){
+-    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
++    // MALI_RANGE_FIX: sineless hash. The sin-based hash fed sin() arguments
++    // up to ~13000 rad, where Mali's range reduction returns garbage. fract
++    // keeps every intermediate bounded; same statistical character, and no
++    // transcendentals.
++    highp vec3 p3 = fract(vec3(co.xyx) * .1031);
++    p3 += dot(p3, p3.yzx + 33.33);
++    return fract((p3.x + p3.y) * p3.z);
+ }
+ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords )
+ {
+@@ -109,7 +115,7 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
+     vec2 texCoordsG = texture_coords;
+     vec2 texCoordsB = texture_coords;
+ 
+-    highp float iTime = tan(2. * time);
++    highp float iTime = tan(mod(2. * time, 3.14159265358979));
+     iTime = (abs(iTime) < 1000.0) ? iTime : 0.0; // Mali NaN/inf guard: tan singularities render cards black
+ 
+     texCoordsR.x += (0.004 * rand(vec2(iTime, uv.y))) - 0.002 + (POLY_THROWAWAY * 0.0000001);

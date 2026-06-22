@@ -146,11 +146,11 @@
  {
   "key": "j_cry_spectrogram",
   "name": "cry-Spectrogram",
-  "fires": "other_joker",
-  "kotlin": "// No direct engine mapping: Spectrogram uses context.retrigger_joker_check\n// (count Echo-enhanced cards in scoring_hand during before, then retrigger rightmost joker that many times).\n// Engine has no retrigger_joker_check dispatch guard; cannot emit Fx here.",
-  "accumulator": "",
-  "confidence": "medium",
-  "notes": "Counts Echo-enhancement cards in scoring hand during context.before, then on context.retrigger_joker_check returns repetitions=echonum for the rightmost joker. Engine dispatch lacks a retrigger_joker_check analog; the other_joker guard is the closest but cannot represent joker-retrigger repetitions via Fx."
+  "fires": "retrigger_joker_check",
+  "kotlin": "// retrigger_joker_check guard in calcJoker:\n\"j_cry_spectrogram\" -> if (rj === ctx.board.lastOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }",
+  "accumulator": "n; increments by 1 for each Echo-enhanced (m_cry_echo) card that is scored in the per-card pass. No-op until m_cry_echo is added to the Enhancement enum \u2014 j.n will always be 0.",
+  "confidence": "high",
+  "notes": "Retriggers the rightmost board joker j.n times where n = count of Echo-enhanced cards scored this hand. Engine-side: wire in per-card pass when m_cry_echo is added to Enhancement enum. Retrigger dispatch implemented; accumulator hook left as TODO comment."
  },
  {
   "key": "j_cry_jtron",
@@ -641,11 +641,11 @@
  {
   "key": "j_cry_loopy",
   "name": "cry-loopy",
-  "fires": "non-scoring",
-  "kotlin": "",
-  "accumulator": "",
+  "fires": "retrigger_joker_check",
+  "kotlin": "// retrigger_joker_check guard in calcJoker:\n\"j_cry_loopy\" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = minOf(j.n, 40) }",
+  "accumulator": "n; increments when a Jolly Joker (j_jolly) is sold during the run \u2014 managed by the run loop, not Score.kt. Default 0 = no retriggers.",
   "confidence": "high",
-  "notes": "Fires on retrigger_joker_check context (not context.repetition for cards): retriggers OTHER jokers by min(retrigger, 40) times. The counter increments when Jolly Jokers are sold. This is a joker-retrigger effect, not a card scoring repetition \u2014 no matching dispatch guard in the engine."
+  "notes": "Retriggers all other board jokers min(j.n, 40) times. j.n = Jolly Jokers sold this round (managed by run loop; Score.kt reads it). Self-excluded (j !== rj). Retrigger dispatch implemented; run-loop accumulator is out-of-scope for Score.kt."
  },
  {
   "key": "j_cry_scrabble",

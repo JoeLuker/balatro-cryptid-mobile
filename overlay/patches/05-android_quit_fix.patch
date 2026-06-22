@@ -1,0 +1,25 @@
+diff --git a/functions/button_callbacks.lua b/functions/button_callbacks.lua
+index 4a4238f..828f47f 100644
+--- a/functions/button_callbacks.lua
++++ b/functions/button_callbacks.lua
+@@ -1691,8 +1691,18 @@ G.FUNCS.profile_select = function(e)
+   }
+ end
+ 
+-G.FUNCS.quit = function(e)
+-  love.event.quit()
++G.FUNCS.quit = function(e) -- QUIT_FLUSH
++  -- Flush any staged save work before the Lua loop exits.
++  -- save_progress() marks FILE_HANDLER dirty; the channel push happens in
++  -- Game:update(). force=true makes it dispatch on the very next tick
++  -- instead of waiting for the 30s F_SAVE_TIMER. Defer quit by one frame
++  -- so that update tick fires before the loop returns.
++  G:save_progress()
++  if G.FILE_HANDLER then G.FILE_HANDLER.force = true end
++  G.E_MANAGER:add_event(Event({
++    trigger = 'after', delay = 0.05, blockable = false, blocking = false,
++    func = function() love.event.quit() return true end
++  }))
+ end
+ 
+ G.FUNCS.quit_cta = function(e)

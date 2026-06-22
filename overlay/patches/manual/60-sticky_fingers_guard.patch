@@ -1,0 +1,56 @@
+diff --git a/Mods/sticky-fingers/main.lua b/Mods/sticky-fingers/main.lua
+index 5fdfe8f..7c7f933 100644
+--- a/Mods/sticky-fingers/main.lua
++++ b/Mods/sticky-fingers/main.lua
+@@ -34,3 +34,51 @@ DTM.config_tab = function()
+     }
+   }
+ end
++-- Guard every sticky_can_* wrapper against a missing optional integration
++-- (Pokermon, Bunco, Reverie, etc.). When the integration is absent its
++-- G.FUNCS.can_X is nil; calling nil crashes on mobile where drag-targets render.
++-- These wrappers are normally injected by lovely/misc_functions.toml (append),
++-- but the lovely dump does not capture that append, so we provide them here
++-- with the nil-guard baked in. -- STICKY_GUARD
++sticky_can_use_blind_card = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_use_blind_card then return false end -- STICKY_GUARD
++    G.FUNCS.can_use_blind_card(temp_config)
++    return temp_config.config.button ~= nil
++end
++sticky_can_reserve_card = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_reserve_card then return false end -- STICKY_GUARD
++    G.FUNCS.can_reserve_card(temp_config)
++    return temp_config.config.button ~= nil
++end
++sticky_can_select_card = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_select_card then return false end -- STICKY_GUARD
++    G.FUNCS.can_select_card(temp_config)
++    return temp_config.config.button ~= nil
++end
++sticky_can_buy = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_buy then return false end -- STICKY_GUARD
++    G.FUNCS.can_buy(temp_config)
++    return temp_config.config.button ~= nil
++end
++sticky_can_buy_and_use = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_buy_and_use then return false end -- STICKY_GUARD
++    G.FUNCS.can_buy_and_use(temp_config)
++    return temp_config.config.button ~= nil
++end
++sticky_can_select_crazy_card = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_select_crazy_card then return false end -- STICKY_GUARD
++    G.FUNCS.can_select_crazy_card(temp_config)
++    return temp_config.config.button ~= nil
++end
++sticky_can_take_card = function(_card)
++    local temp_config = { UIBox = { states = { visible = false } }, config = { ref_table = _card } }
++    if not G.FUNCS.can_take_card then return false end -- STICKY_GUARD
++    G.FUNCS.can_take_card(temp_config)
++    return temp_config.config.button ~= nil
++end

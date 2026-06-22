@@ -1,0 +1,13 @@
+diff --git a/Mods/Steamodded/src/ui.lua b/Mods/Steamodded/src/ui.lua
+index b4478b3..520ba63 100644
+--- a/Mods/Steamodded/src/ui.lua
++++ b/Mods/Steamodded/src/ui.lua
+@@ -2601,7 +2601,7 @@ function SMODS.GUI.current_hand_ui(scale)
+     {n=G.UIT.R, config={align = "cm", minh = 1.1}, nodes={
+         {n=G.UIT.O, config={id = 'hand_name', func = 'hand_text_UI_set',object = DynaText({string = {{ref_table = G.GAME.current_round.current_hand, ref_value = "handname_text"}}, colours = {G.C.UI.TEXT_LIGHT}, shadow = true, float = true, scale = scale*1.4})}},
+         {n=G.UIT.O, config={id = 'hand_chip_total', func = 'hand_chip_total_UI_set',object = DynaText({string = {{ref_table = G.GAME.current_round.current_hand, ref_value = "chip_total_text"}}, colours = {G.C.UI.TEXT_LIGHT}, shadow = true, float = true, scale = scale*1.4})}},
+-        {n=G.UIT.T, config={ref_table = G.GAME.current_round.current_hand, ref_value='hand_level', scale = scale, colour = G.C.UI.TEXT_LIGHT, id = 'hand_level', shadow = true}},
++        {n=G.UIT.T, config={ref_table = G.GAME.current_round.current_hand, ref_value='hand_level', scale = scale, colour = G.C.UI.TEXT_LIGHT, id = 'hand_level', shadow = true, no_recalc = true}}, -- HAND_LEVEL_NO_RECALC
+     }}
+ end
+ 

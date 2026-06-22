@@ -1,0 +1,22 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index 29c3ec0..608abe2 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2587,6 +2587,17 @@ function G.UIDEF.settings_tab(tab)
+       G.F_CRASH_REPORTS and create_toggle({label = localize('b_set_crash_reports'), ref_table = G.SETTINGS, ref_value = 'crashreports', info = localize('ml_crash_report_info')}) or nil,
+     }}
+   elseif tab == 'Video' then
++    -- Android video settings hidden (monitor/resolution don't apply)
++    if love.system.getOS() == 'Android' then
++      return {n=G.UIT.ROOT, config={align = "cm", padding = 0.1, colour = G.C.CLEAR}, nodes={
++        {n=G.UIT.R, config={align = "cm"}, nodes={
++          {n=G.UIT.T, config={text = "Video settings not available", scale = 0.5, colour = G.C.UI.TEXT_LIGHT}}
++        }},
++        {n=G.UIT.R, config={align = "cm"}, nodes={
++          {n=G.UIT.T, config={text = "on mobile devices", scale = 0.4, colour = G.C.UI.TEXT_INACTIVE}}
++        }}
++      }}
++    end
+     --Reset the queue so there are no pending changes
+     G.SETTINGS.QUEUED_CHANGE = {}
+   

@@ -60,6 +60,7 @@ function M.make_node(world, opts)
         return pt.x >= self.T.x and pt.x <= self.T.x + self.T.w
            and pt.y >= self.T.y and pt.y <= self.T.y + self.T.h
     end
+    n.inside_overflow_boundaries = function() return true end -- PRISTINE_ENGINE_COMPAT: Steamodded adds this; harness nodes have no overflow container
     n.set_offset  = recorder(n, 'set_offset')
     n.hover       = recorder(n, 'hover')
     n.stop_hover  = function(self, ...)
@@ -171,6 +172,7 @@ function M.new_world(opts)
     local room = M.make_node(world, { x = 0, y = 0, w = 20, h = 11.5,
         hover_can = false, click_can = false, drag_can = false, collide_can = false })
     room.collides_with_point = function() return false end
+    room.inside_overflow_boundaries = function() return true end -- PRISTINE_ENGINE_COMPAT
     G.ROOM = room
     G.ROOM_ATTACH = room
 

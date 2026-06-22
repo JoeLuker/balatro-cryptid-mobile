@@ -85,15 +85,16 @@ fetch_sources() {
     fetch_mod "MathIsFun0/Cryptid" "cryptid" "Cryptid"
     # Amulet replaces Talisman (2026-06-11): the officially recommended fork —
     # cdata OmegaNum, save round-trip via self-rehydrating strings, lovely
-    # typefix compat layer. mods/Talisman stays on disk for rollback alongside
-    # src/dump-talisman; regenerate the dump with scripts/regen-dump.sh.
+    # typefix compat layer. (Talisman-era rollback dumps retired in Phase 5 —
+    # recover from git history if needed.) Regenerate the dump from the pins
+    # with nix/regen-dump.sh.
     fetch_mod "frostice482/amulet" "Amulet" "Amulet"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
     fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
 
     # CardSleeves (deck sleeves; its lovely patches — seed-gen reorder in
     # Game:start_run, priority-ordered after Cryptid — are baked via
-    # scripts/regen-dump.sh). Release assets are version-named, so pin the
+    # nix/regen-dump.sh). Release assets are version-named, so pin the
     # tag explicitly.
     if [[ ! -d "$MODS_DIR/CardSleeves" ]]; then
         log_info "Fetching CardSleeves v1.9.2..."
@@ -234,7 +235,7 @@ patch_mods_dir() {
     apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
     apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
-    apply_structural_mods_lock    "$mods_dir/Steamodded/src/loader.lua"
+    apply_structural_mods_lock    "$mods_dir/Steamodded/src/preflight/loader.lua"
     apply_smods_disabled_pool_gate "$mods_dir/Steamodded/src/utils.lua"
     apply_mod_toggle_removed      "$mods_dir/Steamodded/src/ui.lua"
     apply_cryptid_to_big_elim \
@@ -4572,11 +4573,13 @@ local STRUCTURAL_BAKED = { Cryptid = true, Amulet = true, Talisman = true, ['era
 
 """
 
-old_check = """                    if NFS.getInfo(directory..'/.lovelyignore') then
+old_check = """                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') then
                         mod.disabled = true
+                        mod.lovelyIgnored = true
                     end"""
-new_check = """                    if NFS.getInfo(directory..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
+new_check = """                    if flags.type == "directory" and NFS.getInfo(SMODS.MODS_DIR.. "/" .. flags.name ..'/.lovelyignore') and not STRUCTURAL_BAKED[mod.id] then -- STRUCTURAL_MODS_LOCK
                         mod.disabled = true
+                        mod.lovelyIgnored = true
                     end"""
 
 n = text.count(old_check)

@@ -1,0 +1,20 @@
+diff --git a/engine/ui.lua b/engine/ui.lua
+index 1a15db3..b9f6f09 100644
+--- a/engine/ui.lua
++++ b/engine/ui.lua
+@@ -1029,8 +1029,13 @@ function UIElement:update(dt)
+     if self.config.button_temp and not self.config.button_delay then self.config.button = self.config.button_temp end
+     if self.button_clicked then self.button_clicked = nil end
+     if self.config and self.config.func then
+-        G.ARGS.FUNC_TRACKER[self.config.func] = (G.ARGS.FUNC_TRACKER[self.config.func] or 0) + 1
+-        G.FUNCS[self.config.func](self)
++        -- UI_FUNC_THROTTLE: poll funcs every 3rd frame, phase-staggered by
++        -- node ID; first update always fires; config.instant_func opts out
++        if self.config.instant_func or not self._ft_seen or (G.FRAMES.MOVE + self.ID) % 3 == 0 then
++            self._ft_seen = true
++            G.ARGS.FUNC_TRACKER[self.config.func] = (G.ARGS.FUNC_TRACKER[self.config.func] or 0) + 1
++            G.FUNCS[self.config.func](self)
++        end
+     end
+     if self.UIT == G.UIT.T then self:update_text() end
+     if self.UIT == G.UIT.O then self:update_object() end

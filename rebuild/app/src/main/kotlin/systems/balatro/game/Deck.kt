@@ -46,6 +46,33 @@ class Deck(seed: Long) {
         return all[i]
     }
 
+    /** Enhance a specific card already in the deck (tarot player-choice path). Matches by value
+     *  (suit+rank+enhancement+seal) and replaces the first matching card. If the card isn't found
+     *  (e.g. it was already enhanced) nothing changes; returns true iff a card was modified. */
+    fun enhanceCard(card: PlayingCard, e: Enhancement): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        all[i] = all[i].copy(enhancement = e)
+        // Mirror the update in the draw pile if the card is still there.
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, all[i]) }
+        return true
+    }
+
+    /** Put a seal on a specific card already in the deck (tarot player-choice path). Matches by value. */
+    fun sealCard(card: PlayingCard, s: Seal): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        all[i] = all[i].copy(seal = s)
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, all[i]) }
+        return true
+    }
+
+    /** Count cards in the FULL persistent deck with a given enhancement (for j_stone, j_steel_joker). */
+    fun countEnhancement(e: Enhancement): Int = all.count { it.enhancement == e }
+
+    /** Cards in the FULL persistent deck carrying ANY enhancement (j_drivers_license: X3 at >=16).
+     *  Recomputed from deck state so re-enhancing a card can't drift the tally (vanilla counts
+     *  cards whose get_enhancements() is non-empty). */
+    val enhancedCards: Int get() = all.count { it.enhancement != Enhancement.NONE }
+
     val remaining: Int get() = drawPile.size
 
     /** The full persistent deck (with enhancements/seals) — for run serialization. */

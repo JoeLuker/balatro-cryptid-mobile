@@ -1,0 +1,99 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 80862ee..7611469 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -15,6 +15,7 @@ self.collision_list = {} --A list of all node that the cursor currently collides
+ 
+ --Input values to be determined by this controller - the actual game objects should not have to see any of this
+ self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}
++self.dragSelectActive = {active = false, mode = nil, start_card = nil} -- DRAG_SELECT_INIT
+ self.cursor_up = {T = {x=0, y=0}, target = nil, time = 0.1, handled = true}
+ self.cursor_hover = {T = {x=0, y=0}, target = nil, time = 0, handled = true}
+ self.cursor_collider = nil --The node that collides with the cursor this frame
+@@ -314,6 +315,16 @@ function Controller:update(dt)
+         self.L_cursor_queue = nil
+     end
+ 
++    if self.dragSelectActive.active and self.dragSelectActive.start_card and not self.dragSelectActive.mode and self.is_cursor_down and (self.cursor_down.duration or 0) >= 0.1 then -- DRAG_SELECT_HOLD_REORDER
++        local _sc = self.dragSelectActive.start_card
++        self.dragSelectActive.active = false; self.dragSelectActive.start_card = nil
++        if _sc.states.drag.can and not _sc.REMOVED then
++            _sc.states.drag.is = true
++            _sc:set_offset(self.cursor_down.T, 'Click')
++            self.dragging.target = _sc
++            self.dragging.handled = false
++        end
++    end
+     self.dragging.prev_target = self.dragging.target
+     self.released_on.prev_target = self.released_on.target
+     self.clicked.prev_target = self.clicked.target
+@@ -321,16 +332,19 @@ function Controller:update(dt)
+ 
+     --Cursor is currently down
+     if not self.cursor_down.handled then 
+-        if self.cursor_down.target.states.drag.can then
++        if self.cursor_down.target.states.drag.can and not ((self.HID.touch or self.HID.touch_env) and G.SETTINGS.enable_drag_select and self.cursor_down.target.area == G.hand) then -- DRAG_SELECT_CARD_START: hand pickup deferred to hold
+             self.cursor_down.target.states.drag.is = true
+             self.cursor_down.target:set_offset(self.cursor_down.T, 'Click')
+             self.dragging.target = self.cursor_down.target
+             self.dragging.handled = false
+         end
++        if (self.HID.touch or self.HID.touch_env) and not self.dragging.target and #self.collision_list == 0 and G.SETTINGS.enable_drag_select then self.dragSelectActive.active = true end -- DRAG_SELECT_ACTIVATE
++        if (self.HID.touch or self.HID.touch_env) and G.SETTINGS.enable_drag_select and not self.dragging.target and self.cursor_down.target and self.cursor_down.target.area == G.hand and self.cursor_down.target.states.hover.can then self.dragSelectActive.active = true; self.dragSelectActive.start_card = self.cursor_down.target end -- DRAG_SELECT_CARD_START
+         self.cursor_down.handled = true
+     end
+ 
+     if not self.cursor_up.handled then 
++        self.dragSelectActive.active = false; self.dragSelectActive.mode = nil; self.dragSelectActive.start_card = nil -- DRAG_SELECT_RESET
+         --First, stop dragging
+         if self.dragging.target then
+             self.dragging.target:stop_drag()
+@@ -356,6 +370,24 @@ function Controller:update(dt)
+         self.cursor_up.handled = true
+     end
+ 
++    if (self.HID.touch or self.HID.touch_env) and self.dragSelectActive.active then -- DRAG_SELECT_LOOP
++        local distance = math.huge; local closest = nil
++        for _, v in ipairs(self.collision_list) do
++            local cur_distance = Vector_Dist(self.cursor_hover.T, v.T)
++            if v.area ~= nil and v.area.config.type == "hand" and v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) and cur_distance < distance then
++                closest = v; distance = cur_distance
++            end
++        end
++        local _start = self.dragSelectActive.start_card
++        if closest and _start and not self.dragSelectActive.mode and closest ~= _start then -- DRAG_SELECT_CARD_START sweep begins
++            self.dragSelectActive.mode = _start.highlighted and "deselect" or "select"
++            if _start.highlighted then _start.area:remove_from_highlighted(_start) else _start.area:add_to_highlighted(_start) end
++        end
++        if closest and (closest ~= _start or self.dragSelectActive.mode) and (not self.dragSelectActive.mode or self.dragSelectActive.mode == "select" and not closest.highlighted or self.dragSelectActive.mode == "deselect" and closest.highlighted) then
++            if closest.highlighted then closest.area:remove_from_highlighted(closest); self.dragSelectActive.mode = "deselect"
++            else closest.area:add_to_highlighted(closest); self.dragSelectActive.mode = "select" end
++        end
++    end
+     --Cursor is currently hovering over something
+     if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) and not ((self.HID.touch or self.HID.touch_env) and self.cursor_hover.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2) then -- TAP_DESC_HOLDGATE 
+         self.hovering.target = self.cursor_hover.target
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index bf8c48f..932a6bc 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2593,6 +2593,7 @@ function G.UIDEF.settings_tab(tab)
+       create_toggle({label = localize('ph_display_stickers'), ref_table = G.SETTINGS, ref_value = 'run_stake_stickers'}),
+       create_toggle({label = localize('b_high_contrast_cards'), ref_table = G.SETTINGS, ref_value = 'colourblind_option', callback = G.FUNCS.refresh_contrast_mode}),
+       create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),
++      create_toggle({label = "Slide to select cards", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),
+       G.F_CRASH_REPORTS and create_toggle({label = localize('b_set_crash_reports'), ref_table = G.SETTINGS, ref_value = 'crashreports', info = localize('ml_crash_report_info')}) or nil,
+     }}
+   elseif tab == 'Video' then
+diff --git a/globals.lua b/globals.lua
+index e36305e..bcf8759 100644
+--- a/globals.lua
++++ b/globals.lua
+@@ -165,6 +165,7 @@ function Game:set_globals()
+     --           SETTINGS
+     --||||||||||||||||||||||||||||||
+     self.SETTINGS = {
++        enable_drag_select = true, -- DRAG_SELECT_DEFAULT
+         COMP = {
+             name = '',
+             prev_name = '',

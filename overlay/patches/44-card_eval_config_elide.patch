@@ -1,0 +1,106 @@
+diff --git a/functions/common_events.lua b/functions/common_events.lua
+index 645502e..2556a72 100644
+--- a/functions/common_events.lua
++++ b/functions/common_events.lua
+@@ -1005,16 +1005,16 @@ function card_eval_status_text(card, eval_type, amt, percent, dir, extra)
+         y_off = -0.05*G.CARD_H
+         card_aligned = 'tm'
+     end
+-    local config = {}
++    local config_scale -- CES_CONFIG_ELIDED: .scale -> local; .type writes were dead; .colour read was always nil
+     local delay = 0.65
+-    local colour = config.colour or (extra and extra.colour) or ( G.C.FILTER )
++    local colour = (extra and extra.colour) or ( G.C.FILTER )
+     local extrafunc = nil
+ 
+     if eval_type == 'debuff' then 
+         sound = 'cancel'
+         amt = 1
+         colour = G.C.RED
+-        config.scale = 0.6
++        config_scale = 0.6
+         text = localize('k_debuffed')
+     elseif eval_type == 'chips' then 
+         sound = 'chips1'
+@@ -1027,38 +1027,33 @@ function card_eval_status_text(card, eval_type, amt, percent, dir, extra)
+         amt = amt
+         text = localize{type='variable',key='a_mult'..(amt<0 and '_minus' or ''),vars={math.abs(amt)}}
+         colour = G.C.MULT
+-        config.type = 'fade'
+-        config.scale = 0.7
++        config_scale = 0.7
+     elseif eval_type == 'x_chips' then
+             sound = 'xchips'
+             volume = 0.7
+             amt = amt
+             text = localize{type='variable',key='a_xchips'..(amt<0 and '_minus' or ''),vars={math.abs(amt)}}
+             colour = G.C.BLUE
+-            config.type = 'fade'
+-            config.scale = 0.7
++            config_scale = 0.7
+     elseif (eval_type == 'x_mult') or (eval_type == 'h_x_mult') then 
+         sound = 'multhit2'
+         volume = 0.7
+         amt = amt
+         text = localize{type='variable',key='a_xmult'..(amt<0 and '_minus' or ''),vars={math.abs(amt)}}
+         colour = G.C.XMULT
+-        config.type = 'fade'
+-        config.scale = 0.7
++        config_scale = 0.7
+     elseif eval_type == 'h_mult' then 
+         sound = 'multhit1'
+         amt = amt
+         text = localize{type='variable',key='a_mult'..(amt<0 and '_minus' or ''),vars={math.abs(amt)}}
+         colour = G.C.MULT
+-        config.type = 'fade'
+-        config.scale = 0.7
++        config_scale = 0.7
+     elseif Talisman.effects.list[eval_type] then
+     	local h = Talisman.effects.list[eval_type]
+     	sound = h.sound
+     	text = h.stringify(amt)
+     	colour = G.C[h.colorKey or 'WHITE']
+-    	config.type = 'fade'
+-    	config.scale = 0.7
++    	config_scale = 0.7
+     	amt = h.hyper and amt[2] or amt
+     elseif eval_type == 'dollars' then 
+         sound = 'coin3'
+@@ -1114,16 +1109,13 @@ function card_eval_status_text(card, eval_type, amt, percent, dir, extra)
+             colour = G.C.MULT
+         end
+         if extra.chip_mod or extra.Xchip_mod then
+-            config.type = 'fall'
+             colour = G.C.CHIPS
+-            config.scale = 0.7
++            config_scale = 0.7
+         elseif extra.swap then
+-            config.type = 'fall'
+             colour = G.C.PURPLE
+-            config.scale = 0.7
++            config_scale = 0.7
+         else
+-            config.type = 'fall'
+-            config.scale = 0.7
++            config_scale = 0.7
+         end
+     end
+     delay = delay*1.25
+@@ -1133,7 +1125,7 @@ function card_eval_status_text(card, eval_type, amt, percent, dir, extra)
+             if extrafunc then extrafunc() end
+             attention_text({
+                 text = text,
+-                scale = config.scale or 1, 
++                scale = config_scale or 1, 
+                 hold = delay - 0.2,
+                 colour = extra and extra.text_colour,
+                 backdrop_colour = colour,
+@@ -1167,7 +1159,7 @@ function card_eval_status_text(card, eval_type, amt, percent, dir, extra)
+                     if extrafunc then extrafunc() end
+                     attention_text({
+                         text = text,
+-                        scale = config.scale or 1, 
++                        scale = config_scale or 1, 
+                         hold = delay - 0.2,
+                         colour = extra and extra.text_colour,
+                         backdrop_colour = colour,

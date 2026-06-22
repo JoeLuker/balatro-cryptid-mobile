@@ -1,0 +1,19 @@
+diff --git a/globals.lua b/globals.lua
+index b05b8b9..e36305e 100644
+--- a/globals.lua
++++ b/globals.lua
+@@ -213,10 +213,10 @@ function Game:set_globals()
+             }
+         },
+         GRAPHICS = {
+-            texture_scaling = 2,
+-            shadows = 'On',
+-            crt = 70,
+-            bloom = 1
++            texture_scaling = 1,
++            shadows = 'Off',
++            crt = 0,
++            bloom = 0
+         },
+     }
+ 

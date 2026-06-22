@@ -1,0 +1,12 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index ee5ac96..80862ee 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -1108,6 +1108,7 @@ function Controller:L_cursor_press(x, y)
+ 
+     self.cursor_down.T = {x = x/(G.TILESCALE*G.TILESIZE), y = y/(G.TILESCALE*G.TILESIZE)}
+     self.cursor_down.time = G.TIMERS.TOTAL
++    self.cursor_down.uptime = G.TIMERS.UPTIME -- CURSOR_DOWN_UPTIME_FIX
+     self.cursor_down.handled = false
+     self.cursor_down.target = nil
+     self.is_cursor_down = true

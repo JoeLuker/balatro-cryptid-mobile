@@ -146,11 +146,11 @@
  {
   "key": "j_cry_chad",
   "name": "cry-Chad",
-  "fires": "retrigger_joker_check (UNSUPPORTED)",
-  "kotlin": "",
-  "accumulator": "",
-  "confidence": "tracked-gap",
-  "notes": "DELIBERATELY UNWIRED 2026-06-16. Chad retriggers the LEFT-MOST joker (G.jokers.cards[1]) config.extra.retriggers=2 times (capped at immutable.max_retriggers=25) via context.retrigger_joker_check. The engine has NO joker-retrigger pass — the JOKER MAIN pass (Score.kt) evaluates each joker's main effect exactly once, and the only reps loop is per-scored-CARD (Score.kt ~L346), which retriggers cards, not jokers. The earlier proposal mapping this to repetitions in an other_joker branch was wrong (that would retrigger scored cards). retrigger_joker_check is a RECURRING Cryptid family — also j_cry_spectrogram, j_cry_flip_side, j_cry_blur, m_cry_loopy, and the m_cry_echo edition. Faithful support needs a dedicated joker-retrigger dispatch around the joker_main pass (mirroring the per-card reps loop) plus real LÖVE baselines; tracked as its own batch, not approximated here."
+  "fires": "retrigger_joker_check",
+  "kotlin": "// retrigger_joker_check guard in calcJoker:\n\"j_cry_chad\" -> if (rj === ctx.board.firstOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }",
+  "accumulator": "n; immutable config.extra.retriggers=2 \u2014 set at buy time via FJoker(n=2). Does not change at runtime.",
+  "confidence": "high",
+  "notes": "Retriggers the leftmost board joker j.n times (config.extra.retriggers=2; immutable). Implemented via the new joker-retrigger sub-loop in Score.score() joker_main pass. If Chad is the leftmost joker it retriggers itself (Lua has no self-exclusion). FJoker must be constructed with n=2; CATALOG entry sets rarity=3 (best-guess Rare)."
  },
  {
   "key": "j_cry_jimball",
@@ -785,11 +785,11 @@
  {
   "key": "j_cry_flip_side",
   "name": "cry-Flip Side",
-  "fires": "other_joker",
-  "kotlin": "val oj = ctx.otherJoker\nif (oj != null && oj.edition == \"cry_double_sided\") return Fx().apply { repetitions = 1 }",
+  "fires": "retrigger_joker_check",
+  "kotlin": "// retrigger_joker_check guard in calcJoker:\n\"j_cry_flip_side\" -> if (rj.edition == \"cry_double_sided\") return Fx().apply { repetitions = 1 }",
   "accumulator": "",
-  "confidence": "medium",
-  "notes": "fires on context.retrigger_joker_check (not a standard dispatch guard); gives +1 repetition to any joker with the double_sided edition; closest mapping is other_joker dispatch but the retrigger_joker_check context is not a direct equivalent \u2014 medium confidence due to context mismatch"
+  "confidence": "high",
+  "notes": "Retriggers any board joker with edition=cry_double_sided once. Implemented in the joker-retrigger sub-loop (calcJoker retrigger_joker_check guard). The double-sided edition is a Cryptid-specific edition not yet fully modelled in the Kotlin engine (FJoker.edition is a String; cry_double_sided just needs to be passed in at construction time)."
  },
  {
   "key": "j_cry_oldinvisible",

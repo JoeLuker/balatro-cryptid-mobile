@@ -1,0 +1,27 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -406,6 +406,23 @@
+     if not self.clicked.handled then
+         self.clicked.target:click()
+         self.clicked.handled = true
++        -- TAP_DESC_TOGGLE: on touch, maintain shown_desc toggle.
++        -- Hand cards: clear hover+shown_desc (hold-description was already shown;
++        --   a 0.2s hold does not select, so this tap branch only fires on <0.2s taps).
++        -- Non-hand cards: toggle shown_desc; re-tapping the same card clears it;
++        --   tapping a different card switches to it. Anchored here (pristine click
++        --   dispatch) instead of touch_control.s_tap (lovely-dump path, absent here).
++        if (self.HID.touch or self.HID.touch_env) and self.clicked.target then
++            if self.clicked.target.area == G.hand then -- TAP_DESC_TOGGLE
++                if self.hovering.target then self.hovering.target.states.hover.is = false end
++                self.hovering.target = nil; self.shown_desc = nil
++            elseif self.clicked.target == self.shown_desc then -- TAP_DESC_TOGGLE
++                if self.hovering.target then self.hovering.target.states.hover.is = false end
++                self.hovering.target = nil; self.shown_desc = nil
++            else
++                self.shown_desc = self.clicked.target -- TAP_DESC_TOGGLE
++            end
++        end
+     end
+ 
+     --Process registry clicks

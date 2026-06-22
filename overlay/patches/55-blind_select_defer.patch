@@ -1,0 +1,15 @@
+diff --git a/game.lua b/game.lua
+index 54560be..7e55973 100644
+--- a/game.lua
++++ b/game.lua
+@@ -3636,8 +3636,8 @@ function Game:update_blind_select(dt)
+         G.STATE_COMPLETE = true
+         G.CONTROLLER.interrupt.focus = true
+         G.E_MANAGER:add_event(Event({ func = function() 
+-        G.E_MANAGER:add_event(Event({
+-            trigger = 'immediate',
++        G.E_MANAGER:add_event(Event({ -- BLIND_SELECT_DEFER
++            trigger = 'after', delay = 0.05,
+             func = function()
+                 --G.GAME.round_resets.blind_states = G.GAME.round_resets.blind_states or {Small = 'Select', Big = 'Upcoming', Boss = 'Upcoming'}
+                 --if G.GAME.round_resets.blind_states.Boss == 'Defeated' then

@@ -1,0 +1,51 @@
+diff --git a/functions/misc_functions.lua b/functions/misc_functions.lua
+index 94717e0..26f5068 100644
+--- a/functions/misc_functions.lua
++++ b/functions/misc_functions.lua
+@@ -719,9 +719,44 @@ end
+ --3. This notice may not be removed or altered from any source distribution.
+ --This function was slightly modified from it's original state
+ function nuGC(time_budget, memory_ceiling, disable_otherwise)
+-	time_budget = time_budget or 3e-4
++	-- NUGC_ADAPTIVE: scale the default budget with heap pressure so steady
++	-- collection keeps pace with allocation churn instead of riding the
++	-- memory_ceiling emergency full-collect (a multi-second hitch).
++	-- v2: budget escalates past 4ms above 174MB (10ms cap by ~254MB), and
++	-- above 200MB a full collect runs when the game enters a breath state
++	-- (already a pause; never mid-scoring; debounced 30s) so the 300MB
++	-- mid-hand cliff is never reached.
++	local nugc_mb = collectgarbage("count") / 1024
++	if not time_budget then
++		if nugc_mb < 100 then time_budget = 3e-4
++		elseif nugc_mb < 174 then time_budget = 3e-4 + (nugc_mb - 100) * 5e-5
++		else time_budget = math.min(10e-3, 4e-3 + (nugc_mb - 174) * 7.5e-5) end
++	end
+ 	memory_ceiling = memory_ceiling or 300
+-	local max_steps = 1000
++	NUGC_ST = NUGC_ST or { prev = nil, last_full = -1e9 }
++	local nugc_state = G and G.STATE
++	if nugc_state ~= NUGC_ST.prev then
++		NUGC_ST.prev = nugc_state
++		local breath = G.STATES and (nugc_state == G.STATES.SHOP
++			or nugc_state == G.STATES.BLIND_SELECT
++			or nugc_state == G.STATES.ROUND_EVAL
++			or nugc_state == G.STATES.MENU)
++		local nugc_now = love.timer.getTime()
++		if breath and nugc_mb > 200
++			and not (Talisman and Talisman.scoring_coroutine)
++			and nugc_now - NUGC_ST.last_full > 30 then
++			collectgarbage("collect")
++			NUGC_ST.last_full = nugc_now
++			if ATLOG then ATLOG("NUGC_FULL", {
++				mb = math.floor(nugc_mb),
++				after = math.floor(collectgarbage("count") / 1024),
++				ms = math.floor((love.timer.getTime() - nugc_now) * 1000),
++			}) end
++			if disable_otherwise then collectgarbage("stop") end
++			return
++		end
++	end
++	local max_steps = math.max(1000, math.ceil(time_budget * 3.4e6))
+ 	local steps = 0
+ 	local start_time = love.timer.getTime()
+ 	while

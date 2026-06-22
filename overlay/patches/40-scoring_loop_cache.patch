@@ -1,0 +1,47 @@
+diff --git a/functions/state_events.lua b/functions/state_events.lua
+index 9265b4b..602eaa0 100644
+--- a/functions/state_events.lua
++++ b/functions/state_events.lua
+@@ -843,7 +843,8 @@ SMODS.displaying_scoring = true
+         --Joker Effects
+         --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         percent = percent + percent_delta
+-        for _, area in ipairs(SMODS.get_card_areas('jokers')) do for _, _card in ipairs(area.cards) do
++        local _joker_areas = SMODS.get_card_areas('jokers') -- SCORING_AREAS_CACHED
++        for _, area in ipairs(_joker_areas) do for _, _card in ipairs(area.cards) do
+             local effects = {}
+             -- remove base game joker edition calc
+             local eval = eval_card(_card, {cardarea = G.jokers, full_hand = G.play.cards, scoring_hand = scoring_hand, scoring_name = text, poker_hands = poker_hands, edition = true, pre_joker = true})
+@@ -868,13 +869,13 @@ SMODS.displaying_scoring = true
+                 end
+             end
+ 
+-            -- Calculate context.other_joker effects
+-            for _, _area in ipairs(SMODS.get_card_areas('jokers')) do
++            -- Calculate context.other_joker effects -- OTHER_KEY_HOISTED
++            local other_key = 'other_unknown'
++            if _card.ability.set == 'Joker' then other_key = 'other_joker' end
++            if _card.ability.consumeable then other_key = 'other_consumeable' end
++            if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end
++            for _, _area in ipairs(_joker_areas) do
+                 for _, _joker in ipairs(_area.cards) do
+-                    local other_key = 'other_unknown'
+-                    if _card.ability.set == 'Joker' then other_key = 'other_joker' end
+-                    if _card.ability.consumeable then other_key = 'other_consumeable' end
+-                    if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end
+                     -- TARGET: add context.other_something identifier to your cards
+                     local joker_eval,post = eval_card(_joker, {full_hand = G.play.cards, scoring_hand = scoring_hand, scoring_name = text, poker_hands = poker_hands, [other_key] = _card, other_main = _card })
+                     if next(joker_eval) then
+@@ -895,11 +896,8 @@ SMODS.displaying_scoring = true
+                     end
+                 end
+             end
++            -- other_key already computed above (hoisted from inner loop)
+             for _, _area in ipairs(SMODS.get_card_areas('individual')) do
+-                local other_key = 'other_unknown'
+-                if _card.ability.set == 'Joker' then other_key = 'other_joker' end
+-                if _card.ability.consumeable then other_key = 'other_consumeable' end
+-                if _card.ability.set == 'Voucher' then other_key = 'other_voucher' end
+                 -- TARGET: add context.other_something identifier to your cards
+                 local _eval,post = SMODS.eval_individual(_area, {full_hand = G.play.cards, scoring_hand = scoring_hand, scoring_name = text, poker_hands = poker_hands, [other_key] = _card, other_main = _card })
+                 if next(_eval) then

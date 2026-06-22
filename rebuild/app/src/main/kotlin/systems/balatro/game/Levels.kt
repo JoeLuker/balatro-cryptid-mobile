@@ -11,6 +11,8 @@ class HandLevels {
     /** Snapshot / restore the per-hand levels (run serialization). */
     fun all(): Map<HandType, Int> = lvl.toMap()
     fun setAll(m: Map<HandType, Int>) { lvl.clear(); lvl.putAll(m) }
+    /** THE_ARM: degrade the played hand level by 1 (minimum 1). */
+    fun degrade(h: HandType) { lvl[h] = maxOf(1, level(h) - 1) }
 }
 
 /** A planet card levels up one hand type. The names/targets are Balatro's. */

@@ -1,0 +1,204 @@
+diff --git a/main.lua b/main.lua
+index d34f8a5..6ac5348 100644
+--- a/main.lua
++++ b/main.lua
+@@ -1,3 +1,28 @@
++-- Android SMODS path fix: preload lovely-registered SMODS modules + extend require path
++if love.system.getOS() == 'Android' then
++    local _smods_modules = {
++        ['SMODS.version']              = 'Mods/Steamodded/version.lua',
++        ['SMODS.release']              = 'Mods/Steamodded/release.lua',
++        ['SMODS.preflight.sharedUtil'] = 'Mods/Steamodded/src/preflight/sharedUtil.lua',
++        ['SMODS.preflight.logging']    = 'Mods/Steamodded/src/preflight/logging.lua',
++        ['SMODS.preflight.loader']     = 'Mods/Steamodded/src/preflight/loader.lua',
++        ['SMODS.preflight.sharedUI']   = 'Mods/Steamodded/src/preflight/sharedUI.lua',
++        ['SMODS.preflight.core']       = 'Mods/Steamodded/src/preflight/core.lua',
++        ['SMODS.nativefs']             = 'Mods/Steamodded/libs/nativefs/nativefs.lua',
++        ['SMODS.https']                = 'Mods/Steamodded/libs/https/smods-https.lua',
++    }
++    for _name, _path in pairs(_smods_modules) do
++        package.preload[_name] = function() return love.filesystem.load(_path)() end
++    end
++    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
++    love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
++end
++-- JIT_OPT_RAISE: see scripts/patch_main_lua.py section 0
++pcall(function()
++    require("jit.opt").start(
++        "maxtrace=4000", "maxmcode=16384", "maxside=400", "maxsnap=2000", "hotloop=28"
++    )
++end)
+ --- STEAMODDED CORE
+ --- MODULE STACKTRACE
+ -- NOTE: This is a modifed version of https://github.com/ignacio/StackTracePlus/blob/master/src/StackTracePlus.lua
+@@ -954,7 +979,7 @@ _mod_dir_amulet,
+ ), 0)
+ end
+ 
+-_mod_dir_amulet = "/home/jluker/balatro-cryptid-mobile/.claude/worktrees/relaxed-elbakyan-1c44d4/build/dump-rig-pinned/Mods/Amulet"
++_mod_dir_amulet = "Mods/Amulet"
+ 
+ if SMODS and SMODS.Mods and not SMODS.Mods.Talisman then
+ 	SMODS.Mods.Talisman = {
+@@ -979,6 +1004,7 @@ function love.run()
+ 		if love.event and G and G.CONTROLLER then
+ 			love.event.pump()
+ 			local _n,_a,_b,_c,_d,_e,_f,touched
++			local _rn,_ra,_rb,_rc,_rd,touch_released
+ 			for name, a,b,c,d,e,f in love.event.poll() do
+ 				if name == "quit" then
+ 					if not love.quit or not love.quit() then
+@@ -987,14 +1013,22 @@ function love.run()
+ 				end
+ 				if name == 'touchpressed' then
+ 					touched = true
+-				elseif name == 'mousepressed' then 
++				elseif name == 'mousepressed' then
+ 					_n,_a,_b,_c,_d,_e,_f = name,a,b,c,d,e,f
++				elseif name == 'touchreleased' then
++					touch_released = true
++					love.handlers[name](a,b,c,d,e,f)
++				elseif name == 'mousereleased' then
++					_rn,_ra,_rb,_rc,_rd = name,a,b,c,d
+ 				else
+ 					love.handlers[name](a,b,c,d,e,f)
+ 				end
+ 			end
+-			if _n then 
+-				love.handlers['mousepressed'](_a,_b,_c,touched)
++			if _n then
++				love.handlers['mousepressed'](_a,_b,_c,touched or _d) -- HID_ISTOUCH_FIX
++			end
++			if _rn then
++				love.handlers['mousereleased'](_ra,_rb,_rc,touch_released or _rd) -- HID_ISTOUCH_RELEASE_FIX
+ 			end
+ 		end
+ 
+@@ -1081,6 +1115,16 @@ function love.quit()
+ 	if G.SOUND_MANAGER then G.SOUND_MANAGER.channel:push({type = 'stop'}) end
+ 	if G.STEAM then G.STEAM:shutdown() end
+ end
++-- Android flush-on-background: force-dispatch any staged saves when the app
++-- loses focus so data survives an immediate OS process kill.
++function love.focus(focused)
++    if love.system.getOS() ~= 'Android' then return end
++    if focused then return end
++    if G and G.FILE_HANDLER and G.FILE_HANDLER.update_queued then
++        G.FILE_HANDLER.force = true
++    end
++end
++
+ 
+ function love.update( dt )
+ 	--Perf monitoring checkpoint
+@@ -1094,7 +1138,7 @@ function love.draw()
+ 	G:draw()
+ 	do
+ 	    local console = require("debugplus.console")
+-	    console.doConsoleRender()
++	    do end -- DEBUGPLUS_CONSOLE_DISABLED: keyboard-only console; logger init not baked, would crash + hijack print
+ 	    timer_checkpoint('DebugPlus Console', 'draw')
+ 	end
+ end
+@@ -1140,16 +1184,13 @@ function love.mousepressed(x, y, button, touch)
+ end
+ 
+ 
+-function love.mousereleased(x, y, button)
++function love.mousereleased(x, y, button, istouch)
++    G.CONTROLLER:set_HID_flags(istouch and 'touch' or 'mouse') -- HID_ISTOUCH_RELEASE_FIX
+     if button == 1 then G.CONTROLLER:L_cursor_release(x, y) end
+ end
+ 
+ function love.mousemoved(x, y, dx, dy, istouch)
+-	G.CONTROLLER.last_touch_time = G.CONTROLLER.last_touch_time or -1
+-	if next(love.touch.getTouches()) ~= nil then
+-		G.CONTROLLER.last_touch_time = G.TIMERS.UPTIME
+-	end
+-    G.CONTROLLER:set_HID_flags(G.CONTROLLER.last_touch_time > G.TIMERS.UPTIME - 0.2 and 'touch' or 'mouse')
++    G.CONTROLLER:set_HID_flags(istouch and 'touch' or 'mouse') -- HID_ISTOUCH_MOVE_FIX
+ end
+ 
+ function love.joystickaxis( joystick, axis, value )
+@@ -1286,7 +1327,16 @@ if false then
+ end
+ 
+ function love.resize(w, h)
+-	if w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
++	-- ANDROID_RESIZE_CONTAIN: see scripts/patch_main_lua.py section 0c
++	-- (RESIZE telemetry: field evidence that fold posture changes actually
++	-- deliver resize events — pairs with FOLD_RESIZE manifest flip)
++	if ATLOG then ATLOG("RESIZE", { w = math.floor(w), h = math.floor(h) }) end
++	if love.system.getOS() == 'Android' then
++		-- floor 0.4, NOT 0.6: the cover screen reports 411x722 = 0.569 and
++		-- must fill edge-to-edge (0.6 left a 5% dead band on it); only true
++		-- ribbon windows clamp
++		if w/h < 0.4 then h = w/0.4 end
++	elseif w/h < 1 then --Dont allow the screen to be too square, since pop in occurs above and below screen
+ 		h = w/1
+ 	end
+ 
+@@ -1319,6 +1369,10 @@ function love.resize(w, h)
+ 
+ 		if G.buttons then G.buttons:recalculate() end
+ 		if G.HUD then G.HUD:recalculate() end
++		-- ANDROID_RESIZE_CONTAIN: open overlays must re-layout too (pcall:
++		-- a mid-removal overlay must not crash the resize handler)
++		if G.OVERLAY_MENU then pcall(function() G.OVERLAY_MENU:recalculate() end) end
++		if G.OVERLAY_TUTORIAL and G.OVERLAY_TUTORIAL.recalculate then pcall(function() G.OVERLAY_TUTORIAL:recalculate() end) end
+ 	end
+ 
+ 	G.WINDOWTRANS = {
+@@ -1400,13 +1454,10 @@ end
+ sendInfoMessage("Steamodded v" .. SMODS.version, "SMODS")
+ 
+ 
+-local ffi = require("ffi")
+-ffi.cdef[[int PHYSFS_mount(const char* dir, const char* mountPoint, int appendToPath)]]
+-local tinymount = (pcall(function() return ffi.C.PHYSFS_mount end) and ffi.C or ffi.load("love")).PHYSFS_mount
+-
+-local talisman_path = _mod_dir_amulet
+-assert(tinymount(talisman_path .. '/talisman', 'talisman', 0) ~= 0, 'Amulet: Failed to mount talisman from ' .. talisman_path)
+-assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Failed to mount big-num from ' .. talisman_path)
++-- AMULET_ROOT_MOUNT: PhysFS mounts removed — talisman/ and big-num/ are
++-- placed physically at the game root by build.sh (PhysFS cannot mount
++-- paths inside game.love on Android); require("talisman.*") resolves
++-- natively. See patch_main_lua.py section 0b.
+ 
+ require("talisman.configinit")
+ require("talisman.effects")
+@@ -1424,3 +1475,34 @@ end
+ if not Talisman.F_NO_COROUTINE then
+     require("talisman.coroutine")
+ end
++
++-- Trigger-cascade collapsing: pure module, hooks self-install on the first
++-- frame (SMODS loads after this chunk). NOT Android-gated: the desktop
++-- harnesses exercise the same code, and the engine is platform-free.
++local tc_ok, tc_err = pcall(function()
++    local chunk = love.filesystem.load('trigger-collapse.lua')
++    if chunk then chunk() end
++end)
++if not tc_ok then print('[TC] LOAD_FAILED error=' .. tostring(tc_err)) end
++
++-- Lazy shader binding (Tier-2a): must load BEFORE android-telemetry so the
++-- telemetry setShader wrapper counts game-issued calls while the lazy
++-- flush talks to the captured original. NOT Android-gated: the desktop
++-- harnesses exercise the same draw path.
++local ls_ok, ls_err = pcall(function()
++    local chunk = love.filesystem.load('lazy-shader.lua')
++    if chunk then chunk() end
++end)
++if not ls_ok then print('[LS] LOAD_FAILED error=' .. tostring(ls_err)) end
++
++-- Android telemetry: load after all game hooks are set up
++if love.system.getOS() == 'Android' then
++    local tel_ok, tel_err = pcall(function()
++        local chunk = love.filesystem.load('android-telemetry.lua')
++        if chunk then chunk() end
++    end)
++    -- deliberately ungated by the Debug Logging setting: this is the one
++    -- last-resort diagnostic for a BROKEN telemetry build (the gate lives in
++    -- the chunk that just failed to load); it never fires on a healthy build
++    if not tel_ok then print('[TEL] LOAD_FAILED error=' .. tostring(tel_err)) end
++end
