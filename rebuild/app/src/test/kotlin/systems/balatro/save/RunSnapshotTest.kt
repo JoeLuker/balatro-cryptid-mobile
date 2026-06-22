@@ -1,7 +1,9 @@
 package systems.balatro.save
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
 
 /** P4 RunStateSerialization: the run snapshot must round-trip losslessly through JSON. Pure (no
  *  Compose/Android), so it runs as a fast off-device unit test — the verification gate the flaky
@@ -27,5 +29,16 @@ class RunSnapshotTest {
     @Test fun roundTripsAFreshRun() {
         val snap = RunSnapshot(0, 4, emptyList(), emptyList(), emptyMap(), 0, 0, 5, 4, 3, 5, emptyList(), emptyList())
         assertEquals(snap, RunSnapshot.decode(snap.encode()))
+    }
+
+    @Test fun savesLoadsAndDeletesOnDisk() {
+        val tmp = File.createTempFile("balatro_run", ".json")
+        val snap = RunSnapshot(3, 12, emptyList(), listOf(CardSnap("S", 14, "GLASS", "RED")),
+            mapOf("PAIR" to 2), 1, 0, 5, 4, 3, 5, emptyList(), listOf("D_SIX"))
+        SaveIo.write(tmp, snap.encode())
+        assertEquals(snap, RunSnapshot.decode(SaveIo.read(tmp)!!))
+        SaveIo.delete(tmp)
+        assertNull(SaveIo.read(tmp))
+        tmp.delete()
     }
 }

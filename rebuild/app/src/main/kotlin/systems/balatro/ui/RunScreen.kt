@@ -51,6 +51,8 @@ import systems.balatro.game.*
 import systems.balatro.save.RunSnapshot
 import systems.balatro.save.JokerSnap
 import systems.balatro.save.CardSnap
+import systems.balatro.save.SaveIo
+import java.io.File
 
 /**
  * A full run: alternating blinds and a shop, on ONE persistent engine. Beating a blind pays
@@ -777,6 +779,7 @@ internal class RunState {
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
+        phase = Phase.BLIND_SELECT   // resume at the next blind choice (run state intact; shop stock not persisted)
     }
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
@@ -867,10 +870,13 @@ fun RunScreen(onClose: () -> Unit, startScreen: String? = null) {
 private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: String? = null) {
     val ctx = LocalContext.current
     val s = remember { RunState() }
+    val saveFile = remember(ctx) { File(ctx.filesDir, SaveIo.FILE_NAME) }
     // Deep-link parity screenshots: --es screen blind|shop|play jumps to that phase (play auto-runs
-    // a hand so the scoring cascade can be captured) on first composition.
+    // a hand so the scoring cascade can be captured) on first composition. A NORMAL launch (no
+    // startScreen) RESUMES the saved run if one exists (P4 SaveLoadThreadingModel).
     LaunchedEffect(Unit) {
         when (startScreen) {
+            null -> withContext(Dispatchers.IO) { SaveIo.read(saveFile) }?.let { s.restore(RunSnapshot.decode(it)) }
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
             "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
@@ -878,6 +884,17 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "over" -> s.phase = Phase.OVER
             "repro" -> s.loadRepro()      // PROOF: freeze the exact reference-screenshot state for pixel-diff
             "repro-live" -> s.loadReproLive()  // live-cascade harness: bref_3 state, plays the Two Pair so scoring animates
+        }
+    }
+    // Autosave the run at each inter-blind boundary (the snapshot captures the run-defining graph; the
+    // encode runs on the main thread to read Compose state, the write goes to Dispatchers.IO). On game
+    // over the save is deleted so the next launch starts fresh instead of resuming a dead run.
+    LaunchedEffect(s.phase, s.blindIndex) {
+        if (startScreen != null) return@LaunchedEffect          // deep-link harnesses don't autosave
+        when (s.phase) {
+            Phase.SHOP, Phase.BLIND_SELECT -> { val json = s.snapshot().encode(); withContext(Dispatchers.IO) { SaveIo.write(saveFile, json) } }
+            Phase.OVER -> withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }
+            else -> {}
         }
     }
 
