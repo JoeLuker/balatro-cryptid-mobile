@@ -130,6 +130,9 @@ object Score {
                 // via Blueprint/Brainstorm — their effects live in the joker_main loop body, not in calcJoker.
             }
         }
+        // MANIFEST: a migrated joker dispatches through its JokerSpec for the current context (kills the
+        // scatter). Un-migrated keys fall through to the legacy when-blocks below.
+        JOKER_MANIFEST[j.key]?.let { return dispatchManifest(it, j, ctx) }
         // RETRIGGER_JOKER_CHECK: each board joker votes whether to retrigger ctx.retriggeredJoker
         // (SMODS.calculate_retriggers, utils.lua:1602). Mirrors the per-card repetition guard.
         // The check fires ONLY in this sub-loop (jokerRetriggerCheck=true); not re-nested (like Lua's guard).
@@ -266,7 +269,8 @@ object Score {
             "j_crazy"   -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { multMod = 12.0 }
             "j_droll"   -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { multMod = 10.0 }
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
-            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_popcorn",
+            // (j_green_joker migrated to JOKER_MANIFEST.)
+            "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_popcorn",
             "j_cry_wee_fib", "j_cry_zooble", "j_cry_poor_joker", "j_cry_foodm" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             // j_popcorn: starts at +20 Mult (config.mult=20), −1 per hand (RunScreen before-pass); self-destructs at 0.
@@ -396,7 +400,6 @@ object Score {
             // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
             // CRY_CLUSTERFUCK is now LIVE (Hands.evaluate detects it for ≥8 non-Gold no-pair/flush/straight cards).
             // CRY_WHOLEDECK remains DORMANT (requires scoring all 52 cards — not yet ported).
-            "j_cry_stronghold"       -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { xMultMod = 5.0 }
             "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
             "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
             "j_cry_the"              -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { xMultMod = 2.0 }
@@ -484,16 +487,7 @@ object Score {
                 val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
                 if (isJolly && j.x > 1.0) return Fx().apply { eMult = j.x }
             }
-            // bonk: +chips per board joker in other_joker pass (m.lua:695-718).
-            // j.chips per non-Jolly joker; j.chips*j.xc per Jolly-type joker.
-            // Jolly check: key j_jolly or j_cry_jollysus, or edition cry_m.
-            // All board FJokers qualify (ability.set=="Joker" — the engine's board only holds jokers).
-            // j.chips=6, j.xc=3 defaults → 6 chips/non-Jolly, 18 chips/Jolly.
-            "j_cry_bonk" -> {
-                val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
-                val add = if (isJolly) j.chips * j.xc else j.chips
-                if (add != 0.0) return Fx().apply { chipMod = add }
-            }
+            // (j_cry_bonk migrated to JOKER_MANIFEST — initial state + before-pass scaling + this other_joker hook.)
         }
         return null
     }
@@ -558,10 +552,9 @@ object Score {
         // j_cry_biggestm: activate (j.n=1) when scoring_name matches type (default "Pair") (m.lua:1426-1437).
         // check persists until end_of_round reset; engine resets at new round via RunScreen.
         for (j in jokers) if (j.key == "j_cry_biggestm" && j.n == 0 && handType == HandType.PAIR) j.n = 1
-        // j_cry_bonk: chips += bonus(1) when scoring_name == type (default "Pair") — SMODS.scale_card in
-        // context.before (m.lua:669-678). Grows the per-board-joker chip bonus; the SAME hand's other-joker
-        // pass then reads the incremented value (so the activating Pair hand already benefits).
-        for (j in jokers) if (j.key == "j_cry_bonk" && handType == HandType.PAIR) j.chips += 1.0
+        // MANIFEST before-pass: migrated jokers evolve their persistent state via their reducer (BeforeHand)
+        // before the joker passes read it — e.g. j_cry_bonk scales its chip bonus on a Pair.
+        for (j in jokers) JOKER_MANIFEST[j.key]?.reduce?.let { j.restore(it(j.snapshot(), GameEvent.BeforeHand(ctx))) }
         // j_cry_whip: +0.5 Xmult if the played hand holds a 2 and a 7 of different suits (WILD = all suits).
         // Uses get_id() in Lua — rankOf applies Maximized remapping so 2/7 can never match when Maximized is on board.
         for (j in jokers) if (j.key == "j_cry_whip") {
