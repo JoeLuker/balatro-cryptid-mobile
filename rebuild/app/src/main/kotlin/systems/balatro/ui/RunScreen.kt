@@ -387,6 +387,11 @@ internal class RunState {
     var totalHandsPlayed by mutableStateOf(0); private set
     /** Hand types played this round (j_cry_keychange: +0.25 Xmult per new type first seen; resets on startRound). */
     private val roundHandTypes = mutableSetOf<HandType>()
+    /** Discards used this round (mondrian: +0.25 Xmult when 0 used at end_of_round). Reset in startRound(). */
+    private var roundDiscardsUsed = 0
+    /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
+     *  Default Spades matches Cryptid's G.GAME.current_round.cry_dropshot_card = { suit = "Spades" }. */
+    private var dropShotSuit: Suit = Suit.S
     /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
      *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
      *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
@@ -615,6 +620,10 @@ internal class RunState {
         // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
         crimsonHeartDisabled = null; bellForcedIdx = null
         roundHandTypes.clear()    // j_cry_keychange resets each round
+        roundDiscardsUsed = 0   // mondrian: track discards used this round
+        // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
+        // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
+        dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
         maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
@@ -702,6 +711,39 @@ internal class RunState {
             val base = 50.0   // config.extra.mult_mod (default 50; could be stored in o.fj.chips if run loop tracks it)
             val odds = if (o.fj.n > 0) o.fj.n else 2
             o.fj.mult = if (Random.nextInt(odds) == 0) base else -base
+        }
+        // ── before-hand joker accumulator hooks (context.before, non-scoring) ──────────────────
+        // fspinner: +6 Chips when ANY other visible hand type has been played >= times this type has
+        // (misc_joker.lua:1872-1886: for k,v in pairs(G.GAME.hands): k ~= scoring_name and v.played >= played_count).
+        // "visible" = the hand is available to play; all standard hands visible in the engine.
+        // Approximation: check all other hand types in _handPlayed (played>=1 implies visible+played).
+        // But the Lua checks `v.played >= play_more_than` where play_more_than is THIS hand's played count
+        // (including the current hand, since played is incremented before the before pass in vanilla).
+        // Engine: use handPlayed(handType) for the current count (this hand NOT yet counted → use +1 to match).
+        for (o in owned) if (o.fj.key == "j_cry_fspinner") {
+            val thisCount = handPlayed(handType) + 1  // +1: vanilla increments played before before-pass
+            val yes = _handPlayed.any { (k, v) -> k != handType && v >= thisCount }
+            if (yes) o.fj.chips += 6.0
+        }
+        // spaceglobe: +0.2 Xchip each time the target hand type is played (misc_joker.lua:3432-3453).
+        // j.n stores the target hand type as its ordinal (0=HIGH_CARD by default from config.extra.type="High Card").
+        // After a match, the target rotates to a random OTHER hand type. Score engine reads j.xc when > 1.
+        for (o in owned) if (o.fj.key == "j_cry_spaceglobe") {
+            val targetType = HandType.values().getOrNull(o.fj.n) ?: HandType.HIGH_CARD
+            if (handType == targetType) {
+                o.fj.xc += 0.2
+                // Rotate to a random other standard hand type (exclude NONE and CRY_* custom types and current).
+                val candidates = HandType.values().filter { it != targetType && it != HandType.NONE
+                    && !it.name.startsWith("CRY_") }
+                if (candidates.isNotEmpty()) o.fj.n = candidates.random().ordinal
+            }
+        }
+        // dropshot: +0.2 Xmult per non-scoring (held) card of this round's target suit (misc_joker.lua:57-88).
+        // "non-scoring" = cards in full_hand but NOT in scoring_hand (cry_dropshot_incompat).
+        // dropShotSuit was chosen at startRound() from the deck, seeded by blindIndex.
+        for (o in owned) if (o.fj.key == "j_cry_dropshot") {
+            val nonScoring = held.filter { it.isSuit(dropShotSuit, smeared) }
+            if (nonScoring.isNotEmpty()) o.fj.x += 0.2 * nonScoring.size
         }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
@@ -851,6 +893,32 @@ internal class RunState {
             owned.removeAll(destroyed)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
+        // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
+        // chili_pepper: +0.5 Xmult per end_of_round; self-destruct when rounds_remaining hits 0
+        // (misc_joker.lua:1119-1177). j.x = Xmult accumulator; j.n = rounds_remaining (default 8).
+        // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
+        // Trigger: when chili_pepper's rounds_remaining reaches 0, notify fading/paved before removing.
+        val perishableExpired = ArrayList<Owned>()
+        for (o in owned) if (o.fj.key == "j_cry_chili_pepper") {
+            o.fj.x += 0.5
+            o.fj.n = maxOf(0, o.fj.n - 1)  // j.n = rounds_remaining (0 → self-destruct)
+            if (o.fj.n <= 0) perishableExpired.add(o)
+        }
+        // Notify fading_joker and paved_joker of each expiring perishable.
+        if (perishableExpired.isNotEmpty()) {
+            for (rem in owned) when (rem.fj.key) {
+                "j_cry_fading_joker", "j_cry_paved_joker" -> rem.fj.x += 1.0
+            }
+        }
+        // Remove expired perishables from the board.
+        if (perishableExpired.isNotEmpty()) {
+            owned.removeAll(perishableExpired)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to perishableExpired.size, "reason" to "perishable")
+        }
+        // mondrian: +0.25 Xmult when 0 discards were used this round (misc_joker.lua:3228-3246).
+        for (o in owned) if (o.fj.key == "j_cry_mondrian" && roundDiscardsUsed == 0) o.fj.x += 0.25
+        // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
+        for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
         val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
@@ -878,6 +946,7 @@ internal class RunState {
             faceDown = faceDown - hookIndices   // force-discarded face-down cards are revealed as they leave
         }
         discardsLeft -= 1
+        roundDiscardsUsed += 1   // mondrian: track discards used this round for end_of_round check
         // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
         val discardedCards = hand.filterIndexed { i, _ -> i in selected }
         val jackCount = discardedCards.count { it.id == 11 }
@@ -921,6 +990,11 @@ internal class RunState {
         val fjN = when (offer.key) {
             // mstack: add_to_deck hook enforces retriggers >= 1 (m.lua add_to_deck; config.extra.retriggers=1).
             "j_cry_mstack" -> 1
+            // chili_pepper: rounds_remaining starts at 8 (config.extra.rounds_remaining=8; perishable countdown).
+            "j_cry_chili_pepper" -> 8
+            // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
+            "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
+            // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
             else -> 0
         }
         val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)
