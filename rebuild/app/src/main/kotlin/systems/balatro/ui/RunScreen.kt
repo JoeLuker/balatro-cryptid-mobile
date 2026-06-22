@@ -689,6 +689,20 @@ internal class RunState {
         if (boss == Boss.CERULEAN_BELL && bellIdx != null && bellIdx !in selIndices) return
         // CRIMSON_HEART: pass the currently-disabled joker key so calcJoker skips it
         val crimsonKey = if (boss == Boss.CRIMSON_HEART) crimsonHeartDisabled?.key else null
+        // ── per-hand pseudorandom joker pre-resolution (run loop owns RNG; score engine is pure) ──
+        // googol_play: X1e100 Mult with 1-in-odds (default 8) probability each hand (epic.lua:220-228).
+        // Roll here; score engine reads j.x (1e100 on hit, 1.0 on miss). Reset each hand before the roll.
+        for (o in owned) if (o.fj.key == "j_cry_googol_play") {
+            val odds = if (o.fj.n > 0) o.fj.n else 8
+            o.fj.x = if (Random.nextInt(odds) == 0) 1e100 else 1.0
+        }
+        // busdriver: +mult or -mult (default 50) each joker_main with 1-in-odds probability (misc_joker.lua:7653).
+        // j.mult = +default_mult on success, -default_mult on fail. j.n stores odds (default 2).
+        for (o in owned) if (o.fj.key == "j_cry_busdriver") {
+            val base = 50.0   // config.extra.mult_mod (default 50; could be stored in o.fj.chips if run loop tracks it)
+            val odds = if (o.fj.n > 0) o.fj.n else 2
+            o.fj.mult = if (Random.nextInt(odds) == 0) base else -base
+        }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
         lastResult = r; lastSteps = trace
