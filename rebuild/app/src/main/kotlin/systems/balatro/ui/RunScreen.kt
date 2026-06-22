@@ -152,6 +152,8 @@ private val CATALOG = listOf(
     Offer("j_cry_nosound", "No Sound?", "retrigger scored 7s x3", 5),
     Offer("j_cry_exposed", "Exposed", "retrigger scored non-faces x2", 5),
     Offer("j_cry_mask", "Mask", "retrigger scored faces x3", 5),
+    // sock_and_sock: retrigger each played Abstract-enhanced card once (config.extra.retriggers=1).
+    Offer("j_cry_sock_and_sock", "Sock and Sock", "retrigger Abstract cards x1", 6),
     // --- Cryptid joker-retrigger jokers (context.retrigger_joker_check family) ---
     // Chad: retrigger leftmost joker j.n times (config.extra.retriggers=2). Art/rarity: best-guess Rare.
     Offer("j_cry_chad", "Chad", "retrigger leftmost Joker 2x", 8, rarity = 3),

@@ -6,8 +6,9 @@ enum class Suit { S, H, D, C }
 /**
  * A card enhancement (from tarots). Played-card effects: Bonus +30 Chips, Mult +4 Mult,
  * Glass x2 Mult. Held-in-hand effects: Steel x1.5 Mult while held, Gold +$3 held at round end.
+ * Cryptid additions: ABSTRACT (^Emult when played, never a face; base Emult=2.0 UNCONFIRMED).
  */
-enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$"), WILD("wild"), STONE("+50") }
+enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$"), WILD("wild"), STONE("+50"), ABSTRACT("^E") }
 
 /** A card seal. Red retriggers the card when played; Gold pays $3 when played. (Blue/Purple: later.) */
 enum class Seal(val badge: String) { NONE(""), RED("R"), GOLD("G") }
@@ -27,8 +28,9 @@ data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhanceme
     /** Card:get_nominal() ordering for High Card — highest rank wins; stones rank lowest. */
     val nominal: Int get() = if (enhancement == Enhancement.STONE) -1000 else rank
 
-    /** Card:is_face() — J/Q/K (id 11..13). Pareidolia (all cards face) is a joker hook, off here. */
-    val isFace: Boolean get() = id in 11..13
+    /** Card:is_face() — J/Q/K (id 11..13). Pareidolia (all cards face) is a joker hook, off here.
+     *  Abstract cards explicitly return nil/false in Cryptid's is_face override (card.lua:1202). */
+    val isFace: Boolean get() = enhancement != Enhancement.ABSTRACT && id in 11..13
 
     /** Card:is_suit(flush_calc) — Stone never, Wild any, Smeared makes red/black collide, else exact. */
     fun isSuit(suit: Suit, smeared: Boolean = false): Boolean = when {

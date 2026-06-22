@@ -232,6 +232,17 @@ object Oracle {
         Case("4 hearts + plain spade = High Card", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "S_9"), 16.0),
         Case("Pair, red-seal ace retriggers", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A").copy(seal = Seal.RED)), 86.0),
         Case("Pair of aces + a stone card", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A"), en("D_5", Enhancement.STONE)), 164.0),
+        // Abstract enhancement (^Emult when played; base Emult=2.0 UNCONFIRMED placeholder; not a face).
+        // Pair [S_A(Mult), H_A(Abstract)]: chips=10, mult=2.
+        //   S_A Mult: chips+=11→21, mult+=4→6. H_A Abstract: chips+=11→32, eMult→mult=6^2=36.
+        //   Score: floor(32×36)=1152.
+        Case("Pair Mult-A + Abstract-A (Abstract ^Emult=2 → mult=36) → 1152",
+            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 1152.0),
+        // sock_and_sock retriggers each Abstract card once.
+        // Same Pair + sock_and_sock: H_A Abstract fires twice (rep1: 6^2=36; rep2: 36^2=1296). chips=54.
+        //   Score: floor(54×1296)=69984.
+        Case("Pair Mult-A + Abstract-A + sock_and_sock (retrigger Abstract once) → 69984",
+            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 69984.0, j(FJoker("j_cry_sock_and_sock"))),
         // --- held-in-hand jokers ---
         // Baron: King held → X1.5 Mult; chips=32, mult=2*1.5=3 → 96.
         Case("Pair of aces + baron (King held)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baron")), held = listOf(PlayingCard.parse("S_K"))),

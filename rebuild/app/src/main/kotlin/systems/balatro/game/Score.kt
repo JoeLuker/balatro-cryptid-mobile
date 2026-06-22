@@ -85,12 +85,15 @@ object Score {
     private fun chipMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.MULT) 4.0 else 0.0
     private fun chipXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.GLASS) 2.0 else 0.0
     private fun chipHXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.STEEL) 1.5 else 0.0
+    // Abstract: ^Emult when played. Base value is UNCONFIRMED (no Cryptid gameset config available);
+    // 2.0 is a placeholder (squares the mult, analogous to Glass doubling it). Update when confirmed.
+    private fun chipEMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.ABSTRACT) 2.0 else 1.0
 
     /** eval_card (common_events.lua:580): a card's own scoring for its cardarea. */
     private fun evalCard(c: PlayingCard, ctx: Sctx): Fx {
         val r = Fx()
         when (ctx.cardarea) {
-            "play" -> { r.chips = chipBonus(c); r.mult = chipMult(c); r.xMult = chipXMult(c) }
+            "play" -> { r.chips = chipBonus(c); r.mult = chipMult(c); r.xMult = chipXMult(c); r.eMult = chipEMult(c) }
             "hand" -> { r.xMult = chipHXMult(c) }
         }
         return r
@@ -179,6 +182,8 @@ object Score {
             "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
             "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
             "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
+            // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
+            "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -442,6 +447,8 @@ object Score {
                 // exponentia: +Emult_mod(0.03) each time a non-trivial xmult fires during scored-card pass
                 if (fx.xMult != 1.0) for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
             }
+            // eMult from card enhancement (Abstract: mult^Emult during per-card pass)
+            if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)
         }
 
         // per scoring card: card's own scoring + each joker's individual reaction
