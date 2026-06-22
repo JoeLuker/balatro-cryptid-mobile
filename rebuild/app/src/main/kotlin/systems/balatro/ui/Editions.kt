@@ -170,13 +170,76 @@ private fun shaderEffect(agsl: String, name: String, x: Float, y: Float, time: F
         "content",
     ).asComposeRenderEffect()
 
-/** Edition overlay RenderEffect by edition tag ("Foil"/"Holo"/"Poly"); [t] animates the shimmer
- *  (the clock); null for no edition. */
+// negative.fs → AGSL: the NEGATIVE base transform. Unlike foil/holo/poly (additive overlays) this
+// REPLACES the card colour — HSL, invert lightness, negate+shift hue, back to RGB + a teal-grey
+// tint — the dark inverted look. Static (no time). Applied to the base art, not as an overlay.
+private val NEG_BASE_AGSL = """
+uniform shader content;
+uniform float2 size;
+$HSL_RGB
+half4 main(float2 fragCoord) {
+    half4 px = content.eval(fragCoord);
+    float a0 = px.a;
+    if (a0 < 0.001) return half4(0.0);
+    float3 col = float3(px.rgb) / a0;
+    float4 sat = HSL(float4(col, 1.0));
+    sat.z = 1.0 - sat.z;                       // invert lightness
+    sat.x = -sat.x + 0.2;                      // negate + shift hue
+    float3 outc = RGB(sat).rgb + 0.8*float3(79.0/255.0, 99.0/255.0, 103.0/255.0);
+    float a = a0 < 0.7 ? a0/3.0 : a0;
+    return half4(half3(outc * a), half(a));
+}
+"""
+
+// negative_shine.fs → AGSL: the animated blue/purple shine OVERLAY drawn over the negative base
+// (negshine.x = time). Sweeping sin streaks; mostly transparent, alpha-modulated like the other
+// edition overlays.
+private val NEG_SHINE_AGSL = """
+uniform shader content;
+uniform float2 negshine;
+uniform float time;
+uniform float2 size;
+half4 main(float2 fragCoord) {
+    half4 px = content.eval(fragCoord);
+    float a0 = px.a;
+    float3 c = a0 > 0.0 ? float3(px.rgb) / a0 : float3(px.rgb);
+    float2 uv = fragCoord / size;
+    float t = negshine.x;
+    float low = min(c.r, min(c.g, c.b));
+    float high = max(c.r, max(c.g, c.b));
+    float delta = high - low - 0.1;
+    float fac  = 0.8 + 0.9*sin(11.0*uv.x + 4.32*uv.y + t*12.0 + cos(t*5.3 + uv.y*4.2 - uv.x*4.0));
+    float fac2 = 0.5 + 0.5*sin( 8.0*uv.x + 2.32*uv.y + t*5.0  - cos(t*2.3 + uv.x*8.2));
+    float fac3 = 0.5 + 0.5*sin(10.0*uv.x + 5.32*uv.y + t*6.111 + sin(t*5.3 + uv.y*3.2));
+    float fac4 = 0.5 + 0.5*sin( 3.0*uv.x + 2.32*uv.y + t*8.111 + sin(t*1.3 + uv.y*11.2));
+    float fac5 = sin(0.9*16.0*uv.x + 5.32*uv.y + t*12.0 + cos(t*5.3 + uv.y*4.2 - uv.x*4.0));
+    float maxfac = 0.7*max(max(fac, max(fac2, max(fac3, 0.0))) + (fac + fac2 + fac3*fac4), 0.0);
+    float3 outc = c*0.5 + float3(0.4, 0.4, 0.8);
+    outc.r = outc.r - delta + delta*maxfac*(0.7 + fac5*0.27) - 0.1;
+    outc.g = outc.g - delta + delta*maxfac*(0.7 - fac5*0.27) - 0.1;
+    outc.b = outc.b - delta + delta*maxfac*0.7 - 0.1;
+    float a = a0*(0.5*clamp(0.3*max(low*0.2, delta) + clamp(maxfac*0.1, 0.0, 0.4), 0.0, 1.0) + 0.15*maxfac*(0.1 + delta));
+    return half4(half3(outc * a), half(a));
+}
+"""
+
+/** NEGATIVE base transform applied to the card art itself (replaces, doesn't overlay). Static. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+fun negativeBaseRenderEffect(wPx: Float, hPx: Float) =
+    RenderEffect.createRuntimeShaderEffect(
+        RuntimeShader(NEG_BASE_AGSL).apply { setFloatUniform("size", wPx, hPx) },
+        "content",
+    ).asComposeRenderEffect()
+
+/** Edition overlay RenderEffect by edition tag ("Foil"/"Holo"/"Poly"/"Negative"); [t] animates the
+ *  shimmer (the clock); null for no edition. (Negative also needs negativeBaseRenderEffect on the
+ *  base art — this returns only its animated shine overlay.) */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 fun editionRenderEffect(edition: String, wPx: Float, hPx: Float, t: Float) = when (edition) {
     "Foil" -> foilRenderEffect(wPx, hPx, foilR = t, foilG = 1f)
     "Holo" -> shaderEffect(HOLO_AGSL, "holo", t, 0f, t, wPx, hPx)
     "Poly" -> shaderEffect(POLY_AGSL, "poly", t, 0f, t, wPx, hPx)
+    "Negative" -> shaderEffect(NEG_SHINE_AGSL, "negshine", t, 0f, t, wPx, hPx)
     else -> null
 }
 

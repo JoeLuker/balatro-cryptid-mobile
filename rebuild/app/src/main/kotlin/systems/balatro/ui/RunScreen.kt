@@ -256,6 +256,8 @@ internal class RunState {
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
     val owned = mutableStateListOf<Owned>()
+    /** Joker slots: base 5, +1 per NEGATIVE joker held (e_negative config.extra = 1 → card_limit+1). */
+    val jokerSlots: Int get() = 5 + owned.count { it.offer.edition == Edition.NEGATIVE }
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
     var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
@@ -330,7 +332,8 @@ internal class RunState {
             owned[0] = owned[0].copy(offer = owned[0].offer.copy(edition = Edition.FOIL))
             owned[1] = owned[1].copy(offer = owned[1].offer.copy(edition = Edition.HOLO))
         }
-        buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)
+        buy(Offer("j_joker", "Negative Joker", "+1 joker slot", 0, edition = Edition.NEGATIVE), free = true)
+        buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)   // last → demo self-destruct
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
         // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
         // One played card is GLASS + forceGlassBreak so it SHATTERS (dissolve.fs) after the tally;
@@ -1383,8 +1386,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                         // (dissolve 1→0, green edge) or dissolving OUT (e.g. self-destruct, fiery).
                         val diss = m.dissolve.toFloat()
                         Image(it, o.offer.name, Modifier.size(cardW, cardH).graphicsLayer {
-                            if (foilOn && diss > 0f) renderEffect = dissolveRenderEffect(
-                                diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered, materialize = m.materializing)
+                            renderEffect = when {
+                                // burning (dissolve/shatter/materialize) takes precedence over the edition
+                                foilOn && diss > 0f -> dissolveRenderEffect(
+                                    diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered, materialize = m.materializing)
+                                // NEGATIVE transforms the base art itself (not an additive overlay)
+                                foilOn && o.offer.edition == Edition.NEGATIVE -> negativeBaseRenderEffect(cardWpx, cardHpx)
+                                else -> null
+                            }
                         }, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                         // EDITION (foil/holo/poly → AGSL): overlay the shimmer over the base art,
                         // animated by the engine clock. (frame.value above forces the per-tick redraw.)
@@ -1401,7 +1410,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
         // Slot counts at the BOTTOM-left of each card area (jokers N/5, consumables 0/2).
         Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
+            BTxt("${s.owned.size}/${s.jokerSlots}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
         }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("0/2", Balatro.White, countSp)
