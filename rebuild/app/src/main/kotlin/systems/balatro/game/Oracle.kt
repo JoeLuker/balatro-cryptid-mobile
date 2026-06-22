@@ -178,6 +178,13 @@ object Oracle {
         Case("Pair of aces + m @x=14 (1 Jolly sold)", PlayingCard.hand("S_A", "H_A"), 896.0, j(FJoker("j_cry_m", x = 14.0))),
         Case("Pair of aces + iterum (x2/card, +1 retrigger/card)", PlayingCard.hand("S_A", "H_A"), 1728.0, j(FJoker("j_cry_iterum"))),
         Case("Pair of aces + iterum + exponentia (emult from 4 xmult events)", PlayingCard.hand("S_A", "H_A"), 2619.0, j(FJoker("j_cry_iterum"), FJoker("j_cry_exponentia"))),
+        // exponentia joker-main xMultMod path: brokenhome fires xMultMod=11.4 in applyJokerFx → exponentia.x+=0.03.
+        // Per-card: chips=32, mult=2. No individual xMult. joker_main: brokenhome mult×11.4=22.8, exp.x=1.03.
+        // exponentia eMult=1.03 → mult=22.8^1.03≈25.042. floor(32×25.042)=801.
+        Case("Pair of aces + brokenhome + exponentia (joker-main xMultMod triggers exp)", PlayingCard.hand("S_A", "H_A"), 801.0, j(FJoker("j_cry_brokenhome"), FJoker("j_cry_exponentia"))),
+        // exponentia Poly-edition path: bonkers has no joker_main effect on a Pair; its Poly edition fires
+        // mult×1.5 (x_mult_mod in Lua) → exponentia.x+=0.03. exponentia eMult=1.03 → mult=3.0^1.03≈3.100. floor(32×3.100)=99.
+        Case("Pair of aces + Poly-bonkers + exponentia (Poly edition triggers exp)", PlayingCard.hand("S_A", "H_A"), 99.0, j(FJoker("j_cry_bonkers", edition = "Poly"), FJoker("j_cry_exponentia"))),
         Case("Pair + jtron + joker (Emult 1+1 joker -> mult^2)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_jtron"), FJoker("j_joker"))),
         // --- Cryptid accumulator-read jokers (run loop sets j.x/j.xc/j.mult; zero-defaults no-op) ---
         Case("Pair of aces + dropshot @x=1.4 (2 suit-hit hands)", PlayingCard.hand("S_A", "H_A"), 89.0, j(FJoker("j_cry_dropshot", x = 1.4))),
