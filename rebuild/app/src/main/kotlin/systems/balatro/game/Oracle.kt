@@ -230,6 +230,14 @@ object Oracle {
         Case("Pair of aces + foodm @mult=40 (perishable +40 Mult)", PlayingCard.hand("S_A", "H_A"), 1344.0, j(FJoker("j_cry_foodm", mult = 40.0))),
         Case("Pair of aces + mstack @n=1 (retrigger 1/card)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_mstack", n = 1))),
         Case("Pair of aces + biggestm @x=7,n=1 (x7 when active)", PlayingCard.hand("S_A", "H_A"), 448.0, j(FJoker("j_cry_biggestm", x = 7.0, n = 1))),
+        // biggestm before-pass activation (parity audit batch-13): n=0 on Pair hand → before-pass sets n=1 → fires X7.
+        // Pair aces: chips=32, mult=2; xMultMod=7 → mult=14; floor(32×14)=448.
+        Case("Pair of aces + biggestm @x=7,n=0 (before-pass activates on Pair → x7) → 448",
+            PlayingCard.hand("S_A", "H_A"), 448.0, j(FJoker("j_cry_biggestm", x = 7.0, n = 0))),
+        // biggestm before-pass NOT activated on non-Pair: n=0, High Card → n stays 0 → no fire → base score.
+        // HighCard S_A: base=5c/1m + 11c = 16c * 1m = 16.
+        Case("HighCard S_A + biggestm @x=7,n=0 (no Pair → stays inactive → base 16) → 16",
+            PlayingCard.hand("S_A"), 16.0, j(FJoker("j_cry_biggestm", x = 7.0, n = 0))),
         Case("Pair of aces + longboi @x=2.0 (Xmult from monstermult)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_longboi", x = 2.0))),
         // --- batch-18: individual Xmult + joker_main Xmult/Emult accumulators ---
         Case("Pair of aces + caramel @x=1.75 (X1.75/card, 2 aces)", PlayingCard.hand("S_A", "H_A"), 196.0, j(FJoker("j_cry_caramel", x = 1.75))),
