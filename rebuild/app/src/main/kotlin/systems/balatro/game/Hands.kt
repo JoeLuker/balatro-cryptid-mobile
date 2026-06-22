@@ -52,13 +52,15 @@ object Hands {
     ): Triple<HandType, List<PlayingCard>, Set<HandType>> {
         if (cards.isEmpty()) return Triple(HandType.CRY_NONE, emptyList(), setOf(HandType.CRY_NONE))
 
-        // CRY_BULWARK: all 5 played cards are Stone (rankless, suitless — cry_Bulwark Lua description:
-        // "5 rankless, suitless cards"). Stone id=-1 skips rank grouping; isSuit=false skips flush.
-        // Without this check, 5 stones would fall through to HIGH_CARD via getHighest (nominal=-1000).
-        if (cards.size >= 5 && cards.all { it.enhancement == Enhancement.STONE })
-            // poker_hands also keeps the base hands: get_highest returns a card for any non-empty hand
-            // (incl. stones), so HIGH_CARD is always present alongside the composite hand (misc_functions.lua:547,562).
-            return Triple(HandType.CRY_BULWARK, cards, setOf(HandType.CRY_BULWARK, HandType.HIGH_CARD))
+        // CRY_BULWARK: 5+ Stone cards present (cry_Bulwark, content.lua:39 → #stones >= 5) — NOT "all 5
+        // cards Stone". Non-stone cards may be in the played hand; only the stones form the hand (they're
+        // the scoring cards), but HIGH_CARD stays in poker_hands. Bulwark (100x10) outranks the small hands
+        // non-stones can make, so it is the top hand whenever 5+ stones play.
+        // (Edge case left as-is: at >=8 cards a 5-stone hand could also be CRY_CLUSTERFUCK, which out-ranks
+        //  Bulwark; this early-return keeps Bulwark. Rare and untested — tracked separately, not regressed here.)
+        val stones = cards.filter { it.enhancement == Enhancement.STONE }
+        if (stones.size >= 5)
+            return Triple(HandType.CRY_BULWARK, stones, setOf(HandType.CRY_BULWARK, HandType.HIGH_CARD))
 
         // CRY_CLUSTERFUCK: ≥8 non-Gold cards with no pairs, no flush, no straight.
         // Source: cry_cfpart (SpectralPack/Cryptid lib/content.lua) — eligible = cards where

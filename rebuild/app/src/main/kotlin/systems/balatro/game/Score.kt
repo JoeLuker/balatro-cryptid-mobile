@@ -396,17 +396,17 @@ object Score {
             // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
             // CRY_CLUSTERFUCK is now LIVE (Hands.evaluate detects it for ≥8 non-Gold no-pair/flush/straight cards).
             // CRY_WHOLEDECK remains DORMANT (requires scoring all 52 cards — not yet ported).
-            "j_cry_stronghold"       -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { xMultMod = 5.0 }
+            "j_cry_stronghold"       -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { xMultMod = 5.0 }
             "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
             "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
             "j_cry_the"              -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { xMultMod = 2.0 }
             "j_cry_annihalation"     -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { eMult = 5.2 }   // Emult=5.2: mult^5.2 (misc_joker.lua:5853)
             "j_cry_words_cant_even"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { xMultMod = 52000000.0 }
-            "j_cry_bonkers"          -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { multMod = 20.0 }
+            "j_cry_bonkers"          -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { multMod = 20.0 }
             "j_cry_fuckedup"         -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { multMod = 37.0 }
             "j_cry_foolhardy"        -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { multMod = 42.0 }
             "j_cry_undefined"        -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { multMod = 5.0 }
-            "j_cry_adroit"           -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { chipMod = 170.0 }
+            "j_cry_adroit"           -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { chipMod = 170.0 }
             "j_cry_penetrating"      -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { chipMod = 270.0 }
             "j_cry_treacherous"      -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { chipMod = 300.0 }
             "j_cry_nebulous"         -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { chipMod = 30.0 }

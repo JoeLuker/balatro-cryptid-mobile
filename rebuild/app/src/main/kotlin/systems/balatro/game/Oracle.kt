@@ -559,6 +559,12 @@ object Oracle {
         Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 17500",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
             17500.0, j(FJoker("j_cry_stronghold"))),
+        // 5 Stones + a non-Stone King → still CRY_BULWARK (#stones>=5, not all-stone). The King isn't in the
+        // scoring hand (only stones score), so chips=350, and stronghold's containment guard fires X5 → 17500.
+        // Before the fix this evaluated as HIGH_CARD (King), stronghold didn't fire → 265.
+        Case("CRY_BULWARK (5 stones + 1 King) + cry_stronghold (X5) → 17500",
+            listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE), PlayingCard.parse("H_K")),
+            17500.0, j(FJoker("j_cry_stronghold"))),
         // poker_hands for a Bulwark also contains HIGH_CARD (get_highest is non-empty), so giggly (+4 Mult if
         // hand contains High Card) fires: chips=350, mult=10+4=14 → 4900. (Without the HIGH_CARD fix: 3500.)
         Case("CRY_BULWARK (5 stones) + giggly (HIGH_CARD present → +4 Mult) → 4900",
