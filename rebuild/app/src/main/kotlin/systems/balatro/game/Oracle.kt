@@ -239,6 +239,26 @@ object Oracle {
         Case("Pair C_K,H_K + seeing_double under The Club (no fire)", PlayingCard.hand("C_K", "H_K"), 40.0, j(FJoker("j_seeing_double")), debuff = Debuff.DebuffSuit(Suit.C)),
         // Flower Pot + The Goad: is_suit uses bypass_debuff=true, so the debuffed S_A still counts → all 4 suits, X3 STILL fires: (60 + 11+11+11) * (7*3) = 1953.
         Case("FoaK aces + flower_pot under The Goad (still fires)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A"), 1953.0, j(FJoker("j_flower_pot")), debuff = Debuff.DebuffSuit(Suit.S)),
+        // THE_PLANT (DebuffFace): face cards (J/Q/K) score and trigger nothing; non-faces are unaffected.
+        // Aces (id=14) are NOT faces in Balatro — isFace checks id in 11..13 only.
+        // Case 1: Pair of kings — both K's debuffed, no per-card scoring at all.
+        //   PAIR base=10c/2m; S_K debuffed, H_K debuffed → chips=10, mult=2 → floor(10*2)=20.
+        Case("Pair S_K,H_K + THE_PLANT (both kings debuffed → base only)", PlayingCard.hand("S_K", "H_K"), 20.0, debuff = Debuff.DebuffFace),
+        // Case 2: Pair of aces — aces (id=14) are NOT faces, both score normally.
+        //   PAIR base=10c/2m; S_A +11c, H_A +11c → chips=32, mult=2 → floor(32*2)=64.
+        Case("Pair S_A,H_A + THE_PLANT (aces not faces, both score)", PlayingCard.hand("S_A", "H_A"), 64.0, debuff = Debuff.DebuffFace),
+        // Case 3: Pair of kings + j_scary_face (+30c/face) under THE_PLANT.
+        //   Both K's debuffed → scary_face never fires → chips=10, mult=2 → floor(10*2)=20.
+        Case("Pair S_K,H_K + scary_face + THE_PLANT (no +30c trigger)", PlayingCard.hand("S_K", "H_K"), 20.0, j(FJoker("j_scary_face")), debuff = Debuff.DebuffFace),
+        // Case 4: Flush [K,Q,J,A,2] spades + j_photograph under THE_PLANT.
+        //   K/Q/J debuffed; A(+11c) and 2(+2c) score; Photograph firstOrNull finds no non-debuffed
+        //   face → X2 does NOT fire. FLUSH base=35c/4m; +11+2=48c → floor(48*4)=192.
+        Case("Flush S_K,S_Q,S_J,S_A,S_2 + photograph + THE_PLANT (Photograph no fire)",
+            PlayingCard.hand("S_K", "S_Q", "S_J", "S_A", "S_2"), 192.0, j(FJoker("j_photograph")), debuff = Debuff.DebuffFace),
+        // Case 5: Pair of 10s + j_walkie_talkie (+10c+4m per 10 or 4) under THE_PLANT.
+        //   10s are NOT faces (id=10 < 11), so walkie fires normally on both.
+        //   PAIR base=10c/2m; S_10→+10c+4m→30c/6m; H_10→+10c+4m→50c/10m → floor(50*10)=500.
+        Case("Pair S_10,H_10 + walkie_talkie + THE_PLANT (non-faces unaffected)", PlayingCard.hand("S_10", "H_10"), 500.0, j(FJoker("j_walkie_talkie")), debuff = Debuff.DebuffFace),
         // --- steel held ---
         Case("Pair of aces + 1 steel held", PlayingCard.hand("S_A", "H_A"), 96.0, held = listOf(en("S_K", Enhancement.STEEL))),
         Case("Pair of aces + 2 steel held", PlayingCard.hand("S_A", "H_A"), 144.0, held = listOf(en("S_K", Enhancement.STEEL), en("D_K", Enhancement.STEEL))),
