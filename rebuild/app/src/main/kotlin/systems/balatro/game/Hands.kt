@@ -20,14 +20,14 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     FLUSH_HOUSE(140, 14, 40, 4),
     FLUSH_FIVE(160, 16, 50, 3),
     // --- Cryptid-exclusive hand types ---
-    // Base chip/mult values for CRY_* hands are UNCONFIRMED placeholders (0,1); the Cryptid gameset
-    // configs for c_cry_asteroidbelt / c_cry_marsmoons / c_cry_nibiru are not in any available Lua
-    // dump. The joker dispatch is correct regardless; Oracle cases use card-level chips only.
-    CRY_BULWARK(0, 1),       // cry_Bulwark: all 5 played cards are Stone — LIVE (Hands.evaluate returns it)
-    CRY_CLUSTERFUCK(0, 1),   // cry_Clusterfuck: ≥8 no-pair/flush/straight cards — STUB (requires cry_poker_hand_stuff hand-size ≥8)
-    CRY_ULTPAIR(0, 1),       // cry_UltPair: two same-suit Two-Pairs of different suits — LIVE (Hands.evaluate returns it)
-    CRY_NONE(0, 1),          // cry_None: 0 cards played — LIVE (Hands.evaluate returns it for empty input)
-    CRY_WHOLEDECK(0, 1),     // cry_WholeDeck: all 52 cards scored — STUB (entirely special-cased mechanic)
+    // Base values confirmed from SpectralPack/Cryptid lib/content.lua (SMODS.PokerHand registrations).
+    // l_chips/l_mult are the per-level increments (planet card upgrade). WholeDeck uses absurd big-int
+    // literals (repeating "52") — stored as Long here; scoring uses Double so precision is capped.
+    CRY_BULWARK(100, 10, 50, 1),    // cry_Bulwark: all 5 played cards are Stone — LIVE (Hands.evaluate returns it)
+    CRY_CLUSTERFUCK(200, 19, 40, 4), // cry_Clusterfuck: ≥8 no-pair/flush/straight cards — STUB (requires cry_poker_hand_stuff hand-size ≥8)
+    CRY_ULTPAIR(220, 22, 40, 4),    // cry_UltPair: two same-suit Two-Pairs of different suits — LIVE (Hands.evaluate returns it)
+    CRY_NONE(0, 0, 5, 0),           // cry_None: 0 cards played — LIVE (Hands.evaluate returns it for empty input); mult=0 (not 1)
+    CRY_WHOLEDECK(Int.MAX_VALUE, Int.MAX_VALUE), // cry_WholeDeck: all 52 cards scored — STUB; actual=repeating-52 big int (irrelevant until mechanic lands)
 }
 
 /**

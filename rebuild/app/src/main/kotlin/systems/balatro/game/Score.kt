@@ -85,9 +85,9 @@ object Score {
     private fun chipMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.MULT) 4.0 else 0.0
     private fun chipXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.GLASS) 2.0 else 0.0
     private fun chipHXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.STEEL) 1.5 else 0.0
-    // Abstract: ^Emult when played. Base value is UNCONFIRMED (no Cryptid gameset config available);
-    // 2.0 is a placeholder (squares the mult, analogous to Glass doubling it). Update when confirmed.
-    private fun chipEMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.ABSTRACT) 2.0 else 1.0
+    // Abstract: ^Emult when played. Emult=1.15 confirmed from SpectralPack/Cryptid items/misc.lua
+    // (config.extra.Emult = 1.15). Applied as mult = mult^1.15 each time an Abstract card is scored.
+    private fun chipEMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.ABSTRACT) 1.15 else 1.0
 
     /** eval_card (common_events.lua:580): a card's own scoring for its cardarea. */
     private fun evalCard(c: PlayingCard, ctx: Sctx): Fx {

@@ -247,17 +247,19 @@ object Oracle {
         Case("4 hearts + plain spade = High Card", PlayingCard.hand("H_A", "H_K", "H_Q", "H_J", "S_9"), 16.0),
         Case("Pair, red-seal ace retriggers", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A").copy(seal = Seal.RED)), 86.0),
         Case("Pair of aces + a stone card", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A"), en("D_5", Enhancement.STONE)), 164.0),
-        // Abstract enhancement (^Emult when played; base Emult=2.0 UNCONFIRMED placeholder; not a face).
+        // Abstract enhancement (^Emult=1.15 when played; confirmed from SpectralPack/Cryptid items/misc.lua; not a face).
         // Pair [S_A(Mult), H_A(Abstract)]: chips=10, mult=2.
-        //   S_A Mult: chips+=11→21, mult+=4→6. H_A Abstract: chips+=11→32, eMult→mult=6^2=36.
-        //   Score: floor(32×36)=1152.
-        Case("Pair Mult-A + Abstract-A (Abstract ^Emult=2 → mult=36) → 1152",
-            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 1152.0),
+        //   S_A Mult: chips+=11→21, mult+=4→6. H_A Abstract: chips+=11→32, eMult→mult=6^1.15≈7.850.
+        //   Score: floor(32×7.850)=251.
+        Case("Pair Mult-A + Abstract-A (Abstract ^Emult=1.15 → mult≈7.850) → 251",
+            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 251.0),
         // sock_and_sock retriggers each Abstract card once.
-        // Same Pair + sock_and_sock: H_A Abstract fires twice (rep1: 6^2=36; rep2: 36^2=1296). chips=54.
-        //   Score: floor(54×1296)=69984.
-        Case("Pair Mult-A + Abstract-A + sock_and_sock (retrigger Abstract once) → 69984",
-            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 69984.0, j(FJoker("j_cry_sock_and_sock"))),
+        // Same Pair + sock_and_sock: H_A Abstract fires twice.
+        //   Rep1: chips+=11→43, mult=6^1.15≈7.850. Rep2: chips+=11(wait: chips already at 43 after S_A),
+        //   actually rep1 is the first H_A fire: chips=21+11=32, mult=6^1.15; rep2: chips=32+11=43, mult=(6^1.15)^1.15=6^1.3225≈10.693.
+        //   Score: floor(43×10.693)=459.
+        Case("Pair Mult-A + Abstract-A + sock_and_sock (retrigger Abstract once) → 459",
+            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 459.0, j(FJoker("j_cry_sock_and_sock"))),
         // --- held-in-hand jokers ---
         // Baron: King held → X1.5 Mult; chips=32, mult=2*1.5=3 → 96.
         Case("Pair of aces + baron (King held)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baron")), held = listOf(PlayingCard.parse("S_K"))),
@@ -381,35 +383,42 @@ object Oracle {
         // cry_crustulum: +Chips per card scored in play (j.chips accumulated). chips=20 → 32+20=52, mult=2 → 104.
         Case("Pair of aces + cry_crustulum (chips=20)", PlayingCard.hand("S_A", "H_A"), 104.0, j(FJoker("j_cry_crustulum", chips = 20.0))),
         // --- Cryptid custom hand types (CRY_NONE, CRY_BULWARK, CRY_ULTPAIR now live in Hands.evaluate) ---
-        // CRY_NONE: 0 cards played. Base chips=0, mult=1 (unconfirmed placeholders).
-        // j_cry_nebulous: +30 Chips when scoringName==CRY_NONE → chips=0+30=30, mult=1 → 30.
-        Case("CRY_NONE (empty hand) + cry_nebulous (+30 Chips)", emptyList(), 30.0, j(FJoker("j_cry_nebulous"))),
-        // j_cry_the X2 + j_cry_nebulous +30: chips=30, mult=1*2=2 → 60.
-        Case("CRY_NONE + cry_the(X2) + cry_nebulous(+30) → 60", emptyList(), 60.0, j(FJoker("j_cry_the"), FJoker("j_cry_nebulous"))),
-        // CRY_BULWARK: 5 Stone cards. Each Stone always scores +50 chips. Base chips=0, mult=1.
-        // 5 stones: chips=0+5*50=250. j_cry_stronghold X5 → mult=5 → floor(250*5)=1250.
-        Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 1250",
+        // Base values confirmed from SpectralPack/Cryptid lib/content.lua:
+        //   CRY_NONE:  chips=0,  mult=0  (not 1 — score is 0×anything=0 with chips alone).
+        //   CRY_BULWARK: chips=100, mult=10.  CRY_ULTPAIR: chips=220, mult=22.
+        // CRY_NONE: mult=0 means chip-only jokers score 0. Need both chip AND mult jokers for non-zero.
+        // j_cry_nebulous(+30c) + j_cry_undefined(+5m): chips=0+30=30, mult=0+5=5 → floor(30×5)=150.
+        Case("CRY_NONE (empty hand) + cry_nebulous (+30c) + cry_undefined (+5m) → 150",
+            emptyList(), 150.0, j(FJoker("j_cry_nebulous"), FJoker("j_cry_undefined"))),
+        // + j_cry_the (X2 on CRY_NONE): chips=30, mult=(0+5)*2=10 → floor(30×10)=300.
+        Case("CRY_NONE + cry_the(X2) + cry_nebulous(+30c) + cry_undefined(+5m) → 300",
+            emptyList(), 300.0, j(FJoker("j_cry_the"), FJoker("j_cry_nebulous"), FJoker("j_cry_undefined"))),
+        // CRY_BULWARK: 5 Stone cards. Each Stone scores +50 chips (rank id=-1 → 0 rank chips; +50 bonus).
+        // Base=100 chips, 10 mult. 5×50=250 stone chips → chips=350.
+        // j_cry_stronghold X5 → mult=10×5=50 → floor(350×50)=17500.
+        Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 17500",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
-            1250.0, j(FJoker("j_cry_stronghold"))),
-        // j_cry_adroit +170 Chips: chips=250+170=420, mult=1 → 420.
-        Case("CRY_BULWARK (5 stones) + cry_adroit (+170 Chips) → 420",
+            17500.0, j(FJoker("j_cry_stronghold"))),
+        // j_cry_adroit +170 Chips: chips=350+170=520, mult=10 → floor(520×10)=5200.
+        Case("CRY_BULWARK (5 stones) + cry_adroit (+170 Chips) → 5200",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
-            420.0, j(FJoker("j_cry_adroit"))),
+            5200.0, j(FJoker("j_cry_adroit"))),
         // CRY_ULTPAIR: Two Two-Pairs each of a single suit (two different suits).
         // [Wild_S_A, S_A, H_K, H_K]: pair-of-Aces all Spades (Wild+S), pair-of-Kings all Hearts.
-        // evalCard: Wild_S_A +11, S_A +11, H_K +10, H_K +10 → chips=42, mult=1.
-        // j_cry_clash X12 → mult=12 → floor(42*12)=504.
-        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_clash (X12) → 504",
+        // Base=220 chips, 22 mult. evalCard: Wild_S_A +11, S_A +11, H_K +10, H_K +10 → +42 chips.
+        // Total chips=220+42=262, mult=22.
+        // j_cry_clash X12 → mult=22×12=264 → floor(262×264)=69168.
+        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_clash (X12) → 69168",
             listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
-            504.0, j(FJoker("j_cry_clash"))),
-        // j_cry_treacherous +300 Chips: chips=42+300=342, mult=1 → 342.
-        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_treacherous (+300 Chips) → 342",
+            69168.0, j(FJoker("j_cry_clash"))),
+        // j_cry_treacherous +300 Chips: chips=262+300=562, mult=22 → floor(562×22)=12364.
+        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_treacherous (+300 Chips) → 12364",
             listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
-            342.0, j(FJoker("j_cry_treacherous"))),
-        // j_cry_foolhardy +42 Mult: chips=42, mult=1+42=43 → floor(42×43)=1806.
-        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_foolhardy (+42 Mult) → 1806",
+            12364.0, j(FJoker("j_cry_treacherous"))),
+        // j_cry_foolhardy +42 Mult: chips=262, mult=22+42=64 → floor(262×64)=16768.
+        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_foolhardy (+42 Mult) → 16768",
             listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
-            1806.0, j(FJoker("j_cry_foolhardy"))),
+            16768.0, j(FJoker("j_cry_foolhardy"))),
     )
 
     fun run(): Pair<Int, Int> {

@@ -7,7 +7,7 @@ enum class Suit { S, H, D, C }
  * A card enhancement (from tarots). Played-card effects: Bonus +30 Chips, Mult +4 Mult,
  * Glass x2 Mult. Held-in-hand effects: Steel x1.5 Mult while held, Gold +$3 held at round end.
  * Cryptid additions:
- *   ABSTRACT (^Emult when played, never a face; base Emult=2.0 UNCONFIRMED).
+ *   ABSTRACT (^Emult when played, never a face; Emult=1.15 confirmed from SpectralPack/Cryptid items/misc.lua).
  *   ECHO (m_cry_echo — probabilistic retrigger when scored; no per-card chip/mult change;
  *     triggers the Spectrogram joker accumulator when scored). Retrigger probability and
  *     count are pseudoseed-based and not modelled in the deterministic score engine.
