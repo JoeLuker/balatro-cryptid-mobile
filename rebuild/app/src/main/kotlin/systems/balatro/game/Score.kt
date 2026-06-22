@@ -318,7 +318,10 @@ object Score {
             // jimball: Xmult from j.x accumulator (+0.15 per context.before when this hand type is least-played)
             // pizza_slice: Xmult from j.x accumulator (+0.5 per other pizza_slice sold)
             // wheelhope: Xmult from j.x accumulator (+0.5 per Wheel of Fortune pseudorandom_result trigger)
-            "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope" ->
+            // cut: Xmult from j.x accumulator (+0.5 per Code consumable destroyed when leaving shop)
+            // python: Xmult from j.x accumulator (+0.15 per Code consumable used)
+            "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope",
+            "j_cry_cut", "j_cry_python" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
             "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }

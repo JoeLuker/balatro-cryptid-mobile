@@ -152,6 +152,11 @@ object Oracle {
         Case("Pair of aces + fading_joker @x=2.0 (perishable expired)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_fading_joker", x = 2.0))),
         Case("Pair of aces + poor_joker @mult=8 (2 rent payments)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_poor_joker", mult = 8.0))),
         Case("Pair of aces + keychange @x=1.5 (2 new hand types)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_keychange", x = 1.5))),
+        // Spooky-Code scalers: cut (+0.5 Xmult/Code destroyed) and python (+0.15 Xmult/Code used).
+        // Both use the same if (j.x > 1.0) → xMultMod pattern; test branch with x=1.5.
+        // Pair aces: chips=32, mult=2; Xmult=1.5 → mult=3; floor(32×3)=96.
+        Case("Pair of aces + cut @x=1.5 (spooky Code-card scaler)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_cut", x = 1.5))),
+        Case("Pair of aces + python @x=1.5 (spooky Code-card scaler)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_python", x = 1.5))),
         // --- batch-15: flat/accumulator jokers ---
         Case("Pair of aces + kittyprinter (flat x2 Xmult)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_kittyprinter"))),
         Case("Pair of aces + clicked_cookie @chips=200 (+200 Chips)", PlayingCard.hand("S_A", "H_A"), 464.0, j(FJoker("j_cry_clicked_cookie", chips = 200.0))),

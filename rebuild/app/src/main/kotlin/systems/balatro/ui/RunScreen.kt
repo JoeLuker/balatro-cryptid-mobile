@@ -212,6 +212,13 @@ private val CATALOG = listOf(
     // Thalia and Melpomene: Xmult = C(n,2) where n = distinct rarities on the board; Legendary (rarity=4).
     // Art position unknown (Cryptid source unavailable); renders without sprite until atlas position is confirmed.
     Offer("j_cry_thalia", "Thalia and Melpomene", "Xmult = C(unique rarities, 2)", 10, rarity = 4),
+    // --- Cryptid Spooky-Code scoring jokers ---
+    // Spy: flat X0.5 Mult every hand (halves mult); x_mult=0.5 is fixed.
+    Offer("j_cry_spy", "Spy", "x0.5 Mult every hand", 3),
+    // Cut: Xmult from j.x accumulator (+0.5 per Code card destroyed when leaving shop). Rarity/cost: best-guess.
+    Offer("j_cry_cut", "Cut", "Xmult +0.5 per Code card destroyed", 6),
+    // Python: Xmult from j.x accumulator (+0.15 per Code consumable used). Rarity/cost: best-guess.
+    Offer("j_cry_python", "Python", "Xmult +0.15 per Code card used", 5),
     // --- vanilla held-in-hand jokers ---
     Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8, rarity = 3),
     Offer("j_shoot_the_moon", "Shoot the Moon", "each Queen held gives +13 Mult", 1),
