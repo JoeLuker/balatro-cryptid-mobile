@@ -16,7 +16,14 @@ patches that fail loud, a thin build. Pattern: distro source-package
 | 4 | **Config** — `config-overrides/` → `overlay/config/` baked overlays (incl. per-item toggle) | ✅ done & verified |
 | — | **Flake + signing** — `packages.default` pure build; `nix/sign.sh` → signed APK | ✅ done & verified (89M, v1/v2/v3 verify) |
 | 5 | **Cleanup** — `just build` → Nix (stages build/); deleted config.yaml + scripts/regen-dump.sh + src/dump-* snapshots | ✅ done (`just build` verified) |
-| 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
+| 6 | **Project split** — two-project delineation documented in README | ✅ done (docs) |
+
+**Phase 6 note:** the boundary is already clean by directory (`rebuild/` = the
+Kotlin remake; everything else = the LÖVE build) and is now stated explicitly in
+the README. A physical relocation (e.g. moving the LÖVE build under `love-build/`)
+was deliberately **skipped** — it would rewrite every path in `nix/`, `justfile`,
+tests, `build.sh`, and `.gitignore` and re-break the just-validated build, for
+organizational tidiness only. Can be done later as its own carefully-revalidated pass.
 
 **Phase 5 notes:** the *build path* is retired, not the whole `build.sh` — it stays
 as the **deploy/logs/clean** tool and the **apply_\* source** that `gen-patches.sh`

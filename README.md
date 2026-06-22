@@ -2,6 +2,21 @@
 
 Build and deploy modded Balatro (with Cryptid) to Android.
 
+## Two projects in this repo
+
+This repository holds **two independent projects**:
+
+1. **The LÖVE Cryptid build** (this README; root + `nix/` + `overlay/` + `vendor/`)
+   — packages vanilla `Balatro.love` + the Cryptid / Steamodded / Amulet mods into a
+   signed Android APK via a pinned, reproducible Nix build (no live-patching).
+   Work here with `just build` / `just deploy`.
+2. **`rebuild/`** — a from-scratch reimplementation of Balatro in Kotlin / Jetpack
+   Compose (its own Gradle project; `cd rebuild`). It is verified against scores and
+   layout the LÖVE build emits.
+
+Everything outside `rebuild/` belongs to the LÖVE build. The two meet only in
+`test/` (the parity oracle: `test/kt-oracle.sh`, `tools/uiref/`).
+
 ## Quick Start
 
 ```bash
