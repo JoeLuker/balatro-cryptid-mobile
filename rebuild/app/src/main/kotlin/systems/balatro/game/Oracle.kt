@@ -120,6 +120,10 @@ object Oracle {
         // Per-card: S_A chips+11 fib+8 + H_A chips+11 fib+8 → chips=32, mult=18.
         // joker_main: Thalia X3 → mult=54; Joker +4 → mult=58. floor(32*58)=1856.
         Case("Pair + thalia(r=4),joker(r=1),fib(r=2) (3 rarities → C(3,2)=3 → X3)", PlayingCard.hand("S_A", "H_A"), 1856.0, j(FJoker("j_cry_thalia", rarity = 4), FJoker("j_joker", rarity = 1), FJoker("j_fibonacci", rarity = 2))),
+        // Circus (Exotic, r=6): Xmult per rarity of offered joker. Board [Circus(r=6), Baseball(r=3/Rare)].
+        // other_joker pass: other=Baseball(r=3) offered to Circus → rarity=3→X2 Mult. Baseball: oj===j→skip.
+        // No joker_main effects. Pair aces: chips=32, mult=2; X2 → mult=4. floor(32×4)=128.
+        Case("Pair + circus(r=6,Exotic) + baseball(r=3,Rare) → circus X2 per Rare", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_circus", rarity = 6), FJoker("j_baseball", rarity = 3))),
         // Joker-retrigger pass (context.retrigger_joker_check): chad, flip_side.
         // Chad(n=2): retrigger leftmost joker 2 extra times. Board [Joker(r=1,leftmost), Chad(n=2,r=3)].
         // HighCard S_2: base chips=5, mult=1; S_2 +2c → chips=7.

@@ -212,6 +212,55 @@ private val CATALOG = listOf(
     // Thalia and Melpomene: Xmult = C(n,2) where n = distinct rarities on the board; Legendary (rarity=4).
     // Art position unknown (Cryptid source unavailable); renders without sprite until atlas position is confirmed.
     Offer("j_cry_thalia", "Thalia and Melpomene", "Xmult = C(unique rarities, 2)", 10, rarity = 4),
+    // --- Missing wired-but-not-in-catalog batch ---
+    // apjoker: X4 Xmult on boss blinds.
+    Offer("j_cry_apjoker", "Apjoker", "x4 Mult on boss blinds", 7, rarity = 3),
+    // chili_pepper: Xmult accumulator (+0.5 per end_of_round; perishable).
+    Offer("j_cry_chili_pepper", "Chili Pepper", "Xmult +0.5 per round (perishable)", 6),
+    // dropshot: Xmult accumulator (+0.2 per non-scoring card of random suit each hand).
+    Offer("j_cry_dropshot", "Dropshot", "Xmult +0.2 per non-scoring suit card", 6),
+    // fading_joker: Xmult accumulator (+1 when perishable expires).
+    Offer("j_cry_fading_joker", "Fading Joker", "Xmult +1 when perishable expires", 5),
+    // mondrian: Xmult accumulator (+0.25 per end_of_round with 0 discards).
+    Offer("j_cry_mondrian", "Mondrian", "Xmult +0.25 per unused-discard round", 6),
+    // keychange: Xmult accumulator (+0.25 per new hand type played; resets each round).
+    Offer("j_cry_keychange", "Key Change", "Xmult +0.25 per new hand type played", 6),
+    // poor_joker: +Mult accumulator (+4 per rent payment).
+    Offer("j_cry_poor_joker", "Poor Joker", "+Mult accumulates per rent payment", 4),
+    // spaceglobe: Xchip accumulator (+0.2 when target hand type played; target rotates).
+    Offer("j_cry_spaceglobe", "Spaceglobe", "Xchip +0.2 per target hand played", 6),
+    // supercell: flat +15c X2c +15m X2m every hand.
+    Offer("j_cry_supercell", "Supercell", "+15c X2c +15m X2m", 9),
+    // universe: Emult^1.2 per other Astral-edition joker (other_joker pass).
+    Offer("j_cry_universe", "Universe", "Emult^1.2 per Astral joker", 9, rarity = 3),
+    // caramel: X1.75 Mult per scored played card (individual pass; j.x=1.75; perishable).
+    Offer("j_cry_caramel", "Caramel", "x1.75 Mult per scored card (perishable)", 8, rarity = 5),
+    // --- Cryptid Epic/M/Exotic pool jokers (Epic=5, Exotic=6, M=M-pool) ---
+    // clockwork: Xmult accumulator (+0.25 every 3rd hand; starts at 1).
+    Offer("j_cry_clockwork", "Clockwork", "Xmult +0.25 every 3rd hand played", 7, rarity = 5),
+    // starfruit: Emult from j.x (starts 2, -0.2 per reroll; perishable).
+    Offer("j_cry_starfruit", "Starfruit", "Emult from scaling (perishable)", 8, rarity = 5),
+    // stella_mortis: Emult accumulator (+0.4 per planet destroyed in shop).
+    Offer("j_cry_stella_mortis", "Stella Mortis", "Emult +0.4 per planet destroyed", 9, rarity = 5),
+    // circulus_pistoris: Xchip*π and Emult*π when exactly 3 hands left.
+    Offer("j_cry_circulus_pistoris", "Circulus Pistoris", "Xchip*π Emult*π at hands_left=3", 9, rarity = 5),
+    // facile: Emult=3 each hand (nearly always fires in standard play).
+    Offer("j_cry_facile", "Facile", "Emult 3 each hand", 8, rarity = 5),
+    // M-pool jokers (special pool; rarity=1 placeholder — not available in standard shop).
+    // foodm: +Mult from j.mult accumulator (starts 40, depletes per round; jolly restores).
+    Offer("j_cry_foodm", "Foodm", "+Mult from accumulator (M-pool)", 6),
+    // mstack: +j.n retriggers per scored card (n=1 base; grows by selling jolly jokers).
+    Offer("j_cry_mstack", "Mstack", "+retriggers per scored card (M-pool)", 6),
+    // biggestm: X7 Mult when activated by Pair+ hand (before-pass gate).
+    Offer("j_cry_biggestm", "Biggestm", "X7 Mult on Pair+ hands (M-pool)", 7),
+    // crustulum: +Chips from j.chips accumulator (reroll shop increments).
+    Offer("j_cry_crustulum", "Crustulum", "+Chips from reroll accumulator (M-pool)", 6),
+    // m: Xmult from j.x (+13 per Jolly Joker sold).
+    Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
+    // longboi: Xmult = monstermult (grows each round; M-pool variant).
+    Offer("j_cry_longboi", "Longboi", "Xmult = monstermult (M-pool)", 6),
+    // circus: Xmult per other joker based on rarity (Rare=X2, Epic=X3, Legendary=X4, Exotic=X20).
+    Offer("j_cry_circus", "Circus", "Xmult per rarity: Rare x2, Epic x3, Leg x4, Exotic x20", 9, rarity = 6),
     // --- Cryptid Spooky-Code scoring jokers ---
     // Spy: flat X0.5 Mult every hand (halves mult); x_mult=0.5 is fixed.
     Offer("j_cry_spy", "Spy", "x0.5 Mult every hand", 3),

@@ -365,6 +365,15 @@ object Score {
         val oj = ctx.otherJoker
         if (oj != null) when (j.key) {
             "j_baseball"     -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
+            // circus: Xmult based on other joker's rarity (Rare=3→X2, cry_epic=5→X3, Legendary=4→X4, cry_exotic=6→X20).
+            // Base values from config.extra circus_rarities (scalable at runtime; engine uses base config).
+            // Rarity int convention: 1=Common,2=Uncommon,3=Rare,4=Legendary,5=cry_epic(Epic),6=cry_exotic(Exotic).
+            "j_cry_circus" -> {
+                if (oj !== j) {
+                    val xm = when (oj.rarity) { 3 -> 2.0; 5 -> 3.0; 4 -> 4.0; 6 -> 20.0; else -> 1.0 }
+                    if (xm > 1.0) return Fx().apply { xMultMod = xm }
+                }
+            }
             "j_cry_waluigi"  -> return Fx().apply { xMultMod = 2.5 }                                  // X2.5 once per board joker (incl self)
             // --- Cryptid edition reactors (the card-edition branch is unreachable: cards carry no edition here) ---
             "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
