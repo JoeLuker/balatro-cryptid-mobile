@@ -410,7 +410,6 @@ internal class RunState {
     var pendingTarot by mutableStateOf<TarotOffer?>(null)
     /** Hand-card indices selected as targets for [pendingTarot] (up to 2, like vanilla). */
     var tarotTarget by mutableStateOf(setOf<Int>())
-    var enhancedCount by mutableStateOf(0)
 
     private val deck = Deck(20260614L)   // persistent across the run (tarot enhancements stick)
     val deckRemaining: Int get() = deck.remaining
@@ -572,7 +571,7 @@ internal class RunState {
             "j_stone"            -> o.fj.n = stoneCount
             "j_steel_joker"      -> o.fj.n = steelCount
             "j_abstract"         -> o.fj.n = owned.size
-            "j_drivers_license"  -> o.fj.n = enhancedCount
+            "j_drivers_license"  -> o.fj.n = deck.enhancedCards
             "j_banner"           -> o.fj.n = discardsLeft
             "j_mystic_summit"    -> {} // reads ctx.discardsLeft directly — no FJoker state needed
         }
@@ -691,7 +690,7 @@ internal class RunState {
         // CRIMSON_HEART: pass the currently-disabled joker key so calcJoker skips it
         val crimsonKey = if (boss == Boss.CRIMSON_HEART) crimsonHeartDisabled?.key else null
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
-                            debuffedJokerKey = crimsonKey, trace = trace)
+                            debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -753,8 +752,6 @@ internal class RunState {
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
             // j_spare_trousers: +2 Mult each time Two Pair or Full House played.
             "j_spare_trousers" -> if (r.handType == HandType.TWO_PAIR || r.handType == HandType.FULL_HOUSE) o.fj.mult += 2.0
-            // j_supernova: j.n mirrors the cumulative play count of this joker's scoring hand type; updated after recordHandPlayed.
-            "j_supernova"      -> o.fj.n = handPlayed(r.handType)
             // j_runner: +15 Chips each Straight (or Straight Flush) played.
             "j_runner"         -> if (r.handType == HandType.STRAIGHT || r.handType == HandType.STRAIGHT_FLUSH) o.fj.chips += 15.0
             // j_square: +4 Chips each time exactly 5 cards were played.
@@ -994,7 +991,6 @@ internal class RunState {
             if (t.seal != Seal.NONE) c.copy(seal = t.seal) else c.copy(enhancement = t.enhancement)
         }
         hand = newHand
-        if (applied > 0) enhancedCount += applied
         consumables.remove(t)
         pendingTarot = null; tarotTarget = emptySet()
         Telemetry.event("RUN_USE_TAROT", "tarot" to t.name, "n" to applied)

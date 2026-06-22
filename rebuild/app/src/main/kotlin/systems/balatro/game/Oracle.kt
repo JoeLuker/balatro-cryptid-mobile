@@ -15,6 +15,7 @@ object Oracle {
         val debuff: Debuff = Debuff.None, val held: List<PlayingCard> = emptyList(),
         val handsLeft: Int = -1, val discardsLeft: Int = -1, val bossBlind: Boolean = false,
         val debuffedJokerKey: String? = null,
+        val handTypePlays: Map<HandType, Int> = emptyMap(),   // prior run-total plays per hand type (supernova)
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -299,8 +300,13 @@ object Oracle {
         // --- vanilla n-based jokers (joker_main; pre-set j.n via FJoker constructor) ---
         // Abstract: +3 Mult per joker on board (n=2: abstract + one other) → chips=32, mult=2+6=8 → 256.
         Case("Pair of aces + abstract (n=2 jokers)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_abstract", n = 2))),
-        // Supernova: +1 Mult per time this hand type played (n=3) → chips=32, mult=2+3=5 → 160.
-        Case("Pair of aces + supernova (n=3 plays)", PlayingCard.hand("S_A", "H_A"), 160.0, j(FJoker("j_supernova", n = 3))),
+        // Supernova: +Mult = times this hand type was played this run, INCLUDING the current hand (vanilla
+        // increments G.GAME.hands[name].played before the joker pass). Read from ctx.scoringPlays, not j.n.
+        // First Pair: scoringPlays=1 → mult=2+1=3 → 96 (the old run-loop wiring scored +0 here — off-by-one).
+        Case("Pair of aces + supernova (1st play → +1)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_supernova"))),
+        // 2 prior Pair plays → scoringPlays=3 → mult=2+3=5 → 160.
+        Case("Pair of aces + supernova (2 prior plays → +3)", PlayingCard.hand("S_A", "H_A"), 160.0,
+            j(FJoker("j_supernova")), handTypePlays = mapOf(HandType.PAIR to 2)),
         // Blue Joker: +2 Chips per deck card (n=52 full deck) → chips=32+104=136, mult=2 → 272.
         Case("Pair of aces + blue_joker (n=52 deck)", PlayingCard.hand("S_A", "H_A"), 272.0, j(FJoker("j_blue_joker", n = 52))),
         // Banner: +30 Chips per remaining discard (n=3) → chips=32+90=122, mult=2 → 244.
@@ -539,7 +545,7 @@ object Oracle {
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")

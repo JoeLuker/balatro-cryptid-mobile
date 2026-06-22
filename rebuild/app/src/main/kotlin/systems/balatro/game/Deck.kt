@@ -68,5 +68,10 @@ class Deck(seed: Long) {
     /** Count cards in the FULL persistent deck with a given enhancement (for j_stone, j_steel_joker). */
     fun countEnhancement(e: Enhancement): Int = all.count { it.enhancement == e }
 
+    /** Cards in the FULL persistent deck carrying ANY enhancement (j_drivers_license: X3 at >=16).
+     *  Recomputed from deck state so re-enhancing a card can't drift the tally (vanilla counts
+     *  cards whose get_enhancements() is non-empty). */
+    val enhancedCards: Int get() = all.count { it.enhancement != Enhancement.NONE }
+
     val remaining: Int get() = drawPile.size
 }

@@ -39,6 +39,7 @@ class Sctx {
     var scoringHand: List<PlayingCard> = emptyList()
     var scoringName: HandType = HandType.NONE
     var pokerHands: Set<HandType> = emptySet()   // context.poker_hands: every hand type the played cards satisfy
+    var scoringPlays: Int = 0              // G.GAME.hands[scoringName].played — cumulative plays of this hand type INCLUDING the current hand (supernova: +mult)
     var otherCard: PlayingCard? = null     // the scored/held card a joker reacts to (individual)
     var otherJoker: FJoker? = null         // the board joker offered (joker-on-joker)
     var individual = false
@@ -261,7 +262,7 @@ object Score {
             "j_stone"       -> if (j.n > 0) return Fx().apply { chipMod = 25.0 * j.n }         // +25 / stone card
             "j_blue_joker"  -> if (j.n > 0) return Fx().apply { chipMod = 2.0 * j.n }          // +2 / deck card
             "j_banner"      -> if (j.n > 0) return Fx().apply { chipMod = 30.0 * j.n }         // +30 / remaining discard
-            "j_supernova"   -> if (j.n > 0) return Fx().apply { multMod = j.n.toDouble() }     // +1 / this hand-type play
+            "j_supernova"   -> return Fx().apply { multMod = ctx.scoringPlays.toDouble() }     // +Mult = times this hand type has been played this run (incl. current)
             "j_abstract"    -> if (j.n > 0) return Fx().apply { multMod = 3.0 * j.n }          // +3 / joker on board
             "j_drivers_license" -> if (j.n >= 16) return Fx().apply { xMultMod = 3.0 }         // X3 if >=16 enhanced
             "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
@@ -416,6 +417,7 @@ object Score {
         level: Int = 1, debuff: Debuff = Debuff.None, handsLeft: Int = -1, discardsLeft: Int = -1,
         bossBlind: Boolean = false,
         debuffedJokerKey: String? = null,   // CRIMSON_HEART: key of the disabled joker for this hand
+        handTypePlays: Map<HandType, Int> = emptyMap(),  // PRIOR run-total plays per hand type (NOT incl. this hand); supernova reads scoringName's count +1
         trace: MutableList<ScoreStep>? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
@@ -440,6 +442,7 @@ object Score {
         if (debuff is Debuff.Flint) { chips = floor(chips / 2); mult = floor(mult / 2) }
         val ctx = Sctx().apply {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
+            this.scoringPlays = (handTypePlays[handType] ?: 0) + 1   // +1: this hand counts as a play (vanilla increments hand.played before the joker pass)
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
             this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
