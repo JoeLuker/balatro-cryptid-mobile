@@ -35,6 +35,22 @@ class RunSnapshotTest {
         assertEquals(snap, RunSnapshot.decode(snap.encode()))
     }
 
+    @Test fun roundTripsAMidShopState() {
+        val snap = RunSnapshot(
+            blindIndex = 2, money = 18, jokers = emptyList(), deck = emptyList(), handLevels = emptyMap(),
+            shopSlotsBonus = 1, discountPercent = 25, interestCap = 5, baseHands = 4, baseDiscards = 3, rerollBase = 3,
+            redeemedVouchers = listOf("v_grabber"), tags = emptyList(),
+            phase = "SHOP",
+            shop = listOf(OfferSnap("j_joker", "Joker", "+4 Mult", 5, "FOIL")),
+            shopPlanets = listOf(PlanetSnap("MERCURY", 3)),
+            shopTarots = listOf(TarotSnap("Justice", "GLASS", 3, "NONE")),
+            shopVoucher = VoucherSnap("v_overstock_norm", "Overstock", "+1 slot", 1, 10),
+            shopBoosters = listOf(BoosterSnap("p_arcana_normal", "Arcana Pack", "Arcana", 4, 3, 1)),
+            rerollIncrease = 2, freeRerollThisShop = true, couponThisShop = false,
+        )
+        assertEquals(snap, RunSnapshot.decode(snap.encode()))
+    }
+
     @Test fun savesLoadsAndDeletesOnDisk() {
         val tmp = File.createTempFile("balatro_run", ".json")
         val snap = RunSnapshot(3, 12, emptyList(), listOf(CardSnap("S", 14, "GLASS", "RED")),

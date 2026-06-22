@@ -25,6 +25,14 @@ data class JokerSnap(
     val n: Int, val rarity: Int, val xc: Double,
 )
 
+// Shop-stock snaps — so a mid-shop save resumes the EXACT shop (the real post-purchase stock,
+// not a fresh re-roll, which would re-offer already-bought cards).
+@Serializable data class OfferSnap(val key: String, val name: String, val desc: String, val cost: Int, val edition: String)
+@Serializable data class PlanetSnap(val planet: String, val cost: Int)
+@Serializable data class TarotSnap(val name: String, val enh: String, val cost: Int, val seal: String)
+@Serializable data class VoucherSnap(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int)
+@Serializable data class BoosterSnap(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int)
+
 @Serializable
 data class RunSnapshot(
     val blindIndex: Int,
@@ -41,6 +49,16 @@ data class RunSnapshot(
     val redeemedVouchers: List<String>,
     val tags: List<String>,
     val consumables: List<ConsumableSnap> = emptyList(),
+    // exact mid-shop resume: the phase to land in + the live shop stock + per-shop reroll/tag state
+    val phase: String = "BLIND_SELECT",
+    val shop: List<OfferSnap> = emptyList(),
+    val shopPlanets: List<PlanetSnap> = emptyList(),
+    val shopTarots: List<TarotSnap> = emptyList(),
+    val shopVoucher: VoucherSnap? = null,
+    val shopBoosters: List<BoosterSnap> = emptyList(),
+    val rerollIncrease: Int = 0,
+    val freeRerollThisShop: Boolean = false,
+    val couponThisShop: Boolean = false,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {

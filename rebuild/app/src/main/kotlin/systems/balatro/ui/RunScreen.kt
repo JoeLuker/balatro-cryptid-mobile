@@ -52,6 +52,11 @@ import systems.balatro.save.RunSnapshot
 import systems.balatro.save.JokerSnap
 import systems.balatro.save.CardSnap
 import systems.balatro.save.ConsumableSnap
+import systems.balatro.save.OfferSnap
+import systems.balatro.save.PlanetSnap
+import systems.balatro.save.TarotSnap
+import systems.balatro.save.VoucherSnap
+import systems.balatro.save.BoosterSnap
 import systems.balatro.save.SaveIo
 import java.io.File
 
@@ -800,6 +805,15 @@ internal class RunState {
                 is Consumable.PlanetC -> ConsumableSnap("planet", c.planet.display, planet = c.planet.name)
             }
         },
+        phase = phase.name,
+        shop = shop.map { OfferSnap(it.key, it.name, it.desc, it.cost, it.edition.name) },
+        shopPlanets = shopPlanets.map { PlanetSnap(it.planet.name, it.cost) },
+        shopTarots = shopTarots.map { TarotSnap(it.name, it.enhancement.name, it.cost, it.seal.name) },
+        shopVoucher = shopVoucher?.let { VoucherSnap(it.key, it.name, it.desc, it.extra, it.cost) },
+        shopBoosters = shopBoosters.map { BoosterSnap(it.key, it.name, it.kind, it.cost, it.extra, it.choose) },
+        rerollIncrease = rerollIncrease,
+        freeRerollThisShop = freeRerollThisShop,
+        couponThisShop = couponThisShop,
     )
 
     /** Restore a run from a snapshot (load). Lands in the shop — a safe inter-blind state. */
@@ -822,7 +836,15 @@ internal class RunState {
             consumables.add(if (cs.kind == "tarot") Consumable.TarotC(TarotOffer(cs.name, Enhancement.valueOf(cs.enh), 0, Seal.valueOf(cs.seal)))
                             else Consumable.PlanetC(Planet.valueOf(cs.planet)))
         }
-        phase = Phase.BLIND_SELECT   // resume at the next blind choice (run state intact; shop stock not persisted)
+        // exact shop stock + per-shop state, then land at the saved phase (SHOP resumes the real shop)
+        shop = s.shop.map { Offer(it.key, it.name, it.desc, it.cost, Edition.valueOf(it.edition)) }
+        shopPlanets = s.shopPlanets.map { PlanetOffer(Planet.valueOf(it.planet), it.cost) }
+        shopTarots = s.shopTarots.map { TarotOffer(it.name, Enhancement.valueOf(it.enh), it.cost, Seal.valueOf(it.seal)) }
+        shopVoucher = s.shopVoucher?.let { VoucherOffer(it.key, it.name, it.desc, it.extra, it.cost) }
+        shopBoosters = s.shopBoosters.map { BoosterOffer(it.key, it.name, it.kind, it.cost, it.extra, it.choose) }
+        rerollIncrease = s.rerollIncrease
+        freeRerollThisShop = s.freeRerollThisShop; couponThisShop = s.couponThisShop
+        phase = runCatching { Phase.valueOf(s.phase) }.getOrDefault(Phase.BLIND_SELECT)
     }
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
@@ -932,7 +954,9 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     // Autosave the run at each inter-blind boundary (the snapshot captures the run-defining graph; the
     // encode runs on the main thread to read Compose state, the write goes to Dispatchers.IO). On game
     // over the save is deleted so the next launch starts fresh instead of resuming a dead run.
-    LaunchedEffect(s.phase, s.blindIndex) {
+    // re-fire on the shop-mutating state too (money/consumables change on buys/rerolls/uses) so the
+    // autosave captures the CURRENT shop stock, not the stock at shop entry (else resume re-offers bought cards).
+    LaunchedEffect(s.phase, s.blindIndex, s.money, s.consumables.size) {
         if (startScreen != null) return@LaunchedEffect          // deep-link harnesses don't autosave
         when (s.phase) {
             Phase.SHOP, Phase.BLIND_SELECT -> { val json = s.snapshot().encode(); withContext(Dispatchers.IO) { SaveIo.write(saveFile, json) } }
