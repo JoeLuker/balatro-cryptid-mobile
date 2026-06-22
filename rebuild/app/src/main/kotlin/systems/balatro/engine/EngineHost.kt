@@ -32,6 +32,35 @@ class EngineHost {
     private fun cardArea(r: Room.AreaRect, kind: String, limit: Int, isConsumeables: Boolean = false, cardScale: Double = 1.0) =
         CardArea(scene, Transform(r.x, r.y, r.w, r.h), kind, limit, isConsumeables, cardScale)
 
+    /** Card:start_dissolve / Card:shatter (card.lua:2615 / 2541) — the card DESTROY animation. Juices
+     *  the card, then eases its `dissolve` 0→1 over the dissolve time and finally invokes [onGone] so
+     *  the caller drops it from its area/game list. [shatter] = glass: a faster (0.35s) white burn vs
+     *  the 0.7s fiery dissolve (dissolve_time 0.7; ease over 1×/0.5×, remove at 1.05×/0.55×). */
+    fun startDissolve(card: Moveable, shatter: Boolean = false, now: Double, reducedMotion: Boolean = false, onGone: () -> Unit = {}) {
+        val dt = 0.7
+        card.dissolve = 0.0
+        card.shattered = shatter
+        card.materializing = false
+        card.juiceUp(now = now, reducedMotion = reducedMotion)
+        events.addEvent(Event(trigger = "ease", blockable = false, delay = (if (shatter) 0.5 else 1.0) * dt,
+            ease = EaseSpec(get = { card.dissolve }, set = { card.dissolve = it }, easeTo = 1.0)))
+        events.addEvent(Event(trigger = "after", blockable = false, delay = (if (shatter) 0.55 else 1.05) * dt,
+            func = { onGone(); true }))
+    }
+
+    /** Card:start_materialize (card.lua:2693) — the card CREATE animation (reverse dissolve): the card
+     *  starts fully dissolved (1) and eases its `dissolve` → 0 over the materialize time (0.6s), so it
+     *  burns INTO existence (green/set-coloured edge). No removal — the card stays once it's whole. */
+    fun startMaterialize(card: Moveable, now: Double, reducedMotion: Boolean = false) {
+        val dt = 0.6
+        card.dissolve = 1.0
+        card.shattered = false
+        card.materializing = true
+        card.juiceUp(now = now, reducedMotion = reducedMotion)
+        events.addEvent(Event(trigger = "ease", blockable = false, delay = 1.0 * dt,
+            ease = EaseSpec(get = { card.dissolve }, set = { card.dissolve = it }, easeTo = 0.0)))
+    }
+
     /** One simulation step (the body of game.lua Game:update): advance the clock, drain events,
      *  sweep every Moveable's move(), then flush deferred removals. */
     fun tick(dt: Double, paused: Boolean = false) {

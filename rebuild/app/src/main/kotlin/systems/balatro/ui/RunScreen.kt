@@ -390,6 +390,8 @@ internal class RunState {
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
     val owned = mutableStateListOf<Owned>()
+    /** Joker slots: base 5, +1 per NEGATIVE joker held (e_negative config.extra = 1 → card_limit+1). */
+    val jokerSlots: Int get() = 5 + owned.count { it.offer.edition == Edition.NEGATIVE }
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
     var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
@@ -464,11 +466,18 @@ internal class RunState {
             owned[0] = owned[0].copy(offer = owned[0].offer.copy(edition = Edition.FOIL))
             owned[1] = owned[1].copy(offer = owned[1].offer.copy(edition = Edition.HOLO))
         }
-        buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)
+        buy(Offer("j_joker", "Negative Joker", "+1 joker slot", 0, edition = Edition.NEGATIVE), free = true)
+        buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)   // last → demo self-destruct
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
         // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
+        // One played card is GLASS + forceGlassBreak so it SHATTERS (dissolve.fs) after the tally;
+        // materializeJokers fades the jokers IN at the start (start_materialize) — the create half.
+        forceGlassBreak = true
+        materializeJokers = true
+        demoSelfDestruct = true   // a joker burns away (fiery dissolve) on cash-out — the destroy half
         hand = listOf(
-            PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7),
+            PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
+            PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
             PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4),
         )
         selected = setOf(0, 1, 2, 3)
@@ -625,9 +634,25 @@ internal class RunState {
         popIndex = i - 1                                        // step 0 is the base; 1.. are cards
     }
 
-    /** Commit the scored hand: bank the score, refill, advance the run. */
-    fun scoreCommit() {
-        val r = pending ?: return
+    /** repro-live demo: force every played glass card to shatter (so the burn animation is visible). */
+    var forceGlassBreak = false
+    /** repro-live demo: materialize the jokers IN on first frame (start_materialize, the create half
+     *  of the destroy/create pair) so the reverse-dissolve is visible. */
+    var materializeJokers = false
+    /** repro-live demo: at end-of-round, also self-destruct the LAST owned joker (a sprite-backed one)
+     *  so the fiery dissolve is visible behind the cash-out panel — exercises the real SELF_DESTRUCT
+     *  path with a rendered joker (Broken Home, the only real self-destruct key, may lack art). */
+    var demoSelfDestruct = false
+    /** m_glass `extra = 4` → a played glass card has a 1-in-4 chance to shatter (Card:shatter) after
+     *  it scores. The demo flag forces it; real play rolls it. */
+    fun rollGlassBreak(): Boolean = forceGlassBreak || Random.nextInt(4) == 0
+
+    /** Bank the scored hand (the end-of-round evaluation): score, refill, settle the lose/over case.
+     *  Returns true if the round was WON (target met) — the cascade then runs the end-of-round
+     *  self-destruct-joker dissolve and [enterRoundEval]. (state_events.lua: the end_of_round
+     *  calculate destroys self-destruct jokers BEFORE the ROUND_EVAL state, on the board.) */
+    fun scoreBank(): Boolean {
+        val r = pending ?: return false
         roundScore += r.score; handsLeft -= 1
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
         // ── boss blind effects triggered after each scored hand ────────────────────────────────
@@ -660,6 +685,15 @@ internal class RunState {
             phase = Phase.OVER
             Telemetry.event("ROUND_LOSE", "blind" to blindName, "total" to roundScore)
         }
+        return false
+    }
+
+    /** Round won → the cash-out screen (entered after the end-of-round self-destruct dissolves start,
+     *  so the burning jokers are still visible behind the cash-out panel — see RoundPlay). */
+    fun enterRoundEval() {
+        buildCashOut()          // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
+        Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
+        phase = Phase.ROUND_EVAL
     }
 
     /** Build the cash-out rows the way evaluate_round (state_events.lua:1147) does — in order:
@@ -684,7 +718,9 @@ internal class RunState {
     fun cashOut() {
         if (phase != Phase.ROUND_EVAL) return
         money += cashOutTotal
-        // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
+        // self-destruct jokers (Broken Home) DISSOLVED at end-of-round (the cascade's startDissolve →
+        // onGone removes them). Safety net: guarantee the logical removal even if the player cashes out
+        // before the 0.735s burn finishes (which unmounts the play field before onGone fires). Idempotent.
         val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
         if (destroyed.isNotEmpty()) {
             owned.removeAll(destroyed)
@@ -693,6 +729,7 @@ internal class RunState {
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
         val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
+        resetRerollCost()                            // fresh shop → reroll cost back to base
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
         if (wasSlot == 2 && wasAnte in setOf(8, 10)) {
@@ -771,6 +808,7 @@ internal class RunState {
 
     /** Populate the shop and jump to it — for the --es screen shop parity-screenshot deep-link only. */
     fun toShopForPreview() {
+        resetRerollCost()
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         phase = Phase.SHOP
     }
@@ -778,12 +816,19 @@ internal class RunState {
     /** Build a sample cash-out and jump to it — for the --es screen eval parity-screenshot deep-link only. */
     fun toEvalForPreview() { buildCashOut(); phase = Phase.ROUND_EVAL }
 
-    /** Reroll the shop stock (button='reroll_shop'). Balatro charges a flat reroll cost ($5 base). */
-    var rerollCost by mutableStateOf(5)
-    private var rerolls = 0
+    // Reroll cost (calculate_reroll_cost, common_events.lua:2686): base 5, +1 per reroll within a
+    // shop, reset to base each new shop. rerollBase is reducible by vouchers/back later.
+    var rerollBase = 5
+    var rerollIncrease by mutableStateOf(0)                  // current_round.reroll_cost_increase
+    val rerollCost: Int get() = rerollBase + rerollIncrease
+    private var rerolls = 0                                  // global counter → reroll-stock RNG variety
+    /** state_events.lua:347 — entering a fresh shop resets the per-shop reroll escalation. */
+    fun resetRerollCost() { rerollIncrease = 0 }
+    /** Reroll the shop stock (button='reroll_shop'). */
     fun reroll() {
         if (money < rerollCost || phase != Phase.SHOP) return
         money -= rerollCost
+        rerollIncrease += 1                                  // +1 each reroll (calculate_reroll_cost)
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
@@ -878,7 +923,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
             // weight box to the right of the HUD. Card areas span the whole room; the HUD sits on top
             // of the left edge exactly as the game layers G.HUD over the room.
-            if (s.phase == Phase.ROUND) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
+            // ROUND_EVAL keeps the play field mounted too, so the engine host + joker Moveables persist
+            // and the end-of-round self-destruct dissolve burns on behind the cash-out panel (which the
+            // when-block below overlays). RoundPlay gates its hand/played/action-bar to Phase.ROUND.
+            if (s.phase == Phase.ROUND || s.phase == Phase.ROUND_EVAL) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
             Box(
                 // requiredHeight + centre: the 12.9u room centres in the surface — letterboxed when the
                 // surface is taller than the room, cropped top/bottom when shorter (16:9). Plain .height()
@@ -1390,10 +1438,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // Per-card engine Moveable, by card identity — persists as a card moves hand→play (the transfer
     // carries its VT). IdentityHashMap so value-equal duplicates (two 10s) stay distinct.
     val cardMv = remember { java.util.IdentityHashMap<PlayingCard, Moveable>() }
+    // Per-joker engine Moveable, by joker identity (mirrors cardMv) — so a SPECIFIC self-destruct
+    // joker can dissolve and be pruned, rather than setCardCount dropping the last by count.
+    val jokerMv = remember { java.util.IdentityHashMap<Owned, Moveable>() }
     // Staggered deal: each newly-dealt card's clock time to start flying in from the deck; held at the
     // deck until then so cards arrive one-by-one (~0.07s apart). dealClock[0] is the next reveal slot.
     val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
     val dealClock = remember { doubleArrayOf(0.0) }
+    val jokerMatDone = remember { booleanArrayOf(false) }   // one-shot: jokers materialized IN (demo)
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
@@ -1407,7 +1459,21 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // MainUpdateLoop body (game.lua Game:update order): advance clock → align card areas
                 // (CardArea:update) → drain events → sweep every Moveable's move → flush removals.
                 host.clock.advance(dt, reducedMotion = frozen)
-                if (host.jokers.cards.size != s.owned.size) host.jokers.setCardCount(s.owned.size)
+                // IDENTITY-TRACKED jokers (like cardMv): rebuild host.jokers.cards from s.owned each
+                // frame, REUSING each joker's Moveable, so a dissolving joker keeps its Moveable (and
+                // dissolve value) and survives the burn until onGone prunes it. newCard() spawns at the
+                // area origin exactly like the old setCardCount, so the resting render is unchanged.
+                host.jokers.cards.clear(); for (o in s.owned) host.jokers.cards.add(jokerMv.getOrPut(o) { host.jokers.newCard() })
+                if (jokerMv.size > s.owned.size) {                  // prune Moveables for removed jokers
+                    val keep = java.util.IdentityHashMap<Owned, Boolean>(); for (o in s.owned) keep[o] = true
+                    val it2 = jokerMv.entries.iterator()
+                    while (it2.hasNext()) { val e = it2.next(); if (!keep.containsKey(e.key)) { e.value.remove(); it2.remove() } }
+                }
+                // one-shot: materialize the jokers IN (start_materialize) — the create half of the pair.
+                if (s.materializeJokers && !jokerMatDone[0] && host.jokers.cards.size == s.owned.size && s.owned.isNotEmpty()) {
+                    host.jokers.cards.forEach { host.startMaterialize(it, now = host.clock.real) }
+                    jokerMatDone[0] = true
+                }
                 host.jokers.alignCards(host.clock, reducedMotion = frozen)
                 // HAND slide: the area Y is state-dependent (oracle: 6.986 selecting → 8.886 scoring).
                 // Setting host.hand.T.y on the transition makes each card's align target jump, so the
@@ -1479,7 +1545,35 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 }))
             }
             host.events.addEvent(Event(trigger = "after", delay = 0.30, func = { true }))          // trailing post-step gap
-            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = { s.scoreCommit(); true }))
+            // post-tally: played GLASS cards shatter (Card:shatter, 1-in-4) — they DISSOLVE away (fast
+            // white burn) rather than being discarded. Roll per glass card; if any burns, hold the
+            // commit/refill until the dissolve finishes (0.55×0.7s) so it doesn't pop out mid-burn.
+            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = {
+                var burning = false
+                s.scoreCards.forEachIndexed { i, card ->
+                    if (card.enhancement == Enhancement.GLASS && s.rollGlassBreak()) {
+                        host.play.cards.getOrNull(i)?.let { host.startDissolve(it, shatter = true, now = host.clock.real) }
+                        burning = true
+                    }
+                }
+                host.events.addEvent(Event(trigger = "after", delay = if (burning) 0.55 * 0.7 else 0.0, func = {
+                    if (s.scoreBank()) {                            // round WON → end-of-round evaluation
+                        // self-destruct jokers (SELF_DESTRUCT_KEYS, e.g. Broken Home) DISSOLVE on the
+                        // board (fiery start_dissolve), then are pruned from owned (onGone). Faithful:
+                        // state_events.lua runs this in the end_of_round calculate, before ROUND_EVAL.
+                        val doomed = s.owned.filter { it.fj.key in SELF_DESTRUCT_KEYS } +
+                            (if (s.demoSelfDestruct) listOfNotNull(s.owned.lastOrNull()) else emptyList())
+                        doomed.distinct().forEach { o ->
+                            jokerMv[o]?.let { mv -> host.startDissolve(mv, now = host.clock.real) { s.owned.remove(o) } }
+                        }
+                        // RoundPlay stays mounted through ROUND_EVAL, so the burn continues behind the
+                        // cash-out panel (the dump's eval state appears ~0.3s in, mid-dissolve).
+                        s.enterRoundEval()
+                    }
+                    true
+                }))
+                true
+            }))
         }
     }
     // juice the played card the cascade is popping (live; repro uses ScoredCardsRow's own juice).
@@ -1505,11 +1599,23 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
                             contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
                             colorFilter = ColorFilter.tint(Color.Black))
-                        Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        // base art — burned through dissolve.fs while the joker is materializing IN
+                        // (dissolve 1→0, green edge) or dissolving OUT (e.g. self-destruct, fiery).
+                        val diss = m.dissolve.toFloat()
+                        Image(it, o.offer.name, Modifier.size(cardW, cardH).graphicsLayer {
+                            renderEffect = when {
+                                // burning (dissolve/shatter/materialize) takes precedence over the edition
+                                foilOn && diss > 0f -> dissolveRenderEffect(
+                                    diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered, materialize = m.materializing)
+                                // NEGATIVE transforms the base art itself (not an additive overlay)
+                                foilOn && o.offer.edition == Edition.NEGATIVE -> negativeBaseRenderEffect(cardWpx, cardHpx)
+                                else -> null
+                            }
+                        }, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                         // EDITION (foil/holo/poly → AGSL): overlay the shimmer over the base art,
                         // animated by the engine clock. (frame.value above forces the per-tick redraw.)
-                        val edEffect = if (foilOn && o.offer.edition != Edition.NONE)
+                        // Suppressed mid-burn — the card isn't whole yet, so the shimmer would look wrong.
+                        val edEffect = if (foilOn && o.offer.edition != Edition.NONE && diss <= 0f)
                             editionRenderEffect(o.offer.edition.tag, cardWpx, cardHpx, host.clock.real.toFloat()) else null
                         if (edEffect != null) {
                             Image(it, null, Modifier.size(cardW, cardH).graphicsLayer { renderEffect = edEffect },
@@ -1521,7 +1627,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
         // Slot counts at the BOTTOM-left of each card area (jokers N/5, consumables 0/2).
         Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("${s.owned.size}/${s.maxJokers}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
+            BTxt("${s.owned.size}/${minOf(s.maxJokers, s.jokerSlots)}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
         }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("0/2", Balatro.White, countSp)
@@ -1536,9 +1642,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         } else if (s.scoring) {
             s.scoreCards.forEachIndexed { i, card ->
                 val m = host.play.cards.getOrNull(i) ?: return@forEachIndexed
+                val diss = m.dissolve.toFloat()      // >0 once this card is shattering (dissolve.fs burn)
                 Box(off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
                     rotationZ = (m.VT.r * 57.2958).toFloat()
                     scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
+                    if (foilOn && diss > 0f)
+                        renderEffect = dissolveRenderEffect(diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered)
                 }) { CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {} }
             }
         }
@@ -1558,7 +1667,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     }
                 }
             }
-        } else {
+        } else if (s.phase == Phase.ROUND) {   // hand is drawn back at end-of-round → hidden on ROUND_EVAL
             s.hand.forEachIndexed { i, card ->
                 val m = host.hand.cards.getOrNull(i) ?: return@forEachIndexed
                 val interaction = remember(i) { MutableInteractionSource() }
@@ -1580,11 +1689,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
         // hand-size count (N/8) under the hand area.
-        Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
+        if (s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
             BTxt("${s.hand.size}/8", Balatro.White, countSp)
         }
         // action bar (Play Hand / Sort / Discard) below the hand — hidden during scoring (Balatro hides it).
-        if (!s.scoring) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
+        if (!s.scoring && s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
             RenderUI(buttonsRow(s, cells))
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
