@@ -187,6 +187,10 @@ object Oracle {
         Case("Pair + cursor @16 chips (read branch)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_cursor", chips = 16.0))),
         Case("Pair + eternalflame @x1.3 (read branch)", PlayingCard.hand("S_A", "H_A"), 83.0, j(FJoker("j_cry_eternalflame", x = 1.3))),
         Case("HighCard 7,2 diff suits + whip (+0.5 Xmult)", PlayingCard.hand("S_2", "H_7"), 18.0, j(FJoker("j_cry_whip"))),
+        // whip + Smeared: 2 and 7 of the SAME printed suit (both Hearts) count as different suits under
+        // Smeared (red H↔D collide) → whip fires +0.5 → x1.5. Without the smear fix it scores 12 (no trigger).
+        Case("HighCard 2H,7H same suit + smeared + whip (smear → x1.5) → 18", PlayingCard.hand("H_2", "H_7"), 18.0,
+            j(FJoker("j_smeared"), FJoker("j_cry_whip"))),
         Case("Pair + big_cube (x6 Chips)", PlayingCard.hand("S_A", "H_A"), 384.0, j(FJoker("j_cry_big_cube"))),
         Case("Pair of 4s + antennastoheaven (2x4 -> x1.2 Chips)", PlayingCard.hand("S_4", "H_4"), 43.0, j(FJoker("j_cry_antennastoheaven"))),
         Case("Pair of aces + supercell (+15c x2c +15m x2m)", PlayingCard.hand("S_A", "H_A"), 3196.0, j(FJoker("j_cry_supercell"))),

@@ -379,7 +379,7 @@ object Score {
             // monkey_dagger: +chips from j.chips accumulator (+10*sell_cost of left joker at setting_blind, that joker destroyed)
             "j_cry_monkey_dagger" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // unjust_dagger: Xmult from j.x accumulator (+0.2*sell_cost of left joker at setting_blind, that joker destroyed)
-            // jimball: Xmult from j.x accumulator (+0.15 per context.before when this hand type is least-played)
+            // jimball: Xmult from j.x accumulator (+0.15 per hand while this hand type is the strict most-played; resets to x1 if tied/beaten)
             // pizza_slice: Xmult from j.x accumulator (+0.5 per other pizza_slice sold)
             // wheelhope: Xmult from j.x accumulator (+0.5 per Wheel of Fortune pseudorandom_result trigger)
             // cut: Xmult from j.x accumulator (+0.5 per Code consumable destroyed when leaving shop)
@@ -562,7 +562,13 @@ object Score {
         // Uses get_id() in Lua — rankOf applies Maximized remapping so 2/7 can never match when Maximized is on board.
         for (j in jokers) if (j.key == "j_cry_whip") {
             fun suitsOf(id: Int) = played.filter { rankOf(it) == id }
-                .flatMap { if (it.enhancement == Enhancement.WILD) Suit.values().toList() else listOf(it.suit) }.toSet()
+                .flatMap { when {
+                    it.enhancement == Enhancement.WILD -> Suit.values().toList()
+                    // Smeared: a card's suit collides with its colour pair in every is_suit check (red H↔D, black S↔C).
+                    ctx.smeared && (it.suit == Suit.H || it.suit == Suit.D) -> listOf(Suit.H, Suit.D)
+                    ctx.smeared && (it.suit == Suit.S || it.suit == Suit.C) -> listOf(Suit.S, Suit.C)
+                    else -> listOf(it.suit)
+                } }.toSet()
             val ts = suitsOf(2); val ss = suitsOf(7)
             if (ts.isNotEmpty() && ss.isNotEmpty() && (ts.size > 1 || ss.size > 1 || ts.first() != ss.first())) j.x += 0.5
         }
