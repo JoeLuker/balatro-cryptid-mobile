@@ -536,6 +536,7 @@ internal class RunState {
         // before the 0.735s burn finishes (which unmounts the play field before onGone fires). Idempotent.
         owned.removeAll { it.fj.key in SELF_DESTRUCT_KEYS }
         blindIndex += 1
+        resetRerollCost()                            // fresh shop → reroll cost back to base
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         // Pre-seed boss so blind-select and shop screens show correct name/desc.
         // startRound() re-derives the same deterministic value.
@@ -600,6 +601,7 @@ internal class RunState {
 
     /** Populate the shop and jump to it — for the --es screen shop parity-screenshot deep-link only. */
     fun toShopForPreview() {
+        resetRerollCost()
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         phase = Phase.SHOP
     }
@@ -607,12 +609,19 @@ internal class RunState {
     /** Build a sample cash-out and jump to it — for the --es screen eval parity-screenshot deep-link only. */
     fun toEvalForPreview() { buildCashOut(); phase = Phase.ROUND_EVAL }
 
-    /** Reroll the shop stock (button='reroll_shop'). Balatro charges a flat reroll cost ($5 base). */
-    var rerollCost by mutableStateOf(5)
-    private var rerolls = 0
+    // Reroll cost (calculate_reroll_cost, common_events.lua:2686): base 5, +1 per reroll within a
+    // shop, reset to base each new shop. rerollBase is reducible by vouchers/back later.
+    var rerollBase = 5
+    var rerollIncrease by mutableStateOf(0)                  // current_round.reroll_cost_increase
+    val rerollCost: Int get() = rerollBase + rerollIncrease
+    private var rerolls = 0                                  // global counter → reroll-stock RNG variety
+    /** state_events.lua:347 — entering a fresh shop resets the per-shop reroll escalation. */
+    fun resetRerollCost() { rerollIncrease = 0 }
+    /** Reroll the shop stock (button='reroll_shop'). */
     fun reroll() {
         if (money < rerollCost || phase != Phase.SHOP) return
         money -= rerollCost
+        rerollIncrease += 1                                  // +1 each reroll (calculate_reroll_cost)
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
