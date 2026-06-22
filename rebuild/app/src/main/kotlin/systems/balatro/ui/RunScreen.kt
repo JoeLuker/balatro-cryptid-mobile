@@ -1671,6 +1671,15 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                                 contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                         }
                     } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                    // CRIMSON_HEART: semi-transparent dark wash + red "×" badge marks the disabled joker.
+                    // Rendered inside the rotation layer so the overlay tilts with the card. The wash
+                    // dims the joker art; the badge at TopCenter is the clearest affordance at this scale.
+                    if (s.boss == Boss.CRIMSON_HEART && o.fj === s.crimsonHeartDisabled) {
+                        Box(Modifier.size(cardW, cardH).background(Color.Black.copy(alpha = 0.55f)))
+                        Box(Modifier.size(cardW, cardH), contentAlignment = Alignment.TopCenter) {
+                            BTxt("×", Balatro.Mult, badgeSp, Modifier.background(Balatro.Panel).padding(horizontal = 2.dp))
+                        }
+                    }
                 }
             }
         }
@@ -1739,6 +1748,13 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                                 Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
                             if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
                                 Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                            // CERULEAN_BELL: blue "!" badge at TopCenter marks the forced-selected card.
+                            // The card is already lifted (always in `selected`); the badge makes the reason
+                            // visible so the player knows they can't deselect it.
+                            if (s.boss == Boss.CERULEAN_BELL && i == s.bellForcedIdx) {
+                                BTxt("!", Balatro.Ink, badgeSp,
+                                    Modifier.align(Alignment.TopCenter).background(Balatro.Chips).padding(horizontal = 2.dp))
+                            }
                         }
                     }
                 }
