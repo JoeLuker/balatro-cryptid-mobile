@@ -335,6 +335,16 @@ object Oracle {
             listOf(PlayingCard.parse("S_A").copy(edition = "Holo"), PlayingCard.parse("H_A")), 384.0),
         Case("Pair of aces, Poly ace (card x1.5 Mult) → 96",
             listOf(PlayingCard.parse("S_A").copy(edition = "Poly"), PlayingCard.parse("H_A")), 96.0),
+        // Joker-edition ORDERING: Foil/Holo are pre_joker — they boost chips/mult BEFORE the joker's
+        // xmult/xchip main (so the multiply applies to the boosted value); Poly stays post_joker. The
+        // j_joker cases above are additive (order-independent) so they're unchanged; these xmult/xchip
+        // jokers are not. (Previously editions applied AFTER the main → under-scored.)
+        // Holo seeing_double (X2): (2+10)*2 → mult 24, chips 32 → 768 (was X2-then-+10 = 14 → 448).
+        Case("Pair S_A,C_A + Holo seeing_double (Holo pre_joker → (2+10)*2) → 768", PlayingCard.hand("S_A", "C_A"), 768.0, j(FJoker("j_seeing_double", edition = "Holo"))),
+        // Foil big_cube (X6 Chips): (32+50)*6 → chips 492, mult 2 → 984 (was 32*6+50 = 242 → 484).
+        Case("Pair aces + Foil big_cube (Foil pre_joker → (32+50)*6) → 984", PlayingCard.hand("S_A", "H_A"), 984.0, j(FJoker("j_cry_big_cube", edition = "Foil"))),
+        // Holo brokenhome (X11.4): (2+10)*11.4 → mult 136.8, chips 32 → 4377 (was 32*(2*11.4+10) = 1049).
+        Case("Pair aces + Holo brokenhome (Holo pre_joker → (2+10)*11.4) → 4377", PlayingCard.hand("S_A", "H_A"), 4377.0, j(FJoker("j_cry_brokenhome", edition = "Holo"))),
         // --- planet levels ---
         Case("Pair Lv2 of aces", PlayingCard.hand("S_A", "H_A"), 141.0, level = 2),
         Case("Pair Lv3 of aces", PlayingCard.hand("S_A", "H_A"), 248.0, level = 3),
