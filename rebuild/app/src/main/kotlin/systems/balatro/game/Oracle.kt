@@ -14,6 +14,7 @@ object Oracle {
         val jokers: List<FJoker> = emptyList(), val level: Int = 1,
         val debuff: Debuff = Debuff.None, val held: List<PlayingCard> = emptyList(),
         val handsLeft: Int = -1, val discardsLeft: Int = -1, val bossBlind: Boolean = false,
+        val debuffedJokerKey: String? = null,
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -489,12 +490,38 @@ object Oracle {
         Case("Pair S_A,H_A + THE_PILLAR (both aces debuffed → base only)",
             PlayingCard.hand("S_A", "H_A"), 20.0,
             debuff = Debuff.DebuffCards(setOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A")))),
+        // --- VERDANT_LEAF (DebuffAllCards) ---
+        // All played cards are debuffed: only the joker_main pass contributes.
+        // Case 1: Pair A/A + DebuffAllCards (no jokers) → base only.
+        //   PAIR base=10c/2m; both aces debuffed → chips=10, mult=2 → floor(10×2) = 20.
+        Case("Pair A/A + DebuffAllCards (VERDANT_LEAF, no jokers) → base only",
+            PlayingCard.hand("S_A", "H_A"), 20.0,
+            debuff = Debuff.DebuffAllCards),
+        // Case 2: Pair A/A + DebuffAllCards + j_joker (+4 Mult in joker_main pass, which still fires).
+        //   chips=10, mult=2; j_joker +4m → mult=6. floor(10×6) = 60.
+        Case("Pair A/A + DebuffAllCards + j_joker → joker_main still fires",
+            PlayingCard.hand("S_A", "H_A"), 60.0, j(FJoker("j_joker")),
+            debuff = Debuff.DebuffAllCards),
+        // --- CRIMSON_HEART (debuffedJokerKey) ---
+        // The named joker key is silenced for this hand; other jokers score normally.
+        // Case 1: Pair A/A + j_joker where j_joker is the disabled key → base only.
+        //   PAIR base=10c/2m; S_A+11, H_A+11 → chips=32, mult=2; j_joker suppressed.
+        //   floor(32×2) = 64.
+        Case("Pair A/A + j_joker disabled (CRIMSON_HEART) → j_joker suppressed → 64",
+            PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_joker")),
+            debuffedJokerKey = "j_joker"),
+        // Case 2: Pair A/A + j_joker + j_fibonacci, j_joker disabled → only fibonacci fires.
+        //   fibonacci: +8 Mult per scored Fibonacci card (A/2/3/5/8): A+A = +16m → mult=2+16=18.
+        //   chips=32, mult=18 → floor(32×18) = 576.
+        Case("Pair A/A + j_joker(disabled) + j_fibonacci → fibonacci still scores → 576",
+            PlayingCard.hand("S_A", "H_A"), 576.0, j(FJoker("j_joker"), FJoker("j_fibonacci")),
+            debuffedJokerKey = "j_joker"),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")
