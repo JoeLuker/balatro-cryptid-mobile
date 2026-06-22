@@ -445,6 +445,50 @@ object Oracle {
         // Full House base: chips=40, mult=4. Level 1: floor(40×4)=160. cry_clash checks scoringName==CRY_ULTPAIR → false.
         Case("FullHouse S_A×3,H_K×2 + cry_clash: scoringName=FULL_HOUSE (not CRY_ULTPAIR) → 160",
             PlayingCard.hand("S_A", "S_A", "S_A", "H_K", "H_K"), 160.0, j(FJoker("j_cry_clash"))),
+        // --- CRY_CLUSTERFUCK hand type ---
+        // CRY_CLUSTERFUCK: ≥8 non-Gold cards with no pairs, no flush, no straight.
+        // Source: cry_cfpart (SpectralPack/Cryptid lib/content.lua): #eligible > 7 AND no _flush/_straight/_all_pairs.
+        // Base: chips=200, mult=19. Scoring hand = all 8 eligible cards.
+        // Case 1: 8 distinct-rank cards [A,K,J,10,9,8,6,5] — 4 suits (no flush), no 5-run (max run=4), no pairs.
+        //   chips = 200+11+10+10+10+9+8+6+5 = 269, mult=19 → floor(269×19) = 5111.
+        Case("CRY_CLUSTERFUCK 8 distinct cards (A,K,J,10,9,8,6,5) → 5111",
+            PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"), 5111.0),
+        // Case 2: same 8 cards + j_cry_wtf (X10 Mult on CRY_CLUSTERFUCK).
+        //   chips=269, mult=19; wtf xMultMod=10 → mult=190. floor(269×190) = 51110.
+        Case("CRY_CLUSTERFUCK + cry_wtf (X10 Mult) → 51110",
+            PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"),
+            51110.0, j(FJoker("j_cry_wtf"))),
+        // Case 3: same cards + j_cry_fuckedup (+37 Mult on CRY_CLUSTERFUCK).
+        //   chips=269, mult=19+37=56. floor(269×56) = 15064.
+        Case("CRY_CLUSTERFUCK + cry_fuckedup (+37 Mult) → 15064",
+            PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"),
+            15064.0, j(FJoker("j_cry_fuckedup"))),
+        // Case 4: same cards + j_cry_penetrating (+270 Chips on CRY_CLUSTERFUCK).
+        //   chips=269+270=539, mult=19. floor(539×19) = 10241.
+        Case("CRY_CLUSTERFUCK + cry_penetrating (+270 Chips) → 10241",
+            PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"),
+            10241.0, j(FJoker("j_cry_penetrating"))),
+        // Case 5: 8 cards WITH a pair (S_A, H_A share rank) → NOT CRY_CLUSTERFUCK → falls to Pair.
+        //   PAIR base=10c/2m; S_A+11→21, H_A+11→32. floor(32×2) = 64.
+        Case("8 cards with pair of aces → Pair (not CRY_CLUSTERFUCK) → 64",
+            PlayingCard.hand("S_A", "H_A", "C_K", "D_J", "S_10", "D_9", "H_8", "C_6"), 64.0),
+        // --- THE_PILLAR (DebuffCards) ---
+        // THE_PILLAR: cards played previously this Ante are debuffed by reference/value equality.
+        // Case 1: Pair A/A where S_A was played before (in debuffCards set) → only H_A scores.
+        //   PAIR base=10c/2m; S_A debuffed (skip); H_A +11c → chips=21, mult=2 → floor(21×2) = 42.
+        Case("Pair S_A,H_A + THE_PILLAR (S_A previously played → debuffed)",
+            PlayingCard.hand("S_A", "H_A"), 42.0,
+            debuff = Debuff.DebuffCards(setOf(PlayingCard.parse("S_A")))),
+        // Case 2: No previously-played cards → both aces score normally.
+        //   PAIR base=10c/2m; S_A +11, H_A +11 → chips=32 → floor(32×2) = 64.
+        Case("Pair S_A,H_A + THE_PILLAR (empty debuffed set → both score)",
+            PlayingCard.hand("S_A", "H_A"), 64.0,
+            debuff = Debuff.DebuffCards(emptySet())),
+        // Case 3: Both aces previously played → both debuffed → base-only score.
+        //   chips=10, mult=2 → floor(10×2) = 20.
+        Case("Pair S_A,H_A + THE_PILLAR (both aces debuffed → base only)",
+            PlayingCard.hand("S_A", "H_A"), 20.0,
+            debuff = Debuff.DebuffCards(setOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A")))),
     )
 
     fun run(): Pair<Int, Int> {

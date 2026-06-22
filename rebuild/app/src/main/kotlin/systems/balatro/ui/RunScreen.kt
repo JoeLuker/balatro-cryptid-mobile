@@ -373,6 +373,9 @@ internal class RunState {
     val eyeUsedHands = mutableSetOf<HandType>()
     /** THE_MOUTH: the first hand type played; all subsequent plays must match it (null = not locked yet). */
     var mouthLockedHand: HandType? = null
+    /** THE_PILLAR: cards played in any previous hand this Ante are debuffed for THE_PILLAR blind.
+     *  Resets at the start of each new Ante (slot 0 = first blind of the ante). */
+    val pillarPlayedCards = mutableSetOf<PlayingCard>()
     val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
     val timesRerolled: Int get() = rerolls
 
@@ -535,6 +538,7 @@ internal class RunState {
         discardsLeft = boss?.discards(DISCARDS) ?: DISCARDS  // The Water: 0 discards
         lastResult = null; lastSteps = emptyList()
         eyeUsedHands.clear(); mouthLockedHand = null    // THE_EYE / THE_MOUTH per-round state
+        if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
         phase = Phase.ROUND
         Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
     }
@@ -569,7 +573,10 @@ internal class RunState {
         val trace = ArrayList<ScoreStep>()
         // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
         // count AFTER this hand (Balatro decrements before scoring), discards_left is the current count.
-        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace = trace)
+        // THE_PILLAR: pass previously-played-this-Ante cards as DebuffCards; other bosses use scoringDebuff
+        val activeDebuff: Debuff = if (boss == Boss.THE_PILLAR) Debuff.DebuffCards(pillarPlayedCards.toSet())
+                                   else boss?.scoringDebuff ?: Debuff.None
+        val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -596,6 +603,7 @@ internal class RunState {
         roundScore += r.score; handsLeft -= 1
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
         // ── boss blind effects triggered after each scored hand ────────────────────────────────
+        pillarPlayedCards.addAll(pendingSel)                                              // THE_PILLAR: track cards played this Ante
         if (boss == Boss.THE_TOOTH) money = maxOf(0, money - pendingSel.size)   // - per played card
         if (boss == Boss.THE_ARM)   handLevels.degrade(r.handType)              // degrade played hand level
         if (boss == Boss.THE_EYE)   eyeUsedHands += r.handType                 // lock this type for the round
