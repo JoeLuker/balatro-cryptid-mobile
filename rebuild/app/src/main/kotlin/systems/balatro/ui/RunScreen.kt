@@ -200,6 +200,9 @@ private val CATALOG = listOf(
     Offer("j_cry_nebulous", "Nebulous Joker", "+30 Chips if cry_None", 5),
     Offer("j_cry_many_lost_minds", "Many Lost Minds", "+52! Chips if cry_WholeDeck", 9),
     Offer("j_cry_jtron", "J-Tron", "mult^(1 + Jokers on board)", 9),
+    // Thalia and Melpomene: Xmult = C(n,2) where n = distinct rarities on the board; Legendary (rarity=4).
+    // Art position unknown (Cryptid source unavailable); renders without sprite until atlas position is confirmed.
+    Offer("j_cry_thalia", "Thalia and Melpomene", "Xmult = C(unique rarities, 2)", 10, rarity = 4),
     // --- vanilla held-in-hand jokers ---
     Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8, rarity = 3),
     Offer("j_shoot_the_moon", "Shoot the Moon", "each Queen held gives +13 Mult", 1),

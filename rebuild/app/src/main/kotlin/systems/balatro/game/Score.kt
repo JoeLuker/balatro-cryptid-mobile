@@ -318,6 +318,14 @@ object Score {
             "j_cry_treacherous"      -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { chipMod = 300.0 }
             "j_cry_nebulous"         -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { chipMod = 30.0 }
             "j_cry_many_lost_minds"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { chipMod = 8.0658175e67 }
+            // thalia: Xmult = C(n,2) * xmgain (xmgain=1) where n = count of DISTINCT rarities among all board jokers
+            // (including Thalia itself, rarity=4 Legendary). ctx.board now carries FJoker.rarity so this is faithful.
+            // n=1→bonus=0 (no-op); n=2→bonus=1 (X1, identity); n=3→bonus=3 (X3); n=4→bonus=6 (X6); n=5→bonus=10 (X10).
+            "j_cry_thalia" -> {
+                val n = ctx.board.map { it.rarity }.filter { it > 0 }.toSet().size
+                val bonus = n * (n - 1) / 2
+                if (bonus >= 1) return Fx().apply { xMultMod = bonus.toDouble() }
+            }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {

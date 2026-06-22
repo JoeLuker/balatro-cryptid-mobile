@@ -115,6 +115,11 @@ object Oracle {
         // Baseball Card (rarity=3 Rare) fires X1.5 per Uncommon (rarity=2) board joker.
         // [Baseball(r=3), Fibonacci(r=2), Fibonacci(r=2)]: 2 Uncommons → X1.5² = X2.25; Pair chips=32, mult=2*2.25=4.5 → 144.
         Case("Pair + baseball(r=3),fib(r=2),fib(r=2) (2 Uncommon → x1.5^2)", PlayingCard.hand("S_A", "H_A"), 144.0, j(FJoker("j_baseball", rarity = 3), FJoker("j_fibonacci", rarity = 2), FJoker("j_fibonacci", rarity = 2))),
+        // Thalia: Xmult = C(n,2) where n = distinct rarities on the board (Thalia itself is rarity=4).
+        // Board [Thalia(r=4), Joker(r=1), Fibonacci(r=2)]: rarities {4,1,2} → n=3 → C(3,2)=3 → X3 Mult.
+        // Per-card: S_A chips+11 fib+8 + H_A chips+11 fib+8 → chips=32, mult=18.
+        // joker_main: Thalia X3 → mult=54; Joker +4 → mult=58. floor(32*58)=1856.
+        Case("Pair + thalia(r=4),joker(r=1),fib(r=2) (3 rarities → C(3,2)=3 → X3)", PlayingCard.hand("S_A", "H_A"), 1856.0, j(FJoker("j_cry_thalia", rarity = 4), FJoker("j_joker", rarity = 1), FJoker("j_fibonacci", rarity = 2))),
         Case("TwoPair 2s/As + duos (x2.5 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 230.0, j(FJoker("j_cry_duos"))),
         Case("FullHouse As/Ks + home (x3.5 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1302.0, j(FJoker("j_cry_home"))),
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),
