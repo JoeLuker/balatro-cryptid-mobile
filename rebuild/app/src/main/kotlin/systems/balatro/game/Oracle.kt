@@ -221,6 +221,11 @@ object Oracle {
         Case("Pair of aces + unjust_dagger @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_unjust_dagger", x = 1.5))),
         Case("Pair of aces + jimball @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_jimball", x = 1.5))),
         Case("Pair of aces + pizza_slice @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza_slice", x = 1.5))),
+        // spy: unconditional Xmult each joker_main (spooky.lua:664). j.x = card.ability.x_mult (default 0.5).
+        // j.x=0.5 (debuff, default): mult = 2*0.5=1.0 → score = floor(32*1.0)=32.
+        Case("Pair aces + spy(x=0.5, default debuff) → 32", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy", x = 0.5))),
+        // j.x=1.5 (revealed/boosted): mult = 2*1.5=3.0 → score = floor(32*3.0)=96.
+        Case("Pair aces + spy(x=1.5, boosted) → 96", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_spy", x = 1.5))),
         // cry_paved_joker: j.x accumulates on perishable_debuffed; joker_main reads it. Same pattern as fading_joker.
         Case("Pair of aces + paved_joker @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_paved_joker", x = 1.5))),
         // cry_membershipcard: j.x = Xmult_mod * member_count (pre-computed by run loop); joker_main reads it.
@@ -268,7 +273,7 @@ object Oracle {
         // Score: floor(17×17)=289.
         Case("Pair of aces + sync_catalyst (balance chips=mult=avg) → 289",
             PlayingCard.hand("S_A", "H_A"), 289.0, j(FJoker("j_cry_sync_catalyst"))),
-        Case("Pair of aces + spy (flat x0.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy"))),
+        Case("Pair of aces + spy (flat x0.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy", x = 0.5))),
         Case("Pair of aces + apjoker on boss blind (x4 Xmult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_apjoker")), bossBlind = true),
         // cry_blacklist: j.n=0 → blacklist rank 14 (Ace). Pair of Aces has 2× id=14 → nullify fires → chips=0, mult=0 → score=0.
         Case("Pair of aces + blacklist(rank=14=Ace) → nullified → 0", PlayingCard.hand("S_A", "H_A"), 0.0, j(FJoker("j_cry_blacklist"))),

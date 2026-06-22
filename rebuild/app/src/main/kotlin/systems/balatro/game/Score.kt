@@ -367,8 +367,9 @@ object Score {
             "j_cry_biggestm" -> if (j.n > 0) return Fx().apply { xMultMod = j.x }
             // kittyprinter: flat X2 Xmult every hand (config.extra.Xmult=2)
             "j_cry_kittyprinter" -> return Fx().apply { xMultMod = 2.0 }
-            // spy: flat X0.5 Xmult every hand (x_mult=0.5); effectively halves mult
-            "j_cry_spy" -> return Fx().apply { xMultMod = 0.5 }
+            // spy: Xmult = j.x each joker_main (spooky.lua:664). Run loop sets j.x = card.ability.x_mult
+            // (default 0.5 from config). Oracle tests must always pass j.x explicitly.
+            "j_cry_spy" -> return Fx().apply { xMultMod = j.x }
             // apjoker: X4 Xmult when the current blind is a boss blind (G.GAME.blind.boss)
             "j_cry_apjoker" -> if (ctx.bossBlind) return Fx().apply { xMultMod = 4.0 }
             // clicked_cookie: +chips from j.chips accumulator (starts 200, decrements 1 per cry_press click)
