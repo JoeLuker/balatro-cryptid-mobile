@@ -235,6 +235,13 @@ object Oracle {
             PlayingCard.hand("S_A", "H_A"), 289.0, j(FJoker("j_cry_sync_catalyst"))),
         Case("Pair of aces + spy (flat x0.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy"))),
         Case("Pair of aces + apjoker on boss blind (x4 Xmult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_apjoker")), bossBlind = true),
+        // cry_blacklist: j.n=0 → blacklist rank 14 (Ace). Pair of Aces has 2× id=14 → nullify fires → chips=0, mult=0 → score=0.
+        Case("Pair of aces + blacklist(rank=14=Ace) → nullified → 0", PlayingCard.hand("S_A", "H_A"), 0.0, j(FJoker("j_cry_blacklist"))),
+        // cry_blacklist with non-matching rank: j.n=7 → blacklist rank 7. Pair of Aces has no 7 → normal score=64.
+        Case("Pair of aces + blacklist(rank=7, no 7 in hand) → normal → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_blacklist", n = 7))),
+        // cry_googol_play: x=1e100 (probability roll won externally). Pair of Aces: chips=32, mult=2.
+        // joker_main: x=1e100 > 1 → xMultMod=1e100 → mult=2×1e100=2e100. score=floor(32×2e100)=6.4e101.
+        Case("Pair of aces + googol_play(x=1e100, triggered) → 6.4e101", PlayingCard.hand("S_A", "H_A"), 6.4e101, j(FJoker("j_cry_googol_play", x = 1e100))),
         Case("Pair of aces + universe + Astral joker (Emult^1.2)", PlayingCard.hand("S_A", "H_A"), 274.0, j(FJoker("j_joker", edition = "Astral"), FJoker("j_cry_universe"))),
         // --- hands/discards-remaining jokers (now threaded into the engine) ---
         Case("Pair + acrobat on last hand (x3 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_acrobat")), handsLeft = 0),

@@ -74,9 +74,10 @@ class Fx {
     var eChipMod = 1.0                                                               // Echip_mod: Cryptid exponential chips (chips^eChipMod)
     var eMult = 1.0                                                                  // Emult_mod: Cryptid exponential mult (mult^eMult)
     var repetitions = 0
+    var nullify = false                                                               // blacklist: sets chips=0 and mult=0 atomically (not expressible as additive/multiplicative)
     val empty get() = chips == 0.0 && mult == 0.0 && xMult == 0.0 && hMult == 0.0 &&
         chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && xChipMod == 1.0 &&
-        eChipMod == 1.0 && eMult == 1.0 && repetitions == 0
+        eChipMod == 1.0 && eMult == 1.0 && repetitions == 0 && !nullify
 }
 
 object Score {
@@ -196,6 +197,9 @@ object Score {
             "j_cry_meteor"            -> if (oc.edition == "Foil") return Fx().apply { chips = 75.0 }
             "j_cry_exoplanet"         -> if (oc.edition == "Holo") return Fx().apply { mult = 15.0 }
             "j_cry_stardust"          -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
+            // universe: Emult^1.2 per scored Astral-edition playing card (misc_joker.lua:8281-8288).
+            // Also fires per Astral-edition joker (other_joker pass) and per Astral-edition held card (held pass).
+            "j_cry_universe"          -> if (oc.edition == "Astral") return Fx().apply { eMult = 1.2 }
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -395,6 +399,19 @@ object Score {
                 val bonus = n * (n - 1) / 2
                 if (bonus >= 1) return Fx().apply { xMultMod = bonus.toDouble() }
             }
+            // blacklist: if the blacklisted rank (j.n, default 0→Ace=14) appears in the played or held hand,
+            // zero both chips and mult (spooky.lua:1021-1038). Uses Fx.nullify since this is not expressible
+            // as a standard additive/multiplicative modifier — must clobber both accumulators atomically.
+            // j.n stores the blacklisted rank (0 = unset → treat as 14/Ace, matching config.extra.blacklist=14).
+            "j_cry_blacklist" -> {
+                val rank = if (j.n == 0) 14 else j.n
+                val found = ctx.fullHand.any { it.id == rank } || ctx.heldHand.any { it.id == rank }
+                if (found) return Fx().apply { nullify = true }
+            }
+            // googol_play: X1e100 Mult with 1-in-j.n odds (default j.n=8) (epic.lua:222-229).
+            // Pseudorandom — the run loop sets j.x=1e100 when the roll succeeds, else j.x=1.0.
+            // At score time, fire only when j.x > 1.0. Oracle tests must pre-set j.x=1e100 to exercise this path.
+            "j_cry_googol_play" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
@@ -410,6 +427,8 @@ object Score {
             // meteor held-chips are dead in Lua ("this doesn't exist yet") — held omitted for meteor.
             "j_cry_exoplanet"  -> if (oc.edition == "Holo") return Fx().apply { hMult = 15.0 }
             "j_cry_stardust"   -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
+            // universe: Emult^1.2 per held Astral-edition card (misc_joker.lua:8290-8308).
+            "j_cry_universe"   -> if (oc.edition == "Astral") return Fx().apply { eMult = 1.2 }
             // clockwork Effect 4 (epic.lua:2252-2268): extra Xmult per Steel-enhanced held card when steelenhc > 1.
             // j.xc = steelenhc (starts at 1.0, +0.1 every 7 hands via c4 counter, limit=7).
             // Fires context.individual + context.cardarea == G.hand + Steel enhancement + steelenhc != 1.
@@ -560,7 +579,12 @@ object Score {
             for (j in jokers) calcJoker(j, ctx)?.let { effects.add(it) }
             val heldReps = (1 + heldJokerReps) * (if (mime && effects.any { !it.empty }) 2 else 1)
             repeat(heldReps) {
-                for (fx in effects) { if (fx.xMult != 0.0) mult *= fx.xMult; if (fx.mult != 0.0) mult += fx.mult; if (fx.hMult != 0.0) mult += fx.hMult }
+                for (fx in effects) {
+                    if (fx.xMult != 0.0) mult *= fx.xMult
+                    if (fx.mult != 0.0) mult += fx.mult
+                    if (fx.hMult != 0.0) mult += fx.hMult
+                    if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // universe: Emult per held Astral card
+                }
             }
             ctx.held = false
         }
@@ -571,6 +595,7 @@ object Score {
         // reps loop: every board joker votes on retrigger count, then the main effect fires again.
         // Non-recursive (jokerRetriggerCheck=true suppresses further retrigger collection).
         fun applyJokerFx(fx: Fx) {
+            if (fx.nullify) { chips = 0.0; mult = 0.0 }   // blacklist: zero both accumulators (spooky.lua:1031-1032)
             if (fx.chipMod != 0.0) chips += fx.chipMod
             if (fx.xChipMod != 1.0) chips *= fx.xChipMod
             if (fx.eChipMod != 1.0) chips = chips.pow(fx.eChipMod)  // echips: exponentiation (chips^eChipMod)
