@@ -904,7 +904,12 @@ internal class RunState {
             "j_campfire"   -> 1.0   // starts at 1 (no bonus yet)
             else -> fjX
         }
-        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult)
+        val fjN = when (offer.key) {
+            // mstack: add_to_deck hook enforces retriggers >= 1 (m.lua add_to_deck; config.extra.retriggers=1).
+            "j_cry_mstack" -> 1
+            else -> 0
+        }
+        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
@@ -928,6 +933,11 @@ internal class RunState {
             "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
             // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
             "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
+            // j_cry_mstack: retriggers +1 per sell_req (3) Jolly Joker sells (m.lua selling_card hook).
+            // fj.chips repurposed as the sell-progress counter (0–2); never read as chips for this key.
+            "j_cry_mstack"     -> if (soldKey == "j_jolly") {
+                if (rem.fj.chips + 1 >= 3) { rem.fj.n += 1; rem.fj.chips = 0.0 } else rem.fj.chips += 1.0
+            }
         }
         // j_swashbuckler also recalculates when THIS joker is swashbuckler itself and sold;
         // that case is moot (the joker is gone), but set a clean 0 for the removed fj.
