@@ -248,6 +248,22 @@ fun RenderUIBoxAbsolute(
 }
 
 /**
+ * Render a UIBox tree at its NATURAL size — no roomH clip, no vertical centring offset. Used for
+ * inline sub-trees (action bar, blind-choice cards, hands table) that are placed by the caller's
+ * Compose layout and must not bleed. The outer Box wraps tightly to the tree's measured w×h, so the
+ * surrounding layout can centre/position it normally.
+ */
+@Composable
+fun RenderUIBoxNatural(root: UI, u: Float, fontRatio: Float = FONT_RATIO) {
+    val laid = layout(root)
+    val placed = ArrayList<Placed>()
+    flatten(laid, 0f, 0f, placed)
+    Box(Modifier.size((laid.w * u).dp, (laid.h * u).dp)) {
+        for (p in placed) renderNode(p, u, fontRatio)
+    }
+}
+
+/**
  * Render a self-contained UIBox tree CENTRED in a given rect (units) — used for sub-boxes that the
  * real game attaches separately (e.g. HUD_blind, which floats over the source-empty row_blind slot).
  * Laid out at its natural size; no clip (the caller's box clips). Same exact layout engine.

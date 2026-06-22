@@ -2435,14 +2435,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     BButton("Cancel", Balatro.Grey, enabled = true) { s.cancelTarot() }
                 }
             } else {
-                // buttonsRow's R uses horizontalArrangement=spacedBy(_, CenterHorizontally), which makes
-                // the Row FILL the box width — so the box's TopCenter can't recentre it and it left-packs
-                // ~370px off (the bug the pixel gate caught). Measuring it UNBOUNDED gives it its natural
-                // width, so TopCenter actually centres it on the hand — matching Balatro's G.buttons
-                // (config align="bm", major=G.hand → the row is centred on the hand).
-                Box(Modifier.wrapContentWidth(align = Alignment.CenterHorizontally, unbounded = true)) {
-                    RenderUI(buttonsRow(s, cells))
-                }
+                // Absolute engine: the tree is laid out at its natural width, so the outer Box's
+                // TopCenter alignment correctly centres the action bar on the hand without tricks.
+                RenderUIBoxNatural(buttonsRow(s, cells), u)
             }
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
@@ -2830,6 +2825,7 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
     // Load all three blind sprites in one atlas pass — including the UPCOMING boss (s.boss is null
     // during select, so use s.upcomingBoss or the boss slot shows a blank/placeholder). Re-fires per ante.
+    val u = LocalUIScale.current
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
         Triple(null, null, null), s.blindIndex
     ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) } }
@@ -2853,9 +2849,9 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                 val blindBmp: ImageBitmap? = when (slotIdx) {
                     0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
                 }
-                Box(Modifier.weight(1f)) {
-                    RenderUI(blindChoiceCard(s, slotIdx, blindBmp = blindBmp, stakeBmp = stakeBmp,
-                        enabled = (slotIdx == currentSlot)) { s.selectBlind() })
+                Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                    RenderUIBoxNatural(blindChoiceCard(s, slotIdx, blindBmp = blindBmp, stakeBmp = stakeBmp,
+                        enabled = (slotIdx == currentSlot)) { s.selectBlind() }, u)
                 }
             }
         }
@@ -2980,6 +2976,7 @@ private fun RunInfoScreen(s: RunState, jokerCells: Map<String, ImageBitmap>) {
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        val u = LocalUIScale.current
         Row(verticalAlignment = Alignment.CenterVertically) {
             BTxt("Run Info", Balatro.White, 20.sp)
             Spacer(Modifier.weight(1f))
@@ -2999,7 +2996,7 @@ private fun RunInfoScreen(s: RunState, jokerCells: Map<String, ImageBitmap>) {
         }
         // Poker hand levels — port of create_UIBox_current_hands (UI_definitions.lua:3080).
         BTxt("Poker Hands", Balatro.White, 14.sp)
-        RenderUI(currentHandsUI(s))
+        RenderUIBoxNatural(currentHandsUI(s), u)
     }
 }
 
