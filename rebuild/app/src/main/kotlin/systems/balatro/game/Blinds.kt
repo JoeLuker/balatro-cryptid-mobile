@@ -11,22 +11,29 @@ sealed interface Debuff {
     data class DebuffSuit(val suit: Suit) : Debuff // cards of this suit score nothing & trigger nothing
     object DebuffFace : Debuff                     // all face cards (J/Q/K, incl. Pareidolia) score/trigger nothing
     /** THE_PILLAR: specific card instances that were played in a previous hand this Ante are debuffed.
-     *  Identity is tracked by reference (PlayingCard instances are stable within a run). */
+     *  Matched by structural equality (PlayingCard is a data class; suit+rank+enhancement+seal). */
     data class DebuffCards(val cards: Set<PlayingCard>) : Debuff
+    /** VERDANT_LEAF: all played cards are debuffed — only joker effects contribute to scoring. */
+    object DebuffAllCards : Debuff
 }
 
 /**
- * Boss blinds — all 22 regular (non-Ante-10) bosses from vanilla Balatro.
- * Ante-10 showdowns (Verdant Leaf, Violet Vessel, Amber Acorn, Crimson Heart, Cerulean Bell)
- * are out of scope until the full ante progression is wired.
+ * Boss blinds — 22 regular bosses (Antes 1-9) + 5 Ante-10 showdowns.
  *
- * targetMult = the FULL blind multiplier (replaces the old "base * 2.0 * targetMult" formula;
- * RunScreen now uses "base * (boss?.targetMult ?: 2.0)" so all regular bosses default to 2.0).
+ * targetMult = the FULL blind multiplier (all regular bosses = 2.0, THE_WALL = 4.0,
+ * VIOLET_VESSEL = 6.0). RunScreen uses "base * (boss?.targetMult ?: 2.0)".
  *
- * Bosses with round-state effects (THE_EYE, THE_MOUTH, THE_ARM, THE_OX, THE_TOOTH,
+ * Regular bosses with round-state effects (THE_EYE, THE_MOUTH, THE_ARM, THE_OX, THE_TOOTH,
  * THE_HOOK, THE_PSYCHIC, THE_SERPENT, THE_MANACLE) are wired in RunState.
  * Face-down bosses (THE_HOUSE, THE_MARK, THE_WHEEL, THE_FISH, THE_PILLAR) have no scoring
  * impact; their face-down visuals are a UI stub.
+ *
+ * Ante-10 showdowns:
+ *   VERDANT_LEAF   — all played cards are debuffed (only jokers score); selling a joker defeats it
+ *   VIOLET_VESSEL  — ×6 score target (no other mechanic)
+ *   AMBER_ACORN    — joker order is shuffled when the blind starts
+ *   CRIMSON_HEART  — a random joker is disabled after each play (rotates each hand)
+ *   CERULEAN_BELL  — one card in hand is forced-selected (always included in play)
  */
 enum class Boss(val display: String, val desc: String) {
     // ── scoring debuffs ─────────────────────────────────────────────────────────────────────
@@ -55,28 +62,35 @@ enum class Boss(val display: String, val desc: String) {
     THE_MARK    ("The Mark",     "All face cards are drawn face down"),
     THE_WHEEL   ("The Wheel",    "1 in 7 cards is drawn face down"),
     THE_FISH    ("The Fish",     "Cards drawn face down after each play"),
-    THE_PILLAR  ("The Pillar",   "Previously played cards are debuffed");
+    THE_PILLAR  ("The Pillar",   "Previously played cards are debuffed"),
+    // ── Ante-10 showdowns ────────────────────────────────────────────────────────────────────
+    VERDANT_LEAF  ("Verdant Leaf",  "All played cards are debuffed"),
+    VIOLET_VESSEL ("Violet Vessel", "Requires 6x more Chips to beat"),
+    AMBER_ACORN   ("Amber Acorn",   "Jokers are shuffled at blind start"),
+    CRIMSON_HEART ("Crimson Heart", "One random Joker disabled each hand"),
+    CERULEAN_BELL ("Cerulean Bell", "One card is forced to be selected");
 
     val scoringDebuff: Debuff
         get() = when (this) {
-            THE_FLINT  -> Debuff.Flint
-            THE_CLUB   -> Debuff.DebuffSuit(Suit.C)
-            THE_GOAD   -> Debuff.DebuffSuit(Suit.S)
-            THE_WINDOW -> Debuff.DebuffSuit(Suit.D)
-            THE_HEAD   -> Debuff.DebuffSuit(Suit.H)
-            THE_PLANT  -> Debuff.DebuffFace
-            else       -> Debuff.None
+            THE_FLINT    -> Debuff.Flint
+            THE_CLUB     -> Debuff.DebuffSuit(Suit.C)
+            THE_GOAD     -> Debuff.DebuffSuit(Suit.S)
+            THE_WINDOW   -> Debuff.DebuffSuit(Suit.D)
+            THE_HEAD     -> Debuff.DebuffSuit(Suit.H)
+            THE_PLANT    -> Debuff.DebuffFace
+            VERDANT_LEAF -> Debuff.DebuffAllCards
+            else         -> Debuff.None
         }
 
     /**
      * Full blind multiplier — RunScreen applies `base * (boss?.targetMult ?: 2.0)`.
-     * Most bosses are x2 (standard boss). THE_WALL is x4, Violet Vessel would be x6
-     * (not in pool until Ante-10 is wired).
+     * Most bosses are x2 (standard boss). THE_WALL is x4, VIOLET_VESSEL is x6.
      */
     val targetMult: Double
         get() = when (this) {
-            THE_WALL -> 4.0
-            else     -> 2.0
+            THE_WALL      -> 4.0
+            VIOLET_VESSEL -> 6.0
+            else          -> 2.0
         }
 
     fun hands(default: Int): Int = when (this) {
@@ -86,4 +100,12 @@ enum class Boss(val display: String, val desc: String) {
     }
 
     fun discards(default: Int): Int = if (this == THE_WATER) 0 else default
+
+    companion object {
+        /** Boss pool for a given ante. Antes 1-9 draw from the 22 regular bosses;
+         *  Ante 10+ always presents one of the 5 showdown bosses. */
+        private val REGULAR  = values().filter { it.ordinal < 22 }   // first 22 entries (index 0..21)
+        private val SHOWDOWN = listOf(VERDANT_LEAF, VIOLET_VESSEL, AMBER_ACORN, CRIMSON_HEART, CERULEAN_BELL)
+        fun pool(ante: Int): List<Boss> = if (ante >= 10) SHOWDOWN else REGULAR
+    }
 }

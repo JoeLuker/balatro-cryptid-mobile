@@ -376,6 +376,10 @@ internal class RunState {
     /** THE_PILLAR: cards played in any previous hand this Ante are debuffed for THE_PILLAR blind.
      *  Resets at the start of each new Ante (slot 0 = first blind of the ante). */
     val pillarPlayedCards = mutableSetOf<PlayingCard>()
+    /** CRIMSON_HEART: the joker currently disabled for this hand (rotates after each play). */
+    var crimsonHeartDisabled: FJoker? = null
+    /** CERULEAN_BELL: index into `hand` of the forced-selected card (null = none). */
+    var bellForcedIdx: Int? = null
     val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
     val timesRerolled: Int get() = rerolls
 
@@ -472,7 +476,7 @@ internal class RunState {
      *  once you're ON the boss slot, so the select screen (you're at Small) needs the upcoming one.
      *  Same RNG as the slot-2 assignment, keyed to the boss-slot index (current ante's 3rd blind). */
     val upcomingBoss: Boss
-        get() = Boss.values().random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1))
+        get() = Boss.pool(ante).random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1))
 
     /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
@@ -530,7 +534,7 @@ internal class RunState {
     }
 
     private fun startRound() {
-        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(8); selected = emptySet()
         roundScore = 0.0
@@ -539,6 +543,10 @@ internal class RunState {
         lastResult = null; lastSteps = emptyList()
         eyeUsedHands.clear(); mouthLockedHand = null    // THE_EYE / THE_MOUTH per-round state
         if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
+        // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
+        crimsonHeartDisabled = null; bellForcedIdx = null
+        if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
+        if (boss == Boss.CERULEAN_BELL) bellForcedIdx = hand.indices.random()  // pick forced card after draw
         phase = Phase.ROUND
         Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
     }
@@ -549,7 +557,12 @@ internal class RunState {
         selected = emptySet()
     }
 
-    fun toggle(i: Int) { if (phase == Phase.ROUND) selected = if (i in selected) selected - i else selected + i }
+    fun toggle(i: Int) {
+        if (phase != Phase.ROUND) return
+        // CERULEAN_BELL: the forced card is always selected and cannot be deselected
+        if (boss == Boss.CERULEAN_BELL && i == bellForcedIdx && i in selected) return
+        selected = if (i in selected) selected - i else selected + i
+    }
 
     /** Score the selection now (the engine), but resolve it as an ANIMATION — the UI drives
      *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
@@ -576,7 +589,13 @@ internal class RunState {
         // THE_PILLAR: pass previously-played-this-Ante cards as DebuffCards; other bosses use scoringDebuff
         val activeDebuff: Debuff = if (boss == Boss.THE_PILLAR) Debuff.DebuffCards(pillarPlayedCards.toSet())
                                    else boss?.scoringDebuff ?: Debuff.None
-        val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft, trace = trace)
+        // CERULEAN_BELL: the forced card must be included in every play
+        val bellIdx = bellForcedIdx
+        if (boss == Boss.CERULEAN_BELL && bellIdx != null && bellIdx !in selIndices) return
+        // CRIMSON_HEART: pass the currently-disabled joker key so calcJoker skips it
+        val crimsonKey = if (boss == Boss.CRIMSON_HEART) crimsonHeartDisabled?.key else null
+        val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
+                            debuffedJokerKey = crimsonKey, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -615,6 +634,15 @@ internal class RunState {
         refill()
         // THE_SERPENT: after refill, discard the new hand and draw again (player never keeps held cards)
         if (boss == Boss.THE_SERPENT) { hand = deck.draw(hand.size); selected = emptySet() }
+        // CRIMSON_HEART: after each play, rotate the disabled joker (never the same one twice in a row;
+        // if only one joker exists, it is always the chosen one — fallback = first).
+        if (boss == Boss.CRIMSON_HEART && owned.isNotEmpty()) {
+            val prev = crimsonHeartDisabled
+            val candidates = owned.map { it.fj }.filter { it !== prev }
+            crimsonHeartDisabled = (if (candidates.isNotEmpty()) candidates else owned.map { it.fj }).random()
+        }
+        // CERULEAN_BELL: pick a new forced card after the hand is refilled.
+        if (boss == Boss.CERULEAN_BELL) bellForcedIdx = if (hand.isNotEmpty()) hand.indices.random() else null
         if (roundScore >= target) {
             buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
@@ -657,7 +685,7 @@ internal class RunState {
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         // Pre-seed boss so blind-select and shop screens show correct name/desc.
         // startRound() re-derives the same deterministic value.
-        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
         phase = Phase.SHOP
         Telemetry.event("CASH_OUT", "total" to cashOutTotal, "money" to money)
     }
@@ -692,6 +720,8 @@ internal class RunState {
         owned.forEach { if (it.fj.key == "j_cry_eternalflame") it.fj.x += 0.1 }   // context.selling_card: +0.1 X per sell
         val refund = maxOf(1, o.offer.cost / 2)
         money += refund
+        // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately
+        if (boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
     }
 

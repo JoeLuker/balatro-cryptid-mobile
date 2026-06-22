@@ -57,6 +57,8 @@ class Sctx {
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
     var debuffFace: Boolean = false           // THE_PLANT: all face cards (J/Q/K, incl. Pareidolia) score/trigger nothing
     var debuffCards: Set<PlayingCard>? = null  // THE_PILLAR: specific card instances debuffed (played earlier this Ante)
+    var debuffAllCards: Boolean = false       // VERDANT_LEAF: all played cards score nothing; only jokers fire
+    var debuffedJokerKey: String? = null      // CRIMSON_HEART: the currently-disabled joker key for this hand
     var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
@@ -103,6 +105,8 @@ object Score {
 
     /** Card:calculate_joker — every joker's effect, dispatched by key + context (1:1 with the Lua). */
     private fun calcJoker(j: FJoker, ctx: Sctx): Fx? {
+        // CRIMSON_HEART: the chosen joker is disabled for this hand — acts as if it isn't there.
+        if (ctx.debuffedJokerKey != null && j.key == ctx.debuffedJokerKey) return null
         // Copy-jokers (SMODS.blueprint_effect, utils.lua:2089) delegate to a target joker's calculate in EVERY
         // context: Brainstorm copies the leftmost joker; Blueprint / Old Blueprint copy the joker to their right.
         // Skip a missing/self target; the copy-chain depth is bounded by board size (stops Brainstorm⇄Blueprint cycles).
@@ -411,6 +415,7 @@ object Score {
         played: List<PlayingCard>, jokers: List<FJoker>, held: List<PlayingCard> = emptyList(),
         level: Int = 1, debuff: Debuff = Debuff.None, handsLeft: Int = -1, discardsLeft: Int = -1,
         bossBlind: Boolean = false,
+        debuffedJokerKey: String? = null,   // CRIMSON_HEART: key of the disabled joker for this hand
         trace: MutableList<ScoreStep>? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
@@ -439,7 +444,9 @@ object Score {
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
             this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
             this.debuffFace = debuff is Debuff.DebuffFace
-            this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards; this.board = jokers
+            this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards
+            this.debuffAllCards = debuff is Debuff.DebuffAllCards
+            this.debuffedJokerKey = debuffedJokerKey; this.board = jokers
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
@@ -473,6 +480,7 @@ object Score {
             if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue       // suit-debuffed
             if (debuff is Debuff.DebuffFace && (card.isFace || pareidolia)) continue      // THE_PLANT: face-debuffed (Pareidolia makes all cards faces)
             if (debuff is Debuff.DebuffCards && card in debuff.cards) continue                 // THE_PILLAR: previously played this Ante
+            if (debuff is Debuff.DebuffAllCards) continue                                          // VERDANT_LEAF: all played cards are debuffed
             ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = card
             var reps = 1 + (if (card.seal == Seal.RED) 1 else 0)            // red seal repetition
             for (jk in jokers) { ctx.repetition = true; calcJoker(jk, ctx)?.let { reps += it.repetitions }; ctx.repetition = false }  // joker retriggers
