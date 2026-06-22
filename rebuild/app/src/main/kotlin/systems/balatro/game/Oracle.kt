@@ -327,6 +327,14 @@ object Oracle {
         Case("Pair + Foil Joker (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 492.0, j(FJoker("j_joker", edition = "Foil"))),
         Case("Pair + Holo Joker (+10 Mult)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_joker", edition = "Holo"))),
         Case("Pair + Poly Joker (x1.5 Mult)", PlayingCard.hand("S_A", "H_A"), 288.0, j(FJoker("j_joker", edition = "Poly"))),
+        // CARD editions (a scored card applies its own edition; previously unapplied → all scored as plain 64):
+        // Foil ace +50 Chips → chips=32+50=82, mult=2 → 164.  Holo ace +10 Mult → mult=12 → 384.  Poly ace x1.5 → mult=3 → 96.
+        Case("Pair of aces, Foil ace (card +50 Chips) → 164",
+            listOf(PlayingCard.parse("S_A").copy(edition = "Foil"), PlayingCard.parse("H_A")), 164.0),
+        Case("Pair of aces, Holo ace (card +10 Mult) → 384",
+            listOf(PlayingCard.parse("S_A").copy(edition = "Holo"), PlayingCard.parse("H_A")), 384.0),
+        Case("Pair of aces, Poly ace (card x1.5 Mult) → 96",
+            listOf(PlayingCard.parse("S_A").copy(edition = "Poly"), PlayingCard.parse("H_A")), 96.0),
         // --- planet levels ---
         Case("Pair Lv2 of aces", PlayingCard.hand("S_A", "H_A"), 141.0, level = 2),
         Case("Pair Lv3 of aces", PlayingCard.hand("S_A", "H_A"), 248.0, level = 3),
