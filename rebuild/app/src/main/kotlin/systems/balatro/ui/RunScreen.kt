@@ -383,6 +383,10 @@ internal class RunState {
     var crimsonHeartDisabled: FJoker? = null
     /** CERULEAN_BELL: index into `hand` of the forced-selected card (null = none). */
     var bellForcedIdx: Int? = null
+    /** Cumulative hands played this run (used by j_cry_clockwork: fires every 3rd hand). */
+    var totalHandsPlayed by mutableStateOf(0); private set
+    /** Hand types played this round (j_cry_keychange: +0.25 Xmult per new type first seen; resets on startRound). */
+    private val roundHandTypes = mutableSetOf<HandType>()
     /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
      *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
      *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
@@ -556,6 +560,24 @@ internal class RunState {
         startRound()
     }
 
+    /** Sync the static FJoker.n fields that mirror run-state counts — deck size, stone/steel card
+     *  counts, joker count, enhanced-card count. Called at the start of play() so the score engine
+     *  sees live values every hand. (The accumulating fields mult/x/chips are updated incrementally
+     *  by the event hooks below; only the *count* fields read from run state every hand.) */
+    private fun syncFJokerN() {
+        val stoneCount = deck.countEnhancement(Enhancement.STONE)
+        val steelCount = deck.countEnhancement(Enhancement.STEEL)
+        for (o in owned) when (o.fj.key) {
+            "j_blue_joker"       -> o.fj.n = deck.remaining
+            "j_stone"            -> o.fj.n = stoneCount
+            "j_steel_joker"      -> o.fj.n = steelCount
+            "j_abstract"         -> o.fj.n = owned.size
+            "j_drivers_license"  -> o.fj.n = enhancedCount
+            "j_banner"           -> o.fj.n = discardsLeft
+            "j_mystic_summit"    -> {} // reads ctx.discardsLeft directly — no FJoker state needed
+        }
+    }
+
     /** Compute which card indices should be face-down after a draw, per the active boss.
      *  [newIndices] is the set of indices in the current `hand` that were JUST drawn (not kept from
      *  a previous hand). Called from startRound() (all cards are new) and refill() (kept cards stay
@@ -593,6 +615,7 @@ internal class RunState {
         if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
         // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
         crimsonHeartDisabled = null; bellForcedIdx = null
+        roundHandTypes.clear()    // j_cry_keychange resets each round
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
         maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
@@ -636,6 +659,7 @@ internal class RunState {
      *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
     fun play() {
         if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
+        syncFJokerN()   // update deck-size / stone / steel / abstract / drivers_license counts before scoring
         // ── hand-detection joker hooks (derived early — needed for both boss gates and scoring) ──
         val fjokers = owned.map { it.fj }
         val maxi        = fjokers.any { it.key == "j_cry_maximized" }
@@ -714,8 +738,37 @@ internal class RunState {
      *  calculate destroys self-destruct jokers BEFORE the ROUND_EVAL state, on the board.) */
     fun scoreBank(): Boolean {
         val r = pending ?: return false
+        // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
+        val isNewTypeThisRound = r.handType !in roundHandTypes && r.handType != HandType.NONE
+        val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
+        // ── per-hand joker accumulator hooks (the run loop owns state; score engine reads it) ──────
+        totalHandsPlayed += 1
+        roundHandTypes.add(r.handType)
+        for (o in owned) when (o.fj.key) {
+            // j_green_joker: +1 Mult per hand played; -1 per discard (below).
+            "j_green_joker"    -> o.fj.mult += 1.0
+            // j_popcorn: +5 Mult base, -1 per hand played; self-destruct at ≤0 is deferred (no perishable system yet).
+            "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
+            // j_spare_trousers: +2 Mult each time Two Pair or Full House played.
+            "j_spare_trousers" -> if (r.handType == HandType.TWO_PAIR || r.handType == HandType.FULL_HOUSE) o.fj.mult += 2.0
+            // j_supernova: j.n mirrors the cumulative play count of this joker's scoring hand type; updated after recordHandPlayed.
+            "j_supernova"      -> o.fj.n = handPlayed(r.handType)
+            // j_runner: +15 Chips each Straight (or Straight Flush) played.
+            "j_runner"         -> if (r.handType == HandType.STRAIGHT || r.handType == HandType.STRAIGHT_FLUSH) o.fj.chips += 15.0
+            // j_square: +4 Chips each time exactly 5 cards were played.
+            "j_square"         -> if (pendingSel.size == 5) o.fj.chips += 4.0
+            // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
+            // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
+            "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2
+            // j_cry_clockwork: +0.25 Xmult every 3rd hand played (config.extra clock=3; totalHandsPlayed counts all hands).
+            "j_cry_clockwork"  -> if (totalHandsPlayed % 3 == 0) o.fj.x += 0.25
+            // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
+            "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
+            // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
+            "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
+        }
         // ── boss blind effects triggered after each scored hand ────────────────────────────────
         pillarPlayedCards.addAll(pendingSel)                                              // THE_PILLAR: track cards played this Ante
         if (boss == Boss.THE_TOOTH) money = maxOf(0, money - pendingSel.size)   // - per played card
@@ -814,6 +867,23 @@ internal class RunState {
             faceDown = faceDown - hookIndices   // force-discarded face-down cards are revealed as they leave
         }
         discardsLeft -= 1
+        // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
+        val discardedCards = hand.filterIndexed { i, _ -> i in selected }
+        val jackCount = discardedCards.count { it.id == 11 }
+        // For j_castle: count cards of the flush suit in the discard (if the discarded set is a flush).
+        val discardSuits = discardedCards.map { it.suit }.distinct()
+        val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null
+        for (o in owned) when (o.fj.key) {
+            // j_green_joker: -1 Mult per discard (never below 0).
+            "j_green_joker" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
+            // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01; self-destruct deferred).
+            "j_ramen"       -> o.fj.x = maxOf(1.0, o.fj.x - 0.01 * discardedCards.size)
+            // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
+            "j_mail"        -> if (jackCount > 0) o.fj.mult += 2.0 * jackCount
+            // j_castle: +3 Chips per suit in a FLUSH discard (config.extra chips=3; only counts matching suit cards).
+            // Faithful: fires in context.discard for flush hands; we approximate as "all cards same suit".
+            "j_castle"      -> if (flushSuit != null) o.fj.chips += 3.0 * discardedCards.count { it.suit == flushSuit }
+        }
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
         refill()
     }
@@ -825,7 +895,19 @@ internal class RunState {
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
-        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
+        val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
+        val fjMult = when (offer.key) {
+            "j_popcorn"    -> 20.0   // starts at +20 Mult, -1 per hand; self-destruct deferred
+            "j_ramen"      -> 0.0    // j.x starts at 2.0 (set below)
+            "j_swashbuckler" -> owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }  // sum of current sell values
+            else -> 0.0
+        }
+        val fjXInit = when (offer.key) {
+            "j_ramen"      -> 2.0   // starts at x2 Mult, depletes
+            "j_campfire"   -> 1.0   // starts at 1 (no bonus yet)
+            else -> fjX
+        }
+        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
@@ -834,9 +916,24 @@ internal class RunState {
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
         owned.remove(o)
-        owned.forEach { if (it.fj.key == "j_cry_eternalflame") it.fj.x += 0.1 }   // context.selling_card: +0.1 X per sell
         val refund = maxOf(1, o.offer.cost / 2)
         money += refund
+        // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
+        val soldKey = o.fj.key
+        for (rem in owned) when (rem.fj.key) {
+            // j_campfire: +0.25 Xmult per joker sold (config.extra xmult=0.25; any joker, incl. self — but self is gone).
+            "j_campfire"       -> rem.fj.x += 0.25
+            // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
+            "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
+            // j_cry_eternalflame: +0.1 Xmult per any joker sold (already wired; moved here for consistency).
+            "j_cry_eternalflame" -> rem.fj.x += 0.1
+            // j_cry_m: +13 Xmult per Jolly Joker sold.
+            "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
+            // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
+            "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
+        }
+        // j_swashbuckler also recalculates when THIS joker is swashbuckler itself and sold;
+        // that case is moot (the joker is gone), but set a clean 0 for the removed fj.
         // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately
         if (boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
@@ -851,6 +948,13 @@ internal class RunState {
         onCardBought()
         handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
+        // ── per-planet-buy joker accumulator hooks ────────────────────────────────────────────
+        for (o in owned) when (o.fj.key) {
+            // j_constellation: +0.1 Xmult per planet bought (config.extra xmult=0.1).
+            "j_constellation" -> o.fj.x += 0.1
+            // j_hiker: +5 Chips per planet bought (config.extra chips=5).
+            "j_hiker"         -> o.fj.chips += 5.0
+        }
         Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
 
