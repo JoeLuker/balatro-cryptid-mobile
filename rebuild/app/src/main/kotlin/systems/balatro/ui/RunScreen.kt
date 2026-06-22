@@ -984,7 +984,11 @@ internal class RunState {
         // Both fire AFTER the per-hand loop so the score engine still reads the final value this hand.
         val handSelfDestruct = owned.filter { o ->
             (o.fj.key == "j_popcorn" && o.fj.mult <= 0.0) ||
-            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0)
+            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0) ||
+            // blacklist: self-destructs once its blacklisted rank is absent from the whole deck
+            // (spooky.lua:1044-1063 — gone from play∪hand∪discard∪deck, which partition deck.all).
+            // n=0 → unset → Ace(14), matching the engine's blacklist default.
+            (o.fj.key == "j_cry_blacklist" && !deck.hasRank(if (o.fj.n == 0) 14 else o.fj.n))
         }
         if (handSelfDestruct.isNotEmpty()) {
             owned.removeAll(handSelfDestruct)
@@ -1182,6 +1186,10 @@ internal class RunState {
             // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
             "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
             // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
+            // blacklist: add_to_deck rolls a random rank (pseudorandom_element(SMODS.Ranks):get_id(),
+            // spooky.lua); j.n holds that blacklisted rank id (2..14). The engine nullifies any hand
+            // containing it — without this it defaulted to 0 → always Ace, never the rolled rank.
+            "j_cry_blacklist" -> (2..14).random()
             else -> 0
         }
         val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)
