@@ -561,3 +561,57 @@ Current rebuild state stratifies as: UIBox 3-pass layout + node types = live-fai
 
 ### Photograph debuff bug (found by adversarial audit, fixed efba943): port's first-face firstOrNull scanned scoringHand incl debuffed cards, but vanilla Card:is_face (card.lua:1193) returns nil for debuffed BEFORE the Pareidolia check. Under boss suit-debuff with a debuffed face leading the hand, Photograph X2 was lost. Fix: thread debuffSuit into Sctx, exclude debuffed from the scan. Only photograph needed it (all other face/suit jokers react to oc, which the per-card loop already skips when debuffed). Oracle case: Pair S_K,H_K under The Goad = 80. 176/176.
 <!-- session:2026-06-21-c07c5a8c | commit:ee549fe99be6c955b337c02498277308c2b8aa09 | date:2026-06-21 -->
+
+### Balatro hand containment for conditional jokers
+The +chips conditional jokers check hand *containment*, not the single top-ranked hand — a Full House contains a Pair and Three of a Kind, so a joker keyed to "Pair" fires on a Full House. The Kotlin port must consult the played hand's full set of evaluated categories.
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 -->
+
+### Vanilla source mapping
+This joker family lives at `game.lua:394-398`, set=Joker, `config = {t_chips=N, type='<HandType>'}` — t_chips values: j_sly +50 (Pair), j_wily +100 (Three of a Kind), j_clever +80 (Two Pair), j_devious +100 (Straight), j_crafty +80 (Flush).
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 -->
+
+### Verified scoring gap
+Two Pair (10,10,7,7) with j_clever scored 54 (= 20 base + 34 card chips) before the fix; correct is 134 (+80). This is the Oracle baseline assertion locking the family.
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-21 -->
+
+### Two-codebase delineation
+The repo contains two distinct projects — a native Kotlin/Compose Balatro remake (the actual end goal; fidelity is its acceptance test) and the Lua/LÖVE Cryptid mod build. They must be kept structurally separate. See memory [[rewrite-is-the-goal-native-compose]].
+<!-- session:2026-06-21-e40b8757 | commit:a3d8859e1df31560e1e9910344bb8cc93b9a9d4e | files:.claude/worktrees/relaxed-elbakyan-1c44d4/nix/update-sources.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/nix/sources.nix,.claude/worktrees/relaxed-elbakyan-1c44d4/overlay/patches/series,.claude/worktrees/relaxed-elbakyan-1c44d4/overlay/game/README.md,.claude/worktrees/relaxed-elbakyan-1c44d4/overlay/config/README.md | area:.claude | date:2026-06-21 -->
+
+### Bake-in over live-patch
+Because the target environment can't live-patch, all mods/config must be baked into the build artifact ahead of time. The chosen mechanism is a Nix overlay: upstream sources are pinned (sources.nix), mods staged (stage-mods.sh), patches generated as an ordered series (gen-patches.sh, overlay/patches/series), and the whole thing assembled by a Nix derivation (balatro-cryptid.nix) driven by flake.nix.
+<!-- session:2026-06-21-e40b8757 | commit:a3d8859e1df31560e1e9910344bb8cc93b9a9d4e | files:nix/balatro-cryptid.nix,nix/sources.nix,nix/stage-mods.sh,nix/gen-patches.sh,overlay/patches/series,flake.nix | area:nix | date:2026-06-21 -->
+
+### Crash signature
+`talisman/coroutine.lua:201: asize` — a Talisman (big-number) coroutine assertion under the stacked Steamodded mod set (Cryptid 0.5.14a, Amulet, Talisman, etc.) on Android/LÖVE 11.5. Surfaced during this session as the in-game crash to diagnose.
+<!-- session:2026-06-21-e40b8757 | commit:a3d8859e1df31560e1e9910344bb8cc93b9a9d4e | files:.claude/worktrees/relaxed-elbakyan-1c44d4/nix/update-sources.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/nix/sources.nix,.claude/worktrees/relaxed-elbakyan-1c44d4/overlay/patches/series,.claude/worktrees/relaxed-elbakyan-1c44d4/overlay/game/README.md,.claude/worktrees/relaxed-elbakyan-1c44d4/overlay/config/README.md | area:.claude | date:2026-06-21 -->
+
+### Photograph "first face" debuff divergence
+Port's `isFace` (`id in 11..13`, Cards.kt:31) does not exclude debuffed cards, but vanilla `Card:is_face` (card.lua:1192-1193) returns nil for debuffed cards. Under a boss suit-debuff where a debuffed face leads the scoring hand, `firstOrNull { it.isFace || ctx.pareidolia }` selects the debuffed card, the per-card loop `continue`s past it, and Photograph's X2 is lost — port scores lower than vanilla. Root-cause fix: exclude debuffed cards from the firstOrNull predicate (or have isFace honor debuff). Unique to Photograph because it scans `scoringHand` to pick a winner; sock_and_buskin/scary_face/smiley/chad react to `oc` alone (already skipped by `continue`).
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Cards.kt | area:rebuild | date:2026-06-21 -->
+
+### Retrigger timing/ordering is faithful
+The `context.repetition` pass sums all joker retriggers into `reps` BEFORE the `repeat(reps)` scoring loop, matching vanilla's num_repetitions-then-repeat timing. `repetition=N` means N EXTRA triggers (corroborated by the red-seal baseline: H_A scoring 2x).
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 -->
+
+### Hanging Chad reference-identity translation
+Vanilla `context.other_card == context.scoring_hand[1]` is Lua reference identity; port's `oc === ctx.scoringHand.firstOrNull()` is a faithful translation — value-equal duplicate cards do not spuriously match. A debuffed first card is a no-op in both (vanilla skips via calculate_main_scoring else-branch, port via `continue`).
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 -->
+
+### Mime held-card retrigger is score-equivalent, not literal
+Port gates the held-card retrigger on "non-empty effect" rather than "all held cards." This is score-identical because vanilla itself only runs the held repetition pass when `flags.calculated` and Mime's gate `(next(card_effects[1]) or #card_effects>1)` is non-empty — a plain non-steel held card with no reacting joker scores 0 whether retriggered or not. The port replays the whole effects table (steel x1.5, Baron xMult, Shoot the Moon mult), matching vanilla.
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 -->
+
+### Oracle coverage boundary
+14 remaining uncovered jokers require CRY_* custom hand types (CRY_BULWARK/CRY_CLUSTERFUCK/CRY_ULTPAIR/CRY_NONE/CRY_WHOLEDECK) and are legitimately dormant until those hand types are ported. Non-score face-reactors (Midas Mask, Business Card, Reserved Parking, Faceless) are out of scope for score parity — they grant dollars/probabilities, not chips/mult.
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-21 -->
+
+### Debuff-vs-is_suit audit (fixed ad70134)
+seeing_double_check (utils.lua:2474) tallies via is_suit WITHOUT bypass_debuff -> debuffed cards don't count; rebuild wrongly fired X2 when the only club/non-club was debuffed -> fixed by excluding ctx.debuffSuit. ASYMMETRY: Flower Pot calls is_suit(suit, true) bypass_debuff=true (card.lua:4358) -> DOES count debuffed suits, so rebuild's all-card scan is already correct, left unchanged. Flush detection (flush_calc branch) also ignores debuff. Lesson: don't assume the Photograph-class bug everywhere; trace each joker's is_suit call. Oracle 178/178 (seeing_double under The Club=40, flower_pot under The Goad=1953).
+<!-- session:2026-06-22-2af51fd3 | commit:dee18c668693e232586704cfeb071ddd8989ccc2 | date:2026-06-22 -->
+
+### 3 red oracle cases on main (218/221) were all WRONG EXPECTED VALUES, engine faithful (independently confirmed, anyRealEngineBug:false). (1) Baseball+2 Fibonacci: expected forgot fibs fire +8/Ace; isolated by using Kings → 135. (2) CRY_NONE+the/nebulous/undefined: joker_main applies in BOARD ORDER, base mult=0, cry_the(X2) listed first gave 150 not 300; reordered X2 last → 300 (order matters with additive+multiplicative on mult=0 base). (3) FullHouse+cry_clash: expected used base-only, forgot all 5 cards score (53 chips) → 372. Fixed via PR #17 off origin/main. Lesson: fast-authored oracle baselines tend to forget per-card joker mult, card chips, and board-order effects — recompute independently before trusting an expected value.
+<!-- session:2026-06-22-7c52d4d8 | commit:9c9edd355e4689a1e1446e9998b5544391a516dd | files:.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:.claude | date:2026-06-22 -->
+
+### Parity audit of main found a REAL high-impact engine bug (PR #18): Hands.evaluate had no poker-hand DOWNGRADE CHAIN. Vanilla misc_functions.lua:551-561 makes 5oak contain 4oak/3oak/pair, 4oak contain 3oak/pair, 3oak contain pair in poker_hands. Without it, ALL containment jokers (sly/wily/clever/jolly/zany/mad + Cryptid type family) silently failed to fire on 3oak/4oak/5oak (e.g. 4oak+wily gave 728 not 1428). Fix: add downgrade to results map via putIfAbsent (never to top). Oracle 221→224. Audit also flagged: (a) n-based jokers j.n uninitialized = run-loop wiring, that's open PR #16 not an engine bug (agents over-flagged); (b) CRY_BULWARK/CRY_CLUSTERFUCK early-return omits HIGH_CARD from poker_hands — unverified, niche, follow-up. Lesson: audit agents conflate run-loop wiring with engine bugs; verify each against source.
+<!-- session:2026-06-22-7c52d4d8 | commit:9c9edd355e4689a1e1446e9998b5544391a516dd | files:.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt,.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt | area:.claude | date:2026-06-22 -->

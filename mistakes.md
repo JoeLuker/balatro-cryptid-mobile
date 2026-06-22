@@ -164,3 +164,27 @@ File was modified across multiple consecutive turns — may indicate the AI stru
 ### Repeated modifications to rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt
 File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-18-0dbb3055 for the correct approach.
 <!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-18 -->
+### Repeated modifications to .claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-21-0647820b for the correct approach.
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:.claude | date:2026-06-21 -->
+### Repeated modifications to .claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-21-0647820b for the correct approach.
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-21 -->
+### Repeated modifications to .claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/ui/JokerArt.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-21-0647820b for the correct approach.
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/ui/JokerArt.kt | area:.claude | date:2026-06-21 -->
+### Repeated modifications to .claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-21-0647820b for the correct approach.
+<!-- session:2026-06-21-0647820b | commit:362bb95b9d06a5a7bd52cad89d25707fd32edc27 | files:.claude/worktrees/zen-bardeen-3344b2/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:.claude | date:2026-06-21 -->
+### Iterated Nix derivation
+nix/balatro-cryptid.nix and regen-dump.sh/gen-patches.sh required many successive edits across prompts 7–8 before the baked build was correct → indicates the derivation/patch-staging was nontrivial to get right (exact failure cause not captured in the session log).
+<!-- session:2026-06-21-e40b8757 | commit:a3d8859e1df31560e1e9910344bb8cc93b9a9d4e | files:nix/balatro-cryptid.nix,nix/regen-dump.sh,nix/gen-patches.sh | area:nix | date:2026-06-21 -->
+### Repeated modifications to .claude/worktrees/relaxed-elbakyan-1c44d4/MIGRATION.md
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-21-e40b8757 for the correct approach.
+<!-- session:2026-06-21-e40b8757 | commit:a3d8859e1df31560e1e9910344bb8cc93b9a9d4e | files:.claude/worktrees/relaxed-elbakyan-1c44d4/MIGRATION.md | area:.claude | date:2026-06-21 -->
+### Duplicate `j_abstract` key in JokerArt map
+A batch added a second `j_abstract` entry (JokerArt.kt:94) duplicating line 23 → Kotlin `mapOf()` silently drops the second entry; both values were identical (`Triple("Jokers.png", 3, 3)`) so no wrong art renders, but the dead entry should be removed.
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/JokerArt.kt | area:rebuild | date:2026-06-21 -->
+### Photograph debuff edge case uncaught by oracle
+Port loses Photograph's X2 when a debuffed face leads the scoring hand under a boss suit-debuff → root cause is `isFace` not honoring card debuff → fix by excluding debuffed cards from the firstOrNull predicate. No existing oracle case covers Photograph + debuff.
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 | rule:WHEN porting a joker that scans scoringHand to select a single card ALWAYS exclude debuffed cards from the selection predicate to match vanilla Card:is_face -->

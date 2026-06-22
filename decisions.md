@@ -134,3 +134,9 @@ The game already works; the developer clarified the point is the native-Compose 
 ### Reimplement-then-pare-back vs. minimal port
 Whether to port only what's needed or port the whole engine then trim → decision: port the full engine spine/object layer first, prune dead code afterward (developer's explicit preference, since the rewrite completeness is the goal).
 <!-- session:2026-06-18-0dbb3055 | commit:f1817e442bcfbfcc00abea67a1f4dbdc32f7f9ac | files:rebuild/ENGINE_PORT_P0.md | area:rebuild | date:2026-06-18 -->
+### Repo structure pattern
+needed a principled layout for baking the Lua build → adopted a Nix overlay / pinned-sources + patch-series pattern (separates immutable upstream sources from staged mods and an ordered patch series, assembled by a flake-driven derivation), explicitly so nothing relies on live-patching at runtime.
+<!-- session:2026-06-21-e40b8757 | commit:a3d8859e1df31560e1e9910344bb8cc93b9a9d4e | files:flake.nix,nix/balatro-cryptid.nix,overlay/patches/series | area:nix | date:2026-06-21 | rule:WHEN building the Lua/LÖVE Cryptid artifact ALWAYS bake mods/config into the Nix-built package via the overlay/patch-series; never depend on runtime live-patching. -->
+### Pareidolia threading scope
+Could thread the `ctx.pareidolia` flag through all vanilla face-reactor sites or only score-affecting ones → threaded only into score-affecting `is_face` sites (scary_face, smiley, photograph, Cryptid mask/exposed retriggers, sock_and_buskin) (the other face-reactors don't affect chip/mult score, so they're out of scope for the oracle's score-parity contract).
+<!-- session:2026-06-21-dd0f098f | commit:1774e409d81fcf053ed5d96b1155f4df323adeb8 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-21 -->
