@@ -317,6 +317,7 @@ private val CATALOG = listOf(
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
+private const val MAX_JOKERS = 5   // G.GAME.max_jokers default (Balatro game.lua)
 
 /** 3 shop offers, deterministic per ante; ~60% of the time the first slot rolls an edition (+3 cost). */
 private fun rollShop(blind: Int): List<Offer> {
@@ -376,6 +377,8 @@ internal class RunState {
     /** THE_PILLAR: cards played in any previous hand this Ante are debuffed for THE_PILLAR blind.
      *  Resets at the start of each new Ante (slot 0 = first blind of the ante). */
     val pillarPlayedCards = mutableSetOf<PlayingCard>()
+    /** Current joker slot capacity (default 5; THE_MANACLE reduces by 1 for the boss round). */
+    var maxJokers by mutableStateOf(MAX_JOKERS)
     /** CRIMSON_HEART: the joker currently disabled for this hand (rotates after each play). */
     var crimsonHeartDisabled: FJoker? = null
     /** CERULEAN_BELL: index into `hand` of the forced-selected card (null = none). */
@@ -545,6 +548,8 @@ internal class RunState {
         if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
         // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
         crimsonHeartDisabled = null; bellForcedIdx = null
+        // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
+        maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
         if (boss == Boss.CERULEAN_BELL) bellForcedIdx = hand.indices.random()  // pick forced card after draw
         phase = Phase.ROUND
@@ -707,6 +712,7 @@ internal class RunState {
     }
 
     fun buy(offer: Offer, free: Boolean = false) {
+        if (owned.size >= maxJokers) return           // joker slot full
         if (!free && money < offer.cost) return
         if (!free) money -= offer.cost
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
@@ -1506,7 +1512,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
         // Slot counts at the BOTTOM-left of each card area (jokers N/5, consumables 0/2).
         Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
+            BTxt("${s.owned.size}/${s.maxJokers}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
         }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("0/2", Balatro.White, countSp)
@@ -1763,7 +1769,7 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     s.shop.forEach { o ->
-                        ShopCard(o.name, jokerCells[o.key], cardBase, o.cost, o.desc, Balatro.Mult, s.money >= o.cost) { s.buy(o) }
+                        ShopCard(o.name, jokerCells[o.key], cardBase, o.cost, o.desc, Balatro.Mult, s.money >= o.cost && s.owned.size < s.maxJokers) { s.buy(o) }
                     }
                     s.shopPlanets.forEach { po ->
                         ShopCard(po.planet.display, null, cardBase, po.cost, handName(po.planet.hand), Balatro.Chips, s.money >= po.cost) { s.buyPlanet(po) }

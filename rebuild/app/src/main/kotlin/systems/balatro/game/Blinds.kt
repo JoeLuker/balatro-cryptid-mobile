@@ -95,7 +95,7 @@ enum class Boss(val display: String, val desc: String) {
 
     fun hands(default: Int): Int = when (this) {
         THE_NEEDLE  -> 1
-        THE_MANACLE -> default + 1    // +1 Hand; TODO: also grants -1 Joker slot (not yet modelled)
+        THE_MANACLE -> default + 1    // +1 Hand; -1 Joker slot wired in RunState (maxJokers -= 1)
         else        -> default
     }
 
