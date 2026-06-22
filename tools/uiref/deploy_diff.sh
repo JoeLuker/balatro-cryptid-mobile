@@ -12,6 +12,10 @@ OUT=/tmp/${TAG}.png
 cd "$RB"
 ./gradlew :app:assembleDebug -q 2>&1 | tail -5
 adb -s "$EMU" install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null 2>&1
+# Force the display to bref_3's resolution (portrait 2160x3840 → landscape 3840x2160). The room
+# layout is width-constrained + u-based, so px positions are density-independent; this makes the
+# diff apples-to-apples on ANY emulator (a rebuilt AVD may default to a different panel size).
+adb -s "$EMU" shell wm size 2160x3840 >/dev/null 2>&1
 adb -s "$EMU" shell am force-stop systems.balatro.rebuild
 adb -s "$EMU" shell am start -n systems.balatro.rebuild/systems.balatro.ui.MainActivity --es screen repro >/dev/null 2>&1
 sleep 4
