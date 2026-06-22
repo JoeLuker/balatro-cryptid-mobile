@@ -337,6 +337,7 @@ internal class RunState {
         // materializeJokers fades the jokers IN at the start (start_materialize) — the create half.
         forceGlassBreak = true
         materializeJokers = true
+        demoSelfDestruct = true   // a joker burns away (fiery dissolve) on cash-out — the destroy half
         hand = listOf(
             PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
             PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
@@ -469,27 +470,40 @@ internal class RunState {
     /** repro-live demo: materialize the jokers IN on first frame (start_materialize, the create half
      *  of the destroy/create pair) so the reverse-dissolve is visible. */
     var materializeJokers = false
+    /** repro-live demo: at end-of-round, also self-destruct the LAST owned joker (a sprite-backed one)
+     *  so the fiery dissolve is visible behind the cash-out panel — exercises the real SELF_DESTRUCT
+     *  path with a rendered joker (Broken Home, the only real self-destruct key, may lack art). */
+    var demoSelfDestruct = false
     /** m_glass `extra = 4` → a played glass card has a 1-in-4 chance to shatter (Card:shatter) after
      *  it scores. The demo flag forces it; real play rolls it. */
     fun rollGlassBreak(): Boolean = forceGlassBreak || Random.nextInt(4) == 0
 
-    /** Commit the scored hand: bank the score, refill, advance the run. */
-    fun scoreCommit() {
-        val r = pending ?: return
+    /** Bank the scored hand (the end-of-round evaluation): score, refill, settle the lose/over case.
+     *  Returns true if the round was WON (target met) — the cascade then runs the end-of-round
+     *  self-destruct-joker dissolve and [enterRoundEval]. (state_events.lua: the end_of_round
+     *  calculate destroys self-destruct jokers BEFORE the ROUND_EVAL state, on the board.) */
+    fun scoreBank(): Boolean {
+        val r = pending ?: return false
         roundScore += r.score; handsLeft -= 1
         if (r.handType != HandType.NONE) recordHandPlayed(r.handType)
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
-        if (roundScore >= target) {
-            buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
-            Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
-            phase = Phase.ROUND_EVAL
-        } else if (handsLeft <= 0) {
+        if (roundScore >= target) return true
+        if (handsLeft <= 0) {
             phase = Phase.OVER
             Telemetry.event("ROUND_LOSE", "blind" to blindName, "total" to roundScore)
         }
+        return false
+    }
+
+    /** Round won → the cash-out screen (entered after the end-of-round self-destruct dissolves start,
+     *  so the burning jokers are still visible behind the cash-out panel — see RoundPlay). */
+    fun enterRoundEval() {
+        buildCashOut()          // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
+        Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
+        phase = Phase.ROUND_EVAL
     }
 
     /** Build the cash-out rows the way evaluate_round (state_events.lua:1147) does — in order:
@@ -514,12 +528,10 @@ internal class RunState {
     fun cashOut() {
         if (phase != Phase.ROUND_EVAL) return
         money += cashOutTotal
-        // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
-        val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
-        if (destroyed.isNotEmpty()) {
-            owned.removeAll(destroyed)
-            Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
-        }
+        // self-destruct jokers (Broken Home) DISSOLVED at end-of-round (the cascade's startDissolve →
+        // onGone removes them). Safety net: guarantee the logical removal even if the player cashes out
+        // before the 0.735s burn finishes (which unmounts the play field before onGone fires). Idempotent.
+        owned.removeAll { it.fj.key in SELF_DESTRUCT_KEYS }
         blindIndex += 1
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         // Pre-seed boss so blind-select and shop screens show correct name/desc.
@@ -692,7 +704,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
             // weight box to the right of the HUD. Card areas span the whole room; the HUD sits on top
             // of the left edge exactly as the game layers G.HUD over the room.
-            if (s.phase == Phase.ROUND) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
+            // ROUND_EVAL keeps the play field mounted too, so the engine host + joker Moveables persist
+            // and the end-of-round self-destruct dissolve burns on behind the cash-out panel (which the
+            // when-block below overlays). RoundPlay gates its hand/played/action-bar to Phase.ROUND.
+            if (s.phase == Phase.ROUND || s.phase == Phase.ROUND_EVAL) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
             Box(
                 // requiredHeight + centre: the 12.9u room centres in the surface — letterboxed when the
                 // surface is taller than the room, cropped top/bottom when shorter (16:9). Plain .height()
@@ -1203,6 +1218,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // Per-card engine Moveable, by card identity — persists as a card moves hand→play (the transfer
     // carries its VT). IdentityHashMap so value-equal duplicates (two 10s) stay distinct.
     val cardMv = remember { java.util.IdentityHashMap<PlayingCard, Moveable>() }
+    // Per-joker engine Moveable, by joker identity (mirrors cardMv) — so a SPECIFIC self-destruct
+    // joker can dissolve and be pruned, rather than setCardCount dropping the last by count.
+    val jokerMv = remember { java.util.IdentityHashMap<Owned, Moveable>() }
     // Staggered deal: each newly-dealt card's clock time to start flying in from the deck; held at the
     // deck until then so cards arrive one-by-one (~0.07s apart). dealClock[0] is the next reveal slot.
     val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
@@ -1221,7 +1239,16 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // MainUpdateLoop body (game.lua Game:update order): advance clock → align card areas
                 // (CardArea:update) → drain events → sweep every Moveable's move → flush removals.
                 host.clock.advance(dt, reducedMotion = frozen)
-                if (host.jokers.cards.size != s.owned.size) host.jokers.setCardCount(s.owned.size)
+                // IDENTITY-TRACKED jokers (like cardMv): rebuild host.jokers.cards from s.owned each
+                // frame, REUSING each joker's Moveable, so a dissolving joker keeps its Moveable (and
+                // dissolve value) and survives the burn until onGone prunes it. newCard() spawns at the
+                // area origin exactly like the old setCardCount, so the resting render is unchanged.
+                host.jokers.cards.clear(); for (o in s.owned) host.jokers.cards.add(jokerMv.getOrPut(o) { host.jokers.newCard() })
+                if (jokerMv.size > s.owned.size) {                  // prune Moveables for removed jokers
+                    val keep = java.util.IdentityHashMap<Owned, Boolean>(); for (o in s.owned) keep[o] = true
+                    val it2 = jokerMv.entries.iterator()
+                    while (it2.hasNext()) { val e = it2.next(); if (!keep.containsKey(e.key)) { e.value.remove(); it2.remove() } }
+                }
                 // one-shot: materialize the jokers IN (start_materialize) — the create half of the pair.
                 if (s.materializeJokers && !jokerMatDone[0] && host.jokers.cards.size == s.owned.size && s.owned.isNotEmpty()) {
                     host.jokers.cards.forEach { host.startMaterialize(it, now = host.clock.real) }
@@ -1309,8 +1336,22 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                         burning = true
                     }
                 }
-                host.events.addEvent(Event(trigger = "after", delay = if (burning) 0.55 * 0.7 else 0.0,
-                    func = { s.scoreCommit(); true }))
+                host.events.addEvent(Event(trigger = "after", delay = if (burning) 0.55 * 0.7 else 0.0, func = {
+                    if (s.scoreBank()) {                            // round WON → end-of-round evaluation
+                        // self-destruct jokers (SELF_DESTRUCT_KEYS, e.g. Broken Home) DISSOLVE on the
+                        // board (fiery start_dissolve), then are pruned from owned (onGone). Faithful:
+                        // state_events.lua runs this in the end_of_round calculate, before ROUND_EVAL.
+                        val doomed = s.owned.filter { it.fj.key in SELF_DESTRUCT_KEYS } +
+                            (if (s.demoSelfDestruct) listOfNotNull(s.owned.lastOrNull()) else emptyList())
+                        doomed.distinct().forEach { o ->
+                            jokerMv[o]?.let { mv -> host.startDissolve(mv, now = host.clock.real) { s.owned.remove(o) } }
+                        }
+                        // RoundPlay stays mounted through ROUND_EVAL, so the burn continues behind the
+                        // cash-out panel (the dump's eval state appears ~0.3s in, mid-dissolve).
+                        s.enterRoundEval()
+                    }
+                    true
+                }))
                 true
             }))
         }
@@ -1400,7 +1441,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     }
                 }
             }
-        } else {
+        } else if (s.phase == Phase.ROUND) {   // hand is drawn back at end-of-round → hidden on ROUND_EVAL
             s.hand.forEachIndexed { i, card ->
                 val m = host.hand.cards.getOrNull(i) ?: return@forEachIndexed
                 val interaction = remember(i) { MutableInteractionSource() }
@@ -1422,11 +1463,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             }
         }
         // hand-size count (N/8) under the hand area.
-        Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
+        if (s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
             BTxt("${s.hand.size}/8", Balatro.White, countSp)
         }
         // action bar (Play Hand / Sort / Discard) below the hand — hidden during scoring (Balatro hides it).
-        if (!s.scoring) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
+        if (!s.scoring && s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
             RenderUI(buttonsRow(s, cells))
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
