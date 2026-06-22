@@ -65,5 +65,8 @@ class Deck(seed: Long) {
         return true
     }
 
+    /** Count cards in the FULL persistent deck with a given enhancement (for j_stone, j_steel_joker). */
+    fun countEnhancement(e: Enhancement): Int = all.count { it.enhancement == e }
+
     val remaining: Int get() = drawPile.size
 }
