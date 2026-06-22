@@ -1036,6 +1036,8 @@ internal class RunState {
             "j_ramen"          -> 2.0   // starts at x2 Mult, depletes per discard
             "j_campfire"       -> 1.0   // starts at 1 (no bonus yet)
             "j_cry_caramel"    -> 1.75  // config.extra.x_mult=1.75 (individual xMult per scored card)
+            "j_cry_biggestm"   -> 7.0   // config.extra.x_mult=7 (static Xmult; never scales in Lua)
+            "j_cry_spy"        -> 0.5   // config.x_mult=0.5 (ability.x_mult, NOT ability.extra; joker_main returns it directly)
             "j_cry_starfruit"  -> 2.0   // config.emult=2 (Emult; -0.2 per reroll)
             else -> fjX
         }
