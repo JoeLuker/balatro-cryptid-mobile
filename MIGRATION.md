@@ -28,19 +28,38 @@ The smoke gate (boot the built game headless, spoof Android) revealed: the
 from-pins build **crashes at boot — `main.lua: attempt to index global 'SMODS'
 (a nil value)`** — while the legacy build/game does NOT hit that crash.
 
-Root cause lead: the **Steamodded pin was de-drifted to current `main` (fdb7442)**,
-but the validated phone/legacy build used an **older Steamodded** (`1.0.0~BETA-1224a`).
-fdb7442 injects `main.lua` differently (1426 vs legacy 2578 lines) and its SMODS
-bootstrap doesn't load via the from-pins dump under the desktop spoof.
+**CONFIRMED on real Android** (emulator, `just emu-test` on the signed Nix APK):
+boots → `main.lua:1391: attempt to index global 'SMODS' (nil)` → static crash
+screen. NOT a desktop-spoof artifact.
 
-Next step (pick one):
-1. **Re-pin Steamodded to the validated version** (the `1224a`-era commit the phone
-   shipped) → re-run `regen-dump.sh` + `gen-patches.sh` → re-smoke. Most likely fix.
-2. **Emulator-validate** (`just emu-test` on the Nix APK) to check whether it's a
-   desktop-spoof artifact vs a real boot failure on Android.
+**Root cause (definitive):** `scripts/patch_main_lua.py:137` does
+`content.replace("SMODS = {}", path_fix, 1)`, where `path_fix` is the Android
+SMODS require-path setup (`love.filesystem.setRequirePath` for `Mods/Steamodded/…`
++ `package.preload` for `SMODS.version`/`SMODS.release`). The de-drifted Steamodded
+`fdb7442` moved SMODS init out of `main.lua` (into `game.lua`'s
+`require"SMODS.preflight.loader".initSteamodded()`), so **`SMODS = {}` no longer
+exists in the dump** → the `.replace()` silently no-ops (Python no-match) → the
+Android require path is never set → `require"SMODS.preflight.loader"` fails on the
+no-lovely Android build → SMODS nil → crash. (Verified: anchor count legacy=1,
+from-pins=0; "Android SMODS path fix" absent from the built main.lua. This is the
+same silent-failure class the migration fights — now found inside patch_main_lua.py.)
 
-**`scripts/build.sh` is retained** (Phase 5 deferred) — it is the runtime-validated
-fallback until the Nix APK boots clean. Do NOT retire it before this is resolved.
+**Fix (pick one):**
+1. **Re-pin Steamodded to the pre-preflight (inline `SMODS = {}`) version** the
+   validated build used → regen dump + patches → re-emulate. Lowest risk; uses
+   older Steamodded. (The committed `src/dump` is from this inline era.)
+2. **Update the main.lua Android shim** to the new preflight mechanism: inject the
+   require-path setup unconditionally (not anchored on `SMODS = {}`) and
+   `package.preload` the baked preflight modules. Keeps newest Steamodded; more work.
+
+Regardless: make the shim **fail loud** when its anchor is absent (no silent no-op).
+
+**`scripts/build.sh` retained** (Phase 5 deferred) — runtime-validated fallback
+until the Nix APK boots clean.
+
+## Emulator harness fix (committed)
+`test/emulator/run.sh` now `adb uninstall`s any stale package before install — a
+prior build's signature otherwise rejects `-r` with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
 
 ## Target layout
 

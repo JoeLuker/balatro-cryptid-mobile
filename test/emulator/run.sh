@@ -78,6 +78,9 @@ step "ARM translation: $(adb -s "$SERIAL" shell getprop ro.dalvik.vm.isa.arm64 |
 
 # ------------------------------------------------------------------ install
 step "installing APK..."
+# Drop any prior install first: a stale package signed with a different keystore
+# (e.g. a previous build's) rejects -r with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+adb -s "$SERIAL" uninstall "$PKG" >/dev/null 2>&1 || true
 adb -s "$SERIAL" install -r "$APK"
 
 step "pushing mods (mirrors phone deploy)..."
