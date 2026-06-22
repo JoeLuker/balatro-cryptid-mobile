@@ -86,6 +86,7 @@ internal sealed class PackItem {
     data class Planet(val p: PlanetOffer) : PackItem()
     data class Joker(val o: Offer) : PackItem()
     data class Card(val card: PlayingCard) : PackItem()    // Standard pack: a playing card added to the deck
+    data class SpectralItem(val s: Spectral) : PackItem()  // Spectral pack
 }
 /** An open booster pack: the revealed [items], how many remain to [pick], and which are taken. */
 internal class OpenPack(val name: String, val kind: String, val items: List<PackItem>, choose: Int) {
@@ -104,11 +105,24 @@ internal enum class Tag(val display: String, val desc: String, val trigger: TagT
 private val TAG_POOL = Tag.values().toList()
 private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
 
-/** A consumable held in the consumable slots (a tarot or planet), used when the player chooses —
- *  rather than the shop/pack applying it instantly. */
+/** Spectral cards (the Spectral consumable set) — powerful run-altering effects. The subset here
+ *  wires to existing systems (deck/jokers/hand-levels/money/hand-size); rarity-gated ones deferred. */
+internal enum class Spectral(val display: String, val desc: String) {
+    BLACK_HOLE("Black Hole", "Upgrade every poker hand by 1 level"),
+    IMMOLATE("Immolate", "Destroy 5 cards in the deck, gain \$20"),
+    ECTOPLASM("Ectoplasm", "Add Negative to a random Joker, -1 hand size"),
+    HEX("Hex", "Add Polychrome to a random Joker, destroy the rest"),
+    TALISMAN("Talisman", "Add a Gold Seal to a card"),
+    DEJA_VU("Deja Vu", "Add a Red Seal to a card"),
+    WRAITH("Wraith", "Create a random Joker, set money to \$0"),
+}
+
+/** A consumable held in the consumable slots (a tarot, planet, or spectral), used when the player
+ *  chooses — rather than the shop/pack applying it instantly. */
 internal sealed class Consumable {
     data class TarotC(val t: TarotOffer) : Consumable()
     data class PlanetC(val planet: Planet) : Consumable()
+    data class SpectralC(val s: Spectral) : Consumable()
 }
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
@@ -272,6 +286,7 @@ private val BOOSTERS = listOf(
     BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1),
     BoosterOffer("p_standard_normal", "Standard Pack", "Standard", 4, 3, 1),
     BoosterOffer("p_standard_jumbo", "Jumbo Standard Pack", "Standard", 6, 5, 1),
+    BoosterOffer("p_spectral_normal", "Spectral Pack", "Spectral", 4, 2, 1),
 )
 /** Two booster slots per shop (Balatro's shop has 2). */
 private fun rollBoosters(blind: Int): List<BoosterOffer> =
@@ -348,7 +363,8 @@ internal class RunState {
     // Skip tags: earned by skipping a blind, fired at their trigger. handSize + the per-shop tag
     // transients (reset on each shop entry) are how the timed effects land.
     val tags = mutableStateListOf<Tag>()                                 // earned, awaiting their trigger
-    var handSize by mutableStateOf(8)                                    // cards drawn to hand (Juggle: +3 one round)
+    var handSize by mutableStateOf(8)                                    // cards drawn this round (Juggle: +3)
+    var baseHandSize by mutableStateOf(8)                                // permanent base hand size (Ectoplasm: -1)
     var freeRerollThisShop by mutableStateOf(false)                      // D6 Tag (this shop only)
     var couponThisShop by mutableStateOf(false)                          // Coupon Tag (this shop only)
     // Consumable slots (G.consumeables): tarots/planets are HELD here and used when chosen.
@@ -365,8 +381,28 @@ internal class RunState {
                 Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name, "card" to (card?.key ?: "none"))
             }
             is Consumable.PlanetC -> { handLevels.levelUp(c.planet.hand); Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display) }
+            is Consumable.SpectralC -> { applySpectral(c.s); Telemetry.event("RUN_USE_SPECTRAL", "spectral" to c.s.name) }
         }
         consumables.removeAt(i)
+    }
+
+    /** Apply a spectral card's effect to the run (Spectral consumable use). */
+    private fun applySpectral(s: Spectral) {
+        when (s) {
+            Spectral.BLACK_HOLE -> HandType.values().forEach { handLevels.levelUp(it) }
+            Spectral.IMMOLATE -> { repeat(5) { deck.removeRandom() }; money += 20 }
+            Spectral.TALISMAN -> deck.sealRandom(Seal.GOLD)
+            Spectral.DEJA_VU -> deck.sealRandom(Seal.RED)
+            Spectral.ECTOPLASM -> {
+                if (owned.isNotEmpty()) { val i = owned.indices.random(); owned[i] = owned[i].copy(offer = owned[i].offer.copy(edition = Edition.NEGATIVE)) }
+                baseHandSize = maxOf(1, baseHandSize - 1)
+            }
+            Spectral.HEX -> if (owned.isNotEmpty()) {
+                val keep = owned[owned.indices.random()].let { it.copy(offer = it.offer.copy(edition = Edition.POLY)) }
+                owned.clear(); owned.add(keep)
+            }
+            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, FJoker(o.key))); money = 0 }
+        }
     }
     /** The tag offered for skipping the current (Small/Big) blind. */
     val upcomingTag: Tag get() = tagForBlind(blindIndex)
@@ -458,7 +494,7 @@ internal class RunState {
         forceGlassBreak = true
         materializeJokers = true
         demoSelfDestruct = true   // a joker burns away (fiery dissolve) on cash-out — the destroy half
-        consumables.add(Consumable.TarotC(TAROTS[0])); consumables.add(Consumable.PlanetC(Planet.MERCURY))  // fill the consumable slots (tap to use)
+        consumables.add(Consumable.TarotC(TAROTS[0])); consumables.add(Consumable.SpectralC(Spectral.BLACK_HOLE))  // fill the consumable slots (tap to use)
         hand = listOf(
             PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
             PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
@@ -531,7 +567,7 @@ internal class RunState {
 
     private fun startRound() {
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
-        handSize = 8
+        handSize = baseHandSize
         applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(handSize); selected = emptySet()
@@ -759,6 +795,7 @@ internal class RunState {
             "Celestial" -> Planet.values().toList().shuffled(rng).take(b.extra).map { PackItem.Planet(PlanetOffer(it, 0)) }
             "Buffoon" -> CATALOG.filterNot { c -> owned.any { it.offer.key == c.key } }.shuffled(rng).take(b.extra).map { PackItem.Joker(it) }
             "Standard" -> (0 until b.extra).map { PackItem.Card(PlayingCard(Suit.values().random(rng), (2..14).random(rng))) }
+            "Spectral" -> Spectral.values().toList().shuffled(rng).take(b.extra).map { PackItem.SpectralItem(it) }
             else -> emptyList()
         }
         openPack = OpenPack(b.name, b.kind, items, minOf(b.choose, items.size))
@@ -772,6 +809,7 @@ internal class RunState {
         if (p.picksLeft <= 0 || i in p.picked) return
         when (val item = p.items[i]) {
             is PackItem.Card -> deck.add(item.card)          // Standard pack → card joins the deck
+            is PackItem.SpectralItem -> if (hasConsumableRoom()) consumables.add(Consumable.SpectralC(item.s))   // held to use
             is PackItem.Tarot -> buyTarot(item.t, free = true)
             is PackItem.Planet -> buyPlanet(item.p, free = true)
             is PackItem.Joker -> buy(item.o, free = true)
@@ -803,6 +841,7 @@ internal class RunState {
             when (c) {
                 is Consumable.TarotC -> ConsumableSnap("tarot", c.t.name, c.t.enhancement.name, c.t.seal.name)
                 is Consumable.PlanetC -> ConsumableSnap("planet", c.planet.display, planet = c.planet.name)
+                is Consumable.SpectralC -> ConsumableSnap("spectral", c.s.name)
             }
         },
         phase = phase.name,
@@ -814,6 +853,7 @@ internal class RunState {
         rerollIncrease = rerollIncrease,
         freeRerollThisShop = freeRerollThisShop,
         couponThisShop = couponThisShop,
+        baseHandSize = baseHandSize,
     )
 
     /** Restore a run from a snapshot (load). Lands in the shop — a safe inter-blind state. */
@@ -833,8 +873,11 @@ internal class RunState {
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
         consumables.clear()
         s.consumables.forEach { cs ->
-            consumables.add(if (cs.kind == "tarot") Consumable.TarotC(TarotOffer(cs.name, Enhancement.valueOf(cs.enh), 0, Seal.valueOf(cs.seal)))
-                            else Consumable.PlanetC(Planet.valueOf(cs.planet)))
+            consumables.add(when (cs.kind) {
+                "tarot" -> Consumable.TarotC(TarotOffer(cs.name, Enhancement.valueOf(cs.enh), 0, Seal.valueOf(cs.seal)))
+                "spectral" -> Consumable.SpectralC(Spectral.valueOf(cs.name))
+                else -> Consumable.PlanetC(Planet.valueOf(cs.planet))
+            })
         }
         // exact shop stock + per-shop state, then land at the saved phase (SHOP resumes the real shop)
         shop = s.shop.map { Offer(it.key, it.name, it.desc, it.cost, Edition.valueOf(it.edition)) }
@@ -844,6 +887,7 @@ internal class RunState {
         shopBoosters = s.shopBoosters.map { BoosterOffer(it.key, it.name, it.kind, it.cost, it.extra, it.choose) }
         rerollIncrease = s.rerollIncrease
         freeRerollThisShop = s.freeRerollThisShop; couponThisShop = s.couponThisShop
+        baseHandSize = s.baseHandSize
         phase = runCatching { Phase.valueOf(s.phase) }.getOrDefault(Phase.BLIND_SELECT)
     }
 
@@ -1720,8 +1764,8 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             Box(off(consumX, jokersY)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     s.consumables.forEachIndexed { i, c ->
-                        val label = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display }
-                        val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips }
+                        val label = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
+                        val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips; is Consumable.SpectralC -> Balatro.Mult }
                         Box(Modifier.size(cardW, cardH).clickable(enabled = s.phase == Phase.ROUND) { s.useConsumable(i) },
                             contentAlignment = Alignment.Center) {
                             cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
@@ -2079,6 +2123,7 @@ private fun packItemView(item: PackItem): Triple<String, String, Color> = when (
     is PackItem.Planet -> Triple(item.p.planet.display, handName(item.p.planet.hand), Balatro.Chips)
     is PackItem.Joker -> Triple(item.o.name, item.o.desc, Balatro.Mult)
     is PackItem.Card -> Triple("", if (item.card.enhancement != Enhancement.NONE) item.card.enhancement.name.lowercase() else "", Balatro.White)
+    is PackItem.SpectralItem -> Triple(item.s.display, item.s.desc, Balatro.Mult)
 }
 
 /** Booster pack opening (Phase.PACK_OPEN): tap to pick `choose` of the revealed items, or Skip. */

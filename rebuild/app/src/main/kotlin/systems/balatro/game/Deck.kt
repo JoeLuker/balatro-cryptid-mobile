@@ -54,4 +54,9 @@ class Deck(seed: Long) {
     fun setComposition(cards: List<PlayingCard>) { all.clear(); all.addAll(cards); reshuffle() }
     /** Add a card to the deck (a Standard pack pick) and return it to the draw pile. */
     fun add(card: PlayingCard) { all.add(card); reshuffle() }
+    /** Destroy a random card from the deck (Immolate); returns it, or null if empty. */
+    fun removeRandom(): PlayingCard? {
+        if (all.isEmpty()) return null
+        val c = all.removeAt(all.indices.random(rng)); reshuffle(); return c
+    }
 }
