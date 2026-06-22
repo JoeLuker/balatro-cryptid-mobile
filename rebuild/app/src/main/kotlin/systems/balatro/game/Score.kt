@@ -558,6 +558,10 @@ object Score {
         // j_cry_biggestm: activate (j.n=1) when scoring_name matches type (default "Pair") (m.lua:1426-1437).
         // check persists until end_of_round reset; engine resets at new round via RunScreen.
         for (j in jokers) if (j.key == "j_cry_biggestm" && j.n == 0 && handType == HandType.PAIR) j.n = 1
+        // j_cry_bonk: chips += bonus(1) when scoring_name == type (default "Pair") — SMODS.scale_card in
+        // context.before (m.lua:669-678). Grows the per-board-joker chip bonus; the SAME hand's other-joker
+        // pass then reads the incremented value (so the activating Pair hand already benefits).
+        for (j in jokers) if (j.key == "j_cry_bonk" && handType == HandType.PAIR) j.chips += 1.0
         // j_cry_whip: +0.5 Xmult if the played hand holds a 2 and a 7 of different suits (WILD = all suits).
         // Uses get_id() in Lua — rankOf applies Maximized remapping so 2/7 can never match when Maximized is on board.
         for (j in jokers) if (j.key == "j_cry_whip") {
