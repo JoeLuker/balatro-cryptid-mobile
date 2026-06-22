@@ -130,6 +130,43 @@ private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
 internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
+/** Build a freshly-acquired joker's FJoker with its per-key initial scaling state — the seed values the
+ *  scoring engine reads. Shared by buy(), the Wraith spectral, and jollysus' on-sell spawn so every
+ *  acquisition path seeds identically (previously only buy() did, so Wraith-/spawn-created jokers were
+ *  mis-seeded). [swashSellSum] is the current total sell value of owned jokers — only j_swashbuckler reads
+ *  it; passing it in keeps this pure and directly unit-testable. */
+internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
+    val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
+    val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
+    val fjMult = when (offer.key) {
+        "j_popcorn"      -> 20.0            // +20 Mult, -1 per hand; self-destructs at 0
+        "j_swashbuckler" -> swashSellSum    // sum of current sell values
+        else -> 0.0
+    }
+    val fjXInit = when (offer.key) {
+        "j_ramen"          -> 2.0   // x2 Mult, depletes per discard
+        "j_campfire"       -> 1.0
+        "j_cry_caramel"    -> 1.75  // config.extra.x_mult
+        "j_cry_starfruit"  -> 2.0   // config.emult
+        "j_cry_biggestm"   -> 7.0   // config.extra.xmult (read once the before-pass activates it)
+        "j_cry_mprime"     -> 1.05  // config.extra.mult (^Emult exponent per Jolly/M joker)
+        else -> fjX
+    }
+    val fjN = when (offer.key) {
+        "j_cry_mstack"       -> 1   // retriggers >= 1
+        "j_cry_chili_pepper" -> 8   // perishable countdown
+        "j_cry_caramel"      -> 11  // end_of_round countdown
+        "j_cry_spaceglobe"   -> HandType.HIGH_CARD.ordinal   // target hand type ordinal
+        "j_cry_blacklist"    -> (2..14).random()             // random blacklisted rank id
+        "j_cry_busdriver"    -> 4   // before-hand roll odds
+        "j_cry_jollysus"     -> 1   // spawn flag armed (config.extra.spawn=true); reset to 1 at end_of_round
+        else -> 0
+    }
+    val fjChips = if (offer.key == "j_cry_bonk") 6.0 else 0.0   // bonk: +chips per board joker
+    val fjXc = if (offer.key == "j_cry_bonk") 3.0 else 1.0      // bonk: Jolly x-chips multiplier
+    return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips, xc = fjXc)
+}
+
 private val CATALOG = listOf(
     // --- vanilla ---
     Offer("j_joker", "Joker", "+4 Mult", 2),
@@ -562,7 +599,7 @@ internal class RunState {
                 val keep = owned[owned.indices.random()].let { it.copy(offer = it.offer.copy(edition = Edition.POLY)) }
                 owned.clear(); owned.add(keep)
             }
-            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, FJoker(o.key))); money = 0 }
+            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }))); money = 0 }
         }
     }
     /** The tag offered for skipping the current (Small/Big) blind. */
@@ -1131,6 +1168,8 @@ internal class RunState {
         for (o in owned) if (o.fj.key == "j_cry_mondrian" && roundDiscardsUsed == 0) o.fj.x += 0.25
         // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
         for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
+        // jollysus: re-arm the once-per-round spawn flag at end_of_round (m.lua:27-30).
+        for (o in owned) if (o.fj.key == "j_cry_jollysus") o.fj.n = 1
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
         val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
@@ -1191,57 +1230,18 @@ internal class RunState {
         if (!free) money -= cost
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
-        val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
-        val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
-        val fjMult = when (offer.key) {
-            "j_popcorn"    -> 20.0   // starts at +20 Mult, -1 per hand; self-destructs when mult hits 0
-            "j_ramen"      -> 0.0    // j.x starts at 2.0 (set below)
-            "j_swashbuckler" -> owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }  // sum of current sell values
-            else -> 0.0
-        }
-        val fjXInit = when (offer.key) {
-            "j_ramen"          -> 2.0   // starts at x2 Mult, depletes per discard
-            "j_campfire"       -> 1.0   // starts at 1 (no bonus yet)
-            "j_cry_caramel"    -> 1.75  // config.extra.x_mult=1.75 (individual xMult per scored card)
-            "j_cry_starfruit"  -> 2.0   // config.emult=2 (Emult; -0.2 per reroll)
-            "j_cry_biggestm"   -> 7.0   // config.extra.xmult=7 — joker_main returns xMultMod=j.x once the
-                                        // before-pass activates it; without this it read j.x=1.0 → X1, not X7.
-            "j_cry_mprime"     -> 1.05  // config.extra.mult=1.05 — engine reads j.x as the ^Emult exponent per Jolly/M joker
-            else -> fjX
-        }
-        val fjN = when (offer.key) {
-            // mstack: add_to_deck hook enforces retriggers >= 1 (m.lua add_to_deck; config.extra.retriggers=1).
-            "j_cry_mstack" -> 1
-            // chili_pepper: rounds_remaining starts at 8 (config.extra.rounds_remaining=8; perishable countdown).
-            "j_cry_chili_pepper" -> 8
-            // caramel: rounds_remaining starts at 11 (config.extra.rounds_remaining=11; end_of_round countdown).
-            // j.x holds x_mult=1.75 (does NOT deplete); only the countdown decides expiry.
-            "j_cry_caramel" -> 11
-            // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
-            "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
-            // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
-            // blacklist: add_to_deck rolls a random rank (pseudorandom_element(SMODS.Ranks):get_id(),
-            // spooky.lua); j.n holds that blacklisted rank id (2..14). The engine nullifies any hand
-            // containing it — without this it defaulted to 0 → always Ace, never the rolled rank.
-            "j_cry_blacklist" -> (2..14).random()
-            // busdriver: config.extra.odds=4 — the before-hand roll reads j.n as the odds (falls back to 2 if unset).
-            "j_cry_busdriver" -> 4
-            else -> 0
-        }
-        val fjChips = when (offer.key) {
-            // bonk: +6 Chips per board joker (config.extra.chips=6); engine reads j.chips in the other-joker pass.
-            "j_cry_bonk" -> 6.0
-            else -> 0.0
-        }
-        val fjXc = when (offer.key) {
-            // bonk: Jolly jokers give chips×xchips instead (config.extra.xchips=3); engine reads j.xc.
-            "j_cry_bonk" -> 3.0
-            else -> 1.0
-        }
-        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips, xc = fjXc)
-        owned.add(Owned(offer, fj))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
+    }
+
+    /** Put a random Joker on the board with its correct initial state — jollysus' on-sell spawn
+     *  (Cryptid create_card("Joker")). Respects the joker slot cap. */
+    private fun createRandomJoker() {
+        if (owned.size >= maxJokers) return
+        val offer = CATALOG.random()
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
     }
 
     fun sell(o: Owned) {
@@ -1270,8 +1270,12 @@ internal class RunState {
                 if (rem.fj.chips + 1 >= 3) { rem.fj.n += 1; rem.fj.chips = 0.0 } else rem.fj.chips += 1.0
             }
         }
-        // j_swashbuckler also recalculates when THIS joker is swashbuckler itself and sold;
-        // that case is moot (the joker is gone), but set a clean 0 for the removed fj.
+        // j_cry_jollysus: selling any Joker (including a jollysus itself) makes each armed jollysus spawn a
+        // random Joker, once per round; fj.n is the spawn flag (1=armed, reset to 1 at end_of_round). Done
+        // after the per-sell loop since createRandomJoker mutates `owned` (m.lua:37-48).
+        val armedJollys = owned.filter { it.fj.key == "j_cry_jollysus" && it.fj.n == 1 } +
+            (if (soldKey == "j_cry_jollysus" && o.fj.n == 1) listOf(o) else emptyList())
+        armedJollys.forEach { it.fj.n = 0; createRandomJoker() }
         // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately
         if (boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
