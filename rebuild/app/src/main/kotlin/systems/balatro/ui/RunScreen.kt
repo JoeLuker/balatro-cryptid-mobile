@@ -152,16 +152,17 @@ private val CATALOG = listOf(
     Offer("j_cry_nosound", "No Sound?", "retrigger scored 7s x3", 5),
     Offer("j_cry_exposed", "Exposed", "retrigger scored non-faces x2", 5),
     Offer("j_cry_mask", "Mask", "retrigger scored faces x3", 5),
-    // sock_and_sock: retrigger each played Abstract-enhanced card once (config.extra.retriggers=1).
-    Offer("j_cry_sock_and_sock", "Sock and Sock", "retrigger Abstract cards x1", 6),
+    // sock_and_sock: retrigger each played Abstract-enhanced card once (config.extra.retriggers=1; max 40).
+    // rarity=2 (Uncommon), cost=7. Confirmed from SpectralPack/Cryptid items/misc_joker.lua.
+    Offer("j_cry_sock_and_sock", "Sock and Sock", "retrigger Abstract cards x1", 7, rarity = 2),
     // --- Cryptid joker-retrigger jokers (context.retrigger_joker_check family) ---
-    // Chad: retrigger leftmost joker j.n times (config.extra.retriggers=2). Art/rarity: best-guess Rare.
-    Offer("j_cry_chad", "Chad", "retrigger leftmost Joker 2x", 8, rarity = 3),
-    // Loopy: retrigger all other jokers min(j.n,40) times (j.n = Jolly Jokers sold; 0 at purchase). Art: N/A.
-    Offer("j_cry_loopy", "Loopy", "retrigger all Jokers x sold Jolly Jokers", 8, rarity = 3),
-    // Spectrogram: retrigger rightmost joker j.n times (j.n = Echo-enhanced cards scored; 0 until Echo added).
-    Offer("j_cry_spectrogram", "Spectrogram", "retrigger rightmost Joker per Echo card scored", 7, rarity = 2),
-    // Flip Side: retrigger all double-sided-edition jokers once.
+    // Chad: retrigger leftmost joker j.n times (config.extra.retriggers=2). rarity=3 (Rare), cost=10. Confirmed.
+    Offer("j_cry_chad", "Chad", "retrigger leftmost Joker 2x", 10, rarity = 3),
+    // Loopy: retrigger all other jokers j.n times (Jolly Jokers sold). rarity=1 (M-pool), cost=4. Confirmed.
+    Offer("j_cry_loopy", "Loopy", "retrigger all Jokers x sold Jolly Jokers", 4, rarity = 1),
+    // Spectrogram: retrigger rightmost joker per Echo card scored. rarity=5 (cry_epic), cost=9. Confirmed.
+    Offer("j_cry_spectrogram", "Spectrogram", "retrigger rightmost Joker per Echo card scored", 9, rarity = 5),
+    // Flip Side: retrigger all double-sided-edition jokers once. rarity=2 (Uncommon), cost=7. Confirmed.
     Offer("j_cry_flip_side", "On the Flip Side", "retrigger all Double-Sided Jokers", 7, rarity = 2),
     Offer("j_cry_wee_fib", "Wee Fibonacci", "+3 Mult per scored A/2/3/5/8 (scaling)", 6),
     Offer("j_cry_meteor", "Meteor", "+75 Chips per Foil joker", 5),
@@ -263,11 +264,13 @@ private val CATALOG = listOf(
     Offer("j_cry_longboi", "Longboi", "Xmult = monstermult (M-pool)", 6),
     // circus: Xmult per other joker based on rarity (Rare=X2, Epic=X3, Legendary=X4, Exotic=X20).
     Offer("j_cry_circus", "Circus", "Xmult per rarity: Rare x2, Epic x3, Leg x4, Exotic x20", 9, rarity = 6),
-    // broken_sync_catalyst: atomically swaps 10% of chips into mult and 10% of mult into chips
+    // broken_sync_catalyst: atomically swaps 10% of chips into mult and 10% of mult into chips.
+    // rarity=3 (Rare), cost=8. Confirmed from SpectralPack/Cryptid items/misc_joker.lua.
     // (cry_broken_swap=10 → portion=10%); math: delta=(chips−mult)*0.10. Inline intercept in joker_main.
-    Offer("j_cry_broken_sync_catalyst", "Broken Sync Catalyst", "swap 10% of Chips↔Mult", 7),
+    Offer("j_cry_broken_sync_catalyst", "Broken Sync Catalyst", "swap 10% of Chips↔Mult", 8, rarity = 3),
     // sync_catalyst: balances Chips and Mult (sets both to their average = (chips+mult)/2).
-    Offer("j_cry_sync_catalyst", "Sync Catalyst", "balance Chips = Mult = average", 7),
+    // rarity=4 (Legendary), cost=20. Confirmed from SpectralPack/Cryptid items/misc_joker.lua.
+    Offer("j_cry_sync_catalyst", "Sync Catalyst", "balance Chips = Mult = average", 20, rarity = 4),
     // --- Cryptid Spooky-Code scoring jokers ---
     // Spy: flat X0.5 Mult every hand (halves mult); x_mult=0.5 is fixed.
     Offer("j_cry_spy", "Spy", "x0.5 Mult every hand", 3),

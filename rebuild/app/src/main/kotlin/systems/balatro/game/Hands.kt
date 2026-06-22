@@ -26,7 +26,7 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     CRY_BULWARK(100, 10, 50, 1),    // cry_Bulwark: all 5 played cards are Stone — LIVE (Hands.evaluate returns it)
     CRY_CLUSTERFUCK(200, 19, 40, 4), // cry_Clusterfuck: ≥8 no-pair/flush/straight cards — STUB (requires cry_poker_hand_stuff hand-size ≥8)
     CRY_ULTPAIR(220, 22, 40, 4),    // cry_UltPair: two same-suit Two-Pairs of different suits — LIVE (Hands.evaluate returns it)
-    CRY_NONE(0, 0, 5, 0),           // cry_None: 0 cards played — LIVE (Hands.evaluate returns it for empty input); mult=0 (not 1)
+    CRY_NONE(0, 0, 5, 0),           // cry_None: 0 cards played — LIVE; mult=0; actual l_mult=0.5 (Int truncated; CRY_NONE has no planet card so level scaling is irrelevant)
     CRY_WHOLEDECK(Int.MAX_VALUE, Int.MAX_VALUE), // cry_WholeDeck: all 52 cards scored — STUB; actual=repeating-52 big int (irrelevant until mechanic lands)
 }
 
