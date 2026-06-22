@@ -32,11 +32,13 @@ GLB="$(nix-build "$ROOT_WT/nix/balatro-cryptid.nix" -A gameLoveBase --no-out-lin
 mkdir -p "$B"; cp -r "$GLB"/. "$B"; chmod -R u+w "$B"
 
 echo "[gen] sourcing build.sh apply_* (without main)..."
-sed '/^main "\$@"$/d' "$SRC/scripts/build.sh" > "$WORK/build-lib.sh"
+sed '/^main "\$@"$/d' "$ROOT_WT/scripts/build.sh" > "$WORK/build-lib.sh"
 # shellcheck disable=SC1090
 source "$WORK/build-lib.sh"
 set +e
-SCRIPT_DIR="$SRC/scripts"; PROJECT_DIR="$SRC"; PATCHES_DIR="$SRC/patches"
+# scripts + patches are tracked → read them from the worktree (the branch's own,
+# committed versions). mods/src are gitignored → only in the main checkout.
+SCRIPT_DIR="$ROOT_WT/scripts"; PROJECT_DIR="$ROOT_WT"; PATCHES_DIR="$ROOT_WT/patches"
 SRC_DIR="$SRC/src"; MODS_DIR="$SRC/mods"; game_dir="$B"
 export SOURCE_DATE_EPOCH=1700000000 TZ=UTC
 
@@ -47,7 +49,12 @@ GIT init -q; GIT add -A; GIT commit -qm pristine >/dev/null
 seq=0
 cap() {
   local name="$1"; shift
-  ( "$@" ) >/dev/null 2>&1            # subshell: a hard exit in apply_* can't kill us
+  local rc=0 errout
+  errout="$( ( "$@" ) 2>&1 >/dev/null )" || rc=$?   # subshell isolates apply_* exits
+  # main_lua is patch_main_lua.py and MUST succeed; bash apply_* may benign-exit.
+  if [ "$rc" -ne 0 ] && [ "$name" = "main_lua" ]; then
+    echo "[gen] FATAL: $name failed (rc=$rc):" >&2; printf '%s\n' "$errout" >&2; exit 1
+  fi
   GIT add -A
   if GIT diff --cached --quiet HEAD; then
     printf 'SKIP  %s\n' "$name" | tee -a "$REPORT"

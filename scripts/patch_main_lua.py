@@ -151,6 +151,20 @@ end
 
 SMODS = {}"""
     content = content.replace(smods_init, path_fix, 1)
+    # FAIL LOUD: this shim is boot-critical. If the `SMODS = {}` anchor is absent
+    # the .replace() silently no-ops and the Android SMODS require-path is never
+    # set up -> `require "SMODS.preflight.loader"` fails on the no-lovely build
+    # -> SMODS nil -> crash at boot. Steamodded moved SMODS init out of main.lua
+    # (preflight/initSteamodded) at some point, which removes this anchor.
+    if '-- Android SMODS path fix' not in content:
+        sys.exit(
+            "FATAL patch_main_lua.py: anchor 'SMODS = {}' not found in main.lua — the "
+            "Android SMODS require-path shim was NOT injected (silent no-op). Steamodded "
+            "likely moved SMODS init out of main.lua (preflight/initSteamodded). This "
+            "produces a NON-BOOTING build (SMODS nil). Fix: re-pin Steamodded to an inline "
+            "'SMODS = {}' version, or update this shim for the preflight mechanism "
+            "(package.preload the baked SMODS.preflight.* modules)."
+        )
 
     # 1b. On Android, override SMODS.MODS_DIR to relative path after set_mods_dir()
     # set_mods_dir() resolves to absolute paths which love.filesystem can't use
