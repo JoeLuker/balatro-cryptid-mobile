@@ -1,0 +1,24 @@
+diff --git a/engine/ui.lua b/engine/ui.lua
+index 6ed7304..1a15db3 100644
+--- a/engine/ui.lua
++++ b/engine/ui.lua
+@@ -128,8 +128,8 @@ function UIBox:calculate_xywh(node, _T, recalculate, _scale)
+         _nt.x, _nt.y, _nt.w, _nt.h = 
+                 _T.x,
+                 _T.y,
+-                node.config.w or (node.config.object and node.config.object.T.w),
+-                node.config.h or (node.config.object and node.config.object.T.h)
++                node.config.w or (node.config.object and node.config.object.T.w) or 0, -- UI_O_DETACHED: detached object lays out 0x0, never nil
++                node.config.h or (node.config.object and node.config.object.T.h) or 0
+ 
+         if node.UIT == G.UIT.T then
+             node.config.text_drawable = nil
+@@ -408,7 +408,7 @@ function UIElement:set_values(_T, recalculate)
+         if self.config.object then self.config.object.states.collide.can = self.states.collide.can end
+     end
+ 
+-    if self.UIT == G.UIT.O and not self.config.no_role then
++    if self.UIT == G.UIT.O and self.config.object and not self.config.no_role then -- UI_O_DETACHED: skip role wiring when the object is gone
+         self.config.object:set_role(self.config.role or {role_type = 'Minor', major = self, xy_bond = 'Strong', wh_bond = 'Weak', scale_bond = 'Weak'})
+     end
+ 

@@ -1,0 +1,58 @@
+{
+  "amulet": {
+    "asset": "Amulet.zip",
+    "kind": "release",
+    "sha256": "1412kbnv8ss45y6r7vpz20b053l1bh8dagvbihqp527g41izxm2w",
+    "tag": "3.5.2",
+    "url": "https://github.com/frostice482/amulet/releases/download/3.5.2/Amulet.zip"
+  },
+  "balatro_love": {
+    "kind": "file",
+    "name": "Balatro.love",
+    "note": "requireFile — © LocalThunk, supply locally",
+    "sha256": "0kp2f8ks0x97lzbqmbdann79ici2k7ffp488rp96kacn2xws1is8"
+  },
+  "base_apk": {
+    "kind": "url",
+    "sha256": "0wgflyd4ppr43cp9r3d05yj74m4m3xm4dxzf591v06gr8yd4230y",
+    "url": "https://lmm.shorty.systems/base.apk"
+  },
+  "cardsleeves": {
+    "asset": "CardSleeves-1.9.2.zip",
+    "kind": "release",
+    "sha256": "1ry6bjb4fnc4y26zadpkywss1sh9xavlyyqyn8cm1mldml7c3a10",
+    "tag": "v1.9.2",
+    "url": "https://github.com/larswijn/CardSleeves/releases/download/v1.9.2/CardSleeves-1.9.2.zip"
+  },
+  "cryptid": {
+    "kind": "github",
+    "owner": "MathIsFun0",
+    "ref": "v0.5.16a",
+    "repo": "Cryptid",
+    "rev": "722691889d4e3ab9ce80166a6645a0c2bc519dd5",
+    "sha256": "0kwav9br1593ma6xj9vn5lhbnw4cqxf320f7ywmjl94kwgnig3za"
+  },
+  "debugplus": {
+    "asset": "DebugPlus.zip",
+    "kind": "release",
+    "sha256": "1linkh2j2q3mficipihj8h37hfxb634nisc0x5bnb9zdda5d59fy",
+    "tag": "v1.5.2",
+    "url": "https://github.com/WilsontheWolf/DebugPlus/releases/download/v1.5.2/DebugPlus.zip"
+  },
+  "steamodded": {
+    "kind": "github",
+    "owner": "Steamodded",
+    "ref": "main",
+    "repo": "smods",
+    "rev": "fdb7442f2170721740ac6d6c7a1c10423107cf4d",
+    "sha256": "18yyvraq1h82dzhl3n9s0b2hwk6yip5qj23vdxv8w9wp0apf0m79"
+  },
+  "sticky_fingers": {
+    "kind": "github",
+    "owner": "eramdam",
+    "ref": "main",
+    "repo": "sticky-fingers",
+    "rev": "4a73d330ccf6c1684d63292148db2745eaf368a6",
+    "sha256": "1pdnsqwb5gk3n0yhwq0h5x7ffkdqwq0xna721fvq3lr212arc9l5"
+  }
+}

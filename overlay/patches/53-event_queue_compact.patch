@@ -1,0 +1,44 @@
+diff --git a/engine/event.lua b/engine/event.lua
+index 21fb960..1c6e7dc 100644
+--- a/engine/event.lua
++++ b/engine/event.lua
+@@ -175,6 +175,8 @@ function EventManager:update(dt, forced)
+         for k, v in pairs(self.queues) do
+             local blocked = false
+             local i=1
++            -- EVQ_COMPACT: see build.sh applier comment
++            local dead, dead_n = nil, 0
+             while i <= #v do
+                 G.ARGS.event_manager_update = G.ARGS.event_manager_update or {}
+                 local results = G.ARGS.event_manager_update
+@@ -211,12 +213,29 @@ function EventManager:update(dt, forced)
+                     i = i + 1
+                 else if not blocked and results.blocking then blocked = true end
+                     if results.completed and results.time_done then
+-                        table.remove(v, i)
++                        local ev = v[i]
++                        if ev ~= nil then
++                            if not dead then dead = {} end
++                            dead[ev] = true
++                            dead_n = dead_n + 1
++                        end
++                        i = i + 1
+                     else
+                         i = i + 1
+                     end
+                 end
+             end
++            if dead_n > 0 then
++                local n, w = #v, 1
++                for r = 1, n do
++                    local ev = v[r]
++                    if not dead[ev] then
++                        if w ~= r then v[w] = ev end
++                        w = w + 1
++                    end
++                end
++                for r = w, n do v[r] = nil end
++            end
+         end
+     end
+ end

@@ -1,0 +1,15 @@
+diff --git a/engine/ui.lua b/engine/ui.lua
+index 3495288..6ed7304 100644
+--- a/engine/ui.lua
++++ b/engine/ui.lua
+@@ -727,6 +727,10 @@ function UIElement:draw_self()
+     if self.UIT ~= G.UIT.T then
+         self:set_element_shader(shader, send, false)
+     end
++    if not self.config.colour then -- UI_COLOUR_GUARD
++        if ATLOG then ATLOG("UI_NIL_COLOUR", {btn = tostring(self.config.button), id = tostring(self.config.id), ut = tostring(self.UIT), pk = tostring(self.parent and self.parent.config and (self.parent.config.button or self.parent.config.id))}) end
++        self.config.colour = {0, 0, 0, 0}
++    end
+     if self.config.colour[4] > 0.01 then
+         if self.UIT == G.UIT.T and self.config.scale then 
+             self.ARGS.text_parallax = self.ARGS.text_parallax or {}

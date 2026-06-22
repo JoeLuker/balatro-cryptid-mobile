@@ -1,0 +1,29 @@
+diff --git a/Mods/Cryptid/lib/forcetrigger.lua b/Mods/Cryptid/lib/forcetrigger.lua
+index 991b27f..8241c30 100644
+--- a/Mods/Cryptid/lib/forcetrigger.lua
++++ b/Mods/Cryptid/lib/forcetrigger.lua
+@@ -1329,3 +1329,24 @@ function Cryptid.forcetriggerConsumableCheck(card)
+ 	end
+ 	return card.config.center.demicoloncompat or not card.config.center.original_mod
+ end
++
++-- CRY_FORCETRIGGER_DEPTH_GUARD: see build.sh applier comment. Central bound
++-- on the forcetrigger -> eval_card -> calculate -> forcetrigger recursion
++-- class (per-joker context.forcetrigger checks are opt-in and incomplete).
++local _cry_ft_ref = Cryptid.forcetrigger
++local _cry_ft_depth = 0
++function Cryptid.forcetrigger(card, context)
++	if _cry_ft_depth >= 20 then
++		if ATLOG then
++			ATLOG("CRY_FT_DEPTH", { card = card and card.ability and card.ability.name or "?" })
++		end
++		return {}
++	end
++	_cry_ft_depth = _cry_ft_depth + 1
++	local _ok, _results = pcall(_cry_ft_ref, card, context)
++	_cry_ft_depth = _cry_ft_depth - 1
++	if not _ok then
++		error(_results, 0)
++	end
++	return _results
++end

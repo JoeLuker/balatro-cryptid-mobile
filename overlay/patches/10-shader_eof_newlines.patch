@@ -1,0 +1,308 @@
+diff --git a/Mods/Cryptid/assets/shaders/astral.fs b/Mods/Cryptid/assets/shaders/astral.fs
+index 80a88d7..182506e 100644
+--- a/Mods/Cryptid/assets/shaders/astral.fs
++++ b/Mods/Cryptid/assets/shaders/astral.fs
+@@ -301,4 +301,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/blur.fs b/Mods/Cryptid/assets/shaders/blur.fs
+index 3235001..e4ea4d9 100644
+--- a/Mods/Cryptid/assets/shaders/blur.fs
++++ b/Mods/Cryptid/assets/shaders/blur.fs
+@@ -181,4 +181,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/glass.fs b/Mods/Cryptid/assets/shaders/glass.fs
+index 19fa9ca..2a282aa 100644
+--- a/Mods/Cryptid/assets/shaders/glass.fs
++++ b/Mods/Cryptid/assets/shaders/glass.fs
+@@ -106,4 +106,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/glitched.fs b/Mods/Cryptid/assets/shaders/glitched.fs
+index 2215360..b48edb6 100644
+--- a/Mods/Cryptid/assets/shaders/glitched.fs
++++ b/Mods/Cryptid/assets/shaders/glitched.fs
+@@ -141,4 +141,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/gold.fs b/Mods/Cryptid/assets/shaders/gold.fs
+index 48888a0..23034cc 100644
+--- a/Mods/Cryptid/assets/shaders/gold.fs
++++ b/Mods/Cryptid/assets/shaders/gold.fs
+@@ -111,4 +111,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/m.fs b/Mods/Cryptid/assets/shaders/m.fs
+index efd8283..d5b9df2 100644
+--- a/Mods/Cryptid/assets/shaders/m.fs
++++ b/Mods/Cryptid/assets/shaders/m.fs
+@@ -132,4 +132,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/mosaic.fs b/Mods/Cryptid/assets/shaders/mosaic.fs
+index 4130e5c..d24554d 100644
+--- a/Mods/Cryptid/assets/shaders/mosaic.fs
++++ b/Mods/Cryptid/assets/shaders/mosaic.fs
+@@ -147,4 +147,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/noisy.fs b/Mods/Cryptid/assets/shaders/noisy.fs
+index 6b73ae0..07e1611 100644
+--- a/Mods/Cryptid/assets/shaders/noisy.fs
++++ b/Mods/Cryptid/assets/shaders/noisy.fs
+@@ -90,4 +90,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/Mods/Cryptid/assets/shaders/ultrafoil.fs b/Mods/Cryptid/assets/shaders/ultrafoil.fs
+index 1fc68e9..86b400c 100644
+--- a/Mods/Cryptid/assets/shaders/ultrafoil.fs
++++ b/Mods/Cryptid/assets/shaders/ultrafoil.fs
+@@ -154,4 +154,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0.,0.,0.,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/CRT.fs b/resources/shaders/CRT.fs
+index a9e3a4b..140a1d3 100644
+--- a/resources/shaders/CRT.fs
++++ b/resources/shaders/CRT.fs
+@@ -154,4 +154,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/background.fs b/resources/shaders/background.fs
+index 162236f..2a39150 100644
+--- a/resources/shaders/background.fs
++++ b/resources/shaders/background.fs
+@@ -49,4 +49,4 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
+     MY_HIGHP_OR_MEDIUMP vec4 ret_col = (0.3/contrast)*colour_1 + (1. - 0.3/contrast)*(colour_1*c1p + colour_2*c2p + vec4(c3p*colour_3.rgb, c3p*colour_1.a));
+ 
+     return ret_col;
+-}
+\ No newline at end of file
++}
+diff --git a/resources/shaders/booster.fs b/resources/shaders/booster.fs
+index ef9f47e..93c0f22 100644
+--- a/resources/shaders/booster.fs
++++ b/resources/shaders/booster.fs
+@@ -95,4 +95,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/debuff.fs b/resources/shaders/debuff.fs
+index 1656b75..93ef056 100644
+--- a/resources/shaders/debuff.fs
++++ b/resources/shaders/debuff.fs
+@@ -146,4 +146,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/dissolve.fs b/resources/shaders/dissolve.fs
+index 8a2aaa6..c3e8f69 100644
+--- a/resources/shaders/dissolve.fs
++++ b/resources/shaders/dissolve.fs
+@@ -83,4 +83,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/flame.fs b/resources/shaders/flame.fs
+index 8118c95..bf52480 100644
+--- a/resources/shaders/flame.fs
++++ b/resources/shaders/flame.fs
+@@ -66,4 +66,4 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
+     }
+ 
+     return ret_col;
+-}
+\ No newline at end of file
++}
+diff --git a/resources/shaders/flash.fs b/resources/shaders/flash.fs
+index fc4485a..0c73086 100644
+--- a/resources/shaders/flash.fs
++++ b/resources/shaders/flash.fs
+@@ -20,4 +20,4 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
+                         + (time > 11. ? max(0., (time-11.)*(time-11.) - 5.*length(uv)) : 0.));
+                         
+     return vec4(1., 1., 1., mid_flash*mid_white);
+-}
+\ No newline at end of file
++}
+diff --git a/resources/shaders/foil.fs b/resources/shaders/foil.fs
+index fbd221f..5de51d5 100644
+--- a/resources/shaders/foil.fs
++++ b/resources/shaders/foil.fs
+@@ -140,4 +140,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/gold_seal.fs b/resources/shaders/gold_seal.fs
+index 850dd31..4c49feb 100644
+--- a/resources/shaders/gold_seal.fs
++++ b/resources/shaders/gold_seal.fs
+@@ -19,4 +19,4 @@ vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords
+     pixel.b = max(pixel.b, (1. - pixel.b)*delta*fac + pixel.b);
+ 
+     return pixel;
+-}
+\ No newline at end of file
++}
+diff --git a/resources/shaders/holo.fs b/resources/shaders/holo.fs
+index c1d2d54..a636297 100644
+--- a/resources/shaders/holo.fs
++++ b/resources/shaders/holo.fs
+@@ -149,4 +149,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/hologram.fs b/resources/shaders/hologram.fs
+index c101f70..ccea297 100644
+--- a/resources/shaders/hologram.fs
++++ b/resources/shaders/hologram.fs
+@@ -126,4 +126,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/negative.fs b/resources/shaders/negative.fs
+index 689f8e1..c839d4f 100644
+--- a/resources/shaders/negative.fs
++++ b/resources/shaders/negative.fs
+@@ -130,4 +130,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/negative_shine.fs b/resources/shaders/negative_shine.fs
+index c168779..33e127e 100644
+--- a/resources/shaders/negative_shine.fs
++++ b/resources/shaders/negative_shine.fs
+@@ -95,4 +95,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/played.fs b/resources/shaders/played.fs
+index 6e0533a..914d045 100644
+--- a/resources/shaders/played.fs
++++ b/resources/shaders/played.fs
+@@ -127,4 +127,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/polychrome.fs b/resources/shaders/polychrome.fs
+index 1197afe..25074e7 100644
+--- a/resources/shaders/polychrome.fs
++++ b/resources/shaders/polychrome.fs
+@@ -147,4 +147,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/skew.fs b/resources/shaders/skew.fs
+index 4934eed..206cdb8 100644
+--- a/resources/shaders/skew.fs
++++ b/resources/shaders/skew.fs
+@@ -15,4 +15,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/splash.fs b/resources/shaders/splash.fs
+index 5f5293d..46e3cee 100644
+--- a/resources/shaders/splash.fs
++++ b/resources/shaders/splash.fs
+@@ -53,4 +53,4 @@ vec4 effect( vec4 colour, Image texture, vec2 texture_coords, vec2 screen_coords
+     MY_HIGHP_OR_MEDIUMP number mod_flash = max(mid_flash*0.8, max(c1p, c2p)*5. - 4.4) + mid_flash*max(c1p, c2p);
+ 
+     return ret_col*(1. - mod_flash) + mod_flash*vec4(1., 1., 1., 1.);
+-}
+\ No newline at end of file
++}
+diff --git a/resources/shaders/vortex.fs b/resources/shaders/vortex.fs
+index da1eb38..d5c24c2 100644
+--- a/resources/shaders/vortex.fs
++++ b/resources/shaders/vortex.fs
+@@ -18,4 +18,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+     vertex_position.y = (radius * sin(angle) + center.y)*length(love_ScreenSize.xy);
+     return transform_projection * vertex_position;
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/resources/shaders/voucher.fs b/resources/shaders/voucher.fs
+index 5031cde..2c6f39e 100644
+--- a/resources/shaders/voucher.fs
++++ b/resources/shaders/voucher.fs
+@@ -95,4 +95,4 @@ vec4 position( mat4 transform_projection, vec4 vertex_position )
+ 
+     return transform_projection * vertex_position + vec4(0,0,0,scale);
+ }
+-#endif
+\ No newline at end of file
++#endif

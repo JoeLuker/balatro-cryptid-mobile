@@ -1,0 +1,40 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 84eee96..9879c1f 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -397,6 +397,21 @@ function Controller:update(dt)
+     elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST
+         self.hovering.target.states.hover.is = false
+         self.hovering.target = nil
++    elseif (self.HID.touch or self.HID.touch_env) and self.is_cursor_down
++        and self.cursor_down.target and self.cursor_down.target.states.hover.can
++        and (self.cursor_down.duration or 0) >= 0.2
++        and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST then -- TAP_DESC_HOLD_DRAG_HOVER
++        -- HOLD_REORDER picked up cursor_down.target as dragging.target at 0.1s.
++        -- DRAG_SELF_DROP_EXCLUDE then forces cursor_hover.target to G.ROOM (hover.can=false)
++        -- so neither HOLDGATE nor PERSIST fires. Use cursor_down.target directly:
++        -- a stationary hold past 0.2s should show the description even while the
++        -- card is nominally being dragged. Switch hover target if it changed.
++        if self.hovering.target and self.hovering.target ~= self.cursor_down.target then
++            self.hovering.target.states.hover.is = false -- vacate previous hover
++        end
++        self.hovering.target = self.cursor_down.target
++        self.hovering.target.states.hover.is = true
++        self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')
+     end
+ 
+     --------------------------------------------------------------------
+@@ -423,7 +438,12 @@ function Controller:update(dt)
+         self.released_on.handled = true
+     end
+ 
+-    if (self.HID.touch or self.HID.touch_env) and self.hovering.target and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target) then self.hovering.target.states.hover.is = false end -- TAP_DESC_RELAX
++    if (self.HID.touch or self.HID.touch_env) and self.hovering.target
++        and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target)
++        and not (self.is_cursor_down and self.dragging.target == self.hovering.target
++                 and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_DRAG_HOVER: stationary hold-drag keeps hover
++        self.hovering.target.states.hover.is = false -- TAP_DESC_RELAX
++    end
+     --The object being hovered over
+     if self.hovering.target then
+         self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')

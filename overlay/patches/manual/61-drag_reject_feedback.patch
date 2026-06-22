@@ -1,0 +1,39 @@
+diff --git a/Mods/sticky-fingers/main.lua b/Mods/sticky-fingers/main.lua
+index 7c7f933..9a3e223 100644
+--- a/Mods/sticky-fingers/main.lua
++++ b/Mods/sticky-fingers/main.lua
+@@ -82,3 +82,34 @@ sticky_can_take_card = function(_card)
+     G.FUNCS.can_take_card(temp_config)
+     return temp_config.config.button ~= nil
+ end
++-- check_drag_target_active: normally injected by lovely/button_callbacks.toml append
++-- into functions/button_callbacks.lua, but that lovely patch is absent from vendor/dump.
++-- Provided here with DRAG_REJECT_FEEDBACK baked in: rejected drops play cancel sound,
++-- shake the card, and flash cost in red — instead of silently no-oping (confirmed live
++-- 2026-06-10: Crystal Ball drag at $9 vs $10 cost did nothing, read as broken feature).
++G.FUNCS.check_drag_target_active = function(e)
++  if e.config.args.active_check(e.config.args.card) then
++    if (not e.config.pulse_border) or not e.config.args.init then
++      e.config.pulse_border = true
++      e.config.colour = e.config.args.colour
++      e.config.args.text_colour[4] = 1
++      e.config.release_func = e.config.args.release_func
++    end
++  else
++    if (e.config.pulse_border) or not e.config.args.init then
++      e.config.pulse_border = nil
++      e.config.colour = adjust_alpha(G.C.L_BLACK, 0.9)
++      e.config.args.text_colour[4] = 0.5
++      -- DRAG_REJECT_FEEDBACK: loud reject instead of silent nil
++      e.config.release_func = function(other)
++        play_sound('cancel', 0.7, 0.6)
++        if other and other.juice_up then other:juice_up(0.3, 0.2) end
++        if other and other.cost and other.cost > 0 then
++          attention_text({scale = 0.9, text = localize('$')..other.cost, hold = 0.7,
++            align = 'cm', offset = {x = 0, y = -1.2}, major = other, colour = G.C.RED})
++        end
++      end
++    end
++  end
++  e.config.args.init = true
++end

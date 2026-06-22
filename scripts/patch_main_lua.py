@@ -14,9 +14,9 @@ def patch_main_lua(filepath):
     # Check if already fully patched (all sentinel strings must be present).
     # NOTE (Amulet era, 2026-06-11): the Talisman-specific sections below
     # (config read/write redirects, big-num loads, F_NO_COROUTINE dedup,
-    # TAL_BREAKINF_CLAMP) no-op cleanly against the Amulet dump — their
-    # anchors only exist in src/dump-talisman. They are kept, not deleted,
-    # so pointing the build back at the old dump still works (rollback).
+    # TAL_BREAKINF_CLAMP) no-op cleanly against the Amulet dump — their anchors
+    # only existed in the Talisman-era dump (retired in Phase 5). Kept as inert
+    # rollback scaffolding; recover the old dump from git history if ever needed.
     already_android = '-- Android SMODS path fix' in content
     already_focus = '-- Android flush-on-background' in content
     already_istouch = 'HID_ISTOUCH_FIX' in content
@@ -133,24 +133,47 @@ assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Faile
         else:
             print("WARNING: resize recalc anchor not found — overlay recalc NOT applied")
 
-    # 1. Add require path fix and package.preload before SMODS = {}
-    smods_init = "SMODS = {}"
-    path_fix = """-- Android SMODS path fix: preload SMODS modules and add Mods directories to require path
+    # 1. Android SMODS bootstrap shim — injected UNCONDITIONALLY at the top of
+    # main.lua (before game.lua's initSteamodded() and any SMODS require). On
+    # Android there is no lovely runtime, so the modules lovely registers (the
+    # name= entries in Steamodded's lovely/*.toml) are not require-able. Bake each
+    # as a package.preload mapping its lovely module name -> its baked file, and
+    # extend the love require path so SMODS's own file-based loader resolves the
+    # rest.
+    #
+    # History: older Steamodded injected `SMODS = {}` inline in main.lua and only
+    # version/release needed preloading; the preflight restructure (fdb7442) moved
+    # init into game.lua's `require"SMODS.preflight.loader".initSteamodded()` and
+    # added the preflight + nativefs/https modules. We inject unconditionally (no
+    # `SMODS = {}` anchor — it no longer exists) so both eras boot. The table below
+    # mirrors Steamodded's lovely name=/source= registrations; if a require starts
+    # failing at boot after a Steamodded bump, re-derive it:
+    #   grep -hE '^\\s*(name|source) *=' Mods/Steamodded/lovely/*.toml
+    smods_shim = """-- Android SMODS path fix: preload lovely-registered SMODS modules + extend require path
 if love.system.getOS() == 'Android' then
-    -- Preload SMODS.version and SMODS.release to map to Steamodded root files
-    package.preload['SMODS.version'] = function() return love.filesystem.load('Mods/Steamodded/version.lua')() end
-    package.preload['SMODS.release'] = function() return love.filesystem.load('Mods/Steamodded/release.lua')() end
-    -- Add paths for mod requires including Steamodded libs (json, nativefs, https)
-    -- LÖVE uses love.filesystem require path, not Lua package.path
-    -- DebugPlus's entrypoint does require('debugplus.config') etc.; its folder is
-    -- Mods/DebugPlus/ (capitalised, with a nested debugplus/ subdir), so the generic
-    -- Mods/?.lua entry can't resolve it. Add the mod root explicitly, as with Steamodded.
+    local _smods_modules = {
+        ['SMODS.version']              = 'Mods/Steamodded/version.lua',
+        ['SMODS.release']              = 'Mods/Steamodded/release.lua',
+        ['SMODS.preflight.sharedUtil'] = 'Mods/Steamodded/src/preflight/sharedUtil.lua',
+        ['SMODS.preflight.logging']    = 'Mods/Steamodded/src/preflight/logging.lua',
+        ['SMODS.preflight.loader']     = 'Mods/Steamodded/src/preflight/loader.lua',
+        ['SMODS.preflight.sharedUI']   = 'Mods/Steamodded/src/preflight/sharedUI.lua',
+        ['SMODS.preflight.core']       = 'Mods/Steamodded/src/preflight/core.lua',
+        ['SMODS.nativefs']             = 'Mods/Steamodded/libs/nativefs/nativefs.lua',
+        ['SMODS.https']                = 'Mods/Steamodded/libs/https/smods-https.lua',
+    }
+    for _name, _path in pairs(_smods_modules) do
+        package.preload[_name] = function() return love.filesystem.load(_path)() end
+    end
     local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
     love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
 end
-
-SMODS = {}"""
-    content = content.replace(smods_init, path_fix, 1)
+"""
+    if '-- Android SMODS path fix' not in content:
+        content = smods_shim + content
+    # FAIL LOUD: the shim is boot-critical and must be present after this point.
+    if '-- Android SMODS path fix' not in content:
+        sys.exit("FATAL patch_main_lua.py: Android SMODS shim failed to inject into main.lua.")
 
     # 1b. On Android, override SMODS.MODS_DIR to relative path after set_mods_dir()
     # set_mods_dir() resolves to absolute paths which love.filesystem can't use

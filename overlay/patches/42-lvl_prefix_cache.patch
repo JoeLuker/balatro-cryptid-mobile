@@ -1,0 +1,19 @@
+diff --git a/functions/common_events.lua b/functions/common_events.lua
+index e9a9628..645502e 100644
+--- a/functions/common_events.lua
++++ b/functions/common_events.lua
+@@ -573,11 +573,12 @@ function update_hand_text(config, vals)
+             end
+         end
+         if vals.chip_total then G.GAME.current_round.current_hand.chip_total = vals.chip_total;G.hand_text_area.chip_total.config.object:pulse(0.5) end
+-        if vals.level and G.GAME.current_round.current_hand.hand_level ~= ' '..localize('k_lvl')..tostring(vals.level) then
++        local _lvl_pfx = ' '..localize('k_lvl') -- LVL_PREFIX_CACHED
++        if vals.level and G.GAME.current_round.current_hand.hand_level ~= _lvl_pfx..tostring(vals.level) then
+             if vals.level == '' then
+                 G.GAME.current_round.current_hand.hand_level = vals.level
+             else
+-                G.GAME.current_round.current_hand.hand_level = ' '..localize('k_lvl')..tostring(vals.level)
++                G.GAME.current_round.current_hand.hand_level = _lvl_pfx..tostring(vals.level)
+                 if is_number(vals.level) then
+                     G.hand_text_area.hand_level.config.colour = G.C.HAND_LEVELS[math.min(vals.level, 7)]
+                 else

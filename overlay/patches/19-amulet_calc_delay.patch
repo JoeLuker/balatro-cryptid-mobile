@@ -1,0 +1,18 @@
+diff --git a/talisman/coroutine.lua b/talisman/coroutine.lua
+index 23b8884..09bfc36 100644
+--- a/talisman/coroutine.lua
++++ b/talisman/coroutine.lua
+@@ -190,8 +190,12 @@ function co.update(dt)
+ 
+ 	co.resume()
+ 
++	-- AMULET_CALC_DELAY: small hands finish in a frame or two; summoning the
++	-- overlay instantly reads as a flash. Only show it once this scoring run
++	-- has been visibly long.
++	Talisman.scoring_coroutine.pre_overlay_t = (Talisman.scoring_coroutine.pre_overlay_t or 0) + dt
+ 	if not G.OVERLAY_MENU then
+-		co.overlay()
++		if Talisman.scoring_coroutine.pre_overlay_t > 1.0 then co.overlay() end
+ 	else
+ 		Talisman.scoring_coroutine.time = Talisman.scoring_coroutine.time + dt
+ 		co.update_text()

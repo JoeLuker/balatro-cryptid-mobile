@@ -2,45 +2,56 @@
 
 Build and deploy modded Balatro (with Cryptid) to Android.
 
+## Two projects in this repo
+
+This repository holds **two independent projects**:
+
+1. **The LÖVE Cryptid build** (this README; root + `nix/` + `overlay/` + `vendor/`)
+   — packages vanilla `Balatro.love` + the Cryptid / Steamodded / Amulet mods into a
+   signed Android APK via a pinned, reproducible Nix build (no live-patching).
+   Work here with `just build` / `just deploy`.
+2. **`rebuild/`** — a from-scratch reimplementation of Balatro in Kotlin / Jetpack
+   Compose (its own Gradle project; `cd rebuild`). It is verified against scores and
+   layout the LÖVE build emits.
+
+Everything outside `rebuild/` belongs to the LÖVE build. The two meet only in
+`test/` (the parity oracle: `test/kt-oracle.sh`, `tools/uiref/`).
+
 ## Quick Start
 
 ```bash
-# Check tools are available
-just check
+# Build the modded, signed APK — pinned + reproducible, via Nix
+just build            # nix build .#gameLove → build/game + nix/sign.sh → build/apk
 
-# Full build and deploy
-just all
-
-# Or step by step:
-just fetch    # Download sources and mods
-just build    # Build APK and prepare files
-just deploy   # Install to connected phone
+# Deploy to a connected phone (installs build/apk, pushes build/phone-transfer)
+just deploy           # or: just all   (build + deploy)
 ```
+
+All inputs are pinned in `nix/sources.json` (no network `latest`). The build is a
+Nix derivation: pinned pristine sources → patch series → `game.love` → APK.
+See `MIGRATION.md` for the full architecture.
 
 ## Project Structure
 
 ```
 balatro-cryptid-mobile/
-├── config.yaml              # Build configuration (declarative)
-├── justfile                 # Build commands
-├── README.md
-├── src/
-│   ├── Balatro.love        # Original game from Steam
-│   ├── base.apk            # Android LÖVE runtime
-│   └── dump/               # Lovely-generated Lua patches
-├── mods/
-│   ├── Steamodded/         # Mod framework
-│   ├── Cryptid/            # Main mod
-│   ├── Talisman/           # Big number support
-│   └── lovely/             # Injector config
-├── patches/
-│   ├── android-nativefs.lua    # Android filesystem wrapper
-│   └── crt-shader-fix.patch    # Pixel GPU fix
-├── scripts/
-│   └── build.sh            # Main build script
-└── build/                  # Build artifacts (gitignored)
-    ├── apk/
-    └── phone-transfer/
+├── flake.nix / justfile      # `nix build` / `just build|deploy`
+├── nix/
+│   ├── sources.json          # pinned inputs (lockfile); update-sources.sh re-pins
+│   ├── sources.nix           # lockfile → fetchers
+│   ├── balatro-cryptid.nix   # the build: pristine → patches → game.love → APK
+│   ├── gen-patches.sh        # (re)generate the patch series from build.sh apply_*
+│   ├── regen-dump.sh         # regenerate vendor/dump from the pins (lovely, Xvfb)
+│   └── sign.sh               # sign the reproducible APK with keys/
+├── overlay/
+│   ├── patches/  *.patch + series   # our diffs vs pristine (applied hard-fail)
+│   ├── game/                 # files we own outright (conf.lua, …)
+│   └── config/               # baked-in mod config (Cryptid, Steamodded)
+├── vendor/dump/              # lovely-merged game Lua, generated from the pins
+├── patches/                  # runtime modules + Android/perf patches + reserve-shim
+├── scripts/build.sh          # deploy/logs/clean + the apply_* patch source
+├── rebuild/                  # the Kotlin/Compose remake (separate project)
+└── build/  (gitignored)      # build/game, build/apk/, build/phone-transfer/
 ```
 
 ## Requirements

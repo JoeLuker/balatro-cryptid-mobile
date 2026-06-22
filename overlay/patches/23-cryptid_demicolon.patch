@@ -1,0 +1,13 @@
+diff --git a/Mods/Cryptid/items/epic.lua b/Mods/Cryptid/items/epic.lua
+index 3af2c3b..d281e7d 100644
+--- a/Mods/Cryptid/items/epic.lua
++++ b/Mods/Cryptid/items/epic.lua
+@@ -2405,7 +2405,7 @@ local demicolon = {
+ 		end
+ 	end,
+ 	calculate = function(self, card, context)
+-		if context.joker_main and not context.blueprint then
++		if context.joker_main and not context.blueprint and not context.forcetrigger then -- DEMICOLON_NO_CHAIN
+ 			for i = 1, #G.jokers.cards do
+ 				if G.jokers.cards[i] == card then
+ 					if Cryptid.demicolonGetTriggerable(G.jokers.cards[i + 1])[1] then

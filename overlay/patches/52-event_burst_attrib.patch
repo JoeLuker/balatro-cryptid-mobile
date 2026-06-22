@@ -1,0 +1,37 @@
+diff --git a/engine/event.lua b/engine/event.lua
+index b7c0ceb..21fb960 100644
+--- a/engine/event.lua
++++ b/engine/event.lua
+@@ -181,7 +181,31 @@ function EventManager:update(dt, forced)
+                 results.blocking, results.completed, results.time_done, results.pause_skip = false, false, false, false
+                 self.append_count = 0
+                 self.append_queue = k
+-                if (not blocked or not v[i].blockable) then v[i]:handle(results) end
++                -- EVQ_BURST_ATTRIB: time each handler while telemetry
++                -- collects (EVQ_PROF set by android-telemetry.lua); slow
++                -- handlers bucket by func source:line for burst attribution
++                if (not blocked or not v[i].blockable) then
++                    local _ep = EVQ_PROF
++                    if _ep then
++                        local _t0 = love.timer.getTime()
++                        v[i]:handle(results)
++                        local _ms = (love.timer.getTime() - _t0) * 1000
++                        _ep.n = _ep.n + 1
++                        _ep.ms = _ep.ms + _ms
++                        if _ms > _ep.thresh_ms then
++                            local _fn = v[i].func
++                            local _fi = _fn and debug.getinfo(_fn, "S")
++                            local _key = _fi and ((_fi.short_src or "?") .. ":" .. (_fi.linedefined or 0)) or "?"
++                            local _b = _ep.slow[_key]
++                            if not _b then _b = {n = 0, ms = 0, max = 0}; _ep.slow[_key] = _b end
++                            _b.n = _b.n + 1
++                            _b.ms = _b.ms + _ms
++                            if _ms > _b.max then _b.max = _ms end
++                        end
++                    else
++                        v[i]:handle(results)
++                    end
++                end
+                 i = i + self.append_count
+                 if results.pause_skip then 
+                     i = i + 1

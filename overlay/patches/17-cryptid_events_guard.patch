@@ -1,0 +1,42 @@
+diff --git a/Mods/Cryptid/lib/calculate.lua b/Mods/Cryptid/lib/calculate.lua
+index 717401d..101e328 100644
+--- a/Mods/Cryptid/lib/calculate.lua
++++ b/Mods/Cryptid/lib/calculate.lua
+@@ -53,11 +53,13 @@ local cj = Card.calculate_joker
+ 
+ local smcc = SMODS.calculate_context
+ function SMODS.calculate_context(context, return_table)
+-	for k, v in pairs(SMODS.Events) do
+-		if G.GAME.events and G.GAME.events[k] then
+-			context.pre_jokers = true
+-			v:calculate(context)
+-			context.pre_jokers = nil
++	if G.GAME.events and next(G.GAME.events) then -- CRY_EVENTS_GUARDED
++		for k, v in pairs(SMODS.Events) do
++			if G.GAME.events[k] then
++				context.pre_jokers = true
++				v:calculate(context)
++				context.pre_jokers = nil
++			end
+ 		end
+ 	end
+ 	if context.using_consumeable then
+@@ -99,11 +101,13 @@ function SMODS.calculate_context(context, return_table)
+ 		end
+ 	end
+ 	local ret = smcc(context, return_table)
+-	for k, v in pairs(SMODS.Events) do
+-		if G.GAME.events and G.GAME.events[k] then
+-			context.post_jokers = true
+-			v:calculate(context)
+-			context.post_jokers = nil
++	if G.GAME.events and next(G.GAME.events) then
++		for k, v in pairs(SMODS.Events) do
++			if G.GAME.events[k] then
++				context.post_jokers = true
++				v:calculate(context)
++				context.post_jokers = nil
++			end
+ 		end
+ 	end
+ 	return ret
