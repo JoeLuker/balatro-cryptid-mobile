@@ -3,6 +3,9 @@ package systems.balatro.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.offset
@@ -10,12 +13,15 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -208,6 +214,14 @@ private fun layout(root: UI): LNode {
 /** Emboss lip colour: the fill darkened ~40% (the shaded 3-D edge under a box). */
 private fun embossLip(c: Color) = Color(c.red * 0.6f, c.green * 0.6f, c.blue * 0.6f, c.alpha)
 
+/** Lighten toward white — Balatro's button hover overlay (G.C.UI.HOVER is translucent white). */
+private fun lightenColour(c: Color, amt: Float = 0.2f) = Color(
+    red   = c.red   + (1f - c.red)   * amt,
+    green = c.green + (1f - c.green) * amt,
+    blue  = c.blue  + (1f - c.blue)  * amt,
+    alpha = c.alpha,
+)
+
 /** A flattened node with its absolute rect (units) — pre-order so parents paint under children. */
 private class Placed(val node: LNode, val x: Float, val y: Float)
 
@@ -302,11 +316,38 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
             // BEHIND the full-size fill (an inset border instead shrank the fill ~10% vs the reference).
             if (cfg.colour != null && cfg.colour != Color.Transparent && n.w > 0 && n.h > 0) {
                 val shape = RoundedCornerShape((cfg.r * u).dp)
+                // onClick: press-scale 0.985 + lighten fill while finger is down (ui.lua draw_self:
+                // `button_being_pressed and 0.985 or 1` / ARGS.button_colours[2] HOVER).
+                val pressed: Boolean
+                var fillMod = at.requiredSize((n.w * u).dp, (n.h * u).dp)
+                if (cfg.onClick != null) {
+                    val interaction = remember { MutableInteractionSource() }
+                    pressed = interaction.collectIsPressedAsState().value
+                    fillMod = fillMod
+                        .graphicsLayer { val s = if (pressed) 0.985f else 1f; scaleX = s; scaleY = s }
+                        .clickable(interaction, indication = null) { cfg.onClick.invoke() }
+                } else {
+                    pressed = false
+                }
+                val fill = if (pressed) lightenColour(cfg.colour) else cfg.colour
                 if (cfg.emboss > 0f) {
                     Box(at.requiredSize((n.w * u).dp, ((n.h + cfg.emboss) * u).dp).clip(shape)
                         .background(embossLip(cfg.colour)))
                 }
-                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp).clip(shape).background(cfg.colour))
+                Box(fillMod.clip(shape).background(fill))
+                // outline: cosmetic border at the clip boundary (config.outline / outline_colour).
+                // Drawn AFTER the fill box so it renders on top. Thickness is in dp (sub-unit).
+                if (cfg.outline > 0f && cfg.outlineColour != Color.Transparent) {
+                    Box(at.requiredSize((n.w * u).dp, (n.h * u).dp)
+                        .border(cfg.outline.dp, cfg.outlineColour, shape))
+                }
+            } else if (cfg.onClick != null && n.w > 0 && n.h > 0) {
+                // No fill but still clickable (e.g. transparent button area).
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp)
+                    .graphicsLayer { val s = if (pressed) 0.985f else 1f; scaleX = s; scaleY = s }
+                    .clickable(interaction, indication = null) { cfg.onClick.invoke() })
             }
         }
         T -> {
