@@ -263,6 +263,9 @@ private val CATALOG = listOf(
     Offer("j_cry_longboi", "Longboi", "Xmult = monstermult (M-pool)", 6),
     // circus: Xmult per other joker based on rarity (Rare=X2, Epic=X3, Legendary=X4, Exotic=X20).
     Offer("j_cry_circus", "Circus", "Xmult per rarity: Rare x2, Epic x3, Leg x4, Exotic x20", 9, rarity = 6),
+    // broken_sync_catalyst: atomically swaps 10% of chips into mult and 10% of mult into chips
+    // (cry_broken_swap=10 → portion=10%); math: delta=(chips−mult)*0.10. Inline intercept in joker_main.
+    Offer("j_cry_broken_sync_catalyst", "Broken Sync Catalyst", "swap 10% of Chips↔Mult", 7),
     // --- Cryptid Spooky-Code scoring jokers ---
     // Spy: flat X0.5 Mult every hand (halves mult); x_mult=0.5 is fixed.
     Offer("j_cry_spy", "Spy", "x0.5 Mult every hand", 3),

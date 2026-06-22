@@ -504,6 +504,14 @@ object Score {
         }
         for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
+            // broken_sync_catalyst: swap portion (10%) of chips into mult and vice versa (atomic).
+            // cry_broken_swap=10 → portion=0.10. Not expressible as a standard Fx delta because it
+            // reads and writes both accumulators simultaneously. Handled inline before calcJoker.
+            // math: delta=(chips−mult)*0.10; chips−=delta, mult+=delta (pulls them toward each other by 10%).
+            if (j.key == "j_cry_broken_sync_catalyst") {
+                val delta = (chips - mult) * 0.10
+                chips -= delta; mult += delta
+            }
             calcJoker(j, ctx)?.let { applyJokerFx(it) }
             when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
             // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
