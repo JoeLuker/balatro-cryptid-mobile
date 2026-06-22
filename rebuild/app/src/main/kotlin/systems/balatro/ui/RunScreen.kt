@@ -943,6 +943,12 @@ internal class RunState {
      *  it scores. The demo flag forces it; real play rolls it. */
     fun rollGlassBreak(): Boolean = forceGlassBreak || Random.nextInt(4) == 0
 
+    /** A played Glass card shattered after scoring — permanently destroy it from the run's deck
+     *  (Card:shatter removes it from G.playing_cards). Shrinks the deck for the rest of the run, so
+     *  deck-size jokers (Blue Joker) and stone/steel/enhanced tallies (Driver's License) update, and
+     *  it can empty a rank for j_cry_blacklist's self-destruct. Persists via the serialized composition. */
+    fun shatterCard(card: PlayingCard) { deck.removeCard(card) }
+
     /** Bank the scored hand (the end-of-round evaluation): score, refill, settle the lose/over case.
      *  Returns true if the round was WON (target met) — the cascade then runs the end-of-round
      *  self-destruct-joker dissolve and [enterRoundEval]. (state_events.lua: the end_of_round
@@ -2248,6 +2254,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 s.scoreCards.forEachIndexed { i, card ->
                     if (card.enhancement == Enhancement.GLASS && s.rollGlassBreak()) {
                         host.play.cards.getOrNull(i)?.let { host.startDissolve(it, shatter = true, now = host.clock.real) }
+                        s.shatterCard(card)   // game state: the shattered card is gone from the run's deck, not just the screen
                         burning = true
                     }
                 }
