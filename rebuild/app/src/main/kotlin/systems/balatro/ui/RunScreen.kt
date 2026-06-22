@@ -55,7 +55,7 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER }
+internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER, WIN }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
@@ -690,12 +690,20 @@ internal class RunState {
             owned.removeAll(destroyed)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
+        val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
+        val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
         shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
-        // Pre-seed boss so blind-select and shop screens show correct name/desc.
-        // startRound() re-derives the same deterministic value.
-        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
-        phase = Phase.SHOP
+        // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
+        if (wasSlot == 2 && wasAnte in setOf(8, 10)) {
+            phase = Phase.WIN
+            Telemetry.event("RUN_WIN", "ante" to wasAnte, "money" to money)
+        } else {
+            // Pre-seed boss so blind-select and shop screens show correct name/desc.
+            // startRound() re-derives the same deterministic value.
+            boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
+            phase = Phase.SHOP
+        }
         Telemetry.event("CASH_OUT", "total" to cashOutTotal, "money" to money)
     }
 
@@ -902,6 +910,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                             Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
                             Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+                            Phase.WIN  -> WinScreen(s, onRestart = onRestart, onMainMenu = onClose)
                         }
                     }
                 }
@@ -1713,6 +1722,42 @@ private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () ->
                     StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
                     StatRow("Furthest Ante", s.ante.toString(), Balatro.Orange)        // round_scores_row 'furthest_ante'
                     StatRow("Furthest Round", (s.blindIndex + 1).toString(), Balatro.Orange)  // 'furthest_round'
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BButton("New Run", Balatro.Mult) { onRestart() }
+                    BButton("Main Menu", Balatro.Mult) { onMainMenu() }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Win screen — shown when the player beats the boss blind of Ante 8 (standard win) or
+ * Ante 10 (Ante-10 showdown win). Mirrors the GameOver panel layout; uses gold/green
+ * colouring to distinguish it visually. Balatro shows a "Victory!" splash with fireworks
+ * animation; here we show a static panel with the same stat rows.
+ */
+@Composable
+private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
+    val isShowdown = s.ante > 8   // just finished ante 10 showdown
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Panel(Modifier.width(320.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BTxt(if (isShowdown) "Gold Stake!" else "Victory!", Balatro.Chips, 26.sp)
+                BTxt(
+                    if (isShowdown) "Ante 10 Showdown cleared" else "Ante 8 boss defeated",
+                    Balatro.White, 12.sp
+                )
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    s.mostPlayedHand?.let { (h, n) -> StatRow("Most played hand", "${handName(h)} ($n)", Balatro.Orange) }
+                    StatRow("Hands played", s.handsPlayedTotal.toString(), Balatro.Chips)
+                    StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
+                    StatRow("Ante reached", (s.ante - 1).toString(), Balatro.Orange)
+                    StatRow("Money", "\$${s.money}", Balatro.Money)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BButton("New Run", Balatro.Mult) { onRestart() }
