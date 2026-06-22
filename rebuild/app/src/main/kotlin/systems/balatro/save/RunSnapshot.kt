@@ -16,6 +16,9 @@ import kotlinx.serialization.json.Json
 data class CardSnap(val suit: String, val rank: Int, val enh: String, val seal: String)
 
 @Serializable
+data class ConsumableSnap(val kind: String, val name: String, val enh: String = "", val seal: String = "", val planet: String = "")
+
+@Serializable
 data class JokerSnap(
     val key: String, val name: String, val desc: String, val cost: Int, val edition: String,
     val fjEdition: String, val mult: Double, val x: Double, val chips: Double,
@@ -37,6 +40,7 @@ data class RunSnapshot(
     val rerollBase: Int,
     val redeemedVouchers: List<String>,
     val tags: List<String>,
+    val consumables: List<ConsumableSnap> = emptyList(),
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {

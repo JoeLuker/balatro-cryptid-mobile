@@ -22,6 +22,10 @@ class RunSnapshotTest {
             shopSlotsBonus = 1, discountPercent = 25, interestCap = 10, baseHands = 5, baseDiscards = 4, rerollBase = 3,
             redeemedVouchers = listOf("v_overstock_norm", "v_grabber"),
             tags = listOf("INVESTMENT", "JUGGLE"),
+            consumables = listOf(
+                ConsumableSnap("tarot", "Justice", "GLASS", "NONE"),
+                ConsumableSnap("planet", "Mercury", planet = "MERCURY"),
+            ),
         )
         assertEquals(snap, RunSnapshot.decode(snap.encode()))
     }

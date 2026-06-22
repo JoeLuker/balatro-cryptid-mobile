@@ -51,6 +51,7 @@ import systems.balatro.game.*
 import systems.balatro.save.RunSnapshot
 import systems.balatro.save.JokerSnap
 import systems.balatro.save.CardSnap
+import systems.balatro.save.ConsumableSnap
 import systems.balatro.save.SaveIo
 import java.io.File
 
@@ -96,6 +97,13 @@ internal enum class Tag(val display: String, val desc: String, val trigger: TagT
 }
 private val TAG_POOL = Tag.values().toList()
 private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
+
+/** A consumable held in the consumable slots (a tarot or planet), used when the player chooses —
+ *  rather than the shop/pack applying it instantly. */
+internal sealed class Consumable {
+    data class TarotC(val t: TarotOffer) : Consumable()
+    data class PlanetC(val planet: Planet) : Consumable()
+}
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
@@ -335,6 +343,23 @@ internal class RunState {
     var handSize by mutableStateOf(8)                                    // cards drawn to hand (Juggle: +3 one round)
     var freeRerollThisShop by mutableStateOf(false)                      // D6 Tag (this shop only)
     var couponThisShop by mutableStateOf(false)                          // Coupon Tag (this shop only)
+    // Consumable slots (G.consumeables): tarots/planets are HELD here and used when chosen.
+    val consumables = mutableStateListOf<Consumable>()
+    var consumableSlotsBonus by mutableStateOf(0)                        // Crystal Ball voucher (follow-on)
+    val consumableSlots: Int get() = 2 + consumableSlotsBonus
+    fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
+    /** Use (and consume) the held consumable at [i] — applies its effect, then frees the slot. */
+    fun useConsumable(i: Int) {
+        when (val c = consumables.getOrNull(i) ?: return) {
+            is Consumable.TarotC -> {
+                val card = if (c.t.seal != Seal.NONE) deck.sealRandom(c.t.seal) else deck.enhanceRandom(c.t.enhancement)
+                if (card != null) enhancedCount += 1
+                Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name, "card" to (card?.key ?: "none"))
+            }
+            is Consumable.PlanetC -> { handLevels.levelUp(c.planet.hand); Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display) }
+        }
+        consumables.removeAt(i)
+    }
     /** The tag offered for skipping the current (Small/Big) blind. */
     val upcomingTag: Tag get() = tagForBlind(blindIndex)
     /** Shop price after the Clearance Sale discount + the Coupon Tag (free this shop). set_cost: floor, min $1. */
@@ -425,6 +450,7 @@ internal class RunState {
         forceGlassBreak = true
         materializeJokers = true
         demoSelfDestruct = true   // a joker burns away (fiery dissolve) on cash-out — the destroy half
+        consumables.add(Consumable.TarotC(TAROTS[0])); consumables.add(Consumable.PlanetC(Planet.MERCURY))  // fill the consumable slots (tap to use)
         hand = listOf(
             PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
             PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
@@ -669,24 +695,25 @@ internal class RunState {
     private fun onCardBought() { owned.forEach { if (it.fj.key == "j_cry_cursor") it.fj.chips += 8.0 } }
 
     fun buyPlanet(po: PlanetOffer, free: Boolean = false) {
+        if (!hasConsumableRoom()) return          // no consumable slot → can't take it
         val cost = price(po.cost)
         if (!free && money < cost) return
         if (!free) money -= cost
         onCardBought()
-        handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
+        consumables.add(Consumable.PlanetC(po.planet))    // HELD until used (was: insta-level-up)
         shopPlanets = shopPlanets.filterNot { it === po }
-        Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
+        Telemetry.event("RUN_BUY_PLANET", "planet" to po.planet.display, "money" to money)
     }
 
     fun buyTarot(t: TarotOffer, free: Boolean = false) {
+        if (!hasConsumableRoom()) return
         val cost = price(t.cost)
         if (!free && money < cost) return
         if (!free) money -= cost
         onCardBought()
-        val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
-        if (card != null) enhancedCount += 1
+        consumables.add(Consumable.TarotC(t))             // HELD until used (was: insta-enhance)
         shopTarots = shopTarots.filterNot { it === t }
-        Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
+        Telemetry.event("RUN_BUY_TAROT", "tarot" to t.name, "money" to money)
     }
 
     /** Redeem the shop voucher — a run-persistent modifier (Card:apply_to_run, card.lua:2322). */
@@ -762,6 +789,12 @@ internal class RunState {
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
+        consumables = consumables.map { c ->
+            when (c) {
+                is Consumable.TarotC -> ConsumableSnap("tarot", c.t.name, c.t.enhancement.name, c.t.seal.name)
+                is Consumable.PlanetC -> ConsumableSnap("planet", c.planet.display, planet = c.planet.name)
+            }
+        },
     )
 
     /** Restore a run from a snapshot (load). Lands in the shop — a safe inter-blind state. */
@@ -779,6 +812,11 @@ internal class RunState {
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
+        consumables.clear()
+        s.consumables.forEach { cs ->
+            consumables.add(if (cs.kind == "tarot") Consumable.TarotC(TarotOffer(cs.name, Enhancement.valueOf(cs.enh), 0, Seal.valueOf(cs.seal)))
+                            else Consumable.PlanetC(Planet.valueOf(cs.planet)))
+        }
         phase = Phase.BLIND_SELECT   // resume at the next blind choice (run state intact; shop stock not persisted)
     }
 
@@ -1647,8 +1685,25 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("${s.owned.size}/${s.jokerSlots}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
         }
+        // ── CONSUMABLES (G.consumeables): held tarots/planets, drawn in the consumable area; tap to
+        // USE one during a round (applies its effect + frees the slot). Pack picks + shop buys land here.
+        if (s.consumables.isNotEmpty()) {
+            Box(off(consumX, jokersY)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    s.consumables.forEachIndexed { i, c ->
+                        val label = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display }
+                        val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips }
+                        Box(Modifier.size(cardW, cardH).clickable(enabled = s.phase == Phase.ROUND) { s.useConsumable(i) },
+                            contentAlignment = Alignment.Center) {
+                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                            BTxt(label, accent, countSp, Modifier.padding(horizontal = 2.dp))
+                        }
+                    }
+                }
+            }
+        }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("0/2", Balatro.White, countSp)
+            BTxt("${s.consumables.size}/${s.consumableSlots}", Balatro.White, countSp)
         }
         // ── PLAYED (G.play). STATIC repro: ScoredCardsRow, frozen at PLAY_SCORING_Y (bref_3's lifted
         // frame). LIVE: the played cards are engine Moveables on host.play — they fly up from the hand
