@@ -62,17 +62,24 @@ love.update = function(dt, ...)
     if phase == 'selecting' and G and G.STATE == G.STATES.SELECTING_HAND and G.hand and #G.hand.cards > 0 then
         mark('SELECTING_HAND')
         pcall(function() if G.hand.unhighlight_all then G.hand:unhighlight_all() end end)  -- clean resting row (no popped card)
-        if elapsed - at('SELECTING_HAND') >= 3.0 then
-            -- start_run from MENU (vs the Play button) may leave leftover main-menu elements:
-            -- G.SPLASH_LOGO (BALATRO logo overlay), G.MAIN_MENU_UI, and G.PROFILE_BUTTON.
+        if elapsed - at('SELECTING_HAND') >= 8.0 then  -- software GL ~10fps: deal animation needs ~6-7s to fully settle
+            -- start_run from MENU (vs the Play button) may leave leftover main-menu elements.
             -- Remove them so the frame matches a normal mid-run state (no menu chrome).
             -- NOTE: do NOT remove G.SPLASH_BACK — that is the animated green felt background
             -- shader and removing it leaves the board area black, corrupting the reference.
+            -- NOTE: G.title_top is the CardArea holding the menu Ace of Spades materialize card.
+            -- It persists into the run and must be hidden before capture.
             pcall(function()
                 if G.SPLASH_FRONT then G.SPLASH_FRONT:remove(); G.SPLASH_FRONT = nil end
                 if G.SPLASH_LOGO then G.SPLASH_LOGO:remove(); G.SPLASH_LOGO = nil end
                 if G.MAIN_MENU_UI then G.MAIN_MENU_UI:remove(); G.MAIN_MENU_UI = nil end
                 if G.PROFILE_BUTTON then G.PROFILE_BUTTON:remove(); G.PROFILE_BUTTON = nil end
+                -- title_top holds the Ace of Spades menu-animation card; hide it
+                if G.title_top then
+                    for _, c in ipairs(G.title_top.cards) do
+                        if c.states then c.states.visible = false end
+                    end
+                end
             end)
             -- dump Balatro's room→screen transform so the capture window can be sized to WIDTH-FILL
             -- (match the rebuild's repro framing) instead of fit-to-contain letterboxing.
@@ -90,6 +97,8 @@ love.update = function(dt, ...)
                 for i, c in ipairs(G.hand.cards) do
                     print(string.format('REF: hand[%d] id=%s suit=%s value=%s', i, tostring(c.base.id), tostring(c.base.suit), tostring(c.base.value)))
                 end
+                print(string.format('REF: play_cards=%d deck_cards=%d discard_cards=%d hand_cards=%d',
+                    #G.play.cards, #G.deck.cards, #G.discard.cards, #G.hand.cards))
             end)
             love.graphics.captureScreenshot(function(img)
                 local ok = pcall(function() img:encode('png', 'ref.png') end)
