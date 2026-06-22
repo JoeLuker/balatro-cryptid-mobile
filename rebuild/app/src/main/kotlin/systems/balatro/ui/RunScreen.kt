@@ -55,7 +55,7 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER }
+internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER, PACK_OPEN }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
@@ -66,6 +66,20 @@ internal data class Owned(val offer: Offer, val fj: FJoker)
 /** A shop voucher (one per shop). `extra` is the faithful config.extra (game.lua); the effect is
  *  applied by key in RunState.redeemVoucher (Card:apply_to_run, card.lua:2322). */
 internal data class VoucherOffer(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int = 10)
+/** A booster pack offer (game.lua p_*). `kind` = Arcana/Celestial/Buffoon; `extra` cards shown,
+ *  `choose` picks. Buying opens the pack (Phase.PACK_OPEN). */
+internal data class BoosterOffer(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int)
+/** One revealed pack item (a tarot/planet/joker the player may pick). */
+internal sealed class PackItem {
+    data class Tarot(val t: TarotOffer) : PackItem()
+    data class Planet(val p: PlanetOffer) : PackItem()
+    data class Joker(val o: Offer) : PackItem()
+}
+/** An open booster pack: the revealed [items], how many remain to [pick], and which are taken. */
+internal class OpenPack(val name: String, val kind: String, val items: List<PackItem>, choose: Int) {
+    val picked = mutableStateListOf<Int>()
+    var picksLeft by mutableStateOf(choose)
+}
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
@@ -217,6 +231,20 @@ private val VOUCHERS = listOf(
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
     VOUCHERS.filterNot { it.key in redeemed }.shuffled(Random(blind * 49157L + 5)).firstOrNull()
 
+// Booster packs (game.lua p_*). Arcana/Celestial/Buffoon map to the tarot/planet/joker buy systems
+// (Standard/Spectral need deck-add + spectral effects — deferred). extra cards shown, choose picks.
+private val BOOSTERS = listOf(
+    BoosterOffer("p_arcana_normal", "Arcana Pack", "Arcana", 4, 3, 1),
+    BoosterOffer("p_arcana_jumbo", "Jumbo Arcana Pack", "Arcana", 6, 5, 1),
+    BoosterOffer("p_arcana_mega", "Mega Arcana Pack", "Arcana", 8, 5, 2),
+    BoosterOffer("p_celestial_normal", "Celestial Pack", "Celestial", 4, 3, 1),
+    BoosterOffer("p_buffoon_normal", "Buffoon Pack", "Buffoon", 4, 2, 1),
+    BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1),
+)
+/** Two booster slots per shop (Balatro's shop has 2). */
+private fun rollBoosters(blind: Int): List<BoosterOffer> =
+    BOOSTERS.shuffled(Random(blind * 80021L + 3)).take(2)
+
 private fun rollShop(blind: Int, slots: Int = 3): List<Offer> {
     val rng = Random(blind * 7919L + 13)
     val base = CATALOG.shuffled(rng).take(slots)
@@ -282,6 +310,9 @@ internal class RunState {
     var baseDiscards by mutableStateOf(DISCARDS)   // Wasteful: +1 discard/round
     val redeemedVouchers = mutableStateListOf<String>()
     var shopVoucher by mutableStateOf<VoucherOffer?>(null)
+    var shopBoosters by mutableStateOf<List<BoosterOffer>>(emptyList())   // 2 booster slots per shop
+    var openPack by mutableStateOf<OpenPack?>(null)                       // the pack being opened (PACK_OPEN)
+    private var packSeed = 0                                              // varies pack contents per buy
     /** Shop price after the Clearance Sale discount (set_cost: floor, min $1). */
     fun price(base: Int): Int = maxOf(1, base * (100 - discountPercent) / 100)
     var shop by mutableStateOf<List<Offer>>(emptyList())
@@ -565,6 +596,7 @@ internal class RunState {
         resetRerollCost()                            // fresh shop → reroll cost back to base
         shop = rollShop(blindIndex, 3 + shopSlotsBonus); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
+        shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
         // Pre-seed boss so blind-select and shop screens show correct name/desc.
         // startRound() re-derives the same deterministic value.
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
@@ -604,20 +636,20 @@ internal class RunState {
     /** context.buying_card — every Cryptid Cursor on the board gains +8 Chips when any card is bought. */
     private fun onCardBought() { owned.forEach { if (it.fj.key == "j_cry_cursor") it.fj.chips += 8.0 } }
 
-    fun buyPlanet(po: PlanetOffer) {
+    fun buyPlanet(po: PlanetOffer, free: Boolean = false) {
         val cost = price(po.cost)
-        if (money < cost) return
-        money -= cost
+        if (!free && money < cost) return
+        if (!free) money -= cost
         onCardBought()
         handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
         Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
 
-    fun buyTarot(t: TarotOffer) {
+    fun buyTarot(t: TarotOffer, free: Boolean = false) {
         val cost = price(t.cost)
-        if (money < cost) return
-        money -= cost
+        if (!free && money < cost) return
+        if (!free) money -= cost
         onCardBought()
         val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
         if (card != null) enhancedCount += 1
@@ -647,6 +679,42 @@ internal class RunState {
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
 
+    /** Buy a booster pack → open it (Phase.PACK_OPEN) with `extra` revealed items of its kind. */
+    fun buyBooster(b: BoosterOffer) {
+        val cost = price(b.cost)
+        if (money < cost) return
+        money -= cost
+        shopBoosters = shopBoosters.filterNot { it === b }
+        packSeed += 1
+        val rng = Random(blindIndex * 7253L + packSeed * 131L)
+        val items: List<PackItem> = when (b.kind) {
+            "Arcana" -> TAROTS.shuffled(rng).take(b.extra).map { PackItem.Tarot(it) }
+            "Celestial" -> Planet.values().toList().shuffled(rng).take(b.extra).map { PackItem.Planet(PlanetOffer(it, 0)) }
+            "Buffoon" -> CATALOG.filterNot { c -> owned.any { it.offer.key == c.key } }.shuffled(rng).take(b.extra).map { PackItem.Joker(it) }
+            else -> emptyList()
+        }
+        openPack = OpenPack(b.name, b.kind, items, minOf(b.choose, items.size))
+        phase = Phase.PACK_OPEN
+        Telemetry.event("RUN_PACK_OPEN", "key" to b.key, "kind" to b.kind, "money" to money)
+    }
+
+    /** Pick item [i] from the open pack — applies its effect (pre-paid), advances picks, closes when done. */
+    fun pickPackItem(i: Int) {
+        val p = openPack ?: return
+        if (p.picksLeft <= 0 || i in p.picked) return
+        when (val item = p.items[i]) {
+            is PackItem.Tarot -> buyTarot(item.t, free = true)
+            is PackItem.Planet -> buyPlanet(item.p, free = true)
+            is PackItem.Joker -> buy(item.o, free = true)
+        }
+        p.picked.add(i)
+        p.picksLeft -= 1
+        if (p.picksLeft <= 0) closePack()
+    }
+
+    fun skipPack() = closePack()
+    private fun closePack() { openPack = null; phase = Phase.SHOP }
+
     fun handLevel(h: HandType): Int = handLevels.level(h)
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
@@ -656,6 +724,7 @@ internal class RunState {
         resetRerollCost()
         shop = rollShop(blindIndex, 3 + shopSlotsBonus); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
+        shopBoosters = rollBoosters(blindIndex)
         phase = Phase.SHOP
     }
 
@@ -805,6 +874,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                             Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
                             Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+                            Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, cardBase)
                         }
                     }
                 }
@@ -1746,6 +1816,10 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
                     s.shopVoucher?.let { v ->
                         ShopCard(v.name, null, cardBase, s.price(v.cost), v.desc, Balatro.Gold, s.money >= s.price(v.cost)) { s.redeemVoucher(v) }
                     }
+                    // booster packs (two slots) — buying opens the pack (Phase.PACK_OPEN)
+                    s.shopBoosters.forEach { b ->
+                        ShopCard(b.name, null, cardBase, s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips, s.money >= s.price(b.cost)) { s.buyBooster(b) }
+                    }
                 }
             }
             // sell owned jokers — a compact strip under the shop (not a Balatro UIBox, but the
@@ -1806,6 +1880,63 @@ private fun ShopCard(
                 .clickable(enabled = canBuy) { onBuy() }.padding(horizontal = 12.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) { BTxt("Buy", Balatro.White, 12.sp) }
+    }
+}
+
+/** (name, desc, accentColour) for one revealed pack item. */
+private fun packItemView(item: PackItem): Triple<String, String, Color> = when (item) {
+    is PackItem.Tarot -> Triple(
+        item.t.name,
+        if (item.t.seal != Seal.NONE) "${item.t.seal.name.lowercase()} seal" else item.t.enhancement.name.lowercase(),
+        Balatro.Purple,
+    )
+    is PackItem.Planet -> Triple(item.p.planet.display, handName(item.p.planet.hand), Balatro.Chips)
+    is PackItem.Joker -> Triple(item.o.name, item.o.desc, Balatro.Mult)
+}
+
+/** Booster pack opening (Phase.PACK_OPEN): tap to pick `choose` of the revealed items, or Skip. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+    val p = s.openPack ?: return
+    Box(Modifier.fillMaxSize().padding(8.dp)) {
+        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
+        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            BTxt(p.name, Balatro.White, 18.sp)
+            BTxt(if (p.picksLeft > 0) "Pick ${p.picksLeft}" else "Done", Balatro.Gold, 13.sp)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                p.items.forEachIndexed { i, item ->
+                    val taken = i in p.picked
+                    val (name, desc, accent) = packItemView(item)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+                        Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
+                            val art = (item as? PackItem.Joker)?.let { jokerCells[it.o.key] }
+                            if (art != null) {
+                                Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                            } else {
+                                cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                                BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                            }
+                        }
+                        BTxt(desc, accent, 8.sp, Modifier.padding(top = 1.dp))
+                        Spacer(Modifier.height(3.dp))
+                        val canPick = !taken && p.picksLeft > 0
+                        Box(
+                            Modifier.clip(RoundedCornerShape(6.dp)).background(if (canPick) Balatro.Gold else Balatro.Grey)
+                                .clickable(enabled = canPick) { s.pickPackItem(i) }.padding(horizontal = 10.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { BTxt(if (taken) "Taken" else "Select", Balatro.White, 11.sp) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            BButton("Skip", Balatro.Mult) { s.skipPack() }
+        }
     }
 }
 
