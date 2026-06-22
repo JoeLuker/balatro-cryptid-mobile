@@ -26,6 +26,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.game.*
+import systems.balatro.save.SaveIo
+import java.io.File
 
 /**
  * Native chrome over the composition engine: a 120-joker board scored on-device and
@@ -109,6 +111,10 @@ class MainActivity : ComponentActivity() {
                 }
                 var showManager by remember { mutableStateOf(false) }
                 var showRun by remember { mutableStateOf(bootRun || bootScreen != null) }
+                // A saved run auto-resumes on Play; hasSave drives the Continue/New-Run choice.
+                val saveFile = remember { File(ctx.filesDir, SaveIo.FILE_NAME) }
+                var hasSave by remember { mutableStateOf(saveFile.exists()) }
+                LaunchedEffect(showRun) { if (!showRun) hasSave = saveFile.exists() }   // refresh on return to menu
 
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().padding(20.dp)) {
@@ -134,9 +140,19 @@ class MainActivity : ComponentActivity() {
                             Text(if (cells.isEmpty()) "Loading art…" else "Manage $n Jokers  (native grid)")
                         }
                         Spacer(Modifier.height(10.dp))
-                        Button(onClick = { showRun = true; Telemetry.event("UI", "open" to "run") },
+                        Button(onClick = { showRun = true; Telemetry.event("UI", "open" to "run", "resume" to hasSave) },
                             modifier = Modifier.fillMaxWidth()) {
-                            Text("Play  (the one game: blinds + shop)")
+                            Text(if (hasSave) "Continue  (resume saved run)" else "Play  (the one game: blinds + shop)")
+                        }
+                        // New Run: abandon the saved run (delete the autosave) and start fresh.
+                        if (hasSave) {
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(onClick = {
+                                SaveIo.delete(saveFile); hasSave = false; showRun = true
+                                Telemetry.event("UI", "open" to "run-new")
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text("New Run  (abandon the saved run)")
+                            }
                         }
                         Spacer(Modifier.weight(1f))
                         Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
