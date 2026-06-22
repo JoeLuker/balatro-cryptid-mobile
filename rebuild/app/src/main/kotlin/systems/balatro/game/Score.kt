@@ -137,8 +137,8 @@ object Score {
             val rj = ctx.retriggeredJoker ?: return null
             when (j.key) {
                 // chad: retrigger the LEFTMOST board joker j.n times (config.extra.retriggers=2).
-                // If Chad itself is leftmost it retriggers itself (correct; Lua has no self-exclusion here).
-                "j_cry_chad" -> if (rj === ctx.board.firstOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
+                // Lua: context.other_card ~= self — chad does NOT retrigger itself (j !== rj guard).
+                "j_cry_chad" -> if (j !== rj && rj === ctx.board.firstOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
                 // loopy: retrigger all OTHER board jokers min(j.n, 40) times (j.n = Jolly Jokers sold; default 0).
                 "j_cry_loopy" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = minOf(j.n, 40) }
                 // spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored;
@@ -266,9 +266,11 @@ object Score {
             "j_crazy"   -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { multMod = 12.0 }
             "j_droll"   -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { multMod = 10.0 }
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
-            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_cry_wee_fib", "j_cry_zooble",
-            "j_cry_poor_joker", "j_cry_foodm" ->
+            "j_green_joker", "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_popcorn",
+            "j_cry_wee_fib", "j_cry_zooble", "j_cry_poor_joker", "j_cry_foodm" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
+            // j_popcorn: starts at +20 Mult (config.mult=20), −1 per hand (RunScreen before-pass); self-destructs at 0.
+            //   RunScreen removes it before the next score() call, so score engine never sees mult<=0.
             // poor_joker: j.mult += mult_mod(4) each time this joker pays rent (rental context, non-scoring)
             // foodm: j.mult=40 by default (decreases per round, self-destructs; replenished by selling jolly jokers)
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
@@ -665,7 +667,13 @@ object Score {
         fun applyOtherJokerFx(fx: Fx) {
             if (fx.multMod != 0.0) mult += fx.multMod
             if (fx.chipMod != 0.0) chips += fx.chipMod
-            if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            if (fx.xMultMod != 1.0) {
+                mult *= fx.xMultMod
+                // exponentia: SMODS.calculate_individual_effect fires for xmult keys in ALL scoring passes,
+                // including other_joker (state_events.lua:879 → trigger_effects → calculate_individual_effect).
+                // baseball, circus, waluigi, stardust all fire xMultMod here and must increment exponentia.
+                for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
+            }
             if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // universe: Emult per Astral joker
         }
         for (j in jokers) {

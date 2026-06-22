@@ -200,6 +200,16 @@ object Oracle {
         // exponentia Poly-edition path: bonkers has no joker_main effect on a Pair; its Poly edition fires
         // mult×1.5 (x_mult_mod in Lua) → exponentia.x+=0.03. exponentia eMult=1.03 → mult=3.0^1.03≈3.100. floor(32×3.100)=99.
         Case("Pair of aces + Poly-bonkers + exponentia (Poly edition triggers exp)", PlayingCard.hand("S_A", "H_A"), 99.0, j(FJoker("j_cry_bonkers", edition = "Poly"), FJoker("j_cry_exponentia"))),
+        // exponentia other_joker path: waluigi fires xMultMod=2.5 in applyOtherJokerFx → must trigger exponentia.
+        // Board: [waluigi, exponentia(x=1.0)]. Pair aces: chips=32, mult=2.
+        // Joker main pass (waluigi first, exponentia second):
+        //   j=waluigi joker_main=null; other_joker(oj=waluigi): voter=waluigi→X2.5 → mult=5, exp.x=1.03.
+        //   j=exponentia joker_main: exp.x=1.03>1 → eMult=1.03 → mult=5^1.03≈5.248.
+        //                other_joker(oj=exponentia): voter=waluigi→X2.5 → mult≈13.12, exp.x=1.06.
+        // Score: floor(32×13.12)=419. Pre-fix: exp.x never incremented in other_joker → eMult never
+        // fires (x=1.0 fails guard) → mult=5×2.5=12.5 → floor(32×12.5)=400.
+        Case("Pair of aces + waluigi + exponentia (other_joker xMult triggers exp) → 419",
+            PlayingCard.hand("S_A", "H_A"), 419.0, j(FJoker("j_cry_waluigi"), FJoker("j_cry_exponentia"))),
         Case("Pair + jtron + joker (Emult 1+1 joker -> mult^2)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_jtron"), FJoker("j_joker"))),
         // --- Cryptid accumulator-read jokers (run loop sets j.x/j.xc/j.mult; zero-defaults no-op) ---
         Case("Pair of aces + dropshot @x=1.4 (2 suit-hit hands)", PlayingCard.hand("S_A", "H_A"), 89.0, j(FJoker("j_cry_dropshot", x = 1.4))),
@@ -264,6 +274,17 @@ object Oracle {
         Case("Pair of aces + caramel @x=1.75 (X1.75/card, 2 aces)", PlayingCard.hand("S_A", "H_A"), 196.0, j(FJoker("j_cry_caramel", x = 1.75))),
         Case("Pair of aces + clockwork @x=1.5 (accumulated Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_clockwork", x = 1.5))),
         Case("Pair of aces + starfruit @x=2.0 (Emult^2, default)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_starfruit", x = 2.0))),
+        // starfruit depleted to x=1.2 (4 rerolls: 2.0 − 4×0.2 = 1.2): Emult=1.2 → mult=2^1.2≈2.2974 → floor(32×2.2974)=73.
+        Case("Pair of aces + starfruit @x=1.2 (4 rerolls, partial depletion) → 73",
+            PlayingCard.hand("S_A", "H_A"), 73.0, j(FJoker("j_cry_starfruit", x = 1.2))),
+        // starfruit at self-destruct threshold x=1.0: guard j.x > 1.0 → false → no eMult → base score=64.
+        // (RunScreen removes starfruit when emult ≤ 1.00000001; score engine must return base if it sees x=1.0.)
+        Case("Pair of aces + starfruit @x=1.0 (dead threshold, no Emult) → 64",
+            PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_starfruit", x = 1.0))),
+        // caramel at n=0 (rounds_remaining=0, dying round): Score.kt reads only j.x, not j.n.
+        // xMult=1.75 still fires per scored card. Same math as x=1.75 case: floor(10 + 11^1.75 + 11^1.75) * 2 = 196.
+        Case("Pair of aces + caramel @x=1.75,n=0 (dying round, xMult still fires) → 196",
+            PlayingCard.hand("S_A", "H_A"), 196.0, j(FJoker("j_cry_caramel", x = 1.75, n = 0))),
         // --- batch-17: boss-blind gate, flat Xmult-halving, Astral-edition other_joker ---
         // broken_sync_catalyst: swaps 10% of chips and mult (atomic). Pair aces: chips=32, mult=2.
         // delta=(32−2)*0.10=3.0; chips=32−3=29, mult=2+3=5. Score: floor(29×5)=145.
@@ -404,6 +425,16 @@ object Oracle {
         Case("Pair of aces + hologram (x=1.75)", PlayingCard.hand("S_A", "H_A"), 112.0, j(FJoker("j_hologram", x = 1.75))),
         // Ramen: Xmult starts X2 −0.01/discard (j.x); x=1.8 (20 discards) → mult=2*1.8=3.6 → 115.
         Case("Pair of aces + ramen (x=1.8)", PlayingCard.hand("S_A", "H_A"), 115.0, j(FJoker("j_ramen", x = 1.8))),
+        // Ramen at self-destruct threshold: j.x=1.0 exactly; guard is j.x > 1.0 → NO fire → base score=64.
+        // (RunScreen removes ramen when x ≤ 1.0, but score engine must return 64 if it ever receives x=1.0.)
+        Case("Pair of aces + ramen (x=1.0 — dead threshold, no xMult) → 64",
+            PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_ramen", x = 1.0))),
+        // j_popcorn: +Mult = j.mult (starts 20, −1/hand). mult=19 (after 1 hand): chips=32, mult=2+19=21 → 672.
+        Case("Pair of aces + popcorn (mult=19, hand 1) → 672",
+            PlayingCard.hand("S_A", "H_A"), 672.0, j(FJoker("j_popcorn", mult = 19.0))),
+        // j_popcorn last hand before death: mult=1 → chips=32, mult=2+1=3 → 96.
+        Case("Pair of aces + popcorn (mult=1, last hand before death) → 96",
+            PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_popcorn", mult = 1.0))),
         // Campfire: Xmult +0.25 per joker sold (j.x); x=1.5 (2 sold) → mult=2*1.5=3 → 96.
         Case("Pair of aces + campfire (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_campfire", x = 1.5))),
         // Loyalty Card: X4 when active (j.x=4.0); chips=32, mult=2*4=8 → 256.
