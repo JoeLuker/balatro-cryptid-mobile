@@ -269,6 +269,12 @@ object Oracle {
         Case("Pair of aces + happyhouse @n=1 (114+ hands played, Emult^4)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_cry_happyhouse", n = 1))),
         Case("Pair of aces + verisimile @x=1.5 (pseudorandom hits)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_verisimile", x = 1.5))),
         Case("Pair of aces + duplicare @x=2.0 (2 scaling triggers)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_duplicare", x = 2.0))),
+        // duplicare @x=1.0: guard (j.x > 1.0) not met → no Xmult fires → base score 64.
+        // RunScreen timing note: after the fix, RunScreen adds sel.size to j.x BEFORE Score.score(), so on a 2-card
+        // Pair play starting at x=1.0, j.x becomes 3.0 and joker_main fires X3.0. Oracle tests Score.kt in isolation
+        // (pre-set j.x); the timing fix is RunScreen-side and verified by the before-fix divergence analysis only.
+        Case("Pair of aces + duplicare @x=1.0 (fresh/pre-RunScreen state, no Xmult) → 64",
+            PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_duplicare", x = 1.0))),
         Case("Pair of aces + formidiulosus @x=1.03 (3 candy jokers)", PlayingCard.hand("S_A", "H_A"), 65.0, j(FJoker("j_cry_formidiulosus", x = 1.03))),
         // --- batch-19: m.lua scoring jokers: foodm/mstack/biggestm/longboi ---
         Case("Pair of aces + foodm @mult=40 (perishable +40 Mult)", PlayingCard.hand("S_A", "H_A"), 1344.0, j(FJoker("j_cry_foodm", mult = 40.0))),

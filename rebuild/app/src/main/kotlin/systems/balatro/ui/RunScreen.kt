@@ -751,6 +751,16 @@ internal class RunState {
         // totalHandsPlayed is incremented AFTER the score (in scoreBank). +1 adjusts the count to the
         // current-hand-including-this-one basis that Lua's c2 counter already reflects by here.
         for (o in owned) if (o.fj.key == "j_cry_clockwork" && (totalHandsPlayed + 1) % 3 == 0) o.fj.x += 0.25
+        // keychange: +0.25 Xmult each time a NEW hand type is played for the first time this round (context.before).
+        // Lua fires in context.before (BEFORE joker_main), so Score.score() reads the updated j.x this hand.
+        // Must check roundHandTypes BEFORE Score.score() adds the current hand type.
+        // Engine: `roundHandTypes` was not yet updated (scoreBank.add fires post-score), so !in is a clean check.
+        for (o in owned) if (o.fj.key == "j_cry_keychange" && handType != HandType.NONE && handType !in roundHandTypes) o.fj.x += 0.25
+        // duplicare: +1 Xmult per individual scored card played (exotic.lua:1296 context.individual+cardarea==G.play).
+        // Lua fires once per each scored card DURING the cascade (before joker_main reads Xmult). Engine bulk-adds
+        // pendingSel.size (= scored card count) BEFORE Score.score() so joker_main sees the updated j.x this hand.
+        // Note: the post_trigger path (other joker non-roll probability) is not modelled here; pre-acknowledged.
+        for (o in owned) if (o.fj.key == "j_cry_duplicare") o.fj.x += sel.size.toDouble()
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
         lastResult = r; lastSteps = trace
@@ -800,7 +810,6 @@ internal class RunState {
     fun scoreBank(): Boolean {
         val r = pending ?: return false
         // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
-        val isNewTypeThisRound = r.handType !in roundHandTypes && r.handType != HandType.NONE
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
@@ -821,12 +830,8 @@ internal class RunState {
             // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
             // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
             "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2
-            // j_cry_clockwork: accumulation moved to before-hand block (fires before Score.score()).
-            // Nothing to do here; j.x was already incremented above if this is the 3rd/6th/... hand.
-            // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
-            "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
-            // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
-            "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
+            // j_cry_clockwork, j_cry_keychange, j_cry_duplicare: all moved to the before-hand block (fire before Score.score()).
+            // Nothing to do here for any of them.
         }
         // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
         // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).
