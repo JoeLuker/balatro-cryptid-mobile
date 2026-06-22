@@ -91,4 +91,15 @@ class Deck(seed: Long) {
         if (all.isEmpty()) return null
         val c = all.removeAt(all.indices.random(rng)); reshuffle(); return c
     }
+
+    /** Permanently destroy a specific card from the deck — e.g. a played Glass card that shattered
+     *  (Card:shatter removes it from G.playing_cards). Matches by value, dropping the first equal
+     *  instance from the persistent deck and the draw pile if it's still there. Returns true iff one
+     *  was removed. Deck composition is serialized, so the destruction persists across save/load. */
+    fun removeCard(card: PlayingCard): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        all.removeAt(i)
+        val di = drawPile.indexOf(card); if (di >= 0) drawPile.removeAt(di)
+        return true
+    }
 }
