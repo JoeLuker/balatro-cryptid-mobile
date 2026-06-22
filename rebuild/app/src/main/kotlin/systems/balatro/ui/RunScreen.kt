@@ -142,6 +142,11 @@ internal const val CRYPTID_MEMBER_COUNT = 38598
  *  it; passing it in keeps this pure and directly unit-testable. */
 internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
     val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
+    // MANIFEST: a migrated joker's initial scaling state comes from its JokerSpec (co-located with its hooks).
+    JOKER_MANIFEST[offer.key]?.let { spec ->
+        val s = spec.initialState
+        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = s.x, chips = s.chips, n = s.n, xc = s.xc)
+    }
     val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
     val fjMult = when (offer.key) {
         "j_popcorn"      -> 20.0            // +20 Mult, -1 per hand; self-destructs at 0
@@ -169,12 +174,10 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
         else -> 0
     }
     val fjChips = when (offer.key) {
-        "j_cry_bonk"              -> 6.0                              // +chips per board joker
         "j_cry_membershipcardtwo" -> CRYPTID_MEMBER_COUNT.toDouble()  // chips(1) × floor(member count / chips_mod=1)
         else -> 0.0
     }
-    val fjXc = if (offer.key == "j_cry_bonk") 3.0 else 1.0      // bonk: Jolly x-chips multiplier
-    return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips, xc = fjXc)
+    return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips)
 }
 
 private val CATALOG = listOf(
@@ -1024,9 +1027,9 @@ internal class RunState {
         // ── per-hand joker accumulator hooks (the run loop owns state; score engine reads it) ──────
         totalHandsPlayed += 1
         roundHandTypes.add(r.handType)
+        // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer (e.g. green_joker +1 Mult).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType))) }
         for (o in owned) when (o.fj.key) {
-            // j_green_joker: +1 Mult per hand played; -1 per discard (below).
-            "j_green_joker"    -> o.fj.mult += 1.0
             // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
             // j_spare_trousers: +2 Mult each time Two Pair or Full House played.
@@ -1218,9 +1221,9 @@ internal class RunState {
         // For j_castle: count cards of the flush suit in the discard (if the discarded set is a flush).
         val discardSuits = discardedCards.map { it.suit }.distinct()
         val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null
+        // MANIFEST: migrated jokers evolve state on the discard event via their reducer (e.g. green_joker -1 Mult).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.Discarded(discardedCards))) }
         for (o in owned) when (o.fj.key) {
-            // j_green_joker: -1 Mult per discard (never below 0).
-            "j_green_joker" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
             // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01); self-destructs when x_mult ≤ 1.0.
             "j_ramen"       -> o.fj.x = maxOf(1.0, o.fj.x - 0.01 * discardedCards.size)
             // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
