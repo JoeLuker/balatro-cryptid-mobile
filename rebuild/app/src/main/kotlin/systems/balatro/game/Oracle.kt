@@ -120,6 +120,17 @@ object Oracle {
         // Per-card: S_A chips+11 fib+8 + H_A chips+11 fib+8 → chips=32, mult=18.
         // joker_main: Thalia X3 → mult=54; Joker +4 → mult=58. floor(32*58)=1856.
         Case("Pair + thalia(r=4),joker(r=1),fib(r=2) (3 rarities → C(3,2)=3 → X3)", PlayingCard.hand("S_A", "H_A"), 1856.0, j(FJoker("j_cry_thalia", rarity = 4), FJoker("j_joker", rarity = 1), FJoker("j_fibonacci", rarity = 2))),
+        // Joker-retrigger pass (context.retrigger_joker_check): chad, flip_side.
+        // Chad(n=2): retrigger leftmost joker 2 extra times. Board [Joker(r=1,leftmost), Chad(n=2,r=3)].
+        // HighCard S_2: base chips=5, mult=1; S_2 +2c → chips=7.
+        // joker_main: Joker +4m → mult=5; retrigger: Chad votes rj===board.first()→2 reps; Joker fires 2 more: mult=13.
+        //   Chad: null; retrigger: rj=Chad≠leftmost → 0. Score: floor(7×13)=91.
+        Case("HighCard S_2 + joker(leftmost),chad(n=2) — chad retriggers leftmost 2x → 91", PlayingCard.hand("S_2"), 91.0, j(FJoker("j_joker", rarity = 1), FJoker("j_cry_chad", n = 2, rarity = 3))),
+        // Flip Side: retrigger all double-sided-edition jokers once. Board [Joker(edition=cry_double_sided), FlipSide].
+        // HighCard S_2: chips=7 (as above).
+        // joker_main: Joker +4m → mult=5; retrigger: FlipSide: rj.edition=="cry_double_sided"→reps=1; Joker fires once more: mult=9.
+        //   FlipSide: null; retrigger: rj.edition=""→0. Score: floor(7×9)=63.
+        Case("HighCard S_2 + joker(cry_double_sided),flip_side — flip retriggers double-sided once → 63", PlayingCard.hand("S_2"), 63.0, j(FJoker("j_joker", edition = "cry_double_sided"), FJoker("j_cry_flip_side"))),
         Case("TwoPair 2s/As + duos (x2.5 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 230.0, j(FJoker("j_cry_duos"))),
         Case("FullHouse As/Ks + home (x3.5 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1302.0, j(FJoker("j_cry_home"))),
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),

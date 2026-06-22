@@ -152,6 +152,15 @@ private val CATALOG = listOf(
     Offer("j_cry_nosound", "No Sound?", "retrigger scored 7s x3", 5),
     Offer("j_cry_exposed", "Exposed", "retrigger scored non-faces x2", 5),
     Offer("j_cry_mask", "Mask", "retrigger scored faces x3", 5),
+    // --- Cryptid joker-retrigger jokers (context.retrigger_joker_check family) ---
+    // Chad: retrigger leftmost joker j.n times (config.extra.retriggers=2). Art/rarity: best-guess Rare.
+    Offer("j_cry_chad", "Chad", "retrigger leftmost Joker 2x", 8, rarity = 3),
+    // Loopy: retrigger all other jokers min(j.n,40) times (j.n = Jolly Jokers sold; 0 at purchase). Art: N/A.
+    Offer("j_cry_loopy", "Loopy", "retrigger all Jokers x sold Jolly Jokers", 8, rarity = 3),
+    // Spectrogram: retrigger rightmost joker j.n times (j.n = Echo-enhanced cards scored; 0 until Echo added).
+    Offer("j_cry_spectrogram", "Spectrogram", "retrigger rightmost Joker per Echo card scored", 7, rarity = 2),
+    // Flip Side: retrigger all double-sided-edition jokers once.
+    Offer("j_cry_flip_side", "On the Flip Side", "retrigger all Double-Sided Jokers", 7, rarity = 2),
     Offer("j_cry_wee_fib", "Wee Fibonacci", "+3 Mult per scored A/2/3/5/8 (scaling)", 6),
     Offer("j_cry_meteor", "Meteor", "+75 Chips per Foil joker", 5),
     Offer("j_cry_exoplanet", "Exoplanet", "+15 Mult per Holo joker", 5),

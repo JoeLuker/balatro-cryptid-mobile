@@ -57,6 +57,8 @@ class Sctx {
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
     var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
+    var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
+    var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -109,6 +111,26 @@ object Score {
                 ctx.blueprintDepth--
                 return ret
             }
+        }
+        // RETRIGGER_JOKER_CHECK: each board joker votes whether to retrigger ctx.retriggeredJoker
+        // (SMODS.calculate_retriggers, utils.lua:1602). Mirrors the per-card repetition guard.
+        // The check fires ONLY in this sub-loop (jokerRetriggerCheck=true); not re-nested (like Lua's guard).
+        if (ctx.jokerRetriggerCheck) {
+            val rj = ctx.retriggeredJoker ?: return null
+            when (j.key) {
+                // chad: retrigger the LEFTMOST board joker j.n times (config.extra.retriggers=2).
+                // If Chad itself is leftmost it retriggers itself (correct; Lua has no self-exclusion here).
+                "j_cry_chad" -> if (rj === ctx.board.firstOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
+                // loopy: retrigger all OTHER board jokers min(j.n, 40) times (j.n = Jolly Jokers sold; default 0).
+                "j_cry_loopy" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = minOf(j.n, 40) }
+                // spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored;
+                //   accumulated during the per-card pass when m_cry_echo enhancement is present — no-op until
+                //   m_cry_echo is modelled in the Enhancement enum).
+                "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
+                // flip_side: retrigger any joker with the double-sided edition once.
+                "j_cry_flip_side" -> if (rj.edition == "cry_double_sided") return Fx().apply { repetitions = 1 }
+            }
+            return null
         }
         val oc = ctx.otherCard
         // INDIVIDUAL: a joker reacting to each scored card (context.individual, cardarea == G.play)
@@ -445,22 +467,30 @@ object Score {
             ctx.held = false
         }
 
-        // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly) — board order.
-        // calcJoker self-resolves the copy-jokers (Blueprint/Brainstorm/Old Blueprint) and primus (Emult pow).
-        // GAP: no joker-RETRIGGER dispatch. Each joker_main fires exactly once; the only reps loop is
-        // per-scored-card (above). Cryptid's context.retrigger_joker_check family — chad (retriggers the
-        // leftmost joker), spectrogram, flip_side, blur, m_cry_loopy, m_cry_echo — is therefore UNWIRED
-        // pending a dedicated joker-retrigger pass here. See port-notes/cryptid-jokers-translations.json (j_cry_chad).
+        // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly), then a
+        // joker-retrigger sub-loop (context.retrigger_joker_check, utils.lua:1602) — board order.
+        // calcJoker self-resolves copy-jokers and primus. The retrigger sub-loop mirrors the per-card
+        // reps loop: every board joker votes on retrigger count, then the main effect fires again.
+        // Non-recursive (jokerRetriggerCheck=true suppresses further retrigger collection).
+        fun applyJokerFx(fx: Fx) {
+            if (fx.chipMod != 0.0) chips += fx.chipMod
+            if (fx.xChipMod != 1.0) chips *= fx.xChipMod
+            if (fx.multMod != 0.0) mult += fx.multMod
+            if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)
+        }
         for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
-            calcJoker(j, ctx)?.let { fx ->
-                if (fx.chipMod != 0.0) chips += fx.chipMod
-                if (fx.xChipMod != 1.0) chips *= fx.xChipMod   // X-chips multiplies the running chip total
-                if (fx.multMod != 0.0) mult += fx.multMod
-                if (fx.xMultMod != 1.0) mult *= fx.xMultMod
-                if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // Emult raises mult to a power (applied last)
-            }
+            calcJoker(j, ctx)?.let { applyJokerFx(it) }
             when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
+            // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
+            // ask every board joker whether to retrigger j (once, non-recursive per Lua guard).
+            ctx.jokerRetriggerCheck = true; ctx.retriggeredJoker = j
+            var jokerReps = 0
+            for (retriggerVoter in jokers) jokerReps += calcJoker(retriggerVoter, ctx)?.repetitions ?: 0
+            ctx.jokerRetriggerCheck = false; ctx.retriggeredJoker = null
+            ctx.jokerMain = true  // restore for re-fires
+            repeat(jokerReps) { calcJoker(j, ctx)?.let { applyJokerFx(it) } }
             ctx.jokerMain = false
         }
 
