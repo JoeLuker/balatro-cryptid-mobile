@@ -36,7 +36,10 @@ love.update = function(dt, ...)
     -- 1) at the menu -> start a run on a fixed seed
     if phase == 'boot' and G and G.STAGE == G.STAGES.MAIN_MENU and G.STATE == G.STATES.MENU then
         mark('MENU')
-        pcall(function() if G.SETTINGS then G.SETTINGS.tutorial_complete = true end end)  -- skip the first-run tutorial overlay
+        -- skip the tutorial; reduced_motion zeroes the idle card sway (cardarea.lua:454/460:
+        -- the 0.02*sin / 0.03*sin terms) so the captured frame is the STATIC base layout that the
+        -- rebuild's frozen repro renders — otherwise we'd diff a static frame vs a live animation.
+        pcall(function() if G.SETTINGS then G.SETTINGS.tutorial_complete = true; G.SETTINGS.reduced_motion = true end end)
         -- conf.lua sets t.window.width/height = 0 → LÖVE uses the desktop size, so the 3840x2160 Xvfb
         -- screen already gives a 3840x2160 window (the pixel gate needs that exact size). No mid-run
         -- setMode — resizing after boot glitches the menu logo over the board.
@@ -95,8 +98,11 @@ love.update = function(dt, ...)
                     tostring(G.GAME.blind and G.GAME.blind.chips), tostring(G.GAME.current_round.hands_left),
                     tostring(G.GAME.current_round.discards_left)))
                 for i, c in ipairs(G.hand.cards) do
-                    print(string.format('REF: hand[%d] id=%s suit=%s value=%s', i, tostring(c.base.id), tostring(c.base.suit), tostring(c.base.value)))
+                    print(string.format('REF: hand[%d] id=%s suit=%s value=%s VTx=%.4f VTy=%.4f Tr=%.4f VTr=%.4f Tw=%.4f Th=%.4f',
+                        i, tostring(c.base.id), tostring(c.base.suit), tostring(c.base.value),
+                        c.VT.x, c.VT.y, c.T.r, c.VT.r, c.T.w, c.T.h))
                 end
+                print(string.format('REF: hand_area T x=%.4f y=%.4f w=%.4f h=%.4f', G.hand.T.x, G.hand.T.y, G.hand.T.w, G.hand.T.h))
                 print(string.format('REF: play_cards=%d deck_cards=%d discard_cards=%d hand_cards=%d',
                     #G.play.cards, #G.deck.cards, #G.discard.cards, #G.hand.cards))
             end)

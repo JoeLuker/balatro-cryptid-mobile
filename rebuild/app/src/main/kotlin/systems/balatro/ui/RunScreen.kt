@@ -1581,16 +1581,14 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // is fit into the surface by the aspect branch — width-constrained when the surface is squarer
         // than the room (aspect < 22/12.9), else height-constrained — which is exactly min(W/22, H/12.9).
         // The 22u-wide room is centred; ROOM.T.x/y are the room interior's screen-top-left origin (in
-        // units), so card areas land at (ROOM.T + cardArea.T) regardless of device aspect (the bref_3
-        // 16:9 capture happens to be width-constrained → ROOM.T.y≈0.44; a squarer Fold letterboxes).
-        // Parity (repro) forces the WIDTH-constrained fit that the bref_3 reference was captured at
-        // (a 16:9 image where the room overflows height and is cropped), so the pixel-diff is
-        // apples-to-apples. Live play uses Balatro's faithful aspect branch (min) — width-constrained
-        // on a squarer surface, height-constrained otherwise. The room-origin formula is identical for
-        // both (the room always centres); only u differs.
-        val u = if (s.repro) maxWidth.value / ROOM_W else uiScaleFor(maxWidth.value, maxHeight.value)
+        // units), so card areas land at (ROOM.T + cardArea.T) regardless of device aspect.
+        // REFSHOT1 was captured at 3840×2160: aspect = 1.778 > 22/12.9 = 1.705 → HEIGHT-constrained
+        // (u = min(3840/22, 2160/12.9) = min(174.5, 167.4) = 167.4 px/unit). Repro uses the same
+        // min(W/22, H/12.9) formula so pixel positions are apples-to-apples with the reference.
+        val u = uiScaleFor(maxWidth.value, maxHeight.value)
         val roomTx = (maxWidth.value / u - ROOM_W) / 2f + ROOM_PADDING_W
         val roomTy = (maxHeight.value / u - ROOM_H) / 2f + ROOM_PADDING_H
+        android.util.Log.d("BalatroLayout", "repro=${s.repro} maxW=${maxWidth.value} maxH=${maxHeight.value} u=$u roomTx=$roomTx roomTy=$roomTy uRepro=${maxWidth.value/ROOM_W} uLive=${uiScaleFor(maxWidth.value, maxHeight.value)}")
         CompositionLocalProvider(LocalUIScale provides u, LocalStaticUi provides s.repro) {
             // ROUND's play field is positioned at ABSOLUTE room coordinates over the full surface
             // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
@@ -2094,6 +2092,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val cardH = (PF.CARD_H * u).dp
     val dens = androidx.compose.ui.platform.LocalDensity.current
     val cardWpx = with(dens) { cardW.toPx() }; val cardHpx = with(dens) { cardH.toPx() }
+    // DEBUG: log u and card pixel size once
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        android.util.Log.d("BalatroDebug", "u=$u cardWpx=$cardWpx cardHpx=$cardHpx density=${dens.density} roomTx=$roomTx roomTy=$roomTy")
+    }
     // edition shaders are AGSL (API 33+); only on the live path (the static repro frame has no editions).
     val foilOn = !s.repro && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
     val countSp = (0.5f * u * FONT_RATIO).sp
@@ -2120,12 +2122,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
     val dealClock = remember { doubleArrayOf(0.0) }
     val jokerMatDone = remember { booleanArrayOf(false) }   // one-shot: jokers materialized IN (demo)
+    val debugFrameCount = remember { intArrayOf(0) }
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
             withFrameNanos { now ->
                 val dt = if (last == 0L) 1.0 / 60.0 else ((now - last) / 1e9).coerceIn(1e-4, 0.05)
                 last = now
+                debugFrameCount[0]++
                 // The engine always RUNS (cards spring to rest); repro only freezes the idle wobble
                 // (reducedMotion) — not movement — so cards still settle to their resting T for the
                 // parity screenshot. (Pausing move() would strand cards at their spawn point.)
@@ -2184,6 +2188,17 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 host.events.update(dt)
                 for (m in host.scene.moveables) m.move(host.clock)
                 host.scene.flushRemovals()
+                // DEBUG: log hand card T.r and VT.r every 300 frames (~5s)
+                if (debugFrameCount[0] % 300 == 0) {
+                    android.util.Log.d("BalatroDebug", "frame=${debugFrameCount[0]} u=$u cardWpx=${cardWpx.toInt()} cardHpx=${cardHpx.toInt()} roomTx=$roomTx roomTy=$roomTy repro=${s.repro}")
+                    host.hand.cards.forEachIndexed { i, m ->
+                        val pxLeft = ((roomTx + m.VT.x.toFloat()) * u * dens.density)
+                        val pxTop = ((roomTy + m.VT.y.toFloat()) * u * dens.density)
+                        val pxBot = pxTop + cardHpx
+                        val pxRight = pxLeft + cardWpx
+                        android.util.Log.d("BalatroDebug", "hand[$i] VT.x=${m.VT.x.let { String.format("%.3f", it) }} VT.y=${m.VT.y.let { String.format("%.3f", it) }} VT.r=${m.VT.r.let { String.format("%.4f", it) }} VT.scale=${m.VT.scale.let { String.format("%.4f", it) }} pxLeft=${pxLeft.toInt()} pxTop=${pxTop.toInt()} pxRight=${pxRight.toInt()} pxBot=${pxBot.toInt()}")
+                    }
+                }
                 frame.value = now
             }
         }
@@ -2264,7 +2279,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         frame.value.let {}    // subscribe to the engine tick so the cards redraw at their new VT each frame
         s.owned.forEachIndexed { i, o ->
             val m = host.jokers.cards.getOrNull(i) ?: return@forEachIndexed
-            val rDeg = (m.VT.r * 57.2958).toFloat()
+            val rDeg = -(m.VT.r * 57.2958).toFloat()
             Box(off(m.VT.x.toFloat(), m.VT.y.toFloat())) {
                 Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                     jokerCells[o.offer.key]?.let {
@@ -2351,7 +2366,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 val m = host.play.cards.getOrNull(i) ?: return@forEachIndexed
                 val diss = m.dissolve.toFloat()      // >0 once this card is shattering (dissolve.fs burn)
                 Box(off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
-                    rotationZ = (m.VT.r * 57.2958).toFloat()
+                    rotationZ = -(m.VT.r * 57.2958).toFloat()
                     scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
                     if (foilOn && diss > 0f)
                         renderEffect = dissolveRenderEffect(diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered)
@@ -2371,10 +2386,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 m.states.drag.isOn = pressed
                 val isFaceDown = i in s.faceDown
                 val isTarotTarget = s.pendingTarot != null && i in s.tarotTarget
+                // Love2D rotate(theta) is CCW in math (CW on screen because y-down).
+                // Compose rotationZ positive = CW on screen. Negate to match Love2D sign convention.
+                val rotZDeg = -(m.VT.r * 57.2958).toFloat()
+                val scaleFactor = m.VT.scale.toFloat()
                 Box(
                     off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
-                        rotationZ = (m.VT.r * 57.2958).toFloat()
-                        scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
+                        rotationZ = rotZDeg
+                        scaleX = scaleFactor; scaleY = scaleFactor
                     }.clickable(interaction, indication = null, enabled = !s.scoring) { s.toggle(i) }
                     .then(if (isTarotTarget) Modifier.border(2.dp, Balatro.Purple, RoundedCornerShape(4.dp)) else Modifier)
                 ) {
@@ -2405,7 +2424,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             BTxt("${s.hand.size}/8", Balatro.White, countSp)
         }
         // action bar: tarot-use mode (Use / Cancel) or normal (Play / Sort / Discard).
-        if (!s.scoring && s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
+        // contentAlignment=TopCenter: Balatro centres the button row within the hand width — the UI
+        // tree width is narrower than HAND_W, so without centring it left-aligns ~400px too far left.
+        if (!s.scoring && s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
             if (s.pendingTarot != null) {
                 // Tarot-use mode: Use (enabled when ≥1 target) + Cancel buttons.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
@@ -2479,7 +2500,7 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
             val sp = springs[i]
             Box(
                 Modifier.padding(horizontal = (0.04f * u).dp).graphicsLayer {
-                    scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
+                    scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = -(sp.vr * 57.2958f)
                 }
             ) { CardFace(card, cells[card], cardBase, Modifier.size(cardW, cardH), shadowHeight = 0.1f) }
         }
