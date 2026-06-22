@@ -61,7 +61,7 @@ internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVE
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
 internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST }
 internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
-internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
+internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val rarity: Int = 1, val edition: Edition = Edition.NONE)
 internal data class Owned(val offer: Offer, val fj: FJoker)
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
@@ -80,19 +80,19 @@ private val CATALOG = listOf(
     Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
     Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
     // --- vanilla, individual (already faithful in calcJoker) ---
-    Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5),
-    Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5),
-    Offer("j_fibonacci", "Fibonacci", "+8 Mult / A,2,3,5,8", 8),
+    Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5, rarity = 2),
+    Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5, rarity = 2),
+    Offer("j_fibonacci", "Fibonacci", "+8 Mult / A,2,3,5,8", 8, rarity = 2),
     Offer("j_scary_face", "Scary Face", "+30 Chips / face card", 4),
     Offer("j_smiley", "Smiley Face", "+5 Mult / face card", 4),
-    Offer("j_triboulet", "Triboulet", "x2 Mult / King or Queen", 8),
+    Offer("j_triboulet", "Triboulet", "x2 Mult / King or Queen", 8, rarity = 4),
     Offer("j_walkie_talkie", "Walkie Talkie", "10 or 4: +10 Chips & +4 Mult", 4),
     Offer("j_photograph", "Photograph", "x2 Mult on first face card", 5),
     // --- vanilla, joker_main flat ---
     Offer("j_half", "Half Joker", "+20 Mult if <= 3 cards", 5),
-    Offer("j_stuntman", "Stuntman", "+250 Chips", 7),
-    Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6),
-    Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6),
+    Offer("j_stuntman", "Stuntman", "+250 Chips", 7, rarity = 3),
+    Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6, rarity = 2),
+    Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6, rarity = 2),
     // --- vanilla "+Chips if hand contains <type>" family (j_sly..j_crafty) ---
     Offer("j_sly", "Sly Joker", "+50 Chips if hand has a Pair", 3),
     Offer("j_wily", "Wily Joker", "+100 Chips if hand has Three of a Kind", 4),
@@ -108,16 +108,16 @@ private val CATALOG = listOf(
     // --- vanilla scoring-set modifier ---
     Offer("j_splash", "Splash", "every played card counts in scoring", 3),
     // --- vanilla hand-detection hooks ---
-    Offer("j_four_fingers", "Four Fingers", "Flushes & Straights need only 4 cards", 7),
-    Offer("j_shortcut", "Shortcut", "Straights can skip one rank", 7),
-    Offer("j_smeared", "Smeared Joker", "Hearts/Diamonds & Spades/Clubs count as one suit", 7),
+    Offer("j_four_fingers", "Four Fingers", "Flushes & Straights need only 4 cards", 7, rarity = 2),
+    Offer("j_shortcut", "Shortcut", "Straights can skip one rank", 7, rarity = 2),
+    Offer("j_smeared", "Smeared Joker", "Hearts/Diamonds & Spades/Clubs count as one suit", 7, rarity = 2),
     // --- vanilla face / retrigger hooks ---
-    Offer("j_pareidolia", "Pareidolia", "every card counts as a face card", 5),
-    Offer("j_sock_and_buskin", "Sock and Buskin", "retrigger every played face card", 6),
+    Offer("j_pareidolia", "Pareidolia", "every card counts as a face card", 5, rarity = 2),
+    Offer("j_sock_and_buskin", "Sock and Buskin", "retrigger every played face card", 6, rarity = 2),
     Offer("j_hanging_chad", "Hanging Chad", "retrigger the first scored card 2x", 4),
-    Offer("j_dusk", "Dusk", "retrigger all played cards on last hand", 6),
-    Offer("j_hack", "Hack", "retrigger 2s, 3s, 4s, and 5s", 6),
-    Offer("j_mime", "Mime", "retrigger all held-in-hand card abilities", 6),
+    Offer("j_dusk", "Dusk", "retrigger all played cards on last hand", 6, rarity = 2),
+    Offer("j_hack", "Hack", "retrigger 2s, 3s, 4s, and 5s", 6, rarity = 2),
+    Offer("j_mime", "Mime", "retrigger all held-in-hand card abilities", 6, rarity = 2),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
@@ -201,7 +201,7 @@ private val CATALOG = listOf(
     Offer("j_cry_many_lost_minds", "Many Lost Minds", "+52! Chips if cry_WholeDeck", 9),
     Offer("j_cry_jtron", "J-Tron", "mult^(1 + Jokers on board)", 9),
     // --- vanilla held-in-hand jokers ---
-    Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8),
+    Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8, rarity = 3),
     Offer("j_shoot_the_moon", "Shoot the Moon", "each Queen held gives +13 Mult", 1),
     Offer("j_raised_fist", "Raised Fist", "+2x lowest held card's rank in Mult", 1),
     // --- vanilla n-based flat jokers ---
@@ -209,32 +209,32 @@ private val CATALOG = listOf(
     Offer("j_supernova", "Supernova", "+1 Mult per times this hand type played", 1),
     Offer("j_blue_joker", "Blue Joker", "+2 Chips per card left in deck", 1),
     Offer("j_banner", "Banner", "+30 Chips per remaining discard", 1),
-    Offer("j_stone", "Stone Joker", "+25 Chips per Stone card in deck", 2),
-    Offer("j_steel_joker", "Steel Joker", "x1.2 Mult per Steel card in hand", 2),
-    Offer("j_drivers_license", "Driver's License", "x3 Mult if 16+ enhanced cards in deck", 8),
-    Offer("j_baseball", "Baseball Card", "x1.5 Mult per Uncommon joker on board", 8),
+    Offer("j_stone", "Stone Joker", "+25 Chips per Stone card in deck", 2, rarity = 2),
+    Offer("j_steel_joker", "Steel Joker", "x1.2 Mult per Steel card in hand", 2, rarity = 2),
+    Offer("j_drivers_license", "Driver's License", "x3 Mult if 16+ enhanced cards in deck", 8, rarity = 3),
+    Offer("j_baseball", "Baseball Card", "x1.5 Mult per Uncommon joker on board", 8, rarity = 3),
     // --- vanilla copy-jokers (copy the target joker's effect in every context) ---
-    Offer("j_blueprint", "Blueprint", "copies the joker to the right", 10),
-    Offer("j_brainstorm", "Brainstorm", "copies the leftmost joker", 10),
+    Offer("j_blueprint", "Blueprint", "copies the joker to the right", 10, rarity = 3),
+    Offer("j_brainstorm", "Brainstorm", "copies the leftmost joker", 10, rarity = 3),
     // --- vanilla accumulator-mult jokers ---
     Offer("j_green_joker", "Green Joker", "+1 Mult per hand played, -1 per discard", 1),
-    Offer("j_spare_trousers", "Spare Trousers", "+2 Mult each time Two Pair or Full House played", 2),
+    Offer("j_spare_trousers", "Spare Trousers", "+2 Mult each time Two Pair or Full House played", 2, rarity = 2),
     Offer("j_swashbuckler", "Swashbuckler", "+Mult equal to total sell value of jokers", 1),
     Offer("j_red_card", "Red Card", "+3 Mult each time a pack is skipped", 1),
     // --- vanilla accumulator-Xmult jokers ---
-    Offer("j_obelisk", "Obelisk", "+0.2 Xmult per hand NOT this type played", 8),
-    Offer("j_hologram", "Hologram", "+0.25 Xmult per card added to deck", 2),
-    Offer("j_ramen", "Ramen", "starts x2 Mult, -0.01 per discarded card", 2),
-    Offer("j_campfire", "Campfire", "+0.25 Xmult per joker sold", 8),
-    Offer("j_loyalty_card", "Loyalty Card", "x4 Mult every 5 hands played", 2),
-    Offer("j_throwback", "Throwback", "+0.25 Xmult per blind skipped this run", 2),
+    Offer("j_obelisk", "Obelisk", "+0.2 Xmult per hand NOT this type played", 8, rarity = 3),
+    Offer("j_hologram", "Hologram", "+0.25 Xmult per card added to deck", 2, rarity = 2),
+    Offer("j_ramen", "Ramen", "starts x2 Mult, -0.01 per discarded card", 2, rarity = 2),
+    Offer("j_campfire", "Campfire", "+0.25 Xmult per joker sold", 8, rarity = 3),
+    Offer("j_loyalty_card", "Loyalty Card", "x4 Mult every 5 hands played", 2, rarity = 2),
+    Offer("j_throwback", "Throwback", "+0.25 Xmult per blind skipped this run", 2, rarity = 2),
     // --- vanilla accumulator-chips jokers ---
     Offer("j_runner", "Runner", "+15 Chips each Straight played", 1),
     Offer("j_square", "Square Joker", "+4 Chips each time 5-card hand played", 1),
-    Offer("j_castle", "Castle", "+3 Chips per suit discarded from flush", 2),
-    Offer("j_wee", "Wee Joker", "+8 Chips each time 4-card Straight played", 8),
+    Offer("j_castle", "Castle", "+3 Chips per suit discarded from flush", 2, rarity = 2),
+    Offer("j_wee", "Wee Joker", "+8 Chips each time 4-card Straight played", 8, rarity = 3),
     // --- vanilla hands/discards-remaining jokers (now wired) ---
-    Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
+    Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6, rarity = 2),
     Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
 )
 private const val HANDS = 4
@@ -568,7 +568,7 @@ internal class RunState {
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
-        val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
+        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)

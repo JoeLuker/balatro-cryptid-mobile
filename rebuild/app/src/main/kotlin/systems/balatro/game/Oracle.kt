@@ -112,6 +112,9 @@ object Oracle {
         Case("Pair of Kings + mask (faces retrigger x3)", PlayingCard.hand("S_K", "H_K"), 180.0, j(FJoker("j_cry_mask"))),
         Case("Pair of aces + wee_fib (2 fibs -> +6 Mult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_wee_fib"))),
         Case("Pair + Foil Joker + meteor (+75 Chips/Foil joker)", PlayingCard.hand("S_A", "H_A"), 942.0, j(FJoker("j_joker", edition = "Foil"), FJoker("j_cry_meteor"))),
+        // Baseball Card (rarity=3 Rare) fires X1.5 per Uncommon (rarity=2) board joker.
+        // [Baseball(r=3), Fibonacci(r=2), Fibonacci(r=2)]: 2 Uncommons → X1.5² = X2.25; Pair chips=32, mult=2*2.25=4.5 → 144.
+        Case("Pair + baseball(r=3),fib(r=2),fib(r=2) (2 Uncommon → x1.5^2)", PlayingCard.hand("S_A", "H_A"), 144.0, j(FJoker("j_baseball", rarity = 3), FJoker("j_fibonacci", rarity = 2), FJoker("j_fibonacci", rarity = 2))),
         Case("TwoPair 2s/As + duos (x2.5 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 230.0, j(FJoker("j_cry_duos"))),
         Case("FullHouse As/Ks + home (x3.5 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1302.0, j(FJoker("j_cry_home"))),
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),
