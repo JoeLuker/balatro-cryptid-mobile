@@ -568,9 +568,16 @@ internal class RunState {
      *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
     fun play() {
         if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
+        // ── hand-detection joker hooks (derived early — needed for both boss gates and scoring) ──
+        val fjokers = owned.map { it.fj }
+        val maxi        = fjokers.any { it.key == "j_cry_maximized" }
+        val fourFingers = fjokers.any { it.key == "j_four_fingers" }
+        val shortcut    = fjokers.any { it.key == "j_shortcut" }
+        val smeared     = fjokers.any { it.key == "j_smeared" }
+        val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
         // ── boss blind play gates ──────────────────────────────────────────────────────────────
         val selIndices = selected   // capture before we compute sel
-        val handType0 = Hands.evaluate(hand.filterIndexed { i, _ -> i in selIndices }).first
+        val handType0 = Hands.evaluate(hand.filterIndexed { i, _ -> i in selIndices }, rankOf, fourFingers, shortcut, smeared).first
         if (boss == Boss.THE_PSYCHIC && selIndices.size != 5) return    // THE_PSYCHIC: must play 5
         if (boss == Boss.THE_EYE && handType0 in eyeUsedHands) return  // THE_EYE: no repeat type
         if (boss == Boss.THE_MOUTH && mouthLockedHand != null && handType0 != mouthLockedHand) return  // THE_MOUTH: locked
@@ -578,10 +585,7 @@ internal class RunState {
         val held = hand.filterIndexed { i, _ -> i !in selected }
         // FAITHFUL Score engine: maximized-aware hand type drives the planet level; FJokers carry
         // scaling state and accumulate across hands (krusty/primus mutate during scoring).
-        val fjokers = owned.map { it.fj }
-        val maxi = fjokers.any { it.key == "j_cry_maximized" }
-        val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
-        val handType = Hands.evaluate(sel, rankOf).first
+        val handType = Hands.evaluate(sel, rankOf, fourFingers, shortcut, smeared).first
         val level = handLevels.level(handType)
         val trace = ArrayList<ScoreStep>()
         // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
