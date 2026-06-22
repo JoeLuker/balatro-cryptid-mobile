@@ -149,10 +149,15 @@ object Score {
             "j_half"      -> if (ctx.fullHand.size <= 3) return Fx().apply { multMod = 20.0 }       // +20 Mult if <=3 cards
             "j_stuntman"  -> return Fx().apply { chipMod = 250.0 }                                  // +250 Chips
             "j_seeing_double" -> {                                                                  // X2 if a Club + a non-Club score
-                val club = ctx.scoringHand.any { it.isSuit(Suit.C, ctx.smeared) }
-                val other = ctx.scoringHand.any { it.enhancement != Enhancement.STONE && !it.isSuit(Suit.C, ctx.smeared) }
+                // seeing_double_check (utils.lua:2474) tallies via is_suit WITHOUT bypass_debuff, so a
+                // debuffed card returns nil and is not counted on either side — exclude debuffed cards.
+                val nd = ctx.scoringHand.filter { it.suit != ctx.debuffSuit }
+                val club = nd.any { it.isSuit(Suit.C, ctx.smeared) }
+                val other = nd.any { it.enhancement != Enhancement.STONE && !it.isSuit(Suit.C, ctx.smeared) }
                 if (club && other) return Fx().apply { xMultMod = 2.0 }
             }
+            // Flower Pot calls is_suit('<suit>', true) with bypass_debuff=true (card.lua:4358), so it COUNTS
+            // debuffed cards' suits — the all-scoring-cards scan (incl. debuffed) is correct; do NOT exclude them.
             "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s, ctx.smeared) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
             // --- vanilla "+chips if played hand contains <type>" family (game.lua j_sly..j_crafty;

@@ -173,6 +173,10 @@ object Oracle {
         Case("Pair S_A,C_A + The Club", PlayingCard.hand("S_A", "C_A"), 42.0, debuff = Debuff.DebuffSuit(Suit.C)),
         // Photograph + spade debuff: debuffed S_K is never a face, so X2 lands on the non-debuffed H_K: (10 + 10) * (2 * 2) = 80.
         Case("Pair S_K,H_K + photograph under The Goad (X2 on H_K)", PlayingCard.hand("S_K", "H_K"), 80.0, j(FJoker("j_photograph")), debuff = Debuff.DebuffSuit(Suit.S)),
+        // Seeing Double + The Club: the only club (C_K) is debuffed, so it's not counted (no bypass_debuff) → X2 does NOT fire: (10 + 10) * 2 = 40.
+        Case("Pair C_K,H_K + seeing_double under The Club (no fire)", PlayingCard.hand("C_K", "H_K"), 40.0, j(FJoker("j_seeing_double")), debuff = Debuff.DebuffSuit(Suit.C)),
+        // Flower Pot + The Goad: is_suit uses bypass_debuff=true, so the debuffed S_A still counts → all 4 suits, X3 STILL fires: (60 + 11+11+11) * (7*3) = 1953.
+        Case("FoaK aces + flower_pot under The Goad (still fires)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A"), 1953.0, j(FJoker("j_flower_pot")), debuff = Debuff.DebuffSuit(Suit.S)),
         // --- steel held ---
         Case("Pair of aces + 1 steel held", PlayingCard.hand("S_A", "H_A"), 96.0, held = listOf(en("S_K", Enhancement.STEEL))),
         Case("Pair of aces + 2 steel held", PlayingCard.hand("S_A", "H_A"), 144.0, held = listOf(en("S_K", Enhancement.STEEL), en("D_K", Enhancement.STEEL))),
