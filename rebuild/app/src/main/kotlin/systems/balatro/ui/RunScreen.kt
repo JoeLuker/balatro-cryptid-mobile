@@ -619,7 +619,7 @@ internal class RunState {
         )
         selected = emptySet()
         handsLeft = 4; discardsLeft = 4; roundScore = 0.0
-        lastResult = ScoreResult(HandType.HIGH_CARD, 0.0, 0.0, 0.0)
+        lastResult = null                    // no hand played yet — hand name row must be blank
         lastSteps = emptyList()
         scoreCards = emptyList()
         displayChips = 0.0; displayMult = 0.0; popIndex = -1
