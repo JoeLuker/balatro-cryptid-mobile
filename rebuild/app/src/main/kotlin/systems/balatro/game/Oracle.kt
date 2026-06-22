@@ -114,8 +114,9 @@ object Oracle {
         Case("Pair of aces + wee_fib (2 fibs -> +6 Mult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_wee_fib"))),
         Case("Pair + Foil Joker + meteor (+75 Chips/Foil joker)", PlayingCard.hand("S_A", "H_A"), 942.0, j(FJoker("j_joker", edition = "Foil"), FJoker("j_cry_meteor"))),
         // Baseball Card (rarity=3 Rare) fires X1.5 per Uncommon (rarity=2) board joker.
-        // [Baseball(r=3), Fibonacci(r=2), Fibonacci(r=2)]: 2 Uncommons → X1.5² = X2.25; Pair chips=32, mult=2*2.25=4.5 → 144.
-        Case("Pair + baseball(r=3),fib(r=2),fib(r=2) (2 Uncommon → x1.5^2)", PlayingCard.hand("S_A", "H_A"), 144.0, j(FJoker("j_baseball", rarity = 3), FJoker("j_fibonacci", rarity = 2), FJoker("j_fibonacci", rarity = 2))),
+        // [Baseball(r=3), 2× Fibonacci(r=2)]: Baseball = X1.5 per Uncommon → X1.5² = X2.25. KINGS chosen so the two
+        // Fibonaccis (fire only on A/2/3/5/8) add nothing, isolating Baseball: Pair chips=30, mult=2*2.25=4.5 → 135.
+        Case("Pair Kings + baseball(r=3) + 2 Uncommon (x1.5^2 = x2.25)", PlayingCard.hand("S_K", "H_K"), 135.0, j(FJoker("j_baseball", rarity = 3), FJoker("j_fibonacci", rarity = 2), FJoker("j_fibonacci", rarity = 2))),
         // Thalia: Xmult = C(n,2) where n = distinct rarities on the board (Thalia itself is rarity=4).
         // Board [Thalia(r=4), Joker(r=1), Fibonacci(r=2)]: rarities {4,1,2} → n=3 → C(3,2)=3 → X3 Mult.
         // Per-card: S_A chips+11 fib+8 + H_A chips+11 fib+8 → chips=32, mult=18.
@@ -411,9 +412,10 @@ object Oracle {
         // j_cry_nebulous(+30c) + j_cry_undefined(+5m): chips=0+30=30, mult=0+5=5 → floor(30×5)=150.
         Case("CRY_NONE (empty hand) + cry_nebulous (+30c) + cry_undefined (+5m) → 150",
             emptyList(), 150.0, j(FJoker("j_cry_nebulous"), FJoker("j_cry_undefined"))),
-        // + j_cry_the (X2 on CRY_NONE): chips=30, mult=(0+5)*2=10 → floor(30×10)=300.
-        Case("CRY_NONE + cry_the(X2) + cry_nebulous(+30c) + cry_undefined(+5m) → 300",
-            emptyList(), 300.0, j(FJoker("j_cry_the"), FJoker("j_cry_nebulous"), FJoker("j_cry_undefined"))),
+        // + j_cry_the (X2 on CRY_NONE) — applied LAST (joker_main runs in board order, base mult=0): chips=30,
+        // mult=(0+5)*2=10 → floor(30×10)=300. (cry_the FIRST would give mult=0*2+5=5 → 150, so order matters here.)
+        Case("CRY_NONE + cry_nebulous(+30c) + cry_undefined(+5m) + cry_the(X2 last) → 300",
+            emptyList(), 300.0, j(FJoker("j_cry_nebulous"), FJoker("j_cry_undefined"), FJoker("j_cry_the"))),
         // CRY_BULWARK: 5 Stone cards. Each Stone scores +50 chips (rank id=-1 → 0 rank chips; +50 bonus).
         // Base=100 chips, 10 mult. 5×50=250 stone chips → chips=350.
         // j_cry_stronghold X5 → mult=10×5=50 → floor(350×50)=17500.
@@ -443,9 +445,10 @@ object Oracle {
         // Regression: Full House with suit-distinct triplet+pair must NOT be classified as CRY_ULTPAIR.
         // [S_A, S_A, S_A(triplet), H_K, H_K(pair)] → Full House, not CRY_ULTPAIR. pairSuit(AAA)=Spades, pairSuit(KK)=Hearts
         // (different suits) but top=FULL_HOUSE before Two Pair branch → CRY_ULTPAIR guard fires → no clash bonus.
-        // Full House base: chips=40, mult=4. Level 1: floor(40×4)=160. cry_clash checks scoringName==CRY_ULTPAIR → false.
-        Case("FullHouse S_A×3,H_K×2 + cry_clash: scoringName=FULL_HOUSE (not CRY_ULTPAIR) → 160",
-            PlayingCard.hand("S_A", "S_A", "S_A", "H_K", "H_K"), 160.0, j(FJoker("j_cry_clash"))),
+        // Full House base: chips=40, mult=4. All 5 cards score: A,A,A,K,K = 11+11+11+10+10 = 53 card chips →
+        // (40+53)*4 = 372. cry_clash checks scoringName==CRY_ULTPAIR → false (it's FULL_HOUSE), so no X12 fires.
+        Case("FullHouse S_A×3,H_K×2 + cry_clash: scoringName=FULL_HOUSE (not CRY_ULTPAIR) → 372",
+            PlayingCard.hand("S_A", "S_A", "S_A", "H_K", "H_K"), 372.0, j(FJoker("j_cry_clash"))),
         // --- CRY_CLUSTERFUCK hand type ---
         // CRY_CLUSTERFUCK: ≥8 non-Gold cards with no pairs, no flush, no straight.
         // Source: cry_cfpart (SpectralPack/Cryptid lib/content.lua): #eligible > 7 AND no _flush/_straight/_all_pairs.
