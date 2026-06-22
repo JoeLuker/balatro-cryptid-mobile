@@ -214,7 +214,12 @@ object Oracle {
         // cry_pizza: j.x accumulates +0.5 per pizza_slice sold; joker_main reads it. Same accumulated-x pattern.
         Case("Pair of aces + pizza @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza", x = 1.5))),
         Case("Pair of aces + wheelhope @x=1.5 (1 WoF trigger)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_wheelhope", x = 1.5))),
+        // alt_wheel_of_fortune: same accumulated-x pattern as wheelhope; x grows on wheel_of_fortune pseudorandom_result.
+        Case("Pair of aces + alt_wheel_of_fortune @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_alt_wheel_of_fortune", x = 1.5))),
         Case("Pair of aces + fspinner @chips=30 (+30 Chips)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_cry_fspinner", chips = 30.0))),
+        // membershipcardtwo: j.chips = chips * floor(member_count/chips_mod) pre-computed by run loop; joker_main adds it.
+        // j.chips=18 → chips=32+18=50, mult=2 → floor(50×2)=100.
+        Case("Pair of aces + membershipcardtwo @chips=18 (+18 Chips)", PlayingCard.hand("S_A", "H_A"), 100.0, j(FJoker("j_cry_membershipcardtwo", chips = 18.0))),
         Case("Pair of aces + pirate_dagger @xc=1.5 (x1.5 Xchips)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pirate_dagger", xc = 1.5))),
         // --- batch-16: misc/exotic accumulator-read + triggered eMult ---
         Case("Pair of aces + happyhouse @n=1 (114+ hands played, Emult^4)", PlayingCard.hand("S_A", "H_A"), 512.0, j(FJoker("j_cry_happyhouse", n = 1))),
@@ -324,6 +329,10 @@ object Oracle {
         // --- held-in-hand jokers ---
         // Baron: King held → X1.5 Mult; chips=32, mult=2*1.5=3 → 96.
         Case("Pair of aces + baron (King held)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baron")), held = listOf(PlayingCard.parse("S_K"))),
+        // baron + exponentia: Baron fires x_mult=1.5 in held pass → exponentia.x+=0.03 → Emult=1.03.
+        // joker_main: baron null; exponentia eMult=1.03 → mult=3.0^1.03≈3.091. floor(32×3.091)=98.
+        // (Pre-fix engine skipped exponentia increment for held-card xMult, giving 96 instead of 98.)
+        Case("Pair of aces + baron + exponentia (held King → exp increments)", PlayingCard.hand("S_A", "H_A"), 98.0, j(FJoker("j_baron"), FJoker("j_cry_exponentia")), held = listOf(PlayingCard.parse("S_K"))),
         // Shoot the Moon: Queen held → +13 Mult; chips=32, mult=2+13=15 → 480.
         Case("Pair of aces + shoot_the_moon (Queen held)", PlayingCard.hand("S_A", "H_A"), 480.0, j(FJoker("j_shoot_the_moon")), held = listOf(PlayingCard.parse("S_Q"))),
         // Raised Fist: +2x nominal of lowest held card; 7 held → +14 Mult; chips=32, mult=2+14=16 → 512.

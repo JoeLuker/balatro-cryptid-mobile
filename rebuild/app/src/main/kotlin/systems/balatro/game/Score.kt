@@ -267,7 +267,8 @@ object Score {
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
-            "j_cry_paved_joker", "j_cry_membershipcard", "j_cry_pizza" ->
+            "j_cry_paved_joker", "j_cry_membershipcard", "j_cry_pizza",
+            "j_cry_alt_wheel_of_fortune" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             // clockwork: j.x += xmult_mod(0.25) every 3rd hand (before, non-scoring); joker_main reads j.x
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
@@ -280,6 +281,7 @@ object Score {
             // paved_joker: j.x += xmult_mod(1) when any perishable joker expires (perishable_debuffed, misc_joker.lua:10255)
             // membershipcard: j.x = Xmult_mod(0.1) * member_count (run loop pre-computes; misc_joker.lua:7877)
             // pizza: j.x += xmult_mod(0.5) per pizza_slice sold (end_of_round, misc_joker.lua:10158)
+            // alt_wheel_of_fortune: j.x += extra(0.5) per wheel_of_fortune pseudorandom_result hit (misc_joker.lua:7338)
             "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
@@ -376,6 +378,9 @@ object Score {
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
             "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
+            // membershipcardtwo: +chips = j.chips (pre-computed as chips * floor(member_count/chips_mod); epic.lua:112)
+            // j.chips stores the full pre-computed chip bonus; fires when j.chips > 0.
+            "j_cry_membershipcardtwo" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // --- Cryptid custom hand-type jokers ---
             // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
             // CRY_CLUSTERFUCK is now LIVE (Hands.evaluate detects it for ≥8 non-Gold no-pair/flush/straight cards).
@@ -594,7 +599,12 @@ object Score {
             val heldReps = (1 + heldJokerReps) * (if (mime && effects.any { !it.empty }) 2 else 1)
             repeat(heldReps) {
                 for (fx in effects) {
-                    if (fx.xMult != 0.0) mult *= fx.xMult
+                    if (fx.xMult != 0.0) {
+                        mult *= fx.xMult
+                        // exponentia: hook fires on ANY x_mult key with amount!=1 (exotic.lua:228-251),
+                        // including held-card joker reactions (e.g. Baron's x_mult=1.5 per held King).
+                        if (fx.xMult != 1.0) for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
+                    }
                     if (fx.mult != 0.0) mult += fx.mult
                     if (fx.hMult != 0.0) mult += fx.hMult
                     if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // universe: Emult per held Astral card
