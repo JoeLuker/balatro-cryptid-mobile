@@ -604,14 +604,16 @@ object Score {
         }
 
         // held-in-hand pass: the card's own held effect (steel x1.5) + each joker reacting to held cards.
-        // Jokers may retrigger held cards via context.repetition + context.cardarea == G.hand
-        // (clockwork Effect 1: retrigger Steel-enhanced held cards once when c1==0).
-        // Mime (j_mime) retriggers each held card once IF it produced any effect (card_effects non-empty).
+        // Retrigger sources (context.repetition + context.cardarea == G.hand):
+        //   Mime (j_mime): +1 rep when the card produced any scoring effect (card.lua:3982-3990; extra=1).
+        //   Clockwork Effect 1 (j_cry_clockwork): +1 rep for Steel-enhanced held cards when c1==0
+        //     (epic.lua:2228; j.n = c1, cycles 0→1→0 per hand with limit=2).
+        // All retrigger votes are additive: total reps = 1 + sum(joker votes) + mime vote.
         val mime = jokers.any { it.key == "j_mime" }
         ctx.heldHand = held
         for (card in held) {
             ctx.cardarea = "hand"; ctx.held = true; ctx.otherCard = card
-            // Collect held-card retrigger votes (context.repetition + cardarea=="hand").
+            // Collect held-card joker retrigger votes (Clockwork etc.; Mime counted separately below).
             var heldJokerReps = 0
             ctx.repetition = true
             for (j in jokers) heldJokerReps += calcJoker(j, ctx)?.repetitions ?: 0
