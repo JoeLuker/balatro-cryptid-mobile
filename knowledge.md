@@ -618,3 +618,50 @@ seeing_double_check (utils.lua:2474) tallies via is_suit WITHOUT bypass_debuff -
 
 ### CRY_BULWARK/CRY_CLUSTERFUCK poker_hands dropped HIGH_CARD (folded into PR #18). Vanilla composite hands (misc_functions.lua:562) are added to a results table that keeps base hands; get_highest (686) non-empty for any non-empty hand incl stones → HIGH_CARD always present. Rebuild early-returns set only the composite. Fix: add HIGH_CARD to both sets (CRY_NONE stays empty). giggly/dubious/filler now fire on Bulwark/Clusterfuck. Oracle 224→226. PR #18 now covers both poker_hands-completeness fixes (downgrade chain + CRY HIGH_CARD).
 <!-- session:2026-06-22-80051b53 | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/patch_main_lua.py,.claude/worktrees/relaxed-elbakyan-1c44d4/nix/balatro-cryptid.nix,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh | area:.claude | date:2026-06-22 -->
+
+### SMODS nil crash at main.lua:1410
+The patched `main.lua` indexes global `SMODS` before the mod loader (Lovely/SMODS) has defined it, crashing at boot. Root cause is patch ordering / missing shim, not a syntax error despite LÖVE's misleading "syntax error through patching" message.
+<!-- session:2026-06-22-2af51fd3 | commit:dee18c668693e232586704cfeb071ddd8989ccc2 | files:scripts/patch_main_lua.py,overlay/patches/08-main_lua.patch | area:scripts | date:2026-06-22 -->
+
+### LÖVE print → logcat
+Piping LÖVE's `print` to Android logcat requires patching it in via `patch_main_lua.py` (no native passthrough), needed because emulator/phone boot failures are otherwise opaque.
+<!-- session:2026-06-22-2af51fd3 | commit:dee18c668693e232586704cfeb071ddd8989ccc2 | files:scripts/patch_main_lua.py | area:scripts | date:2026-06-22 -->
+
+### Legacy build-artifact dependency map
+Phase 5 cleanup required mapping every reference to legacy build artifacts across src/config, tools/regen, justfile, docs, and build.sh before cutting, to avoid breaking deploy/regen.
+<!-- session:2026-06-22-2af51fd3 | commit:dee18c668693e232586704cfeb071ddd8989ccc2 | files:justfile,scripts/build.sh,README.md,MIGRATION.md | area:scripts | date:2026-06-22 -->
+
+### Oracle test failures were test-data bugs, not engine bugs
+All three failing cases (baseball, cry_none_the, fullhouse_clash) had the engine computing the vanilla-faithful value; the expected values/joker orderings in the test file were wrong. Independent re-derivation from vanilla rules confirmed engine correctness before editing tests.
+<!-- session:2026-06-22-7c52d4d8 | commit:9c9edd355e4689a1e1446e9998b5544391a516dd | files:rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-22 -->
+
+### `j.n` is never initialized before `Score.score()`
+A whole class of jokers scale by `j.n` (Stone +25/stone-card, Steel X(1+0.2n), Blue +2/deck-card, Banner +30/discard-left, Supernova +mult per hand-type-plays, Abstract +3/board-joker, Driver's License X3 if ≥16 enhanced). The scoring engine reads `j.n` faithfully, but the run loop (`RunScreen.kt`) never populates it, so all these jokers silently score zero bonus in real gameplay. Banner/Supernova should read context directly (`ctx.discardsLeft`, hand-type-play count) rather than `j.n`.
+<!-- session:2026-06-22-7c52d4d8 | commit:9c9edd355e4689a1e1446e9998b5544391a516dd | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-22 -->
+
+### Poker-hand downgrade chain is required for joker firing
+Vanilla's `evaluate_poker_hand` populates `results[]` with all downgraded hand types (a 4-of-a-kind also registers THREE_OF_A_KIND and PAIR). Jokers that check "does this hand contain a PAIR/3oaK" depend on the full `pokerHands` set; omitting the chain breaks them (e.g. Wily, Sly, Jolly) on higher-rank hands — 350+ point divergences.
+<!-- session:2026-06-22-7c52d4d8 | commit:9c9edd355e4689a1e1446e9998b5544391a516dd | files:rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt | area:rebuild | date:2026-06-22 -->
+
+### Copy-joker port is faithful
+Blueprint/Brainstorm/Old Blueprint target resolution (reference-identity match, depth guard `blueprintDepth > board.size`, copy applied at top of `calcJoker`) matches vanilla `blueprint_effect`. Minor acceptable gaps: omitted debuff/`blueprint_compat`/`no_blueprint` checks — negligible because debuffed/incompatible targets return null anyway.
+<!-- session:2026-06-22-7c52d4d8 | commit:9c9edd355e4689a1e1446e9998b5544391a516dd | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-22 -->
+
+### Supernova was wired WRONG, not merely uninitialized (correcting the parity-audit's 'j.n never initialized' framing). RunScreen set supernova.fj.n in scoreBank() — AFTER the score() call AND keyed to the previous hand's type — so it never reflected the hand it scored (off-by-one + wrong key). Vanilla reads G.GAME.hands[scoring_name].played, incremented at state_events.lua:747 BEFORE the joker_main pass (so it INCLUDES the current hand). Fix: engine reads new ctx.scoringPlays=(prior plays of scoring type)+1, set in Score.score() from a handTypePlays map; RunScreen passes pre-increment _handPlayed (same run-scoped counter Obelisk uses). Branch claude/jn-jokers, commit b32c0d3.
+<!-- session:2026-06-22-96db4626 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:.claude/worktrees/jn-jokers/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,.claude/worktrees/jn-jokers/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,.claude/worktrees/jn-jokers/rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt,.claude/worktrees/jn-jokers/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:.claude | date:2026-06-22 -->
+
+### j_cry_boredom audit (REFUTED claim)
+RunScreen.kt:719 DOES pre-resolve boredom each hand (o.fj.n = if Random.nextInt(2)==0 then 1 else 0), wired via owned.map{it.fj} -> Score.score at RunScreen.kt:673/782. Score.kt guards (j.n>0) at lines 173 (retrigger_joker_check) and 262 (repetition/G.play) both fire. Claim that 'j.n stays 0 permanently / no pre-resolve loop' is FALSE. REAL (distinct, low-sev) gap: epic.lua:873/886 calls SMODS.pseudorandom_probability per-card AND per-joker, and pseudoseed('cry_boredom_joker') advances state each call (misc_functions.lua:345) -> each card/joker rolls INDEPENDENTLY. Engine's single per-hand roll is all-or-nothing (every scored card+every other joker retrigger together, or none). Same expected count, wrong variance/correlation; not a deterministic score bug.
+<!-- session:2026-06-22-05f2cbaf | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | date:2026-06-22 -->
+
+### RunScreen is the run-loop monolith
+The bulk of run-loop UI/state (play-field, phases, cash-out, scoring, save/load wiring) lives in a single large `RunScreen.kt`, which is why nearly every turn touched it.
+<!-- session:2026-06-22-cd1fc105 | commit:fe41ec4b8bad3ecc805baf3d5d9dd745ab9b9f85 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-22 -->
+
+### Snapshot tests relocated to save package
+`RunSnapshotTest` moved from `game/` to `save/`, tracking the snapshot/IO code into the `save` package.
+<!-- session:2026-06-22-cd1fc105 | commit:fe41ec4b8bad3ecc805baf3d5d9dd745ab9b9f85 | files:rebuild/app/src/test/kotlin/systems/balatro/save/RunSnapshotTest.kt,rebuild/app/src/main/kotlin/systems/balatro/save/RunSnapshot.kt,rebuild/app/src/main/kotlin/systems/balatro/save/SaveIo.kt | area:rebuild | date:2026-06-22 -->
+
+### Recurring cry-joker bug class
+the scoring engine (Score.kt) has the correct read-path (reads j.n/j.x/check) but the RUN LOOP never populates the accumulator/counter, so the joker is a no-op in real play. The score-oracle stays GREEN because oracle cases hard-code the activated state (e.g. FJoker(n=1,x=7)) — they test the math, not the run-loop wiring. Confirmed instances fixed in PR #21: jimball (j.x never scaled in scoreBank), happyhouse (check counter never incremented), biggestm (j.x never init to 7 at buy). Supernova (PR #19) was the same class. Lesson: oracle-green != joker-works; run-loop accumulator wiring needs separate scrutiny.
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:.claude/worktrees/cry-fixes/rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt,.claude/worktrees/cry-fixes/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,.claude/worktrees/cry-fixes/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,.claude/worktrees/cry-fixes/rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt,.claude/worktrees/cry-fixes/rebuild/app/src/main/kotlin/systems/balatro/game/Hands.kt | area:.claude | date:2026-06-22 -->
