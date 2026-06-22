@@ -56,6 +56,7 @@ class Sctx {
     var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
     var debuffFace: Boolean = false           // THE_PLANT: all face cards (J/Q/K, incl. Pareidolia) score/trigger nothing
+    var debuffCards: Set<PlayingCard>? = null  // THE_PILLAR: specific card instances debuffed (played earlier this Ante)
     var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
@@ -345,7 +346,8 @@ object Score {
             "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // --- Cryptid custom hand-type jokers ---
             // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
-            // CRY_CLUSTERFUCK and CRY_WHOLEDECK remain DORMANT (feature-gated mechanics not yet ported).
+            // CRY_CLUSTERFUCK is now LIVE (Hands.evaluate detects it for ≥8 non-Gold no-pair/flush/straight cards).
+            // CRY_WHOLEDECK remains DORMANT (requires scoring all 52 cards — not yet ported).
             "j_cry_stronghold"       -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { xMultMod = 5.0 }
             "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
             "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
@@ -436,7 +438,8 @@ object Score {
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
             this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
-            this.debuffFace = debuff is Debuff.DebuffFace; this.board = jokers
+            this.debuffFace = debuff is Debuff.DebuffFace
+            this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards; this.board = jokers
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
@@ -469,6 +472,7 @@ object Score {
         for (card in scoringHand) {
             if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue       // suit-debuffed
             if (debuff is Debuff.DebuffFace && (card.isFace || pareidolia)) continue      // THE_PLANT: face-debuffed (Pareidolia makes all cards faces)
+            if (debuff is Debuff.DebuffCards && card in debuff.cards) continue                 // THE_PILLAR: previously played this Ante
             ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = card
             var reps = 1 + (if (card.seal == Seal.RED) 1 else 0)            // red seal repetition
             for (jk in jokers) { ctx.repetition = true; calcJoker(jk, ctx)?.let { reps += it.repetitions }; ctx.repetition = false }  // joker retriggers

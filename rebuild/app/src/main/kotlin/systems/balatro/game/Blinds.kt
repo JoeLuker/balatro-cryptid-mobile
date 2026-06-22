@@ -10,6 +10,9 @@ sealed interface Debuff {
     object Flint : Debuff                          // base Chips and Mult halved (floored)
     data class DebuffSuit(val suit: Suit) : Debuff // cards of this suit score nothing & trigger nothing
     object DebuffFace : Debuff                     // all face cards (J/Q/K, incl. Pareidolia) score/trigger nothing
+    /** THE_PILLAR: specific card instances that were played in a previous hand this Ante are debuffed.
+     *  Identity is tracked by reference (PlayingCard instances are stable within a run). */
+    data class DebuffCards(val cards: Set<PlayingCard>) : Debuff
 }
 
 /**

@@ -24,7 +24,7 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     // l_chips/l_mult are the per-level increments (planet card upgrade). WholeDeck uses absurd big-int
     // literals (repeating "52") — stored as Long here; scoring uses Double so precision is capped.
     CRY_BULWARK(100, 10, 50, 1),    // cry_Bulwark: all 5 played cards are Stone — LIVE (Hands.evaluate returns it)
-    CRY_CLUSTERFUCK(200, 19, 40, 4), // cry_Clusterfuck: ≥8 no-pair/flush/straight cards — STUB (requires cry_poker_hand_stuff hand-size ≥8)
+    CRY_CLUSTERFUCK(200, 19, 40, 4), // cry_Clusterfuck: ≥8 non-Gold no-pair/flush/straight cards — LIVE (Hands.evaluate returns it)
     CRY_ULTPAIR(220, 22, 40, 4),    // cry_UltPair: two same-suit Two-Pairs of different suits — LIVE (Hands.evaluate returns it)
     CRY_NONE(0, 0, 5, 0),           // cry_None: 0 cards played — LIVE; mult=0; actual l_mult=0.5 (Int truncated; CRY_NONE has no planet card so level scaling is irrelevant)
     CRY_WHOLEDECK(Int.MAX_VALUE, Int.MAX_VALUE), // cry_WholeDeck: all 52 cards scored — STUB; actual=repeating-52 big int (irrelevant until mechanic lands)
@@ -57,6 +57,38 @@ object Hands {
         // Without this check, 5 stones would fall through to HIGH_CARD via getHighest (nominal=-1000).
         if (cards.size >= 5 && cards.all { it.enhancement == Enhancement.STONE })
             return Triple(HandType.CRY_BULWARK, cards, setOf(HandType.CRY_BULWARK))
+
+        // CRY_CLUSTERFUCK: ≥8 non-Gold cards with no pairs, no flush, no straight.
+        // Source: cry_cfpart (SpectralPack/Cryptid lib/content.lua) — eligible = cards where
+        // not card.config.center.not_fucked (non-Gold enhancement). #eligible > 7, no _all_pairs,
+        // no _flush, no _straight. getFlush/getStraight bail on hand.size > 5, so checks are inline.
+        if (cards.size >= 8) {
+            val eligible = cards.filter { it.enhancement != Enhancement.GOLD }
+            if (eligible.size >= 8) {
+                // hasPair: any rank appears ≥2 times among eligible cards (Stone id=-1 never pairs)
+                val rankCounts = eligible.map { rankOf(it) }.filter { it in 2..14 }
+                    .groupingBy { it }.eachCount()
+                val hasPair = rankCounts.values.any { it >= 2 }
+                // hasFlush: any suit covering ≥5 eligible cards (fourFingers lowers threshold to 4)
+                val flushNeed = if (fourFingers) 4 else 5
+                val hasFlush = Suit.values().any { s -> eligible.count { it.isSuit(s, smeared) } >= flushNeed }
+                // hasStraight: 5 (or 4 with fourFingers) consecutive ranks present, Ace high/low
+                val straightNeed = if (fourFingers) 4 else 5
+                val presentIds = eligible.map { rankOf(it) }.filter { it in 2..14 }.toSet()
+                val hasAce = 14 in presentIds
+                fun straightLen(seq: IntRange): Int {
+                    var len = 0; var maxLen = 0
+                    for (r in seq) { if (r in presentIds) { len++; if (len > maxLen) maxLen = len } else len = 0 }
+                    return maxLen
+                }
+                // check A-high (14..2) and A-low (A treated as 1 in 1..5)
+                val hasStraight = straightLen(2..14) >= straightNeed ||
+                    (hasAce && straightLen(2..5) + 1 >= straightNeed) // A-low: A + 2..5
+                if (!hasPair && !hasFlush && !hasStraight) {
+                    return Triple(HandType.CRY_CLUSTERFUCK, eligible, setOf(HandType.CRY_CLUSTERFUCK))
+                }
+            }
+        }
 
         val _5 = getXSame(5, cards, rankOf)
         val _4 = getXSame(4, cards, rankOf)
