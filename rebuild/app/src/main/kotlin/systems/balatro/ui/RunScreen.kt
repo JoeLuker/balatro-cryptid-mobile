@@ -80,6 +80,7 @@ internal sealed class PackItem {
     data class Tarot(val t: TarotOffer) : PackItem()
     data class Planet(val p: PlanetOffer) : PackItem()
     data class Joker(val o: Offer) : PackItem()
+    data class Card(val card: PlayingCard) : PackItem()    // Standard pack: a playing card added to the deck
 }
 /** An open booster pack: the revealed [items], how many remain to [pick], and which are taken. */
 internal class OpenPack(val name: String, val kind: String, val items: List<PackItem>, choose: Int) {
@@ -264,6 +265,8 @@ private val BOOSTERS = listOf(
     BoosterOffer("p_celestial_normal", "Celestial Pack", "Celestial", 4, 3, 1),
     BoosterOffer("p_buffoon_normal", "Buffoon Pack", "Buffoon", 4, 2, 1),
     BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1),
+    BoosterOffer("p_standard_normal", "Standard Pack", "Standard", 4, 3, 1),
+    BoosterOffer("p_standard_jumbo", "Jumbo Standard Pack", "Standard", 6, 5, 1),
 )
 /** Two booster slots per shop (Balatro's shop has 2). */
 private fun rollBoosters(blind: Int): List<BoosterOffer> =
@@ -750,6 +753,7 @@ internal class RunState {
             "Arcana" -> TAROTS.shuffled(rng).take(b.extra).map { PackItem.Tarot(it) }
             "Celestial" -> Planet.values().toList().shuffled(rng).take(b.extra).map { PackItem.Planet(PlanetOffer(it, 0)) }
             "Buffoon" -> CATALOG.filterNot { c -> owned.any { it.offer.key == c.key } }.shuffled(rng).take(b.extra).map { PackItem.Joker(it) }
+            "Standard" -> (0 until b.extra).map { PackItem.Card(PlayingCard(Suit.values().random(rng), (2..14).random(rng))) }
             else -> emptyList()
         }
         openPack = OpenPack(b.name, b.kind, items, minOf(b.choose, items.size))
@@ -762,6 +766,7 @@ internal class RunState {
         val p = openPack ?: return
         if (p.picksLeft <= 0 || i in p.picked) return
         when (val item = p.items[i]) {
+            is PackItem.Card -> deck.add(item.card)          // Standard pack → card joins the deck
             is PackItem.Tarot -> buyTarot(item.t, free = true)
             is PackItem.Planet -> buyPlanet(item.p, free = true)
             is PackItem.Joker -> buy(item.o, free = true)
@@ -1014,7 +1019,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                             Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
                             Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
-                            Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, cardBase)
+                            Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, cardBase, cells)
                         }
                     }
                 }
@@ -2049,12 +2054,13 @@ private fun packItemView(item: PackItem): Triple<String, String, Color> = when (
     )
     is PackItem.Planet -> Triple(item.p.planet.display, handName(item.p.planet.hand), Balatro.Chips)
     is PackItem.Joker -> Triple(item.o.name, item.o.desc, Balatro.Mult)
+    is PackItem.Card -> Triple("", if (item.card.enhancement != Enhancement.NONE) item.card.enhancement.name.lowercase() else "", Balatro.White)
 }
 
 /** Booster pack opening (Phase.PACK_OPEN): tap to pick `choose` of the revealed items, or Skip. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap>) {
     val p = s.openPack ?: return
     Box(Modifier.fillMaxSize().padding(8.dp)) {
         BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
@@ -2072,12 +2078,17 @@ private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, ca
                     val (name, desc, accent) = packItemView(item)
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
                         Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
-                            val art = (item as? PackItem.Joker)?.let { jokerCells[it.o.key] }
-                            if (art != null) {
-                                Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                            } else {
-                                cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                                BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                            when (item) {
+                                is PackItem.Card -> CardFace(item.card, cells[item.card], cardBase, Modifier.fillMaxSize()) {}
+                                is PackItem.Joker -> {
+                                    val art = jokerCells[item.o.key]
+                                    if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                                    else { cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }; BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp)) }
+                                }
+                                else -> {
+                                    cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                                    BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                                }
                             }
                         }
                         BTxt(desc, accent, 8.sp, Modifier.padding(top = 1.dp))

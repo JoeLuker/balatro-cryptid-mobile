@@ -52,4 +52,6 @@ class Deck(seed: Long) {
     fun composition(): List<PlayingCard> = all.toList()
     /** Replace the deck with [cards] (restore from a save) and reshuffle. */
     fun setComposition(cards: List<PlayingCard>) { all.clear(); all.addAll(cards); reshuffle() }
+    /** Add a card to the deck (a Standard pack pick) and return it to the draw pile. */
+    fun add(card: PlayingCard) { all.add(card); reshuffle() }
 }
