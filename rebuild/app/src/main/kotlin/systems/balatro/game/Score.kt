@@ -87,6 +87,25 @@ object Score {
     /** Prime ranks for Cryptid's primus before-check (exotic.lua:606): 2, 3, 5, 7, Ace(14). */
     private val PRIMUS_PRIMES = setOf(2, 3, 5, 7, 14)
 
+    /**
+     * All Cryptid M-pool joker keys used by mprime's other_joker check (m.lua:1538).
+     * mprime fires eMult per board joker that is_jolly() OR pools.M==true.
+     * is_jolly() = key j_jolly or j_cry_jollysus, or edition cry_m.
+     * Keys enumerated from `pools = { ["M"] = true }` in m.lua, epic.lua, misc_joker.lua.
+     * mprime itself is cry_exotic rarity, has NO pools.M, and does NOT self-trigger.
+     */
+    private val M_POOL_KEYS = setOf(
+        // m.lua M-pool jokers (17):
+        "j_cry_bubblem", "j_cry_foodm", "j_cry_mstack", "j_cry_mneon", "j_cry_notebook",
+        "j_cry_bonk", "j_cry_loopy", "j_cry_scrabble", "j_cry_sacrifice", "j_cry_reverse",
+        "j_cry_doodlem", "j_cry_virgo", "j_cry_smallestm", "j_cry_biggestm",
+        "j_cry_macabre", "j_cry_megg", "j_cry_longboi",
+        // epic.lua M-pool joker (1):
+        "j_cry_curse_sob",
+        // misc_joker.lua M-pool jokers (3; j_cry_filler appears twice but is one key):
+        "j_cry_sus", "j_cry_blurred", "j_cry_filler"
+    )
+
     // --- card scoring helpers (Card:get_chip_*), the played-card's own contribution -------------
     private fun chipBonus(c: PlayingCard): Double = when (c.enhancement) {   // get_chip_bonus
         Enhancement.STONE -> 50.0
@@ -480,12 +499,13 @@ object Score {
             "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker
             "j_cry_stardust"  -> if (oj !== j && oj.edition == "Poly") return Fx().apply { xMultMod = 2.0 }   // X2 Mult / other Poly joker
             "j_cry_universe"  -> if (oj !== j && oj.edition == "Astral") return Fx().apply { eMult = 1.2 }    // Emult^1.2 per other Astral-edition joker
-            // mprime: Emult^j.x (default 1.05) per Jolly-type or M-pool joker (m.lua:1534).
-            // is_jolly() = key j_jolly or j_cry_jollysus, or edition e_cry_m.
-            // M-pool jokers without those traits are unmodelled (FJoker has no pool field).
+            // mprime: Emult^j.x (default 1.05) per Jolly-type or M-pool joker (m.lua:1538).
+            // is_jolly() = key j_jolly or j_cry_jollysus, or edition cry_m.
+            // M-pool = any joker in M_POOL_KEYS (all M-pool keys from m.lua + epic.lua).
             "j_cry_mprime" -> {
                 val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
-                if (isJolly && j.x > 1.0) return Fx().apply { eMult = j.x }
+                val isMPool = oj.key in M_POOL_KEYS
+                if ((isJolly || isMPool) && j.x > 1.0) return Fx().apply { eMult = j.x }
             }
             // bonk: +chips per board joker in other_joker pass (m.lua:695-718).
             // j.chips per non-Jolly joker; j.chips*j.xc per Jolly-type joker.

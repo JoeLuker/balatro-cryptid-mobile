@@ -243,6 +243,11 @@ object Oracle {
         Case("Pair of aces + monkey_dagger @chips=50 (+50 Chips)", PlayingCard.hand("S_A", "H_A"), 164.0, j(FJoker("j_cry_monkey_dagger", chips = 50.0))),
         Case("Pair of aces + unjust_dagger @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_unjust_dagger", x = 1.5))),
         Case("Pair of aces + jimball @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_jimball", x = 1.5))),
+        // jimball @x=1.0: post-reset state (RunScreen sets j.x=1.0 when any other hand has played >= this hand's count).
+        // Score guard j.x > 1.0 fails → no Xmult → base 64. Pre-fix: jimball's before-hook was entirely missing;
+        // j.x was never incremented at all, so jimball always returned base score regardless of play history.
+        Case("Pair of aces + jimball @x=1.0 (reset by parity condition, no Xmult) → 64",
+            PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_jimball", x = 1.0))),
         Case("Pair of aces + pizza_slice @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza_slice", x = 1.5))),
         // spy: unconditional Xmult each joker_main (spooky.lua:664). j.x = card.ability.x_mult (default 0.5).
         // j.x=0.5 (debuff, default): mult = 2*0.5=1.0 → score = floor(32*1.0)=32.
@@ -523,10 +528,17 @@ object Oracle {
         Case("Pair of aces + cry_exoplanet + Holo bonkers", PlayingCard.hand("S_A", "H_A"), 864.0, j(FJoker("j_cry_exoplanet"), FJoker("j_cry_bonkers", edition = "Holo"))),
         // cry_stardust: X2 per other Poly joker (OTHER_JOKER). Poly j_cry_bonkers: Poly ×1.5 (edition pass) → mult=3; stardust X2 → mult=6. chips=32 → 192.
         Case("Pair of aces + cry_stardust + Poly bonkers", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_stardust"), FJoker("j_cry_bonkers", edition = "Poly"))),
-        // cry_mprime: Emult^j.x (default 1.05) per Jolly-type joker via other_joker pass (m.lua:1534).
-        // Pair aces: chips=32, mult=2. j_jolly (PAIR) → +8 mult → mult=10. mprime sees j_jolly (isJolly) → eMult=1.05.
-        // finalMult = 10^1.05 = 11.2202… → score = floor(32 × 11.2202) = 359.
-        Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 359.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
+        // cry_mprime: Emult^j.x (default 1.05) per Jolly-type OR M-pool joker via other_joker pass (m.lua:1538).
+        // Board [mprime(j.x=1.05), j_jolly]:
+        //   oj=mprime: mprime is M-pool → eMult=1.05 → mult=2^1.05=2.0705.
+        //   j_jolly joker_main: +8 → mult=10.0705.
+        //   oj=j_jolly: mprime isJolly → eMult=1.05 → mult=10.0705^1.05≈11.303.
+        //   score = floor(32 × 11.303) = 361.
+        Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 361.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
+        // M-pool path: mprime alone fires for itself (mprime is in M_POOL_KEYS, no oj!==j guard in Lua m.lua:1534).
+        // oj=mprime: mprime is M-pool → eMult=1.05 → mult=2^1.05=2.0705.
+        // score = floor(32×2.0705) = 66.
+        Case("Pair aces + cry_mprime alone (M-pool self-fires eMult^1.05) → 66", PlayingCard.hand("S_A", "H_A"), 66.0, j(FJoker("j_cry_mprime", x = 1.05))),
         // cry_bonk: +chips per board joker via other_joker pass (m.lua:695). j.chips per non-Jolly, j.chips*j.xc per Jolly.
         // Board [bonk(chips=6,xc=3), j_joker]: j_joker joker_main→+4 mult. bonk sees j_joker (non-Jolly)→+6 chips; bonk sees itself (non-Jolly)→+6 chips.
         // chips=32+6+6=44, mult=2+4=6 → floor(44×6)=264.
