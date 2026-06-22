@@ -130,6 +130,11 @@ private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
 internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
 
+/** Cryptid's offline fallback for the live Discord member count (lib/https.lua `member_fallback`). The
+ *  rebuild can't fetch the live value, so membershipcard / membershipcardtwo scale off this constant —
+ *  bump it to re-snapshot the count. */
+internal const val CRYPTID_MEMBER_COUNT = 38598
+
 /** Build a freshly-acquired joker's FJoker with its per-key initial scaling state — the seed values the
  *  scoring engine reads. Shared by buy(), the Wraith spectral, and jollysus' on-sell spawn so every
  *  acquisition path seeds identically (previously only buy() did, so Wraith-/spawn-created jokers were
@@ -150,6 +155,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
         "j_cry_starfruit"  -> 2.0   // config.emult
         "j_cry_biggestm"   -> 7.0   // config.extra.xmult (read once the before-pass activates it)
         "j_cry_mprime"     -> 1.05  // config.extra.mult (^Emult exponent per Jolly/M joker)
+        "j_cry_membershipcard" -> 0.1 * CRYPTID_MEMBER_COUNT   // Xmult_mod(0.1) × member count → read as xMultMod
         else -> fjX
     }
     val fjN = when (offer.key) {
@@ -162,7 +168,11 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
         "j_cry_jollysus"     -> 1   // spawn flag armed (config.extra.spawn=true); reset to 1 at end_of_round
         else -> 0
     }
-    val fjChips = if (offer.key == "j_cry_bonk") 6.0 else 0.0   // bonk: +chips per board joker
+    val fjChips = when (offer.key) {
+        "j_cry_bonk"              -> 6.0                              // +chips per board joker
+        "j_cry_membershipcardtwo" -> CRYPTID_MEMBER_COUNT.toDouble()  // chips(1) × floor(member count / chips_mod=1)
+        else -> 0.0
+    }
     val fjXc = if (offer.key == "j_cry_bonk") 3.0 else 1.0      // bonk: Jolly x-chips multiplier
     return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips, xc = fjXc)
 }
