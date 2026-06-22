@@ -55,6 +55,10 @@ class Sctx {
     var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
     var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
+    var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
+    var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
+    var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
+    var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -81,12 +85,15 @@ object Score {
     private fun chipMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.MULT) 4.0 else 0.0
     private fun chipXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.GLASS) 2.0 else 0.0
     private fun chipHXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.STEEL) 1.5 else 0.0
+    // Abstract: ^Emult when played. Emult=1.15 confirmed from SpectralPack/Cryptid items/misc.lua
+    // (config.extra.Emult = 1.15). Applied as mult = mult^1.15 each time an Abstract card is scored.
+    private fun chipEMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.ABSTRACT) 1.15 else 1.0
 
     /** eval_card (common_events.lua:580): a card's own scoring for its cardarea. */
     private fun evalCard(c: PlayingCard, ctx: Sctx): Fx {
         val r = Fx()
         when (ctx.cardarea) {
-            "play" -> { r.chips = chipBonus(c); r.mult = chipMult(c); r.xMult = chipXMult(c) }
+            "play" -> { r.chips = chipBonus(c); r.mult = chipMult(c); r.xMult = chipXMult(c); r.eMult = chipEMult(c) }
             "hand" -> { r.xMult = chipHXMult(c) }
         }
         return r
@@ -94,6 +101,42 @@ object Score {
 
     /** Card:calculate_joker — every joker's effect, dispatched by key + context (1:1 with the Lua). */
     private fun calcJoker(j: FJoker, ctx: Sctx): Fx? {
+        // Copy-jokers (SMODS.blueprint_effect, utils.lua:2089) delegate to a target joker's calculate in EVERY
+        // context: Brainstorm copies the leftmost joker; Blueprint / Old Blueprint copy the joker to their right.
+        // Skip a missing/self target; the copy-chain depth is bounded by board size (stops Brainstorm⇄Blueprint cycles).
+        when (j.key) {
+            "j_blueprint", "j_cry_oldblueprint", "j_brainstorm" -> {
+                val target = if (j.key == "j_brainstorm") ctx.board.firstOrNull()
+                    else ctx.board.indexOfFirst { it === j }.let { i -> if (i < 0) null else ctx.board.getOrNull(i + 1) }
+                if (target == null || target === j || ctx.blueprintDepth >= ctx.board.size) return null
+                ctx.blueprintDepth++
+                val ret = calcJoker(target, ctx)
+                ctx.blueprintDepth--
+                return ret
+                // NOTE: inline-intercept jokers (broken_sync_catalyst, sync_catalyst) are NOT copyable
+                // via Blueprint/Brainstorm — their effects live in the joker_main loop body, not in calcJoker.
+            }
+        }
+        // RETRIGGER_JOKER_CHECK: each board joker votes whether to retrigger ctx.retriggeredJoker
+        // (SMODS.calculate_retriggers, utils.lua:1602). Mirrors the per-card repetition guard.
+        // The check fires ONLY in this sub-loop (jokerRetriggerCheck=true); not re-nested (like Lua's guard).
+        if (ctx.jokerRetriggerCheck) {
+            val rj = ctx.retriggeredJoker ?: return null
+            when (j.key) {
+                // chad: retrigger the LEFTMOST board joker j.n times (config.extra.retriggers=2).
+                // If Chad itself is leftmost it retriggers itself (correct; Lua has no self-exclusion here).
+                "j_cry_chad" -> if (rj === ctx.board.firstOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
+                // loopy: retrigger all OTHER board jokers min(j.n, 40) times (j.n = Jolly Jokers sold; default 0).
+                "j_cry_loopy" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = minOf(j.n, 40) }
+                // spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored;
+                //   accumulated during the per-card pass when m_cry_echo enhancement is present — no-op until
+                //   m_cry_echo is modelled in the Enhancement enum).
+                "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
+                // flip_side: retrigger any joker with the double-sided edition once.
+                "j_cry_flip_side" -> if (rj.edition == "cry_double_sided") return Fx().apply { repetitions = 1 }
+            }
+            return null
+        }
         val oc = ctx.otherCard
         // INDIVIDUAL: a joker reacting to each scored card (context.individual, cardarea == G.play)
         if (ctx.individual && ctx.cardarea == "play" && oc != null) when (j.key) {
@@ -124,6 +167,10 @@ object Score {
             "j_cry_antennastoheaven"  -> if (oc.id == 4 || oc.id == 7) j.xc += 0.1   // scaling: +0.1 Xchips per scored 4/7, applied at joker_main
             // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
             "j_cry_caramel"           -> if (j.x >= 1.0) return Fx().apply { xMult = j.x }
+            // spectrogram accumulator: count Echo-enhanced cards scored this hand. j.n increments by 1
+            // per Echo card in the per-card individual pass; fires as retrigger_joker_check (rightmost
+            // joker) at j.n extra reps. No per-card chip/mult effect here — only the counter.
+            "j_cry_spectrogram"       -> if (oc.enhancement == Enhancement.ECHO) j.n += 1
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -141,6 +188,8 @@ object Score {
             "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
             "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
             "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
+            // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
+            "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -210,6 +259,9 @@ object Score {
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
             // starfruit: Emult = j.x (starts at 2.0, decreases by 0.2 per reroll, self-destructs at <=1)
             "j_cry_stella_mortis", "j_cry_formidiulosus", "j_cry_starfruit" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
+            // primus: Emult = j.x (base 1.01, +0.17 in the before-pass when the whole hand is prime); mult^x.
+            // Lives here (not the loop) so the copy-jokers can copy it like any other joker_main effect.
+            "j_cry_primus" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
             "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
@@ -277,13 +329,16 @@ object Score {
             // jimball: Xmult from j.x accumulator (+0.15 per context.before when this hand type is least-played)
             // pizza_slice: Xmult from j.x accumulator (+0.5 per other pizza_slice sold)
             // wheelhope: Xmult from j.x accumulator (+0.5 per Wheel of Fortune pseudorandom_result trigger)
-            "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope" ->
+            // cut: Xmult from j.x accumulator (+0.5 per Code consumable destroyed when leaving shop)
+            // python: Xmult from j.x accumulator (+0.15 per Code consumable used)
+            "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope",
+            "j_cry_cut", "j_cry_python" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
             "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
-            // --- Cryptid custom hand-type jokers (fire only when Cryptid-extended hand detection is active) ---
-            // These branches are dormant until CRY_* hand types are returned by hand evaluation;
-            // listed here so the dispatch is complete when those hand types are ported.
+            // --- Cryptid custom hand-type jokers ---
+            // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
+            // CRY_CLUSTERFUCK and CRY_WHOLEDECK remain DORMANT (feature-gated mechanics not yet ported).
             "j_cry_stronghold"       -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { xMultMod = 5.0 }
             "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
             "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
@@ -299,6 +354,14 @@ object Score {
             "j_cry_treacherous"      -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { chipMod = 300.0 }
             "j_cry_nebulous"         -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { chipMod = 30.0 }
             "j_cry_many_lost_minds"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { chipMod = 8.0658175e67 }
+            // thalia: Xmult = C(n,2) * xmgain (xmgain=1) where n = count of DISTINCT rarities among all board jokers
+            // (including Thalia itself, rarity=4 Legendary). ctx.board now carries FJoker.rarity so this is faithful.
+            // n=1→bonus=0 (no-op); n=2→bonus=1 (X1, identity); n=3→bonus=3 (X3); n=4→bonus=6 (X6); n=5→bonus=10 (X10).
+            "j_cry_thalia" -> {
+                val n = ctx.board.map { it.rarity }.filter { it > 0 }.toSet().size
+                val bonus = n * (n - 1) / 2
+                if (bonus >= 1) return Fx().apply { xMultMod = bonus.toDouble() }
+            }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
@@ -313,6 +376,15 @@ object Score {
         val oj = ctx.otherJoker
         if (oj != null) when (j.key) {
             "j_baseball"     -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
+            // circus: Xmult based on other joker's rarity (Rare=3→X2, cry_epic=5→X3, Legendary=4→X4, cry_exotic=6→X20).
+            // Base values from config.extra circus_rarities (scalable at runtime; engine uses base config).
+            // Rarity int convention: 1=Common,2=Uncommon,3=Rare,4=Legendary,5=cry_epic(Epic),6=cry_exotic(Exotic).
+            "j_cry_circus" -> {
+                if (oj !== j) {
+                    val xm = when (oj.rarity) { 3 -> 2.0; 5 -> 3.0; 4 -> 4.0; 6 -> 20.0; else -> 1.0 }
+                    if (xm > 1.0) return Fx().apply { xMultMod = xm }
+                }
+            }
             "j_cry_waluigi"  -> return Fx().apply { xMultMod = 2.5 }                                  // X2.5 once per board joker (incl self)
             // --- Cryptid edition reactors (the card-edition branch is unreachable: cards carry no edition here) ---
             "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
@@ -356,7 +428,7 @@ object Score {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
-            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
+            this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit; this.board = jokers
         }
 
         // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
@@ -381,6 +453,8 @@ object Score {
                 // exponentia: +Emult_mod(0.03) each time a non-trivial xmult fires during scored-card pass
                 if (fx.xMult != 1.0) for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
             }
+            // eMult from card enhancement (Abstract: mult^Emult during per-card pass)
+            if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)
         }
 
         // per scoring card: card's own scoring + each joker's individual reaction
@@ -418,26 +492,44 @@ object Score {
             ctx.held = false
         }
 
-        // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly) — board order.
-        // j_cry_oldblueprint re-applies the joker to its right; j_cry_primus is the Emult pow (mult^x).
-        // GAP: no joker-RETRIGGER dispatch. Each joker_main fires exactly once; the only reps loop is
-        // per-scored-card (above). Cryptid's context.retrigger_joker_check family — chad (retriggers the
-        // leftmost joker), spectrogram, flip_side, blur, m_cry_loopy, m_cry_echo — is therefore UNWIRED
-        // pending a dedicated joker-retrigger pass here. See port-notes/cryptid-jokers-translations.json (j_cry_chad).
-        for ((idx, j) in jokers.withIndex()) {
+        // JOKER MAIN pass: each joker's main effect, then its edition (foil/holo/poly), then a
+        // joker-retrigger sub-loop (context.retrigger_joker_check, utils.lua:1602) — board order.
+        // calcJoker self-resolves copy-jokers and primus. The retrigger sub-loop mirrors the per-card
+        // reps loop: every board joker votes on retrigger count, then the main effect fires again.
+        // Non-recursive (jokerRetriggerCheck=true suppresses further retrigger collection).
+        fun applyJokerFx(fx: Fx) {
+            if (fx.chipMod != 0.0) chips += fx.chipMod
+            if (fx.xChipMod != 1.0) chips *= fx.xChipMod
+            if (fx.multMod != 0.0) mult += fx.multMod
+            if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)
+        }
+        for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
-            val target = if (j.key == "j_cry_oldblueprint") jokers.getOrNull(idx + 1) else j
-            if (target != null) {
-                if (target.key == "j_cry_primus") { if (target.x > 1.0) mult = mult.pow(target.x) }
-                else calcJoker(target, ctx)?.let { fx ->
-                    if (fx.chipMod != 0.0) chips += fx.chipMod
-                    if (fx.xChipMod != 1.0) chips *= fx.xChipMod   // X-chips multiplies the running chip total
-                    if (fx.multMod != 0.0) mult += fx.multMod
-                    if (fx.xMultMod != 1.0) mult *= fx.xMultMod
-                    if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // Emult raises mult to a power (applied last)
-                }
+            // broken_sync_catalyst: swap portion (10%) of chips into mult and vice versa (atomic).
+            // cry_broken_swap=10 → portion=0.10. Not expressible as a standard Fx delta because it
+            // reads and writes both accumulators simultaneously. Handled inline before calcJoker.
+            // math: delta=(chips−mult)*0.10; chips−=delta, mult+=delta (pulls them toward each other by 10%).
+            if (j.key == "j_cry_broken_sync_catalyst") {
+                val delta = (chips - mult) * 0.10
+                chips -= delta; mult += delta
             }
+            // sync_catalyst: balances Chips and Mult (sets both to their average — "the non-broken variant").
+            // Same inline-intercept pattern as broken_sync_catalyst (not expressible as a standard Fx delta).
+            if (j.key == "j_cry_sync_catalyst") {
+                val avg = (chips + mult) / 2.0
+                chips = avg; mult = avg
+            }
+            calcJoker(j, ctx)?.let { applyJokerFx(it) }
             when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
+            // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
+            // ask every board joker whether to retrigger j (once, non-recursive per Lua guard).
+            ctx.jokerRetriggerCheck = true; ctx.retriggeredJoker = j
+            var jokerReps = 0
+            for (retriggerVoter in jokers) jokerReps += calcJoker(retriggerVoter, ctx)?.repetitions ?: 0
+            ctx.jokerRetriggerCheck = false; ctx.retriggeredJoker = null
+            ctx.jokerMain = true  // restore for re-fires
+            repeat(jokerReps) { calcJoker(j, ctx)?.let { applyJokerFx(it) } }
             ctx.jokerMain = false
         }
 
