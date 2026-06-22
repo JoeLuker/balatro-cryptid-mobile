@@ -429,6 +429,11 @@ object Oracle {
         Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 17500",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
             17500.0, j(FJoker("j_cry_stronghold"))),
+        // poker_hands for a Bulwark also contains HIGH_CARD (get_highest is non-empty), so giggly (+4 Mult if
+        // hand contains High Card) fires: chips=350, mult=10+4=14 → 4900. (Without the HIGH_CARD fix: 3500.)
+        Case("CRY_BULWARK (5 stones) + giggly (HIGH_CARD present → +4 Mult) → 4900",
+            listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
+            4900.0, j(FJoker("j_cry_giggly"))),
         // j_cry_adroit +170 Chips: chips=350+170=520, mult=10 → floor(520×10)=5200.
         Case("CRY_BULWARK (5 stones) + cry_adroit (+170 Chips) → 5200",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
@@ -464,6 +469,9 @@ object Oracle {
         //   chips = 200+11+10+10+10+9+8+6+5 = 269, mult=19 → floor(269×19) = 5111.
         Case("CRY_CLUSTERFUCK 8 distinct cards (A,K,J,10,9,8,6,5) → 5111",
             PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"), 5111.0),
+        // poker_hands for a Clusterfuck also contains HIGH_CARD, so giggly (+4 Mult) fires: chips=269, mult=19+4=23 → 6187. (Without fix: 5111.)
+        Case("CRY_CLUSTERFUCK + giggly (HIGH_CARD present → +4 Mult) → 6187",
+            PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"), 6187.0, j(FJoker("j_cry_giggly"))),
         // Case 2: same 8 cards + j_cry_wtf (X10 Mult on CRY_CLUSTERFUCK).
         //   chips=269, mult=19; wtf xMultMod=10 → mult=190. floor(269×190) = 51110.
         Case("CRY_CLUSTERFUCK + cry_wtf (X10 Mult) → 51110",
