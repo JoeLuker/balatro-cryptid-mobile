@@ -339,6 +339,20 @@ private val CATALOG = listOf(
     Offer("j_cry_cut", "Cut", "Xmult +0.5 per Code card destroyed", 6),
     // Python: Xmult from j.x accumulator (+0.15 per Code consumable used). Rarity/cost: best-guess.
     Offer("j_cry_python", "Python", "Xmult +0.15 per Code card used", 5),
+    // --- cry jokers implemented in the engine but previously unacquirable (now wired into the shop;
+    //     name/desc/cost/rarity from mods/Cryptid/items). Rarity ints: cry_cursed→1, cry_epic→5, cry_exotic→6.
+    //     blacklist/membershipcard(two) are partially inert in the rebuild (no random-rank shop pool / no live
+    //     Discord member count); jollysus' create-on-sell and bonk's Pair-bonus scaling are unported — engine gaps. ---
+    Offer("j_cry_blacklist", "Blacklist", "Zeroes hands holding a chosen rank; self-destructs if it leaves the deck", 0),
+    Offer("j_cry_bonk", "Bonk", "+6 Chips per Joker (x3 for Jolly Jokers)", 5, rarity = 2),
+    Offer("j_cry_boredom", "Boredom", "1 in 2 chance to retrigger each Joker or card", 14, rarity = 5),
+    Offer("j_cry_busdriver", "Bus Driver", "3-in-4: +50 Mult; 1-in-4: -50 Mult each hand", 7, rarity = 2),
+    Offer("j_cry_googol_play", "Googol Play Card", "1 in 8 chance for X1e100 Mult", 10, rarity = 5),
+    Offer("j_cry_jollysus", "Jolly Joker?", "Create a Joker when a Joker is sold (once per round)", 4),
+    Offer("j_cry_membershipcard", "Membership Card", "X0.1 Mult per Cryptid Discord member", 20, rarity = 4),
+    Offer("j_cry_membershipcardtwo", "Membership Card", "+1 Chip per Cryptid Discord member", 17, rarity = 5),
+    Offer("j_cry_mprime", "M Prime", "^1.05 Emult per Jolly / M Joker", 50, rarity = 6),
+    Offer("j_cry_paved_joker", "Paved Joker", "Stones fill 1-gaps in straights/flushes; +X1 per Perishable expired", 4),
     // --- vanilla held-in-hand jokers ---
     Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8, rarity = 3),
     Offer("j_shoot_the_moon", "Shoot the Moon", "each Queen held gives +13 Mult", 1),
@@ -1192,6 +1206,7 @@ internal class RunState {
             "j_cry_starfruit"  -> 2.0   // config.emult=2 (Emult; -0.2 per reroll)
             "j_cry_biggestm"   -> 7.0   // config.extra.xmult=7 — joker_main returns xMultMod=j.x once the
                                         // before-pass activates it; without this it read j.x=1.0 → X1, not X7.
+            "j_cry_mprime"     -> 1.05  // config.extra.mult=1.05 — engine reads j.x as the ^Emult exponent per Jolly/M joker
             else -> fjX
         }
         val fjN = when (offer.key) {
@@ -1209,9 +1224,21 @@ internal class RunState {
             // spooky.lua); j.n holds that blacklisted rank id (2..14). The engine nullifies any hand
             // containing it — without this it defaulted to 0 → always Ace, never the rolled rank.
             "j_cry_blacklist" -> (2..14).random()
+            // busdriver: config.extra.odds=4 — the before-hand roll reads j.n as the odds (falls back to 2 if unset).
+            "j_cry_busdriver" -> 4
             else -> 0
         }
-        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)
+        val fjChips = when (offer.key) {
+            // bonk: +6 Chips per board joker (config.extra.chips=6); engine reads j.chips in the other-joker pass.
+            "j_cry_bonk" -> 6.0
+            else -> 0.0
+        }
+        val fjXc = when (offer.key) {
+            // bonk: Jolly jokers give chips×xchips instead (config.extra.xchips=3); engine reads j.xc.
+            "j_cry_bonk" -> 3.0
+            else -> 1.0
+        }
+        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips, xc = fjXc)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
