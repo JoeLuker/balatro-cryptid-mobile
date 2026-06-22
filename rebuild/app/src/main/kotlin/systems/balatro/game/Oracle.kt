@@ -225,11 +225,13 @@ object Oracle {
         Case("Pair of aces + paved_joker @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_paved_joker", x = 1.5))),
         // cry_membershipcard: j.x = Xmult_mod * member_count (pre-computed by run loop); joker_main reads it.
         Case("Pair of aces + membershipcard @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_membershipcard", x = 1.5))),
-        // cry_pizza: j.x accumulates +0.5 per pizza_slice sold; joker_main reads it. Same accumulated-x pattern.
-        Case("Pair of aces + pizza @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza", x = 1.5))),
+        // cry_pizza: has NO joker_main scoring path in Lua (misc_joker.lua:10139 only has end_of_round countdown
+        // and selling_self pizza-slice spawn). j.x is never read for scoring — no-op regardless of x value.
+        Case("Pair of aces + pizza @x=1.5 (no joker_main scoring path → base only)", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_pizza", x = 1.5))),
         Case("Pair of aces + wheelhope @x=1.5 (1 WoF trigger)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_wheelhope", x = 1.5))),
-        // alt_wheel_of_fortune: same accumulated-x pattern as wheelhope; x grows on wheel_of_fortune pseudorandom_result.
-        Case("Pair of aces + alt_wheel_of_fortune @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_alt_wheel_of_fortune", x = 1.5))),
+        // alt_wheel_of_fortune: NOT a Joker at all — only a UI tooltip key (set="Other") used in wheelhope's
+        // loc_vars (misc_joker.lua:7325). Can never appear on the board; no scoring effect.
+        Case("Pair of aces + alt_wheel_of_fortune @x=1.5 (not a joker → base only)", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_alt_wheel_of_fortune", x = 1.5))),
         Case("Pair of aces + fspinner @chips=30 (+30 Chips)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_cry_fspinner", chips = 30.0))),
         // membershipcardtwo: j.chips = chips * floor(member_count/chips_mod) pre-computed by run loop; joker_main adds it.
         // j.chips=18 → chips=32+18=50, mult=2 → floor(50×2)=100.

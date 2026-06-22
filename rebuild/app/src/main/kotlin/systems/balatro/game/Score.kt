@@ -64,6 +64,9 @@ class Sctx {
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
     var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
+    /** j_cry_maximized patches get_id: pips→10, faces→13. Used by every rank-literal comparison in
+     *  calcJoker (individual/repetition/joker_main) to match Lua's context.other_card:get_id() calls. */
+    var rankOf: (PlayingCard) -> Int = { it.id }
 }
 
 /** What eval_card / calculate_joker returns. INDIVIDUAL effects use chips/mult/x_mult; the
@@ -182,10 +185,10 @@ object Score {
             }
             // --- Cryptid individual ---
             "j_cry_iterum"            -> return Fx().apply { xMult = 2.0 }               // X2 Mult per scored played card (also retriggers in repetition block)
-            "j_cry_lightupthenight"   -> if (oc.id == 2 || oc.id == 7) return Fx().apply { xMult = 1.5 }  // X1.5 per scored 2/7
+            "j_cry_lightupthenight"   -> { val r = ctx.rankOf(oc); if (r == 2 || r == 7) return Fx().apply { xMult = 1.5 } }  // X1.5 per scored 2/7 (get_id; Maximized maps pips→10)
             "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
-            "j_cry_wee_fib"           -> if (oc.id == 14 || oc.id == 2 || oc.id == 3 || oc.id == 5 || oc.id == 8) j.mult += 3.0  // +3 Mult/scored Fibonacci, applied at joker_main
-            "j_cry_antennastoheaven"  -> if (oc.id == 4 || oc.id == 7) j.xc += 0.1   // scaling: +0.1 Xchips per scored 4/7, applied at joker_main
+            "j_cry_wee_fib"           -> { val r = ctx.rankOf(oc); if (r == 14 || r == 2 || r == 3 || r == 5 || r == 8) j.mult += 3.0 }  // +3 Mult/scored Fibonacci (get_id; Maximized maps pips→10)
+            "j_cry_antennastoheaven"  -> { val r = ctx.rankOf(oc); if (r == 4 || r == 7) j.xc += 0.1 }   // scaling: +0.1 Xchips per scored 4/7 (get_id; Maximized maps pips→10)
             // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
             "j_cry_caramel"           -> if (j.x >= 1.0) return Fx().apply { xMult = j.x }
             // spectrogram accumulator: count Echo-enhanced cards scored this hand. j.n increments by 1
@@ -208,8 +211,8 @@ object Score {
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
             "j_cry_iterum"    -> return Fx().apply { repetitions = 1 }                   // +1 retrigger per scored played card (base; immutable max 40)
-            "j_cry_weegaming" -> if (oc.id == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2
-            "j_cry_nosound"   -> if (oc.id == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7
+            "j_cry_weegaming" -> if (ctx.rankOf(oc) == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2 (get_id; Maximized maps pips→10)
+            "j_cry_nosound"   -> if (ctx.rankOf(oc) == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7 (get_id; Maximized maps pips→10)
             "j_cry_exposed"   -> if (!(oc.isFace || ctx.pareidolia)) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
             "j_cry_mask"      -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
             "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
@@ -271,8 +274,7 @@ object Score {
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
-            "j_cry_paved_joker", "j_cry_membershipcard", "j_cry_pizza",
-            "j_cry_alt_wheel_of_fortune" ->
+            "j_cry_paved_joker", "j_cry_membershipcard" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             // clockwork: j.x += xmult_mod(0.25) every 3rd hand (before, non-scoring); joker_main reads j.x
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
@@ -284,8 +286,10 @@ object Score {
             // duplicare:   j.x += Xmult_mod(1) per post_trigger / individual card played (non-scoring); joker_main reads j.x
             // paved_joker: j.x += xmult_mod(1) when any perishable joker expires (perishable_debuffed, misc_joker.lua:10255)
             // membershipcard: j.x = Xmult_mod(0.1) * member_count (run loop pre-computes; misc_joker.lua:7877)
-            // pizza: j.x += xmult_mod(0.5) per pizza_slice sold (end_of_round, misc_joker.lua:10158)
-            // alt_wheel_of_fortune: j.x += extra(0.5) per wheel_of_fortune pseudorandom_result hit (misc_joker.lua:7338)
+            // pizza: has NO joker_main scoring path in Lua — only end_of_round countdown and selling_self pizza-slice
+            //   spawn (misc_joker.lua:10139). j.x is never set for this key; removed from accumulator group.
+            // alt_wheel_of_fortune: not a Joker object_type — only a UI tooltip key (set="Other") in wheelhope's
+            //   loc_vars (misc_joker.lua:7325). Can never appear on the board; removed from accumulator group.
             "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
@@ -323,7 +327,7 @@ object Score {
             // --- Cryptid joker_main ---
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
-            "j_cry_triplet_rhythm" -> if (ctx.scoringHand.count { it.id == 3 } == 3) return Fx().apply { xMultMod = 3.0 }  // X3 iff exactly 3 threes
+            "j_cry_triplet_rhythm" -> if (ctx.scoringHand.count { ctx.rankOf(it) == 3 } == 3) return Fx().apply { xMultMod = 3.0 }  // X3 iff exactly 3 threes (get_id; Maximized maps pips→10)
             // --- Cryptid "type" jokers: fire when the played cards CONTAIN this hand (context.poker_hands), flat ---
             "j_cry_giggly"    -> if (HandType.HIGH_CARD in ctx.pokerHands)      return Fx().apply { multMod = 4.0 }
             "j_cry_silly"     -> if (HandType.FULL_HOUSE in ctx.pokerHands)     return Fx().apply { multMod = 16.0 }
@@ -346,7 +350,7 @@ object Score {
             "j_cry_duos"      -> if (HandType.TWO_PAIR in ctx.pokerHands || HandType.FULL_HOUSE in ctx.pokerHands) return Fx().apply { xMultMod = 2.5 }  // X2.5 Two Pair/Full House
             "j_cry_home"      -> if (HandType.FULL_HOUSE in ctx.pokerHands)    return Fx().apply { xMultMod = 3.5 }
             "j_cry_filler"    -> if (HandType.HIGH_CARD in ctx.pokerHands)     return Fx().apply { xMultMod = 1.00000000000003 }  // meme: ~X1 always
-            "j_cry_nice"      -> if (ctx.fullHand.any { it.id == 6 } && ctx.fullHand.any { it.id == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69"
+            "j_cry_nice"      -> if (ctx.fullHand.any { ctx.rankOf(it) == 6 } && ctx.fullHand.any { ctx.rankOf(it) == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69" (get_id; Maximized maps pips→10)
             "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
             // antennastoheaven: j.xc += 0.1 per scored 4/7 (individual, accumulated above)
             // spaceglobe: j.xc += Xchipmod(0.2) each time the current target hand type is played (before, non-scoring); target rotates on match
@@ -532,6 +536,7 @@ object Score {
             this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards
             this.debuffAllCards = debuff is Debuff.DebuffAllCards
             this.debuffedJokerKey = debuffedJokerKey; this.board = jokers
+            this.rankOf = rankOf
         }
 
         // BEFORE pass resets + per-hand scalars that must not carry over between hands.
@@ -541,16 +546,19 @@ object Score {
         for (j in jokers) if (j.key == "j_cry_spectrogram") j.n = 0
         // j_cry_primus gains +0.17 Emult if ANY card in the played hand is a prime rank
         // (exotic.lua:603-619: loops full_hand, sets check=true on any 2/3/5/7/Ace, scales when check).
-        for (j in jokers) if (j.key == "j_cry_primus" && played.any { it.id in PRIMUS_PRIMES }) j.x += 0.17
+        // Uses get_id() in Lua — rankOf applies Maximized remapping so primes can never match when Maximized is on board.
+        for (j in jokers) if (j.key == "j_cry_primus" && played.any { rankOf(it) in PRIMUS_PRIMES }) j.x += 0.17
         // j_cry_zooble: +1 Mult per DISTINCT rank in the scoring hand, unless the hand is a Straight (scaling).
+        // Uses get_id() in Lua — rankOf applies Maximized remapping so distinct-rank count matches Lua.
         for (j in jokers) if (j.key == "j_cry_zooble" && HandType.STRAIGHT !in pokerHands && HandType.STRAIGHT_FLUSH !in pokerHands)
-            j.mult += scoringHand.filter { it.enhancement != Enhancement.STONE }.map { it.id }.distinct().size.toDouble()
+            j.mult += scoringHand.filter { it.enhancement != Enhancement.STONE }.map { rankOf(it) }.distinct().size.toDouble()
         // j_cry_biggestm: activate (j.n=1) when scoring_name matches type (default "Pair") (m.lua:1426-1437).
         // check persists until end_of_round reset; engine resets at new round via RunScreen.
         for (j in jokers) if (j.key == "j_cry_biggestm" && j.n == 0 && handType == HandType.PAIR) j.n = 1
         // j_cry_whip: +0.5 Xmult if the played hand holds a 2 and a 7 of different suits (WILD = all suits).
+        // Uses get_id() in Lua — rankOf applies Maximized remapping so 2/7 can never match when Maximized is on board.
         for (j in jokers) if (j.key == "j_cry_whip") {
-            fun suitsOf(id: Int) = played.filter { it.id == id }
+            fun suitsOf(id: Int) = played.filter { rankOf(it) == id }
                 .flatMap { if (it.enhancement == Enhancement.WILD) Suit.values().toList() else listOf(it.suit) }.toSet()
             val ts = suitsOf(2); val ss = suitsOf(7)
             if (ts.isNotEmpty() && ss.isNotEmpty() && (ts.size > 1 || ss.size > 1 || ts.first() != ss.first())) j.x += 0.5
