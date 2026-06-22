@@ -400,6 +400,12 @@ internal class RunState {
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
     var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
+    /** Tarots held in the consumables area (up to 2); bought from shop, used during Phase.ROUND. */
+    val consumables = mutableStateListOf<TarotOffer>()
+    /** The tarot currently being aimed — non-null while the player is selecting target hand cards. */
+    var pendingTarot by mutableStateOf<TarotOffer?>(null)
+    /** Hand-card indices selected as targets for [pendingTarot] (up to 2, like vanilla). */
+    var tarotTarget by mutableStateOf(setOf<Int>())
     var enhancedCount by mutableStateOf(0)
 
     private val deck = Deck(20260614L)   // persistent across the run (tarot enhancements stick)
@@ -610,6 +616,13 @@ internal class RunState {
 
     fun toggle(i: Int) {
         if (phase != Phase.ROUND) return
+        // When a tarot is pending, taps select TARGET cards (not play-selection).
+        if (pendingTarot != null) {
+            tarotTarget = if (i in tarotTarget) tarotTarget - i
+                          else if (tarotTarget.size < 2) tarotTarget + i
+                          else tarotTarget   // already 2 targets; ignore
+            return
+        }
         // Face-down cards: first tap REVEALS (removes from faceDown) and selects simultaneously,
         // matching vanilla Balatro where hover reveals and click selects in one gesture. The card
         // stays revealed for the rest of the round (faceDown is not re-added on deselect).
@@ -842,14 +855,48 @@ internal class RunState {
     }
 
     fun buyTarot(t: TarotOffer) {
-        if (money < t.cost) return
+        if (money < t.cost || consumables.size >= 2) return   // consumables cap = 2
         money -= t.cost
         onCardBought()
-        val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
-        if (card != null) enhancedCount += 1
+        consumables.add(t)
         shopTarots = shopTarots.filterNot { it === t }
-        Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
+        Telemetry.event("RUN_BUY_TAROT", "tarot" to t.name, "money" to money)
     }
+
+    /** Tap a held tarot to enter targeting mode (or cancel if already aiming this tarot). */
+    fun aimTarot(t: TarotOffer) {
+        if (phase != Phase.ROUND || scoring) return
+        pendingTarot = if (pendingTarot === t) null else t
+        tarotTarget = emptySet()
+    }
+
+    /** Apply the pending tarot to [targets] — the currently selected hand indices.
+     *  Each target card gets the enhancement or seal, then the tarot is consumed. */
+    fun useTarot() {
+        val t = pendingTarot ?: return
+        if (tarotTarget.isEmpty()) return
+        val targetCards = tarotTarget.mapNotNull { hand.getOrNull(it) }
+        var applied = 0
+        for (card in targetCards) {
+            val ok = if (t.seal != Seal.NONE) deck.sealCard(card, t.seal)
+                     else deck.enhanceCard(card, t.enhancement)
+            if (ok) applied++
+        }
+        // Reflect the changes in the live hand (PlayingCard is immutable; replace the instances).
+        // The Deck methods update `all` and `drawPile`; if the card is CURRENTLY in the hand we
+        // need to rebuild `hand` so Compose sees the new enhancement/seal on the visible card.
+        val newHand = hand.map { c ->
+            val match = targetCards.find { it == c } ?: return@map c
+            if (t.seal != Seal.NONE) c.copy(seal = t.seal) else c.copy(enhancement = t.enhancement)
+        }
+        hand = newHand
+        if (applied > 0) enhancedCount += applied
+        consumables.remove(t)
+        pendingTarot = null; tarotTarget = emptySet()
+        Telemetry.event("RUN_USE_TAROT", "tarot" to t.name, "n" to applied)
+    }
+
+    fun cancelTarot() { pendingTarot = null; tarotTarget = emptySet() }
 
     fun handLevel(h: HandType): Int = handLevels.level(h)
 
@@ -1687,8 +1734,23 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("${s.owned.size}/${minOf(s.maxJokers, s.jokerSlots)}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
         }
+        // Consumables area: held tarots rendered as tappable card-sized placeholders.
+        // Tapping enters aim-mode (pendingTarot set); the hand cards then become targets.
+        s.consumables.forEachIndexed { i, t ->
+            val cx = consumX + i * (PF.CARD_W + 0.1f)
+            Box(
+                off(cx, jokersY).size(cardW, cardH)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (s.pendingTarot === t) Balatro.Purple.copy(alpha = 0.7f) else Balatro.Panel)
+                    .border(1.dp, if (s.pendingTarot === t) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
+                    .clickable(enabled = !s.scoring) { s.aimTarot(t) },
+                contentAlignment = Alignment.Center
+            ) {
+                BTxt(t.name, Balatro.White, (0.28f * u * FONT_RATIO).sp, Modifier.padding(horizontal = 2.dp))
+            }
+        }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("0/2", Balatro.White, countSp)
+            BTxt("${s.consumables.size}/2", Balatro.White, countSp)
         }
         // ── PLAYED (G.play). STATIC repro: ScoredCardsRow, frozen at PLAY_SCORING_Y (bref_3's lifted
         // frame). LIVE: the played cards are engine Moveables on host.play — they fly up from the hand
@@ -1732,11 +1794,13 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 val pressed by interaction.collectIsPressedAsState()
                 m.states.drag.isOn = pressed
                 val isFaceDown = i in s.faceDown
+                val isTarotTarget = s.pendingTarot != null && i in s.tarotTarget
                 Box(
                     off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
                         rotationZ = (m.VT.r * 57.2958).toFloat()
                         scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
                     }.clickable(interaction, indication = null, enabled = !s.scoring) { s.toggle(i) }
+                    .then(if (isTarotTarget) Modifier.border(2.dp, Balatro.Purple, RoundedCornerShape(4.dp)) else Modifier)
                 ) {
                     if (isFaceDown) {
                         // Face-down (THE_HOUSE/MARK/WHEEL/FISH): show the card back, no rank/suit/badges visible.
@@ -1764,9 +1828,18 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         if (s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
             BTxt("${s.hand.size}/8", Balatro.White, countSp)
         }
-        // action bar (Play Hand / Sort / Discard) below the hand — hidden during scoring (Balatro hides it).
+        // action bar: tarot-use mode (Use / Cancel) or normal (Play / Sort / Discard).
         if (!s.scoring && s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
-            RenderUI(buttonsRow(s, cells))
+            if (s.pendingTarot != null) {
+                // Tarot-use mode: Use (enabled when ≥1 target) + Cancel buttons.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                    val canUse = s.tarotTarget.isNotEmpty()
+                    BButton("Use ${s.pendingTarot!!.name}", Balatro.Purple, enabled = canUse) { s.useTarot() }
+                    BButton("Cancel", Balatro.Grey, enabled = true) { s.cancelTarot() }
+                }
+            } else {
+                RenderUI(buttonsRow(s, cells))
+            }
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
         Box(off(deckX, deckY).size((PF.DECK_W * u).dp, cardH), contentAlignment = Alignment.TopEnd) {
@@ -2002,7 +2075,8 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
                     }
                     s.shopTarots.forEach { t ->
                         val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
-                        ShopCard(t.name, null, cardBase, t.cost, fx, Balatro.Purple, s.money >= t.cost) { s.buyTarot(t) }
+                        ShopCard(t.name, null, cardBase, t.cost, fx, Balatro.Purple,
+                            s.money >= t.cost && s.consumables.size < 2) { s.buyTarot(t) }
                     }
                 }
             }
