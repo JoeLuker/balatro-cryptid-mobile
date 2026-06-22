@@ -202,3 +202,6 @@ The mapping/design workflow (5 agents) all failed with API 529 Overloaded → se
 ### Broken reference capture
 The reference being compared against was wrong ("your reference is fucked") → root cause in the capture harness, not the Kotlin side → required multiple iterations on `test/ref-autorun.lua` to produce a valid reference frame before HUD comparison could be trusted.
 <!-- session:2026-06-22-ff71eda2 | commit:28dd30ac587b60552e8b74f310a449a2107a774a | files:test/ref-autorun.lua | area:test | date:2026-06-22 -->
+### Supernova off-by-one
+`j_supernova -> o.fj.n = handPlayed(r.handType)` read prior plays only → vanilla's `.played` is incremented before the joker pass so it includes the current hand → deleted the FJoker line and switched to `ctx.scoringPlays = (handTypePlays[handType] ?: 0) + 1`.
+<!-- session:2026-06-22-96db4626 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-22 | rule:WHEN porting a vanilla scaling joker ALWAYS check whether the counter is incremented in evaluate_play_intro (pre-pass) before assuming it excludes the current hand. -->

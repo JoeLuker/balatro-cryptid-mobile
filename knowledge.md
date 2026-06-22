@@ -669,3 +669,15 @@ the scoring engine (Score.kt) has the correct read-path (reads j.n/j.x/check) bu
 ### Reference capture is the parity oracle
 The pixel-parity workflow compares the Kotlin rebuild's HUD against a headless capture of vanilla Balatro produced by `test/ref-autorun.lua` + `test/ref.sh`. If the reference capture is wrong, every downstream comparison is invalid — the reference must be verified correct before trusting any diff.
 <!-- session:2026-06-22-ff71eda2 | commit:28dd30ac587b60552e8b74f310a449a2107a774a | files:test/ref-autorun.lua,test/ref.sh,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:test | date:2026-06-22 -->
+
+### Supernova `.played` timing
+Vanilla increments `G.GAME.hands[scoring_name].played` in `evaluate_play_intro()` (state_events.lua:747) BEFORE the joker_main pass, so Supernova's calc includes the current hand. Rebuild mirrors this with `scoringPlays = (handTypePlays[handType] ?: 0) + 1` at score time, while `recordHandPlayed()` runs later in `scoreBank()`. Supernova reads `ctx.scoringPlays` directly with no FJoker `.n` state (like j_mystic_summit).
+<!-- session:2026-06-22-96db4626 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-22 -->
+
+### n-scaling joker deck scoping
+Stone/Steel count enhancements over the whole persistent deck (`Deck.all` ≈ vanilla `G.playing_cards`); Blue Joker counts only the undrawn draw pile (`deck.remaining` ≈ `G.deck.cards`); Abstract counts all owned jokers including itself (`owned.size`); Banner uses `discardsLeft`; Driver's License needs ≥16 enhanced cards for X3. Confirmed vanilla configs: Stone extra=25, Steel extra=0.2, Blue extra=2, Banner extra=30, Abstract extra=3, Driver's extra=3.
+<!-- session:2026-06-22-96db4626 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt | area:rebuild | date:2026-06-22 -->
+
+### FJoker `.n` sync pattern
+Per-joker scaling counts are populated in `RunScreen.syncFJokerN()` immediately before scoring; jokers that read live context (Supernova, Mystic Summit) bypass `.n` entirely. The Oracle harness compiles the self-contained `systems.balatro.game` package via `nix-shell -p kotlin` (no Android deps) to verify parity.
+<!-- session:2026-06-22-96db4626 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-22 -->
