@@ -54,7 +54,7 @@ class Sctx {
     var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
     var bossBlind = false                   // true when current blind is a boss blind (apjoker)
     var smeared = false                     // Smeared Joker: red/black suits collide in every is_suit check
-    var pareidolia = false                  // Pareidolia: every card counts as a face in every is_face check
+    var pareidolia = false                  // Pareidolia: all id>0 cards count as face (card.lua:1217)
     var debuffSuit: Suit? = null            // boss suit-debuff: cards of this suit score/trigger nothing and are never faces
     var debuffFace: Boolean = false           // THE_PLANT: all face cards (J/Q/K, incl. Pareidolia) score/trigger nothing
     var debuffCards: Set<PlayingCard>? = null  // THE_PILLAR: specific card instances debuffed (played earlier this Ante)
@@ -187,17 +187,14 @@ object Score {
         if (ctx.individual && ctx.cardarea == "play" && oc != null) when (j.key) {
             // (greedy/lusty/wrathful/gluttonous + even_steven/odd_todd/scholar migrated to JOKER_MANIFEST.)
             // --- vanilla individual jokers, faithful from calculate_joker (port-vanilla-jokers workflow) ---
-            // (j_arrowhead migrated to JOKER_MANIFEST.)
-            // (j_onyx_agate migrated to JOKER_MANIFEST.)
-            // (j_fibonacci migrated to JOKER_MANIFEST.)
-            // (j_scary_face migrated to JOKER_MANIFEST.)
-            // (j_smiley migrated to JOKER_MANIFEST.)
-            // (j_triboulet migrated to JOKER_MANIFEST.)
-            // (j_walkie_talkie migrated to JOKER_MANIFEST.)
-            // X2 on the FIRST face. is_face returns nil for debuffed cards (suit-debuff or face-debuff)
-            // before the Pareidolia check, so debuffed cards never count as the first face.
-            // Exclude both suit-debuffed AND face-debuffed cards from the oc test and firstOrNull scan.
-            // (j_photograph migrated to JOKER_MANIFEST.)
+            "j_arrowhead"        -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
+            "j_onyx_agate"       -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
+            "j_fibonacci"        -> if (oc.id in setOf(2, 3, 5, 8, 14)) return Fx().apply { mult = 8.0 }  // +8 Mult per A/2/3/5/8
+            "j_scary_face"       -> if (oc.isFace(ctx.pareidolia)) return Fx().apply { chips = 30.0 }              // +30 Chips/face
+            "j_smiley"           -> if (oc.isFace(ctx.pareidolia)) return Fx().apply { mult = 5.0 }                // +5 Mult/face
+            "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
+            "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
+            "j_photograph"       -> if (oc.isFace(ctx.pareidolia) && ctx.scoringHand.firstOrNull { it.isFace(ctx.pareidolia) } == oc) return Fx().apply { xMult = 2.0 }  // X2 on FIRST face
             // --- Cryptid individual ---
             // (j_cry_iterum migrated to JOKER_MANIFEST.)
             // (j_cry_lightupthenight migrated to JOKER_MANIFEST.)
@@ -225,28 +222,30 @@ object Score {
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
-            // (j_cry_iterum migrated to JOKER_MANIFEST.)
-            // (j_cry_weegaming migrated to JOKER_MANIFEST.)
-            // (j_cry_nosound migrated to JOKER_MANIFEST.)
-            // (j_cry_exposed migrated to JOKER_MANIFEST.)
-            // (j_cry_mask migrated to JOKER_MANIFEST.)
-            // (j_cry_mstack migrated to JOKER_MANIFEST.)
-            // vanilla retrigger jokers (card.lua:3895): Sock and Buskin retriggers each face once;
-            // Hanging Chad retriggers the FIRST scored card twice (context.other_card == scoring_hand[1]);
-            // Dusk retriggers every played card on the last hand (hands_left == 0);
-            // Hack retriggers 2/3/4/5 once each.
-            // (j_sock_and_buskin migrated to JOKER_MANIFEST.)
-            // (j_hanging_chad migrated to JOKER_MANIFEST.)
-            // (j_dusk migrated to JOKER_MANIFEST.)
-            // (j_hack migrated to JOKER_MANIFEST.)
-            // (j_cry_sock_and_sock migrated to JOKER_MANIFEST.)
-            // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
-            "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
-            // clockwork Effect 1 (epic.lua:2227): retrigger each Steel-enhanced held card once when c1==0.
-            // j.n = c1 counter (cycles 0→1→0 per hand, limit=2). c1==0 every other hand starting from hand 1.
-            // Fires in context.repetition + context.cardarea == G.hand (held-card retrigger path).
+            // vanilla retrigger jokers (card.lua:3938-3980): config.extra is the repetition count.
+            // Sock and Buskin: retrigger each scored face card once (extra=1; card.lua:3940-3946).
+            // Hanging Chad: retrigger the FIRST scored played card twice (other_card==scoring_hand[1]; extra=2; card.lua:3948-3954).
+            // Dusk: retrigger every scored played card once on the last hand (hands_left==0; extra=1; card.lua:3956-3961).
+            // Seltzer (key j_selzer — one 'l'): retrigger every scored played card once unconditionally
+            //   (extra=1; card.lua:3963-3969; self-destructs after 10 hands — run loop removes it before score()).
+            // Hack: retrigger each scored 2/3/4/5 once (extra=1; card.lua:3970-3979).
+            "j_sock_and_buskin" -> if (oc.isFace(ctx.pareidolia)) return Fx().apply { repetitions = 1 }
+            "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
+            "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
+            "j_selzer"          -> return Fx().apply { repetitions = 1 }
+            "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
+            // Cryptid retrigger jokers
+            "j_cry_iterum"    -> return Fx().apply { repetitions = 1 }                   // +1 retrigger per scored played card (base; immutable max 40)
+            "j_cry_weegaming" -> if (oc.id == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2
+            "j_cry_nosound"   -> if (oc.id == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7
+            "j_cry_exposed"   -> if (!oc.isFace(ctx.pareidolia)) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
+            "j_cry_mask"      -> if (oc.isFace(ctx.pareidolia)) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
+            "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
+            // clockwork Effect 1 (epic.lua:2228): retrigger each Steel-enhanced held card once when c1==0.
+            // j.n = c1 counter (cycles 0→1→0 per hand with limit=2). Fires in repetition + cardarea=="hand".
             "j_cry_clockwork" -> if (ctx.cardarea == "hand" && j.n == 0 && oc.enhancement == Enhancement.STEEL) return Fx().apply { repetitions = 1 }
-
+            // j_cry_sock_and_sock: +1 rep per scored Abstract-enhanced played card (misc_joker.lua:9914; extra.retriggers=1)
+            "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -515,6 +514,8 @@ object Score {
         val fourFingers = jokers.any { it.key == "j_four_fingers" }
         val shortcut = jokers.any { it.key == "j_shortcut" }
         val smeared = jokers.any { it.key == "j_smeared" }
+        // Pareidolia: all id>0 cards count as face during scoring (card.lua:1217 — find_joker("Pareidolia")).
+        val pareidolia = jokers.any { it.key == "j_pareidolia" }
         val (handType, handCards, pokerHands) = Hands.evaluate(played, rankOf, fourFingers, shortcut, smeared)
         // final_scoring_hand (state_events.lua:743): a played card scores if it's in the evaluated hand,
         // always-scores (stone), or Splash is on the board — j_splash makes EVERY played card score.

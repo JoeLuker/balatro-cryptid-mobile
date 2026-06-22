@@ -39,9 +39,10 @@ data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhanceme
         else -> rank
     }
 
-    /** Card:is_face() — J/Q/K (id 11..13). Pareidolia (all cards face) is a joker hook, off here.
-     *  Abstract cards explicitly return nil/false in Cryptid's is_face override (card.lua:1202). */
-    val isFace: Boolean get() = enhancement != Enhancement.ABSTRACT && id in 11..13
+    /** Card:is_face(pareidolia) — J/Q/K (id 11..13); with Pareidolia all id>0 cards are face.
+     *  Stone (id=-1) and Abstract (id=-2) are never face (id ≤ 0).
+     *  card.lua:1217: (id > 0 and rank.face) or find_joker("Pareidolia"); Abstract explicitly returns nil (line 1213). */
+    fun isFace(pareidolia: Boolean = false): Boolean = id > 0 && (pareidolia || id in 11..13)
 
     /** Card:is_suit(flush_calc) — Stone/Abstract never, Wild any, Smeared makes red/black collide, else exact.
      *  Abstract has specific_suit="cry_abstract" — not a standard suit, never matches. */
