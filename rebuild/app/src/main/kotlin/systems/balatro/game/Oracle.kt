@@ -146,6 +146,13 @@ object Oracle {
         //   Joker +4→mult=6; Spectrogram votes rj=Joker===board.last() ✓, n=1→reps=1; Joker re-fires→mult=10.
         //   Score: floor(32×10)=320.
         Case("Pair aces + spectrogram(n=1,leftmost),joker(rightmost) — spec retriggers rightmost once → 320", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_spectrogram", n = 1), FJoker("j_joker"))),
+        // Spectrogram accumulator: j.n starts at 0; each scored Echo card increments j.n by 1.
+        // Board [Spectrogram(n=0,leftmost), Joker(rightmost)]; hand = 2 Echo Aces.
+        // Per-card: S_A Echo: chips+=11→21; spectrogram sees ECHO→j.n=1. H_A Echo: chips+=11→32; j.n=2.
+        // joker_main: Spectrogram no-op; Joker+4→mult=6; Spectrogram votes rj=Joker===last,n=2→2 reps;
+        //   Joker fires twice more: mult=6+4+4=14. Score: floor(32×14)=448.
+        Case("Pair Echo-Aces + spectrogram(n=0 accumulates to 2),joker → joker fires 3x → 448",
+            listOf(en("S_A", Enhancement.ECHO), en("H_A", Enhancement.ECHO)), 448.0, j(FJoker("j_cry_spectrogram"), FJoker("j_joker"))),
         Case("TwoPair 2s/As + duos (x2.5 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 230.0, j(FJoker("j_cry_duos"))),
         Case("FullHouse As/Ks + home (x3.5 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1302.0, j(FJoker("j_cry_home"))),
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),

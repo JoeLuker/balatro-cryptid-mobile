@@ -165,6 +165,10 @@ object Score {
             "j_cry_antennastoheaven"  -> if (oc.id == 4 || oc.id == 7) j.xc += 0.1   // scaling: +0.1 Xchips per scored 4/7, applied at joker_main
             // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
             "j_cry_caramel"           -> if (j.x >= 1.0) return Fx().apply { xMult = j.x }
+            // spectrogram accumulator: count Echo-enhanced cards scored this hand. j.n increments by 1
+            // per Echo card in the per-card individual pass; fires as retrigger_joker_check (rightmost
+            // joker) at j.n extra reps. No per-card chip/mult effect here — only the counter.
+            "j_cry_spectrogram"       -> if (oc.enhancement == Enhancement.ECHO) j.n += 1
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
