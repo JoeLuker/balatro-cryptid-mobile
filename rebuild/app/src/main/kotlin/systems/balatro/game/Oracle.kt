@@ -330,9 +330,9 @@ object Oracle {
         // Baron: King held → X1.5 Mult; chips=32, mult=2*1.5=3 → 96.
         Case("Pair of aces + baron (King held)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baron")), held = listOf(PlayingCard.parse("S_K"))),
         // baron + exponentia: Baron fires x_mult=1.5 in held pass → exponentia.x+=0.03 → Emult=1.03.
-        // joker_main: baron null; exponentia eMult=1.03 → mult=3.0^1.03≈3.091. floor(32×3.091)=98.
-        // (Pre-fix engine skipped exponentia increment for held-card xMult, giving 96 instead of 98.)
-        Case("Pair of aces + baron + exponentia (held King → exp increments)", PlayingCard.hand("S_A", "H_A"), 98.0, j(FJoker("j_baron"), FJoker("j_cry_exponentia")), held = listOf(PlayingCard.parse("S_K"))),
+        // joker_main: baron null; exponentia eMult=1.03 → mult=3.0^1.03≈3.1005. floor(32×3.1005)=99.
+        // (Pre-fix engine skipped exponentia increment for held-card xMult, giving floor(32×3.0)=96 instead.)
+        Case("Pair of aces + baron + exponentia (held King → exp increments)", PlayingCard.hand("S_A", "H_A"), 99.0, j(FJoker("j_baron"), FJoker("j_cry_exponentia")), held = listOf(PlayingCard.parse("S_K"))),
         // Shoot the Moon: Queen held → +13 Mult; chips=32, mult=2+13=15 → 480.
         Case("Pair of aces + shoot_the_moon (Queen held)", PlayingCard.hand("S_A", "H_A"), 480.0, j(FJoker("j_shoot_the_moon")), held = listOf(PlayingCard.parse("S_Q"))),
         // Raised Fist: +2x nominal of lowest held card; 7 held → +14 Mult; chips=32, mult=2+14=16 → 512.
