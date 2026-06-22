@@ -266,6 +266,8 @@ private val CATALOG = listOf(
     // broken_sync_catalyst: atomically swaps 10% of chips into mult and 10% of mult into chips
     // (cry_broken_swap=10 → portion=10%); math: delta=(chips−mult)*0.10. Inline intercept in joker_main.
     Offer("j_cry_broken_sync_catalyst", "Broken Sync Catalyst", "swap 10% of Chips↔Mult", 7),
+    // sync_catalyst: balances Chips and Mult (sets both to their average = (chips+mult)/2).
+    Offer("j_cry_sync_catalyst", "Sync Catalyst", "balance Chips = Mult = average", 7),
     // --- Cryptid Spooky-Code scoring jokers ---
     // Spy: flat X0.5 Mult every hand (halves mult); x_mult=0.5 is fixed.
     Offer("j_cry_spy", "Spy", "x0.5 Mult every hand", 3),

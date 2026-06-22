@@ -208,6 +208,10 @@ object Oracle {
         // delta=(32−2)*0.10=3.0; chips=32−3=29, mult=2+3=5. Score: floor(29×5)=145.
         Case("Pair of aces + broken_sync_catalyst (10% chip↔mult swap) → 145",
             PlayingCard.hand("S_A", "H_A"), 145.0, j(FJoker("j_cry_broken_sync_catalyst"))),
+        // sync_catalyst: sets chips = mult = (chips+mult)/2. Pair aces: chips=32, mult=2 → avg=17.
+        // Score: floor(17×17)=289.
+        Case("Pair of aces + sync_catalyst (balance chips=mult=avg) → 289",
+            PlayingCard.hand("S_A", "H_A"), 289.0, j(FJoker("j_cry_sync_catalyst"))),
         Case("Pair of aces + spy (flat x0.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 32.0, j(FJoker("j_cry_spy"))),
         Case("Pair of aces + apjoker on boss blind (x4 Xmult)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_apjoker")), bossBlind = true),
         Case("Pair of aces + universe + Astral joker (Emult^1.2)", PlayingCard.hand("S_A", "H_A"), 274.0, j(FJoker("j_joker", edition = "Astral"), FJoker("j_cry_universe"))),

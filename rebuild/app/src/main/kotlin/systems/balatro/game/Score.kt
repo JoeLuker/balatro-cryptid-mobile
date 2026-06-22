@@ -512,6 +512,12 @@ object Score {
                 val delta = (chips - mult) * 0.10
                 chips -= delta; mult += delta
             }
+            // sync_catalyst: balances Chips and Mult (sets both to their average — "the non-broken variant").
+            // Same inline-intercept pattern as broken_sync_catalyst (not expressible as a standard Fx delta).
+            if (j.key == "j_cry_sync_catalyst") {
+                val avg = (chips + mult) / 2.0
+                chips = avg; mult = avg
+            }
             calcJoker(j, ctx)?.let { applyJokerFx(it) }
             when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
             // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
