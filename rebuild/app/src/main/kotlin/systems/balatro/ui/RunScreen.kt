@@ -80,6 +80,17 @@ internal class OpenPack(val name: String, val kind: String, val items: List<Pack
     val picked = mutableStateListOf<Int>()
     var picksLeft by mutableStateOf(choose)
 }
+/** When a tag's effect fires (tag.lua config.type). */
+internal enum class TagTrigger { EVAL, ROUND_START, SHOP_START, SHOP_FINAL }
+/** A skip tag (tag.lua / game.lua tag_*). Earned by skipping a Small/Big blind; fires at [trigger]. */
+internal enum class Tag(val display: String, val desc: String, val trigger: TagTrigger) {
+    INVESTMENT("Investment Tag", "+\$25 after the next Blind", TagTrigger.EVAL),       // config.type 'eval', dollars 25
+    JUGGLE("Juggle Tag", "+3 hand size next round", TagTrigger.ROUND_START),           // 'round_start_bonus', h_size 3
+    D_SIX("D6 Tag", "Rerolls start at \$0 next shop", TagTrigger.SHOP_START),          // 'shop_start'
+    COUPON("Coupon Tag", "Next shop cards & packs are free", TagTrigger.SHOP_FINAL),   // 'shop_final_pass'
+}
+private val TAG_POOL = Tag.values().toList()
+private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
@@ -313,8 +324,19 @@ internal class RunState {
     var shopBoosters by mutableStateOf<List<BoosterOffer>>(emptyList())   // 2 booster slots per shop
     var openPack by mutableStateOf<OpenPack?>(null)                       // the pack being opened (PACK_OPEN)
     private var packSeed = 0                                              // varies pack contents per buy
-    /** Shop price after the Clearance Sale discount (set_cost: floor, min $1). */
-    fun price(base: Int): Int = maxOf(1, base * (100 - discountPercent) / 100)
+    // Skip tags: earned by skipping a blind, fired at their trigger. handSize + the per-shop tag
+    // transients (reset on each shop entry) are how the timed effects land.
+    val tags = mutableStateListOf<Tag>()                                 // earned, awaiting their trigger
+    var handSize by mutableStateOf(8)                                    // cards drawn to hand (Juggle: +3 one round)
+    var freeRerollThisShop by mutableStateOf(false)                      // D6 Tag (this shop only)
+    var couponThisShop by mutableStateOf(false)                          // Coupon Tag (this shop only)
+    /** The tag offered for skipping the current (Small/Big) blind. */
+    val upcomingTag: Tag get() = tagForBlind(blindIndex)
+    /** Shop price after the Clearance Sale discount + the Coupon Tag (free this shop). set_cost: floor, min $1. */
+    fun price(base: Int): Int {
+        val d = maxOf(discountPercent, if (couponThisShop) 100 else 0)
+        return if (d >= 100) 0 else maxOf(1, base * (100 - d) / 100)
+    }
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
     var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
@@ -470,8 +492,10 @@ internal class RunState {
 
     private fun startRound() {
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        handSize = 8
+        applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
-        hand = deck.draw(8); selected = emptySet()
+        hand = deck.draw(handSize); selected = emptySet()
         roundScore = 0.0
         handsLeft = boss?.hands(baseHands) ?: baseHands          // base (+Grabber); The Needle: 1 hand
         discardsLeft = boss?.discards(baseDiscards) ?: baseDiscards  // base (+Wasteful); The Water: 0 discards
@@ -482,7 +506,7 @@ internal class RunState {
 
     private fun refill() {
         val keep = hand.filterIndexed { i, _ -> i !in selected }
-        hand = keep + deck.draw(8 - keep.size)
+        hand = keep + deck.draw(handSize - keep.size)
         selected = emptySet()
     }
 
@@ -561,6 +585,7 @@ internal class RunState {
     /** Round won → the cash-out screen (entered after the end-of-round self-destruct dissolves start,
      *  so the burning jokers are still visible behind the cash-out panel — see RoundPlay). */
     fun enterRoundEval() {
+        applyTags(TagTrigger.EVAL)   // Investment Tag: +$25 after defeating the blind
         buildCashOut()          // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
         Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
         phase = Phase.ROUND_EVAL
@@ -594,6 +619,8 @@ internal class RunState {
         owned.removeAll { it.fj.key in SELF_DESTRUCT_KEYS }
         blindIndex += 1
         resetRerollCost()                            // fresh shop → reroll cost back to base
+        freeRerollThisShop = false; couponThisShop = false      // per-shop tag effects reset, then re-applied
+        applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
         shop = rollShop(blindIndex, 3 + shopSlotsBonus); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
@@ -722,6 +749,8 @@ internal class RunState {
     /** Populate the shop and jump to it — for the --es screen shop parity-screenshot deep-link only. */
     fun toShopForPreview() {
         resetRerollCost()
+        freeRerollThisShop = false; couponThisShop = false
+        applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)
         shop = rollShop(blindIndex, 3 + shopSlotsBonus); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
         shopBoosters = rollBoosters(blindIndex)
@@ -735,7 +764,7 @@ internal class RunState {
     // shop, reset to base each new shop. rerollBase is reducible by vouchers/back later.
     var rerollBase = 5
     var rerollIncrease by mutableStateOf(0)                  // current_round.reroll_cost_increase
-    val rerollCost: Int get() = rerollBase + rerollIncrease
+    val rerollCost: Int get() = (if (freeRerollThisShop) 0 else rerollBase) + rerollIncrease
     private var rerolls = 0                                  // global counter → reroll-stock RNG variety
     /** state_events.lua:347 — entering a fresh shop resets the per-shop reroll escalation. */
     fun resetRerollCost() { rerollIncrease = 0 }
@@ -752,6 +781,27 @@ internal class RunState {
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
     fun selectBlind() { if (phase == Phase.BLIND_SELECT) startRound() }
+
+    /** Skip the current Small/Big blind for its Tag (can't skip the Boss); advance to the next blind. */
+    fun skipBlind() {
+        if (phase != Phase.BLIND_SELECT || slot == 2) return
+        tags.add(upcomingTag)
+        blindIndex += 1
+        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        Telemetry.event("BLIND_SKIP", "tag" to tags.last().name)
+    }
+
+    /** Fire (and consume) every earned tag whose trigger matches (Tag:apply_to_run by config.type). */
+    private fun applyTags(trigger: TagTrigger) {
+        val firing = tags.filter { it.trigger == trigger }
+        for (t in firing) when (t) {
+            Tag.INVESTMENT -> money += 25
+            Tag.JUGGLE -> handSize += 3
+            Tag.D_SIX -> freeRerollThisShop = true
+            Tag.COUPON -> couponThisShop = true
+        }
+        tags.removeAll(firing)
+    }
 
     private var phaseBeforeInfo: Phase = Phase.ROUND
 
@@ -1967,12 +2017,12 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
         Spacer(Modifier.height(12.dp))
         // R(align="cm", padding=0.5) containing up to 3 O(UIBox{blind_choice}) nodes
         // Rendered as a horizontal row since each blind card is a C column node.
+        val currentSlot = s.blindIndex % 3
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.Top
         ) {
-            val currentSlot = s.blindIndex % 3
             for (slotIdx in 0..2) {
                 val blindBmp: ImageBitmap? = when (slotIdx) {
                     0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
@@ -1982,6 +2032,17 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                         enabled = (slotIdx == currentSlot)) { s.selectBlind() })
                 }
             }
+        }
+        // Skip the Small/Big blind for its Tag (the Boss can't be skipped).
+        if (currentSlot != 2) {
+            Spacer(Modifier.height(14.dp))
+            BButton("Skip Blind  →  ${s.upcomingTag.display}", Balatro.Mult) { s.skipBlind() }
+            BTxt(s.upcomingTag.desc, Balatro.Gold, 11.sp, Modifier.padding(top = 3.dp))
+        }
+        // earned tags awaiting their trigger
+        if (s.tags.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            BTxt("Tags: " + s.tags.joinToString { it.display }, Balatro.Chips, 12.sp)
         }
     }
 }
