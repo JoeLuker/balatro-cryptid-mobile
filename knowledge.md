@@ -681,3 +681,19 @@ Stone/Steel count enhancements over the whole persistent deck (`Deck.all` ≈ va
 ### FJoker `.n` sync pattern
 Per-joker scaling counts are populated in `RunScreen.syncFJokerN()` immediately before scoring; jokers that read live context (Supernova, Mystic Summit) bypass `.n` entirely. The Oracle harness compiles the self-contained `systems.balatro.game` package via `nix-shell -p kotlin` (no Android deps) to verify parity.
 <!-- session:2026-06-22-96db4626 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-22 -->
+
+### Headless build/deploy pipeline
+The APK is built and deployed entirely from teleos (headless) via background `gen-patches → build gameLove → smoke → signed APK → adb deploy` commands; ohtoaos is the interactive host. Screenshots on the phone are a last-resort verification — logs (`adb logcat` / crash dumps) are the primary signal and the user strongly prefers reading logs over screenshotting his live phone.
+<!-- session:2026-06-22-80051b53 | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:scripts/build.sh,nix/balatro-cryptid.nix,nix/gen-patches.sh | area:nix | date:2026-06-22 -->
+
+### Programmatic patcher over quilt stack
+A 57-entry quilt patch series was collapsed into `scripts/patch_main_lua.py` plus a much smaller set of patches. The programmatic approach replaced dozens of fragile context-dependent `.patch` files (perf caches, shader resets, UI guards) that were hard to maintain across upstream changes.
+<!-- session:2026-06-22-80051b53 | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:scripts/patch_main_lua.py,overlay/patches/series,overlay/patches/08-main_lua.patch | area:overlay | date:2026-06-22 -->
+
+### GLSL-ES / shader-state on mobile
+The "all-white canvas / broken buttons" class of bug stemmed from shader state not being reset between draw passes on the Android GLSL-ES path, not from UI-scale or layout logic. Reset-on-draw guards (the deleted `57-draw_shader_nil_reset` and successor programmatic hooks) target this.
+<!-- session:2026-06-22-80051b53 | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:overlay/patches/08-main_lua.patch | area:overlay | date:2026-06-22 -->
+
+### Competing debug tools
+The APK shipped overlapping/competing debug-logging tools (DebugPlus console, Steamodded dev logging, `android-telemetry.lua` OBS suite). DebugPlus crashed (`console.lua:793 attempt to get length of field 'logs'`) when its log level was cycled — a symptom of multiple uncoordinated logging subsystems. The consolidation goal is one suite where components register and talk to each other.
+<!-- session:2026-06-22-80051b53 | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:patches/android-telemetry.lua | area:patches | date:2026-06-22 -->
