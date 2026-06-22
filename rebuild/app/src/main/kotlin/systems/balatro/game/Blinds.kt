@@ -25,8 +25,8 @@ sealed interface Debuff {
  *
  * Regular bosses with round-state effects (THE_EYE, THE_MOUTH, THE_ARM, THE_OX, THE_TOOTH,
  * THE_HOOK, THE_PSYCHIC, THE_SERPENT, THE_MANACLE) are wired in RunState.
- * Face-down bosses (THE_HOUSE, THE_MARK, THE_WHEEL, THE_FISH, THE_PILLAR) have no scoring
- * impact; their face-down visuals are a UI stub.
+ * Face-down bosses (THE_HOUSE, THE_MARK, THE_WHEEL, THE_FISH) have no scoring impact; their
+ * face-down visuals are handled by RunState.faceDown + applyFaceDown() + the CardFace render branch.
  *
  * Ante-10 showdowns:
  *   VERDANT_LEAF   — all played cards are debuffed (only jokers score); selling a joker defeats it
@@ -57,7 +57,7 @@ enum class Boss(val display: String, val desc: String) {
     THE_MOUTH   ("The Mouth",    "Only 1 hand type may be played"),
     THE_OX      ("The Ox",       "Playing most-played hand sets money to \$0"),
     THE_SERPENT ("The Serpent",  "After each play, draw a new hand"),
-    // ── face-down stubs (no scoring effect) ─────────────────────────────────────────────────
+    // ── face-down (no scoring effect; visual flip handled in RunState/RunScreen) ─────────────
     THE_HOUSE   ("The House",    "First hand is drawn face down"),
     THE_MARK    ("The Mark",     "All face cards are drawn face down"),
     THE_WHEEL   ("The Wheel",    "1 in 7 cards is drawn face down"),
