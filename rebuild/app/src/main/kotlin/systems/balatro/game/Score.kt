@@ -704,6 +704,10 @@ object Score {
         }
         for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
+            // pre_joker editions: Foil(+50 Chips) / Holo(+10 Mult) fire BEFORE the joker's own effect
+            // (card.lua context.pre_joker) — so an xMult/xChip main multiplies the edition-boosted value
+            // (e.g. Holo + an X2 joker is (mult+10)*2, not mult*2+10).
+            when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0 }
             // broken_sync_catalyst: swap portion (10%) of chips into mult and vice versa (atomic).
             // cry_broken_swap=10 → portion=0.10. Not expressible as a standard Fx delta because it
             // reads and writes both accumulators simultaneously. Handled inline before calcJoker.
@@ -719,13 +723,9 @@ object Score {
                 chips = avg; mult = avg
             }
             calcJoker(j, ctx)?.let { applyJokerFx(it) }
-            // Joker edition effects (card.lua:1357-1365, x_mult_mod for Poly). Poly fires as
-            // x_mult_mod through SMODS.calculate_individual_effect, so it also triggers exponentia.
-            when (j.edition) {
-                "Foil" -> chips += 50.0
-                "Holo" -> mult += 10.0
-                "Poly" -> { mult *= 1.5; for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03 }
-            }
+            // post_joker edition: Poly X1.5 Mult applies AFTER the joker's main effect (card.lua
+            // context.post_joker); it fires as an x_mult_mod, so it also feeds j_cry_exponentia.
+            if (j.edition == "Poly") { mult *= 1.5; for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03 }
             // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
             // ask every board joker whether to retrigger j (once, non-recursive per Lua guard).
             ctx.jokerRetriggerCheck = true; ctx.retriggeredJoker = j
