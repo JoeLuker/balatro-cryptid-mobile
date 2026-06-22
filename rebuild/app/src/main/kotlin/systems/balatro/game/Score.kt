@@ -78,8 +78,8 @@ class Fx {
 }
 
 object Score {
-    /** Composite ranks per Cryptid's primus prime-check — everything else (incl. Ace=14) is "prime". */
-    private val PRIMUS_COMPOSITES = setOf(4, 6, 8, 9, 10, 11, 12, 13)
+    /** Prime ranks for Cryptid's primus before-check (exotic.lua:606): 2, 3, 5, 7, Ace(14). */
+    private val PRIMUS_PRIMES = setOf(2, 3, 5, 7, 14)
 
     // --- card scoring helpers (Card:get_chip_*), the played-card's own contribution -------------
     private fun chipBonus(c: PlayingCard): Double = when (c.enhancement) {   // get_chip_bonus
@@ -138,7 +138,8 @@ object Score {
                 // spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored;
                 //   accumulated during the per-card pass when m_cry_echo enhancement is present — no-op until
                 //   m_cry_echo is modelled in the Enhancement enum).
-                "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
+                // Lua guard: context.other_card ~= self — spectrogram must NOT retrigger itself.
+                "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && rj !== j && j.n > 0) return Fx().apply { repetitions = j.n }
                 // flip_side: retrigger any joker with the double-sided edition once.
                 "j_cry_flip_side" -> if (rj.edition == "cry_double_sided") return Fx().apply { repetitions = 1 }
             }
@@ -184,6 +185,15 @@ object Score {
             // per Echo card in the per-card individual pass; fires as retrigger_joker_check (rightmost
             // joker) at j.n extra reps. No per-card chip/mult effect here — only the counter.
             "j_cry_spectrogram"       -> if (oc.enhancement == Enhancement.ECHO) j.n += 1
+            // facile: count every scored-card pass (including retrigger repetitions) in j.n (= check2).
+            // joker_main fires Emult=3 only when j.n <= 10 (exotic.lua:1002-1013), then resets to 0.
+            "j_cry_facile"            -> j.n += 1
+            // Edition reactors: fire per scored playing card carrying that edition (misc_joker.lua:3635,3726,3817).
+            // Separate from the other_joker path which fires per Foil/Holo/Poly joker on the board.
+            // meteor held-chips are dead in Lua too (dev comment: "this doesn't exist yet"); held omitted.
+            "j_cry_meteor"            -> if (oc.edition == "Foil") return Fx().apply { chips = 75.0 }
+            "j_cry_exoplanet"         -> if (oc.edition == "Holo") return Fx().apply { mult = 15.0 }
+            "j_cry_stardust"          -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -272,16 +282,17 @@ object Score {
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
             // starfruit: Emult = j.x (starts at 2.0, decreases by 0.2 per reroll, self-destructs at <=1)
             "j_cry_stella_mortis", "j_cry_formidiulosus", "j_cry_starfruit" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
-            // primus: Emult = j.x (base 1.01, +0.17 in the before-pass when the whole hand is prime); mult^x.
+            // primus: Emult = j.x (base 1.01, +0.17 in the before-pass when ANY played card is a prime rank); mult^x.
             // Lives here (not the loop) so the copy-jokers can copy it like any other joker_main effect.
             "j_cry_primus" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
             "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
             "j_cry_circulus_pistoris" -> if (ctx.handsLeft == 3) return Fx().apply { xChipMod = PI; eMult = PI }
-            // facile: Emult=3 (fixed) if scored-card count this hand <=10; counter tracked externally (j.n);
-            //         nearly always fires (<= 5 cards in standard play; retrigger edge cases not modelled)
-            "j_cry_facile" -> return Fx().apply { eMult = 3.0 }
+            // facile: Emult=3 only when scored-card passes this hand <=10 (exotic.lua:1005-1013).
+            // j.n is incremented once per individual pass (incl. retrigger reps) in the individual block above.
+            // Reset j.n to 0 here regardless of whether Emult fires (mirrors check2=0 in the Lua).
+            "j_cry_facile" -> { val fires = j.n <= 10; j.n = 0; if (fires) return Fx().apply { eMult = 3.0 } }
             // exponentia: scales Emult (j.x, base 1.0) +Emult_mod(0.03) each time any xmult effect fires during scoring;
             //             joker_main reads j.x and applies mult^j.x when above 1 (no-op while x==1.0 / never scaled)
             "j_cry_exponentia" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
@@ -385,6 +396,12 @@ object Score {
                 val low = ctx.heldHand.filter { it.enhancement != Enhancement.STONE }.minByOrNull { it.nominal }
                 if (low != null && oc == low) return Fx().apply { mult = 2.0 * low.chips }
             }
+            // Edition reactors: fire per held card with that edition (misc_joker.lua:3735,3826).
+            // Lua shows a "debuffed" message (no score) for debuffed held cards; the engine has no
+            // held-card debuff tracking, so that edge case is not modelled — the fire condition is edition only.
+            // meteor held-chips are dead in Lua ("this doesn't exist yet") — held omitted for meteor.
+            "j_cry_exoplanet"  -> if (oc.edition == "Holo") return Fx().apply { hMult = 15.0 }
+            "j_cry_stardust"   -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
         }
         // OTHER_JOKER: a joker reacting to each board joker (context.other_joker)
         val oj = ctx.otherJoker
@@ -400,7 +417,7 @@ object Score {
                 }
             }
             "j_cry_waluigi"  -> return Fx().apply { xMultMod = 2.5 }                                  // X2.5 once per board joker (incl self)
-            // --- Cryptid edition reactors (the card-edition branch is unreachable: cards carry no edition here) ---
+            // --- Cryptid edition reactors (joker-on-joker path; card edition paths handled in individual/held blocks) ---
             "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
             "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker
             "j_cry_stardust"  -> if (oj !== j && oj.edition == "Poly") return Fx().apply { xMultMod = 2.0 }   // X2 Mult / other Poly joker
@@ -452,8 +469,9 @@ object Score {
             this.debuffedJokerKey = debuffedJokerKey; this.board = jokers
         }
 
-        // BEFORE pass: j_cry_primus raises its Emult (j.x, base 1.01) by 0.17 if the whole hand is prime.
-        for (j in jokers) if (j.key == "j_cry_primus" && played.all { it.id !in PRIMUS_COMPOSITES }) j.x += 0.17
+        // BEFORE pass: j_cry_primus gains +0.17 Emult if ANY card in the played hand is a prime rank
+        // (exotic.lua:603-619: loops full_hand, sets check=true on any 2/3/5/7/Ace, scales when check).
+        for (j in jokers) if (j.key == "j_cry_primus" && played.any { it.id in PRIMUS_PRIMES }) j.x += 0.17
         // j_cry_zooble: +1 Mult per DISTINCT rank in the scoring hand, unless the hand is a Straight (scaling).
         for (j in jokers) if (j.key == "j_cry_zooble" && HandType.STRAIGHT !in pokerHands && HandType.STRAIGHT_FLUSH !in pokerHands)
             j.mult += scoringHand.filter { it.enhancement != Enhancement.STONE }.map { it.id }.distinct().size.toDouble()
@@ -525,7 +543,15 @@ object Score {
             if (fx.chipMod != 0.0) chips += fx.chipMod
             if (fx.xChipMod != 1.0) chips *= fx.xChipMod
             if (fx.multMod != 0.0) mult += fx.multMod
-            if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            if (fx.xMultMod != 1.0) {
+                mult *= fx.xMultMod
+                // exponentia: SMODS.calculate_individual_effect hook (exotic.lua:226) fires on every
+                // x_mult/xmult/Xmult/x_mult_mod/xmult_mod/Xmult_mod key with amount != 1 — that
+                // covers joker-main xMultMod returns as well as per-card individual xMult. Increment
+                // here so joker xmults (Steel Joker, Ramen, Hologram, Cryptid xmult jokers, etc.)
+                // all scale Exponentia, matching the Lua hook's scope.
+                for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
+            }
             if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)
         }
         for (j in jokers) {
@@ -545,7 +571,13 @@ object Score {
                 chips = avg; mult = avg
             }
             calcJoker(j, ctx)?.let { applyJokerFx(it) }
-            when (j.edition) { "Foil" -> chips += 50.0; "Holo" -> mult += 10.0; "Poly" -> mult *= 1.5 }
+            // Joker edition effects (card.lua:1357-1365, x_mult_mod for Poly). Poly fires as
+            // x_mult_mod through SMODS.calculate_individual_effect, so it also triggers exponentia.
+            when (j.edition) {
+                "Foil" -> chips += 50.0
+                "Holo" -> mult += 10.0
+                "Poly" -> { mult *= 1.5; for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03 }
+            }
             // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
             // ask every board joker whether to retrigger j (once, non-recursive per Lua guard).
             ctx.jokerRetriggerCheck = true; ctx.retriggeredJoker = j

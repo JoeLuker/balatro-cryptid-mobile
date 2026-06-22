@@ -105,6 +105,9 @@ object Oracle {
         Case("Pair Kings + blueprint,sock_and_buskin (retrigger copy)", PlayingCard.hand("S_K", "H_K"), 140.0, j(FJoker("j_blueprint"), FJoker("j_sock_and_buskin"))),
         Case("J,Q,K + maximized (rank patch -> ToaK)", PlayingCard.hand("S_J", "H_Q", "D_K"), 180.0, j(FJoker("j_cry_maximized"))),
         Case("Flush A-2-3-5-7 + primus (Emult pow)", PlayingCard.hand("S_A", "S_2", "S_3", "S_5", "S_7"), 323.0, j(FJoker("j_cry_primus", x = 1.01))),
+        // Primus mixed-prime hand: FullHouse K/K/K/2/2 — 2 is prime so before-pass fires (bug was: only
+        // fired when ALL cards prime). chips=40+10+10+10+2+2=74, mult=4; x: 1.01→1.18; floor(74×4^1.18)=379.
+        Case("FullHouse K/K/K/2/2 + primus (mixed prime, before fires)", PlayingCard.hand("S_K", "H_K", "D_K", "S_2", "H_2"), 379.0, j(FJoker("j_cry_primus", x = 1.01))),
         // --- Cryptid "type" jokers (fire on context.poker_hands present) ---
         Case("Pair + giggly (High Card present, +4 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_giggly"))),
         Case("FourOfAKind aces + nutty (+19 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 2704.0, j(FJoker("j_cry_nutty"))),
@@ -405,8 +408,15 @@ object Oracle {
         // cry_stardust: X2 per other Poly joker (OTHER_JOKER). Poly j_cry_bonkers: Poly ×1.5 (edition pass) → mult=3; stardust X2 → mult=6. chips=32 → 192.
         Case("Pair of aces + cry_stardust + Poly bonkers", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_stardust"), FJoker("j_cry_bonkers", edition = "Poly"))),
         // --- Cryptid Emult jokers ---
-        // cry_facile: eMult=3 unconditionally. Pair aces: chips=32, mult=2^3=8 → 256.
-        Case("Pair of aces + cry_facile", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_facile"))),
+        // cry_facile: eMult=3 when scored-card passes (check2) <=10 (exotic.lua:1005-1013).
+        // Pair aces (2 cards, 0 retriggers): check2=2 ≤ 10 → fires. chips=32, mult=2^3=8 → 256.
+        Case("Pair of aces + cry_facile (check2=2, fires)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_cry_facile"))),
+        // cry_facile suppressed when check2>10: j_cry_exposed adds +2 retriggers per non-face card.
+        // Two Pair 2s/3s (S_2,H_2,S_3,H_3): 4 non-face cards × 3 passes = 12 > 10 → facile does NOT fire.
+        // base chips=20, mult=2. Card chips: (2+2+3+3)×3 reps=30. chips=50, mult=2. Score=floor(50×2)=100.
+        // (Without the guard the engine would fire mult^3=8 → 400 — the bug this test anchors.)
+        Case("TwoPair 2s/3s + exposed + facile (check2=12, suppressed)", PlayingCard.hand("S_2", "H_2", "S_3", "H_3"), 100.0,
+            j(FJoker("j_cry_exposed"), FJoker("j_cry_facile"))),
         // cry_stella_mortis: eMult=j.x when j.x>1.0. j.x=2.0: chips=32, mult=2^2=4 → 128.
         Case("Pair of aces + cry_stella_mortis (x=2.0)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_stella_mortis", x = 2.0))),
         // cry_circulus_pistoris: xChipMod=PI, eMult=PI when handsLeft==3. chips=32*PI≈100.53, mult=2^PI≈8.825 → 887.
