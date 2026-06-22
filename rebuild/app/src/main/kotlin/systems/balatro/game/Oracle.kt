@@ -124,17 +124,28 @@ object Oracle {
         // other_joker pass: other=Baseball(r=3) offered to Circus → rarity=3→X2 Mult. Baseball: oj===j→skip.
         // No joker_main effects. Pair aces: chips=32, mult=2; X2 → mult=4. floor(32×4)=128.
         Case("Pair + circus(r=6,Exotic) + baseball(r=3,Rare) → circus X2 per Rare", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_circus", rarity = 6), FJoker("j_baseball", rarity = 3))),
-        // Joker-retrigger pass (context.retrigger_joker_check): chad, flip_side.
+        // Joker-retrigger pass (context.retrigger_joker_check): chad, flip_side, loopy, spectrogram.
         // Chad(n=2): retrigger leftmost joker 2 extra times. Board [Joker(r=1,leftmost), Chad(n=2,r=3)].
         // HighCard S_2: base chips=5, mult=1; S_2 +2c → chips=7.
         // joker_main: Joker +4m → mult=5; retrigger: Chad votes rj===board.first()→2 reps; Joker fires 2 more: mult=13.
         //   Chad: null; retrigger: rj=Chad≠leftmost → 0. Score: floor(7×13)=91.
         Case("HighCard S_2 + joker(leftmost),chad(n=2) — chad retriggers leftmost 2x → 91", PlayingCard.hand("S_2"), 91.0, j(FJoker("j_joker", rarity = 1), FJoker("j_cry_chad", n = 2, rarity = 3))),
+        // Loopy(n=1): retrigger all OTHER board jokers once. Board [Joker1, Joker2, Loopy(n=1)].
+        // joker_main: Joker1 +4→mult=5; Loopy votes j=Loopy≠rj=Joker1,n=1→1 rep; Joker1 re-fires→mult=9.
+        //   Joker2 +4→mult=13; Loopy votes j≠rj=Joker2→1 rep; Joker2 re-fires→mult=17.
+        //   Loopy: no effect; Loopy vs rj=Loopy: j===rj→0 reps. Score: floor(7×17)=119.
+        Case("HighCard S_2 + 2x joker + loopy(n=1) — loopy retriggers both others once → 119", PlayingCard.hand("S_2"), 119.0, j(FJoker("j_joker"), FJoker("j_joker"), FJoker("j_cry_loopy", n = 1))),
         // Flip Side: retrigger all double-sided-edition jokers once. Board [Joker(edition=cry_double_sided), FlipSide].
         // HighCard S_2: chips=7 (as above).
         // joker_main: Joker +4m → mult=5; retrigger: FlipSide: rj.edition=="cry_double_sided"→reps=1; Joker fires once more: mult=9.
         //   FlipSide: null; retrigger: rj.edition=""→0. Score: floor(7×9)=63.
         Case("HighCard S_2 + joker(cry_double_sided),flip_side — flip retriggers double-sided once → 63", PlayingCard.hand("S_2"), 63.0, j(FJoker("j_joker", edition = "cry_double_sided"), FJoker("j_cry_flip_side"))),
+        // Spectrogram(n=1): retrigger the RIGHTMOST board joker j.n times. Board [Spectrogram(n=1), Joker(rightmost)].
+        // Pair aces: chips=32, mult=2. Spectrogram has no joker_main effect.
+        // joker_main: Spectrogram: no-op; rj=Spectrogram≠board.last()=Joker → 0 reps.
+        //   Joker +4→mult=6; Spectrogram votes rj=Joker===board.last() ✓, n=1→reps=1; Joker re-fires→mult=10.
+        //   Score: floor(32×10)=320.
+        Case("Pair aces + spectrogram(n=1,leftmost),joker(rightmost) — spec retriggers rightmost once → 320", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_spectrogram", n = 1), FJoker("j_joker"))),
         Case("TwoPair 2s/As + duos (x2.5 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 230.0, j(FJoker("j_cry_duos"))),
         Case("FullHouse As/Ks + home (x3.5 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "S_K", "H_K"), 1302.0, j(FJoker("j_cry_home"))),
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),
@@ -369,6 +380,10 @@ object Oracle {
         Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_treacherous (+300 Chips) → 342",
             listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
             342.0, j(FJoker("j_cry_treacherous"))),
+        // j_cry_foolhardy +42 Mult: chips=42, mult=1+42=43 → floor(42×43)=1806.
+        Case("CRY_ULTPAIR [WildA♠,A♠,K♥,K♥] + cry_foolhardy (+42 Mult) → 1806",
+            listOf(en("S_A", Enhancement.WILD), PlayingCard.parse("S_A"), PlayingCard.parse("H_K"), PlayingCard.parse("H_K")),
+            1806.0, j(FJoker("j_cry_foolhardy"))),
     )
 
     fun run(): Pair<Int, Int> {
