@@ -108,6 +108,13 @@ object Oracle {
         Case("Pair + giggly (High Card present, +4 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_giggly"))),
         Case("FourOfAKind aces + nutty (+19 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 2704.0, j(FJoker("j_cry_nutty"))),
         Case("FourOfAKind aces + shrewd (+150 Chips)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1778.0, j(FJoker("j_cry_shrewd"))),
+        // --- downgrade chain (misc_functions.lua:551-561): a 4oak CONTAINS Three of a Kind + a Pair; a 3oak contains a Pair ---
+        // 4oak (4 aces score = 104 chips) + Wily (+100c if hand contains Three of a Kind): (104+100)*7 = 1428.
+        Case("FourOfAKind aces + wily (4oak contains ToaK → +100c)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1428.0, j(FJoker("j_wily"))),
+        // 4oak + Sly (+50c if hand contains a Pair, via 4oak→3oak→pair downgrade): (104+50)*7 = 1078.
+        Case("FourOfAKind aces + sly (4oak contains Pair → +50c)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1078.0, j(FJoker("j_sly"))),
+        // 3oak (3 aces = 63 chips) + Sly (+50c via 3oak→pair downgrade): (63+50)*3 = 339.
+        Case("ThreeOfAKind aces + sly (3oak contains Pair → +50c)", PlayingCard.hand("S_A", "H_A", "D_A"), 339.0, j(FJoker("j_sly"))),
         Case("StraightFlush spades + nuts (x5 Mult)", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 6040.0, j(FJoker("j_cry_nuts"))),
         Case("HighCard 9 (+6 kicker) + nice (+420 Chips)", PlayingCard.hand("S_9", "H_6"), 434.0, j(FJoker("j_cry_nice"))),
         Case("Pair of Kings + mask (faces retrigger x3)", PlayingCard.hand("S_K", "H_K"), 180.0, j(FJoker("j_cry_mask"))),

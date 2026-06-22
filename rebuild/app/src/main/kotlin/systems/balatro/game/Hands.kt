@@ -137,6 +137,15 @@ object Hands {
         if (_2.isNotEmpty()) set(HandType.PAIR, _2[0])
         if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
 
+        // Downgrade chain (misc_functions.lua:551-561): a Five of a Kind CONTAINS a Four of a Kind, a Four
+        // of a Kind contains a Three of a Kind, a Three of a Kind contains a Pair — so context.poker_hands
+        // (containment) includes the lower hands even though the played hand (`top`) is unchanged. Without
+        // this, "+chips/+mult if hand contains <Pair/ToaK>" jokers (sly/wily/jolly/clever/…) never fire on
+        // 3oak/4oak/5oak. Add to `results` only (never to `top`), via putIfAbsent so real entries win.
+        results[HandType.FIVE_OF_A_KIND]?.let { results.putIfAbsent(HandType.FOUR_OF_A_KIND, it.take(4)) }
+        results[HandType.FOUR_OF_A_KIND]?.let { results.putIfAbsent(HandType.THREE_OF_A_KIND, it.take(3)) }
+        results[HandType.THREE_OF_A_KIND]?.let { results.putIfAbsent(HandType.PAIR, it.take(2)) }
+
         val best = top ?: HandType.HIGH_CARD
         return Triple(best, results[best] ?: emptyList(), results.keys.toSet())
     }
