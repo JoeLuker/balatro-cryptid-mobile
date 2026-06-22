@@ -37,6 +37,9 @@ love.update = function(dt, ...)
     if phase == 'boot' and G and G.STAGE == G.STAGES.MAIN_MENU and G.STATE == G.STATES.MENU then
         mark('MENU')
         pcall(function() if G.SETTINGS then G.SETTINGS.tutorial_complete = true end end)  -- skip the first-run tutorial overlay
+        -- conf.lua sets t.window.width/height = 0 → LÖVE uses the desktop size, so the 3840x2160 Xvfb
+        -- screen already gives a 3840x2160 window (the pixel gate needs that exact size). No mid-run
+        -- setMode — resizing after boot glitches the menu logo over the board.
         local ok, err = pcall(function() G:start_run({ stake = 1, seed = 'REFSHOT1' }) end)
         print('REF: start_run ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))))
         phase = 'started'
@@ -59,6 +62,14 @@ love.update = function(dt, ...)
     if phase == 'selecting' and G and G.STATE == G.STATES.SELECTING_HAND and G.hand and #G.hand.cards > 0 then
         mark('SELECTING_HAND')
         if elapsed - at('SELECTING_HAND') >= 3.0 then
+            -- start_run from MENU (vs the Play button) leaves the main-menu BALATRO logo (G.SPLASH_LOGO)
+            -- overlaying the board. By now its dissolve-in ease is long done, so :remove() is safe here
+            -- (removing it at start_run crashed ease_value on the still-active ease).
+            pcall(function()
+                if G.SPLASH_FRONT then G.SPLASH_FRONT:remove(); G.SPLASH_FRONT = nil end
+                if G.SPLASH_BACK then G.SPLASH_BACK:remove(); G.SPLASH_BACK = nil end
+                if G.SPLASH_LOGO then G.SPLASH_LOGO:remove(); G.SPLASH_LOGO = nil end
+            end)
             love.graphics.captureScreenshot(function(img)
                 local ok = pcall(function() img:encode('png', 'ref.png') end)
                 shot_written = ok
