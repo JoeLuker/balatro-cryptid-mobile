@@ -540,12 +540,15 @@ object Oracle {
         // No joker_main scoring → mult=2 → floor(32×2)=64.
         Case("Pair aces + cry_mprime alone (no Jolly/M-pool board jokers) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_mprime", x = 1.05))),
         // cry_bonk: +chips per board joker via other_joker pass (m.lua:695). j.chips per non-Jolly, j.chips*j.xc per Jolly.
-        // Board [bonk(chips=6,xc=3), j_joker]: j_joker joker_main→+4 mult. bonk sees j_joker (non-Jolly)→+6 chips; bonk sees itself (non-Jolly)→+6 chips.
-        // chips=32+6+6=44, mult=2+4=6 → floor(44×6)=264.
-        Case("Pair of aces + bonk(chips=6,xc=3) + j_joker (non-Jolly path)", PlayingCard.hand("S_A", "H_A"), 264.0, j(FJoker("j_cry_bonk", chips = 6.0, xc = 3.0), FJoker("j_joker"))),
-        // Board [bonk(chips=6,xc=3), j_jolly]: j_jolly joker_main(PAIR)→+8 mult. bonk sees j_jolly (Jolly)→+18 chips; bonk sees itself (non-Jolly)→+6 chips.
-        // chips=32+18+6=56, mult=2+8=10 → floor(56×10)=560.
-        Case("Pair of aces + bonk(chips=6,xc=3) + j_jolly (Jolly path x-chips)", PlayingCard.hand("S_A", "H_A"), 560.0, j(FJoker("j_cry_bonk", chips = 6.0, xc = 3.0), FJoker("j_jolly"))),
+        // Before-hook (m.lua:670-679): scoring_name==Pair → j.chips += bonus(1). Pre-set chips=6 → 7 after before-hook.
+        // Board [bonk(chips=6,xc=3), j_joker]: before→chips=7. j_joker joker_main→+4 mult.
+        //   bonk sees j_joker (non-Jolly)→+7; bonk sees itself (non-Jolly)→+7. chips=32+7+7=46, mult=6.
+        //   score = floor(46×6)=276.
+        Case("Pair of aces + bonk(chips=6,xc=3) + j_joker (non-Jolly path, before-hook +1)", PlayingCard.hand("S_A", "H_A"), 276.0, j(FJoker("j_cry_bonk", chips = 6.0, xc = 3.0), FJoker("j_joker"))),
+        // Board [bonk(chips=6,xc=3), j_jolly]: before→chips=7. j_jolly joker_main→+8 mult.
+        //   bonk sees j_jolly (Jolly)→7*3=21; bonk sees itself (non-Jolly)→+7. chips=32+21+7=60, mult=10.
+        //   score = floor(60×10)=600.
+        Case("Pair of aces + bonk(chips=6,xc=3) + j_jolly (Jolly path, before-hook +1)", PlayingCard.hand("S_A", "H_A"), 600.0, j(FJoker("j_cry_bonk", chips = 6.0, xc = 3.0), FJoker("j_jolly"))),
         // --- Cryptid Emult jokers ---
         // cry_facile: eMult=3 when scored-card passes (check2) <=10 (exotic.lua:1005-1013).
         // Pair aces (2 cards, 0 retriggers): check2=2 ≤ 10 → fires. chips=32, mult=2^3=8 → 256.

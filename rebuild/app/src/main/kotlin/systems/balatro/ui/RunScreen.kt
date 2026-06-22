@@ -770,6 +770,11 @@ internal class RunState {
         // pendingSel.size (= scored card count) BEFORE Score.score() so joker_main sees the updated j.x this hand.
         // Note: the post_trigger path (other joker non-roll probability) is not modelled here; pre-acknowledged.
         for (o in owned) if (o.fj.key == "j_cry_duplicare") o.fj.x += sel.size.toDouble()
+        // happyhouse: j.n activates (=1) after 114 hands played, enabling Emult^4 in joker_main (misc_joker.lua:162-197).
+        // Lua: check counter increments in context.before each hand; joker_main fires when check > trigger(114).
+        // Engine: totalHandsPlayed == 114 means 114 hands have scored; this is the 115th hand's before-pass.
+        // (check=114 after 114 increments; 115th increment → 115 > 114 → fires). j.n stays 1 permanently after.
+        for (o in owned) if (o.fj.key == "j_cry_happyhouse" && totalHandsPlayed >= 114 && o.fj.n == 0) o.fj.n = 1
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
         lastResult = r; lastSteps = trace
