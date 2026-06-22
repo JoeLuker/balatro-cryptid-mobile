@@ -162,4 +162,59 @@ class RetriggerJokerTest {
         // High Card base chips=5, mult=1. 2 (chips=2) fires 3×: chips=5+6=11, mult=1. score=11.
         assertEquals(11.0, result.score, 0.0)
     }
+
+    // -------------------------------------------------------------------------
+    // Enhancement.ABSTRACT (m_cry_abstract, misc.lua:174-244):
+    //   replace_base_card=true → 0 base chips; fires emult=1.15 (mult^1.15) on main_scoring.
+    //   force_no_face=true → id=-2, isFace=false, never counted as face.
+    //   specific_suit="cry_abstract" → isSuit always false.
+    // -------------------------------------------------------------------------
+
+    // Single Abstract card (High Card): replace_base_card=true → 0 chip contribution.
+    //   High Card base chips=5, mult=1. Abstract fires: chips+=0, mult=1^1.15=1. score=5.
+    @Test fun abstract_card_contributes_zero_chips() {
+        val abstractCard = PlayingCard.parse("D_5").copy(enhancement = Enhancement.ABSTRACT)
+        val result = Score.score(listOf(abstractCard), emptyList())
+        assertEquals(5.0, result.score, 0.0)
+    }
+
+    // Abstract Emult fires on a hand with accumulated mult (Pair aces + Abstract via Splash).
+    //   Pair base chips=10, mult=2. A♠ chips=11 → 21. A♥ chips=11 → 32, mult=2.
+    //   Abstract: chips+=0, emult=1.15 → mult=2^1.15≈2.219. score=floor(32*2.219)=71.
+    @Test fun abstract_emult_fires_on_accumulated_mult() {
+        val abstractCard = PlayingCard.parse("D_5").copy(enhancement = Enhancement.ABSTRACT)
+        val result = Score.score(pairAces + listOf(abstractCard), listOf(FJoker("j_splash")))
+        assertEquals(71.0, result.score, 0.0)
+    }
+
+    // Abstract card is NOT a face (force_no_face=true): Sock and Buskin must NOT retrigger it.
+    //   Single Abstract card, High Card: chips=5, mult=1. S&B sees isFace=false → no retrigger.
+    //   Abstract fires once: mult=1^1.15=1. score=5 (same as without S&B).
+    @Test fun abstract_is_not_face_so_sock_and_buskin_ignores_it() {
+        val abstractCard = PlayingCard.parse("D_5").copy(enhancement = Enhancement.ABSTRACT)
+        val result = Score.score(listOf(abstractCard), listOf(FJoker("j_sock_and_buskin")))
+        assertEquals(5.0, result.score, 0.0)
+    }
+
+    // -------------------------------------------------------------------------
+    // j_cry_sock_and_sock — +1 rep per scored Abstract-enhanced played card.
+    //   Pair aces + Abstract (via Splash) + Sock_and_Sock:
+    //     Pair base chips=10, mult=2. A♠→chips=21. A♥→chips=32, mult=2.
+    //     Abstract fires twice (Sock_and_Sock +1 rep):
+    //       rep 1: chips+=0, emult=1.15 → mult=2^1.15≈2.219
+    //       rep 2: chips+=0, emult=1.15 → mult=(2^1.15)^1.15=2^1.3225≈2.501
+    //     score=floor(32*2.501)=80.
+    // -------------------------------------------------------------------------
+    @Test fun sock_and_sock_retriggers_abstract_card() {
+        val abstractCard = PlayingCard.parse("D_5").copy(enhancement = Enhancement.ABSTRACT)
+        val result = Score.score(pairAces + listOf(abstractCard), listOf(FJoker("j_splash"), FJoker("j_cry_sock_and_sock")))
+        assertEquals(80.0, result.score, 0.0)
+    }
+
+    // Sock_and_Sock does NOT retrigger a non-Abstract card (plain A♠ in a Pair hand).
+    //   Pair aces + Splash: score=64. Sock_and_Sock sees enhancement=NONE → no retrigger. score=64.
+    @Test fun sock_and_sock_does_not_retrigger_non_abstract_card() {
+        val result = Score.score(pairAces, listOf(FJoker("j_splash"), FJoker("j_cry_sock_and_sock")))
+        assertEquals(64.0, result.score, 0.0)
+    }
 }

@@ -100,6 +100,7 @@ object Score {
     private fun chipBonus(c: PlayingCard): Double = when (c.enhancement) {   // get_chip_bonus
         Enhancement.STONE -> 50.0
         Enhancement.BONUS -> c.chips + 30.0
+        Enhancement.ABSTRACT -> 0.0   // replace_base_card = true: no rank-based chips
         else -> c.chips.toDouble()
     }
     private fun chipMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.MULT) 4.0 else 0.0
@@ -124,6 +125,9 @@ object Score {
                     "Holo" -> r.mult += 10.0
                     "Poly" -> r.xMult = (if (r.xMult == 0.0) 1.0 else r.xMult) * 1.5
                 }
+                // Abstract enhancement: Emult ×1.15 (misc.lua:242 — returns {emult=Emult} on main_scoring).
+                // Applied as mult^1.15 in the per-card scoring loop (main.lua:2456-2476).
+                if (c.enhancement == Enhancement.ABSTRACT) r.eMult = 1.15
             }
             "hand" -> { r.xMult = chipHXMult(c) }
         }
@@ -242,6 +246,7 @@ object Score {
             // j.n = c1 counter (cycles 0→1→0 per hand, limit=2). c1==0 every other hand starting from hand 1.
             // Fires in context.repetition + context.cardarea == G.hand (held-card retrigger path).
             "j_cry_clockwork" -> if (ctx.cardarea == "hand" && j.n == 0 && oc.enhancement == Enhancement.STEEL) return Fx().apply { repetitions = 1 }
+
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {

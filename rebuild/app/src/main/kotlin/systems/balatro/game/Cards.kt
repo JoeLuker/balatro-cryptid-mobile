@@ -25,20 +25,28 @@ data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhanceme
         else -> rank
     }
 
-    /** Card:get_id() — the poker rank id (A=14). Stone cards return a value OUTSIDE 2..14 so they
-     *  never form rank hands (Balatro returns -random(100,1e6); the hand helpers skip non-2..14 ids). */
-    val id: Int get() = if (enhancement == Enhancement.STONE) -1 else rank
+    /** Card:get_id() — the poker rank id (A=14). Stone and Abstract cards return a value OUTSIDE
+     *  2..14 so they never form rank hands (Stone: -1, Abstract: -2; hand helpers skip non-2..14). */
+    val id: Int get() = when (enhancement) {
+        Enhancement.STONE -> -1
+        Enhancement.ABSTRACT -> -2   // specific_rank = "cry_abstract": not a poker rank
+        else -> rank
+    }
 
-    /** Card:get_nominal() ordering for High Card — highest rank wins; stones rank lowest. */
-    val nominal: Int get() = if (enhancement == Enhancement.STONE) -1000 else rank
+    /** Card:get_nominal() ordering for High Card — highest rank wins; non-rank cards rank lowest. */
+    val nominal: Int get() = when (enhancement) {
+        Enhancement.STONE, Enhancement.ABSTRACT -> -1000
+        else -> rank
+    }
 
     /** Card:is_face() — J/Q/K (id 11..13). Pareidolia (all cards face) is a joker hook, off here.
      *  Abstract cards explicitly return nil/false in Cryptid's is_face override (card.lua:1202). */
     val isFace: Boolean get() = enhancement != Enhancement.ABSTRACT && id in 11..13
 
-    /** Card:is_suit(flush_calc) — Stone never, Wild any, Smeared makes red/black collide, else exact. */
+    /** Card:is_suit(flush_calc) — Stone/Abstract never, Wild any, Smeared makes red/black collide, else exact.
+     *  Abstract has specific_suit="cry_abstract" — not a standard suit, never matches. */
     fun isSuit(suit: Suit, smeared: Boolean = false): Boolean = when {
-        enhancement == Enhancement.STONE -> false
+        enhancement == Enhancement.STONE || enhancement == Enhancement.ABSTRACT -> false
         enhancement == Enhancement.WILD -> true
         smeared -> (suit == Suit.H || suit == Suit.D) == (this.suit == Suit.H || this.suit == Suit.D)
         else -> this.suit == suit
