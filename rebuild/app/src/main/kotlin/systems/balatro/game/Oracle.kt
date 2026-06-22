@@ -108,6 +108,13 @@ object Oracle {
         Case("Pair + giggly (High Card present, +4 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_giggly"))),
         Case("FourOfAKind aces + nutty (+19 Mult)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 2704.0, j(FJoker("j_cry_nutty"))),
         Case("FourOfAKind aces + shrewd (+150 Chips)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1778.0, j(FJoker("j_cry_shrewd"))),
+        // --- downgrade chain (misc_functions.lua:551-561): a 4oak CONTAINS Three of a Kind + a Pair; a 3oak contains a Pair ---
+        // 4oak (4 aces score = 104 chips) + Wily (+100c if hand contains Three of a Kind): (104+100)*7 = 1428.
+        Case("FourOfAKind aces + wily (4oak contains ToaK → +100c)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1428.0, j(FJoker("j_wily"))),
+        // 4oak + Sly (+50c if hand contains a Pair, via 4oak→3oak→pair downgrade): (104+50)*7 = 1078.
+        Case("FourOfAKind aces + sly (4oak contains Pair → +50c)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A", "H_K"), 1078.0, j(FJoker("j_sly"))),
+        // 3oak (3 aces = 63 chips) + Sly (+50c via 3oak→pair downgrade): (63+50)*3 = 339.
+        Case("ThreeOfAKind aces + sly (3oak contains Pair → +50c)", PlayingCard.hand("S_A", "H_A", "D_A"), 339.0, j(FJoker("j_sly"))),
         Case("StraightFlush spades + nuts (x5 Mult)", PlayingCard.hand("S_A", "S_K", "S_Q", "S_J", "S_T"), 6040.0, j(FJoker("j_cry_nuts"))),
         Case("HighCard 9 (+6 kicker) + nice (+420 Chips)", PlayingCard.hand("S_9", "H_6"), 434.0, j(FJoker("j_cry_nice"))),
         Case("Pair of Kings + mask (faces retrigger x3)", PlayingCard.hand("S_K", "H_K"), 180.0, j(FJoker("j_cry_mask"))),
@@ -422,6 +429,11 @@ object Oracle {
         Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 17500",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
             17500.0, j(FJoker("j_cry_stronghold"))),
+        // poker_hands for a Bulwark also contains HIGH_CARD (get_highest is non-empty), so giggly (+4 Mult if
+        // hand contains High Card) fires: chips=350, mult=10+4=14 → 4900. (Without the HIGH_CARD fix: 3500.)
+        Case("CRY_BULWARK (5 stones) + giggly (HIGH_CARD present → +4 Mult) → 4900",
+            listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
+            4900.0, j(FJoker("j_cry_giggly"))),
         // j_cry_adroit +170 Chips: chips=350+170=520, mult=10 → floor(520×10)=5200.
         Case("CRY_BULWARK (5 stones) + cry_adroit (+170 Chips) → 5200",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
@@ -457,6 +469,9 @@ object Oracle {
         //   chips = 200+11+10+10+10+9+8+6+5 = 269, mult=19 → floor(269×19) = 5111.
         Case("CRY_CLUSTERFUCK 8 distinct cards (A,K,J,10,9,8,6,5) → 5111",
             PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"), 5111.0),
+        // poker_hands for a Clusterfuck also contains HIGH_CARD, so giggly (+4 Mult) fires: chips=269, mult=19+4=23 → 6187. (Without fix: 5111.)
+        Case("CRY_CLUSTERFUCK + giggly (HIGH_CARD present → +4 Mult) → 6187",
+            PlayingCard.hand("S_A", "C_K", "H_J", "S_10", "D_9", "D_8", "S_6", "C_5"), 6187.0, j(FJoker("j_cry_giggly"))),
         // Case 2: same 8 cards + j_cry_wtf (X10 Mult on CRY_CLUSTERFUCK).
         //   chips=269, mult=19; wtf xMultMod=10 → mult=190. floor(269×190) = 51110.
         Case("CRY_CLUSTERFUCK + cry_wtf (X10 Mult) → 51110",

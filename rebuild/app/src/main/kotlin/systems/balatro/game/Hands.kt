@@ -56,7 +56,9 @@ object Hands {
         // "5 rankless, suitless cards"). Stone id=-1 skips rank grouping; isSuit=false skips flush.
         // Without this check, 5 stones would fall through to HIGH_CARD via getHighest (nominal=-1000).
         if (cards.size >= 5 && cards.all { it.enhancement == Enhancement.STONE })
-            return Triple(HandType.CRY_BULWARK, cards, setOf(HandType.CRY_BULWARK))
+            // poker_hands also keeps the base hands: get_highest returns a card for any non-empty hand
+            // (incl. stones), so HIGH_CARD is always present alongside the composite hand (misc_functions.lua:547,562).
+            return Triple(HandType.CRY_BULWARK, cards, setOf(HandType.CRY_BULWARK, HandType.HIGH_CARD))
 
         // CRY_CLUSTERFUCK: ≥8 non-Gold cards with no pairs, no flush, no straight.
         // Source: cry_cfpart (SpectralPack/Cryptid lib/content.lua) — eligible = cards where
@@ -85,7 +87,8 @@ object Hands {
                 val hasStraight = straightLen(2..14) >= straightNeed ||
                     (hasAce && straightLen(2..5) + 1 >= straightNeed) // A-low: A + 2..5
                 if (!hasPair && !hasFlush && !hasStraight) {
-                    return Triple(HandType.CRY_CLUSTERFUCK, eligible, setOf(HandType.CRY_CLUSTERFUCK))
+                    // HIGH_CARD is always present alongside the composite hand (get_highest never empty here).
+                    return Triple(HandType.CRY_CLUSTERFUCK, eligible, setOf(HandType.CRY_CLUSTERFUCK, HandType.HIGH_CARD))
                 }
             }
         }
@@ -136,6 +139,15 @@ object Hands {
         }
         if (_2.isNotEmpty()) set(HandType.PAIR, _2[0])
         if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
+
+        // Downgrade chain (misc_functions.lua:551-561): a Five of a Kind CONTAINS a Four of a Kind, a Four
+        // of a Kind contains a Three of a Kind, a Three of a Kind contains a Pair — so context.poker_hands
+        // (containment) includes the lower hands even though the played hand (`top`) is unchanged. Without
+        // this, "+chips/+mult if hand contains <Pair/ToaK>" jokers (sly/wily/jolly/clever/…) never fire on
+        // 3oak/4oak/5oak. Add to `results` only (never to `top`), via putIfAbsent so real entries win.
+        results[HandType.FIVE_OF_A_KIND]?.let { results.putIfAbsent(HandType.FOUR_OF_A_KIND, it.take(4)) }
+        results[HandType.FOUR_OF_A_KIND]?.let { results.putIfAbsent(HandType.THREE_OF_A_KIND, it.take(3)) }
+        results[HandType.THREE_OF_A_KIND]?.let { results.putIfAbsent(HandType.PAIR, it.take(2)) }
 
         val best = top ?: HandType.HIGH_CARD
         return Triple(best, results[best] ?: emptyList(), results.keys.toSet())
