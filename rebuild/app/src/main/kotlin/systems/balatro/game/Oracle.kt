@@ -529,16 +529,16 @@ object Oracle {
         // cry_stardust: X2 per other Poly joker (OTHER_JOKER). Poly j_cry_bonkers: Poly ×1.5 (edition pass) → mult=3; stardust X2 → mult=6. chips=32 → 192.
         Case("Pair of aces + cry_stardust + Poly bonkers", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_stardust"), FJoker("j_cry_bonkers", edition = "Poly"))),
         // cry_mprime: Emult^j.x (default 1.05) per Jolly-type OR M-pool joker via other_joker pass (m.lua:1538).
+        // mprime is cry_exotic rarity with NO pools.M = true → it does NOT self-fire (not in M_POOL_KEYS).
         // Board [mprime(j.x=1.05), j_jolly]:
-        //   oj=mprime: mprime is M-pool → eMult=1.05 → mult=2^1.05=2.0705.
-        //   j_jolly joker_main: +8 → mult=10.0705.
-        //   oj=j_jolly: mprime isJolly → eMult=1.05 → mult=10.0705^1.05≈11.303.
-        //   score = floor(32 × 11.303) = 361.
-        Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 361.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
-        // M-pool path: mprime alone fires for itself (mprime is in M_POOL_KEYS, no oj!==j guard in Lua m.lua:1534).
-        // oj=mprime: mprime is M-pool → eMult=1.05 → mult=2^1.05=2.0705.
-        // score = floor(32×2.0705) = 66.
-        Case("Pair aces + cry_mprime alone (M-pool self-fires eMult^1.05) → 66", PlayingCard.hand("S_A", "H_A"), 66.0, j(FJoker("j_cry_mprime", x = 1.05))),
+        //   j=mprime joker_main: no scoring. other_joker(oj=mprime): not jolly, not M-pool → no fire.
+        //   j=j_jolly joker_main: +8 Mult → mult=10.
+        //   other_joker(oj=j_jolly): mprime isJolly → eMult=1.05 → mult=10^1.05=10.0.pow(1.05)≈11.220.
+        //   score = floor(32 × 11.220) = floor(358.9) = 359.
+        Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 359.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
+        // mprime alone: no Jolly jokers on board; mprime is not M-pool → no other_joker fires.
+        // No joker_main scoring → mult=2 → floor(32×2)=64.
+        Case("Pair aces + cry_mprime alone (no Jolly/M-pool board jokers) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_mprime", x = 1.05))),
         // cry_bonk: +chips per board joker via other_joker pass (m.lua:695). j.chips per non-Jolly, j.chips*j.xc per Jolly.
         // Board [bonk(chips=6,xc=3), j_joker]: j_joker joker_main→+4 mult. bonk sees j_joker (non-Jolly)→+6 chips; bonk sees itself (non-Jolly)→+6 chips.
         // chips=32+6+6=44, mult=2+4=6 → floor(44×6)=264.

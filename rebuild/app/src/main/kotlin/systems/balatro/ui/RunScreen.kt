@@ -725,6 +725,15 @@ internal class RunState {
             val yes = _handPlayed.any { (k, v) -> k != handType && v >= thisCount }
             if (yes) o.fj.chips += 6.0
         }
+        // jimball: +0.15 Xmult when this hand type has been played fewer times than any other hand type;
+        // RESET to 1 when any other hand type has played >= times this type has (misc_joker.lua:1624-1649).
+        // Same threshold logic as fspinner (uses post-increment played count; engine adjusts with +1).
+        // context.before fires BEFORE joker_main reads j.x; placed here so Score.score() reads updated j.x.
+        for (o in owned) if (o.fj.key == "j_cry_jimball") {
+            val thisCount = handPlayed(handType) + 1
+            val reset = _handPlayed.any { (k, v) -> k != handType && v >= thisCount }
+            if (reset) o.fj.x = 1.0 else o.fj.x += 0.15
+        }
         // spaceglobe: +0.2 Xchip each time the target hand type is played (misc_joker.lua:3432-3453).
         // j.n stores the target hand type as its ordinal (0=HIGH_CARD by default from config.extra.type="High Card").
         // After a match, the target rotates to a random OTHER hand type. Score engine reads j.xc when > 1.
