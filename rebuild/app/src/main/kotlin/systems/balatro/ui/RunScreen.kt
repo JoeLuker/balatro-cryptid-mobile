@@ -1032,6 +1032,11 @@ internal class RunState {
             "j_swashbuckler" -> owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }  // sum of current sell values
             else -> 0.0
         }
+        val fjChips = when (offer.key) {
+            // clicked_cookie: config.extra.chips=200 (decrements per cry_press click; joker_main returns chips every hand)
+            "j_cry_clicked_cookie" -> 200.0
+            else -> 0.0
+        }
         val fjXInit = when (offer.key) {
             "j_ramen"          -> 2.0   // starts at x2 Mult, depletes per discard
             "j_campfire"       -> 1.0   // starts at 1 (no bonus yet)
@@ -1054,7 +1059,7 @@ internal class RunState {
             // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
             else -> 0
         }
-        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)
+        val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
