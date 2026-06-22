@@ -104,7 +104,18 @@ object Score {
     private fun evalCard(c: PlayingCard, ctx: Sctx): Fx {
         val r = Fx()
         when (ctx.cardarea) {
-            "play" -> { r.chips = chipBonus(c); r.mult = chipMult(c); r.xMult = chipXMult(c); r.eMult = chipEMult(c) }
+            "play" -> {
+                r.chips = chipBonus(c); r.mult = chipMult(c); r.xMult = chipXMult(c); r.eMult = chipEMult(c)
+                // A scored card applies its OWN edition (card.lua:1359-1366; e_foil=+50 Chips, e_holo=+10
+                // Mult, e_polychrome=X1.5) — separate from joker editions and the Cryptid edition-reactor
+                // jokers (meteor/exoplanet/stardust). Was previously unapplied, so foil/holo/poly cards
+                // scored as plain. (Cryptid Astral's intrinsic e_mult on cards is still unmodelled.)
+                when (c.edition) {
+                    "Foil" -> r.chips += 50.0
+                    "Holo" -> r.mult += 10.0
+                    "Poly" -> r.xMult = (if (r.xMult == 0.0) 1.0 else r.xMult) * 1.5
+                }
+            }
             "hand" -> { r.xMult = chipHXMult(c) }
         }
         return r
