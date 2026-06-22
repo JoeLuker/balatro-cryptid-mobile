@@ -745,6 +745,12 @@ internal class RunState {
             val nonScoring = held.filter { it.isSuit(dropShotSuit, smeared) }
             if (nonScoring.isNotEmpty()) o.fj.x += 0.2 * nonScoring.size
         }
+        // clockwork: +0.25 Xmult every 3rd hand (epic.lua:2199-2246 context.before, counter c2 wraps 0→l2→0).
+        // The Lua fires +0.25 in the "before" context (BEFORE the score), so Score.score() reads the
+        // updated j.x on the 3rd, 6th, 9th... hand. Engine uses (totalHandsPlayed+1) % 3 == 0 because
+        // totalHandsPlayed is incremented AFTER the score (in scoreBank). +1 adjusts the count to the
+        // current-hand-including-this-one basis that Lua's c2 counter already reflects by here.
+        for (o in owned) if (o.fj.key == "j_cry_clockwork" && (totalHandsPlayed + 1) % 3 == 0) o.fj.x += 0.25
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
         lastResult = r; lastSteps = trace
@@ -815,8 +821,8 @@ internal class RunState {
             // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
             // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
             "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2
-            // j_cry_clockwork: +0.25 Xmult every 3rd hand played (config.extra clock=3; totalHandsPlayed counts all hands).
-            "j_cry_clockwork"  -> if (totalHandsPlayed % 3 == 0) o.fj.x += 0.25
+            // j_cry_clockwork: accumulation moved to before-hand block (fires before Score.score()).
+            // Nothing to do here; j.x was already incremented above if this is the 3rd/6th/... hand.
             // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
             "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
             // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
@@ -937,6 +943,11 @@ internal class RunState {
         }
         // mondrian: +0.25 Xmult when 0 discards were used this round (misc_joker.lua:3228-3246).
         for (o in owned) if (o.fj.key == "j_cry_mondrian" && roundDiscardsUsed == 0) o.fj.x += 0.25
+        // keychange: reset xm (j.x) to 1 at end_of_round (misc_joker.lua:10564-10566 context.end_of_round+main_eval).
+        // Without this reset the accumulated Xmult from the previous round bleeds into the next round even
+        // though no new hand types have been played (roundHandTypes.clear() only stops new accumulation;
+        // it does not zero the accumulator that Score.kt reads from j.x).
+        for (o in owned) if (o.fj.key == "j_cry_keychange") o.fj.x = 1.0
         // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
         for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)

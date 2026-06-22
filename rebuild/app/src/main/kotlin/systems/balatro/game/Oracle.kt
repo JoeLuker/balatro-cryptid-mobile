@@ -227,6 +227,11 @@ object Oracle {
         Case("Pair of aces + fading_joker @x=2.0 (perishable expired)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_fading_joker", x = 2.0))),
         Case("Pair of aces + poor_joker @mult=8 (2 rent payments)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_poor_joker", mult = 8.0))),
         Case("Pair of aces + keychange @x=1.5 (2 new hand types)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_keychange", x = 1.5))),
+        // keychange at post-round-reset state: j.x reset to 1.0 by RunScreen.cashOut() end_of_round hook.
+        // Score engine guard: j.x > 1.0 → fails → no Xmult fires → base score 64.
+        // Regression: pre-fix RunScreen never reset j.x, so stale accumulated Xmult bled into next round.
+        Case("Pair of aces + keychange @x=1.0 (post-round reset, no Xmult) → 64",
+            PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_keychange", x = 1.0))),
         // Spooky-Code scalers: cut (+0.5 Xmult/Code destroyed) and python (+0.15 Xmult/Code used).
         // Both use the same if (j.x > 1.0) → xMultMod pattern; test branch with x=1.5.
         // Pair aces: chips=32, mult=2; Xmult=1.5 → mult=3; floor(32×3)=96.
