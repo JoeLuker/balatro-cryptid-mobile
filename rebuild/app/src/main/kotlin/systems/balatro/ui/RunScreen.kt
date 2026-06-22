@@ -2435,7 +2435,14 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     BButton("Cancel", Balatro.Grey, enabled = true) { s.cancelTarot() }
                 }
             } else {
-                RenderUI(buttonsRow(s, cells))
+                // buttonsRow's R uses horizontalArrangement=spacedBy(_, CenterHorizontally), which makes
+                // the Row FILL the box width — so the box's TopCenter can't recentre it and it left-packs
+                // ~370px off (the bug the pixel gate caught). Measuring it UNBOUNDED gives it its natural
+                // width, so TopCenter actually centres it on the hand — matching Balatro's G.buttons
+                // (config align="bm", major=G.hand → the row is centred on the hand).
+                Box(Modifier.wrapContentWidth(align = Alignment.CenterHorizontally, unbounded = true)) {
+                    RenderUI(buttonsRow(s, cells))
+                }
             }
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
