@@ -14,9 +14,9 @@ def patch_main_lua(filepath):
     # Check if already fully patched (all sentinel strings must be present).
     # NOTE (Amulet era, 2026-06-11): the Talisman-specific sections below
     # (config read/write redirects, big-num loads, F_NO_COROUTINE dedup,
-    # TAL_BREAKINF_CLAMP) no-op cleanly against the Amulet dump — their
-    # anchors only exist in src/dump-talisman. They are kept, not deleted,
-    # so pointing the build back at the old dump still works (rollback).
+    # TAL_BREAKINF_CLAMP) no-op cleanly against the Amulet dump — their anchors
+    # only existed in the Talisman-era dump (retired in Phase 5). Kept as inert
+    # rollback scaffolding; recover the old dump from git history if ever needed.
     already_android = '-- Android SMODS path fix' in content
     already_focus = '-- Android flush-on-background' in content
     already_istouch = 'HID_ISTOUCH_FIX' in content

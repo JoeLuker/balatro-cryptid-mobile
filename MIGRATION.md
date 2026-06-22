@@ -15,8 +15,16 @@ patches that fail loud, a thin build. Pattern: distro source-package
 | 3b | **Patch conversion** — `gen-patches.sh` → 57 mechanical + 6 `manual/` ports, `git apply` hard-fail | ✅ done & verified (idempotent; 259 lua/0 errors) |
 | 4 | **Config** — `config-overrides/` → `overlay/config/` baked overlays (incl. per-item toggle) | ✅ done & verified |
 | — | **Flake + signing** — `packages.default` pure build; `nix/sign.sh` → signed APK | ✅ done & verified (89M, v1/v2/v3 verify) |
-| 5 | **Cleanup** — retire `scripts/build.sh`, quarantine `src/` dumps, drop `tools/lovely*` from tree | ⬜ next |
+| 5 | **Cleanup** — `just build` → Nix (stages build/); deleted config.yaml + scripts/regen-dump.sh + src/dump-* snapshots | ✅ done (`just build` verified) |
 | 6 | **Project split** — make `rebuild/` (Kotlin) vs the LÖVE build explicit roots | ⬜ |
+
+**Phase 5 notes:** the *build path* is retired, not the whole `build.sh` — it stays
+as the **deploy/logs/clean** tool and the **apply_\* source** that `gen-patches.sh`
+reads. `just build` now builds via Nix and stages `build/{game,apk,phone-transfer}`
+so the local tests + `deploy` keep working. `tools/lovely-src` is **kept** (the dump
+regen needs it). Deleted: `config.yaml` (→ `nix/sources.json`), the legacy
+`scripts/regen-dump.sh` (→ `nix/regen-dump.sh`), and the `src/dump-talisman` /
+`src/dump-pre-sleeves` rollback snapshots (in git history if ever needed).
 
 **Build pipeline is complete & build-verified:** `pins (sources.json + flake.lock)
 → gameLoveBase → gameLove (63 patches) → apk` builds purely via `nix build`,

@@ -85,15 +85,16 @@ fetch_sources() {
     fetch_mod "MathIsFun0/Cryptid" "cryptid" "Cryptid"
     # Amulet replaces Talisman (2026-06-11): the officially recommended fork —
     # cdata OmegaNum, save round-trip via self-rehydrating strings, lovely
-    # typefix compat layer. mods/Talisman stays on disk for rollback alongside
-    # src/dump-talisman; regenerate the dump with scripts/regen-dump.sh.
+    # typefix compat layer. (Talisman-era rollback dumps retired in Phase 5 —
+    # recover from git history if needed.) Regenerate the dump from the pins
+    # with nix/regen-dump.sh.
     fetch_mod "frostice482/amulet" "Amulet" "Amulet"
     fetch_mod "ethangreen-dev/lovely-injector" "lovely" "lovely"
     fetch_mod_source "eramdam/sticky-fingers" "sticky-fingers"
 
     # CardSleeves (deck sleeves; its lovely patches — seed-gen reorder in
     # Game:start_run, priority-ordered after Cryptid — are baked via
-    # scripts/regen-dump.sh). Release assets are version-named, so pin the
+    # nix/regen-dump.sh). Release assets are version-named, so pin the
     # tag explicitly.
     if [[ ! -d "$MODS_DIR/CardSleeves" ]]; then
         log_info "Fetching CardSleeves v1.9.2..."
