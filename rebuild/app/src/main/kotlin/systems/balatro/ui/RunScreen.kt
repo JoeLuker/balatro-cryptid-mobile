@@ -367,6 +367,12 @@ internal class RunState {
 
     // ── game-over (Phase.OVER) stats — round_scores_row equivalents the run actually tracks ──
     val handsPlayedTotal: Int get() = _handPlayed.values.sum()
+
+    // ── boss round-state (THE_EYE, THE_MOUTH) — reset each round ───────────────────────────────
+    /** THE_EYE: hand types already played this round; each type may only be played once. */
+    val eyeUsedHands = mutableSetOf<HandType>()
+    /** THE_MOUTH: the first hand type played; all subsequent plays must match it (null = not locked yet). */
+    var mouthLockedHand: HandType? = null
     val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
     val timesRerolled: Int get() = rerolls
 
@@ -410,7 +416,7 @@ internal class RunState {
 
     val target: Double get() {
         val base = anteBase(ante)
-        return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
+        return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * (boss?.targetMult ?: 2.0) }
     }
 
     /** PROOF harness: inject the EXACT state of the reference screenshot (Balatro press kit, Small Blind
@@ -469,7 +475,7 @@ internal class RunState {
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
     fun targetForSlot(slotIdx: Int): Double {
         val base = anteBase(ante)
-        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * upcomingBoss.targetMult }
+        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * upcomingBoss.targetMult }
     }
 
     /** Reward dollars for each blind slot (config.dollars in Lua: Small=$3, Big=$4, Boss=$5). */
@@ -528,6 +534,7 @@ internal class RunState {
         handsLeft = boss?.hands(HANDS) ?: HANDS          // The Needle: 1 hand
         discardsLeft = boss?.discards(DISCARDS) ?: DISCARDS  // The Water: 0 discards
         lastResult = null; lastSteps = emptyList()
+        eyeUsedHands.clear(); mouthLockedHand = null    // THE_EYE / THE_MOUTH per-round state
         phase = Phase.ROUND
         Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
     }
@@ -544,6 +551,12 @@ internal class RunState {
      *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
     fun play() {
         if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
+        // ── boss blind play gates ──────────────────────────────────────────────────────────────
+        val selIndices = selected   // capture before we compute sel
+        val handType0 = Hands.evaluate(hand.filterIndexed { i, _ -> i in selIndices }).first
+        if (boss == Boss.THE_PSYCHIC && selIndices.size != 5) return    // THE_PSYCHIC: must play 5
+        if (boss == Boss.THE_EYE && handType0 in eyeUsedHands) return  // THE_EYE: no repeat type
+        if (boss == Boss.THE_MOUTH && mouthLockedHand != null && handType0 != mouthLockedHand) return  // THE_MOUTH: locked
         val sel = hand.filterIndexed { i, _ -> i in selected }
         val held = hand.filterIndexed { i, _ -> i !in selected }
         // FAITHFUL Score engine: maximized-aware hand type drives the planet level; FJokers carry
@@ -582,10 +595,18 @@ internal class RunState {
         val r = pending ?: return
         roundScore += r.score; handsLeft -= 1
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
+        // ── boss blind effects triggered after each scored hand ────────────────────────────────
+        if (boss == Boss.THE_TOOTH) money = maxOf(0, money - pendingSel.size)   // - per played card
+        if (boss == Boss.THE_ARM)   handLevels.degrade(r.handType)              // degrade played hand level
+        if (boss == Boss.THE_EYE)   eyeUsedHands += r.handType                 // lock this type for the round
+        if (boss == Boss.THE_MOUTH && mouthLockedHand == null) mouthLockedHand = r.handType  // lock first type
+        if (boss == Boss.THE_OX && r.handType == mostPlayedHand?.first) money = 0            // zero out money
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
+        // THE_SERPENT: after refill, discard the new hand and draw again (player never keeps held cards)
+        if (boss == Boss.THE_SERPENT) { hand = deck.draw(hand.size); selected = emptySet() }
         if (roundScore >= target) {
             buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
@@ -635,6 +656,11 @@ internal class RunState {
 
     fun discard() {
         if (phase != Phase.ROUND || selected.isEmpty() || discardsLeft <= 0) return
+        // THE_HOOK: override selection with 2 random cards from the current hand
+        if (boss == Boss.THE_HOOK) {
+            val hookIndices = hand.indices.shuffled().take(2).toSet()
+            selected = hookIndices
+        }
         discardsLeft -= 1
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
         refill()
