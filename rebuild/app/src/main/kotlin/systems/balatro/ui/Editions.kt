@@ -170,12 +170,143 @@ private fun shaderEffect(agsl: String, name: String, x: Float, y: Float, time: F
         "content",
     ).asComposeRenderEffect()
 
-/** Edition overlay RenderEffect by edition tag ("Foil"/"Holo"/"Poly"); [t] animates the shimmer
- *  (the clock); null for no edition. */
+// negative.fs → AGSL: the NEGATIVE base transform. Unlike foil/holo/poly (additive overlays) this
+// REPLACES the card colour — HSL, invert lightness, negate+shift hue, back to RGB + a teal-grey
+// tint — the dark inverted look. Static (no time). Applied to the base art, not as an overlay.
+private val NEG_BASE_AGSL = """
+uniform shader content;
+uniform float2 size;
+$HSL_RGB
+half4 main(float2 fragCoord) {
+    half4 px = content.eval(fragCoord);
+    float a0 = px.a;
+    if (a0 < 0.001) return half4(0.0);
+    float3 col = float3(px.rgb) / a0;
+    float4 sat = HSL(float4(col, 1.0));
+    sat.z = 1.0 - sat.z;                       // invert lightness
+    sat.x = -sat.x + 0.2;                      // negate + shift hue
+    float3 outc = RGB(sat).rgb + 0.8*float3(79.0/255.0, 99.0/255.0, 103.0/255.0);
+    float a = a0 < 0.7 ? a0/3.0 : a0;
+    return half4(half3(outc * a), half(a));
+}
+"""
+
+// negative_shine.fs → AGSL: the animated blue/purple shine OVERLAY drawn over the negative base
+// (negshine.x = time). Sweeping sin streaks; mostly transparent, alpha-modulated like the other
+// edition overlays.
+private val NEG_SHINE_AGSL = """
+uniform shader content;
+uniform float2 negshine;
+uniform float time;
+uniform float2 size;
+half4 main(float2 fragCoord) {
+    half4 px = content.eval(fragCoord);
+    float a0 = px.a;
+    float3 c = a0 > 0.0 ? float3(px.rgb) / a0 : float3(px.rgb);
+    float2 uv = fragCoord / size;
+    float t = negshine.x;
+    float low = min(c.r, min(c.g, c.b));
+    float high = max(c.r, max(c.g, c.b));
+    float delta = high - low - 0.1;
+    float fac  = 0.8 + 0.9*sin(11.0*uv.x + 4.32*uv.y + t*12.0 + cos(t*5.3 + uv.y*4.2 - uv.x*4.0));
+    float fac2 = 0.5 + 0.5*sin( 8.0*uv.x + 2.32*uv.y + t*5.0  - cos(t*2.3 + uv.x*8.2));
+    float fac3 = 0.5 + 0.5*sin(10.0*uv.x + 5.32*uv.y + t*6.111 + sin(t*5.3 + uv.y*3.2));
+    float fac4 = 0.5 + 0.5*sin( 3.0*uv.x + 2.32*uv.y + t*8.111 + sin(t*1.3 + uv.y*11.2));
+    float fac5 = sin(0.9*16.0*uv.x + 5.32*uv.y + t*12.0 + cos(t*5.3 + uv.y*4.2 - uv.x*4.0));
+    float maxfac = 0.7*max(max(fac, max(fac2, max(fac3, 0.0))) + (fac + fac2 + fac3*fac4), 0.0);
+    float3 outc = c*0.5 + float3(0.4, 0.4, 0.8);
+    outc.r = outc.r - delta + delta*maxfac*(0.7 + fac5*0.27) - 0.1;
+    outc.g = outc.g - delta + delta*maxfac*(0.7 - fac5*0.27) - 0.1;
+    outc.b = outc.b - delta + delta*maxfac*0.7 - 0.1;
+    float a = a0*(0.5*clamp(0.3*max(low*0.2, delta) + clamp(maxfac*0.1, 0.0, 0.4), 0.0, 1.0) + 0.15*maxfac*(0.1 + delta));
+    return half4(half3(outc * a), half(a));
+}
+"""
+
+/** NEGATIVE base transform applied to the card art itself (replaces, doesn't overlay). Static. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+fun negativeBaseRenderEffect(wPx: Float, hPx: Float) =
+    RenderEffect.createRuntimeShaderEffect(
+        RuntimeShader(NEG_BASE_AGSL).apply { setFloatUniform("size", wPx, hPx) },
+        "content",
+    ).asComposeRenderEffect()
+
+/** Edition overlay RenderEffect by edition tag ("Foil"/"Holo"/"Poly"/"Negative"); [t] animates the
+ *  shimmer (the clock); null for no edition. (Negative also needs negativeBaseRenderEffect on the
+ *  base art — this returns only its animated shine overlay.) */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 fun editionRenderEffect(edition: String, wPx: Float, hPx: Float, t: Float) = when (edition) {
     "Foil" -> foilRenderEffect(wPx, hPx, foilR = t, foilG = 1f)
     "Holo" -> shaderEffect(HOLO_AGSL, "holo", t, 0f, t, wPx, hPx)
     "Poly" -> shaderEffect(POLY_AGSL, "poly", t, 0f, t, wPx, hPx)
+    "Negative" -> shaderEffect(NEG_SHINE_AGSL, "negshine", t, 0f, t, wPx, hPx)
     else -> null
 }
+
+// dissolve.fs → AGSL: the card burn-away / materialize. Unlike editions this REPLACES the card render
+// (it eats pixels): a moving noise field `res` is compared to `adjusted_dissolve`; pixels below it go
+// transparent, the thin band at the threshold gets the fiery burn colour, and the whole card tints
+// toward burn as `dissolve` rises (0 = whole card, 1 = gone). Reverse the value to materialize.
+private const val DISSOLVE_AGSL = """
+uniform shader content;
+uniform float dissolve;
+uniform float time;
+uniform float2 size;
+uniform float4 burn1;
+uniform float4 burn2;
+
+half4 main(float2 fragCoord) {
+    half4 texh = content.eval(fragCoord);
+    float a0 = texh.a;
+    float3 col = a0 > 0.0 ? float3(texh.rgb) / a0 : float3(texh.rgb);
+    float2 uv = fragCoord / size;
+
+    if (dissolve > 0.01) {                 // tint the card toward the burn colour as it dissolves
+        if (burn2.a > 0.01) col = col*(1.0-0.6*dissolve) + 0.6*burn2.rgb*dissolve;
+        else if (burn1.a > 0.01) col = col*(1.0-0.6*dissolve) + 0.6*burn1.rgb*dissolve;
+    }
+    if (dissolve < 0.001) return half4(half3(col*a0), half(a0));
+
+    float adj = (dissolve*dissolve*(3.0-2.0*dissolve))*1.02 - 0.01;
+    float t = time*10.0 + 2003.0;
+    float2 td = float2(71.0, 95.0);                          // card source px (atlas cell)
+    float2 fuv = floor(uv * td) / max(td.x, td.y);
+    float2 c = (fuv - 0.5) * 2.3 * max(td.x, td.y);
+    float2 f1 = c + 50.0*float2(sin(-t/143.6340), cos(-t/99.4324));
+    float2 f2 = c + 50.0*float2(cos( t/53.1532),  cos( t/61.4532));
+    float2 f3 = c + 50.0*float2(sin(-t/87.53218), sin(-t/49.0000));
+    float field = (1.0 + (cos(length(f1)/19.483) + sin(length(f2)/33.155)*cos(f2.y/15.73) + cos(length(f3)/27.193)*sin(f3.x/21.92)))/2.0;
+    float2 b = float2(0.2, 0.8);
+    float res = (0.5 + 0.5*cos(adj/82.612 + (field - 0.5)*3.14))
+        - (fuv.x > b.y ? (fuv.x - b.y)*(5.0 + 5.0*dissolve) : 0.0)*dissolve
+        - (fuv.y > b.y ? (fuv.y - b.y)*(5.0 + 5.0*dissolve) : 0.0)*dissolve
+        - (fuv.x < b.x ? (b.x - fuv.x)*(5.0 + 5.0*dissolve) : 0.0)*dissolve
+        - (fuv.y < b.x ? (b.x - fuv.y)*(5.0 + 5.0*dissolve) : 0.0)*dissolve;
+
+    float3 rgb = col;
+    if (a0 > 0.01 && burn1.a > 0.01 && res < adj + 0.8*(0.5-abs(adj-0.5)) && res > adj) {
+        if (res < adj + 0.5*(0.5-abs(adj-0.5))) rgb = burn1.rgb;
+        else if (burn2.a > 0.01) rgb = burn2.rgb;
+    }
+    float aout = res > adj ? a0 : 0.0;
+    return half4(half3(rgb*aout), half(aout));
+}
+"""
+
+/** Card dissolve/materialize RenderEffect. [dissolve] 0 = whole card → 1 = gone; reverse (1→0) to
+ *  materialize. [time] animates the burn field. Edge colour: [glass] = white (Card:shatter's
+ *  dissolve_colours {{1,1,1,0.8}}); [materialize] = green (start_materialize's G.C.GREEN #4BC292
+ *  fallback); otherwise the fiery orange→yellow destroy edge. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+fun dissolveRenderEffect(dissolve: Float, time: Float, wPx: Float, hPx: Float, glass: Boolean = false, materialize: Boolean = false) =
+    RenderEffect.createRuntimeShaderEffect(
+        RuntimeShader(DISSOLVE_AGSL).apply {
+            setFloatUniform("dissolve", dissolve); setFloatUniform("time", time); setFloatUniform("size", wPx, hPx)
+            when {
+                glass -> { setFloatUniform("burn1", 1f, 1f, 1f, 0.8f); setFloatUniform("burn2", 0f, 0f, 0f, 0f) }
+                materialize -> { setFloatUniform("burn1", 0.294f, 0.761f, 0.573f, 1f); setFloatUniform("burn2", 0f, 0f, 0f, 0f) }
+                else -> { setFloatUniform("burn1", 1f, 0.35f, 0.1f, 1f); setFloatUniform("burn2", 1f, 0.75f, 0.15f, 1f) }
+            }
+        },
+        "content",
+    ).asComposeRenderEffect()
