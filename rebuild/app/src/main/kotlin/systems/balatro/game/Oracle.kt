@@ -207,6 +207,12 @@ object Oracle {
         Case("Pair of aces + unjust_dagger @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_unjust_dagger", x = 1.5))),
         Case("Pair of aces + jimball @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_jimball", x = 1.5))),
         Case("Pair of aces + pizza_slice @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza_slice", x = 1.5))),
+        // cry_paved_joker: j.x accumulates on perishable_debuffed; joker_main reads it. Same pattern as fading_joker.
+        Case("Pair of aces + paved_joker @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_paved_joker", x = 1.5))),
+        // cry_membershipcard: j.x = Xmult_mod * member_count (pre-computed by run loop); joker_main reads it.
+        Case("Pair of aces + membershipcard @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_membershipcard", x = 1.5))),
+        // cry_pizza: j.x accumulates +0.5 per pizza_slice sold; joker_main reads it. Same accumulated-x pattern.
+        Case("Pair of aces + pizza @x=1.5 (x1.5 Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pizza", x = 1.5))),
         Case("Pair of aces + wheelhope @x=1.5 (1 WoF trigger)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_wheelhope", x = 1.5))),
         Case("Pair of aces + fspinner @chips=30 (+30 Chips)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_cry_fspinner", chips = 30.0))),
         Case("Pair of aces + pirate_dagger @xc=1.5 (x1.5 Xchips)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_pirate_dagger", xc = 1.5))),
@@ -433,6 +439,13 @@ object Oracle {
         // Pair aces: chips=32, mult=2. j_jolly (PAIR) → +8 mult → mult=10. mprime sees j_jolly (isJolly) → eMult=1.05.
         // finalMult = 10^1.05 = 11.2202… → score = floor(32 × 11.2202) = 359.
         Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 359.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
+        // cry_bonk: +chips per board joker via other_joker pass (m.lua:695). j.chips per non-Jolly, j.chips*j.xc per Jolly.
+        // Board [bonk(chips=6,xc=3), j_joker]: j_joker joker_main→+4 mult. bonk sees j_joker (non-Jolly)→+6 chips; bonk sees itself (non-Jolly)→+6 chips.
+        // chips=32+6+6=44, mult=2+4=6 → floor(44×6)=264.
+        Case("Pair of aces + bonk(chips=6,xc=3) + j_joker (non-Jolly path)", PlayingCard.hand("S_A", "H_A"), 264.0, j(FJoker("j_cry_bonk", chips = 6.0, xc = 3.0), FJoker("j_joker"))),
+        // Board [bonk(chips=6,xc=3), j_jolly]: j_jolly joker_main(PAIR)→+8 mult. bonk sees j_jolly (Jolly)→+18 chips; bonk sees itself (non-Jolly)→+6 chips.
+        // chips=32+18+6=56, mult=2+8=10 → floor(56×10)=560.
+        Case("Pair of aces + bonk(chips=6,xc=3) + j_jolly (Jolly path x-chips)", PlayingCard.hand("S_A", "H_A"), 560.0, j(FJoker("j_cry_bonk", chips = 6.0, xc = 3.0), FJoker("j_jolly"))),
         // --- Cryptid Emult jokers ---
         // cry_facile: eMult=3 when scored-card passes (check2) <=10 (exotic.lua:1005-1013).
         // Pair aces (2 cards, 0 retriggers): check2=2 ≤ 10 → fires. chips=32, mult=2^3=8 → 256.

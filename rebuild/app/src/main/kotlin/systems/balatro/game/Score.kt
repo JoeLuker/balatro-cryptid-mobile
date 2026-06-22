@@ -266,7 +266,8 @@ object Score {
             // foodm: j.mult=40 by default (decreases per round, self-destructs; replenished by selling jolly jokers)
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
-            "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork" ->
+            "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
+            "j_cry_paved_joker", "j_cry_membershipcard", "j_cry_pizza" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             // clockwork: j.x += xmult_mod(0.25) every 3rd hand (before, non-scoring); joker_main reads j.x
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
@@ -276,6 +277,9 @@ object Score {
             // keychange:   j.x += xmgain(0.25) each time a hand type is played for the first time this round (before, non-scoring); resets end_of_round
             // verisimile:  j.x += denominator each pseudorandom_result hit; joker_main reads j.x
             // duplicare:   j.x += Xmult_mod(1) per post_trigger / individual card played (non-scoring); joker_main reads j.x
+            // paved_joker: j.x += xmult_mod(1) when any perishable joker expires (perishable_debuffed, misc_joker.lua:10255)
+            // membershipcard: j.x = Xmult_mod(0.1) * member_count (run loop pre-computes; misc_joker.lua:7877)
+            // pizza: j.x += xmult_mod(0.5) per pizza_slice sold (end_of_round, misc_joker.lua:10158)
             "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
@@ -459,6 +463,16 @@ object Score {
             "j_cry_mprime" -> {
                 val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
                 if (isJolly && j.x > 1.0) return Fx().apply { eMult = j.x }
+            }
+            // bonk: +chips per board joker in other_joker pass (m.lua:695-718).
+            // j.chips per non-Jolly joker; j.chips*j.xc per Jolly-type joker.
+            // Jolly check: key j_jolly or j_cry_jollysus, or edition cry_m.
+            // All board FJokers qualify (ability.set=="Joker" — the engine's board only holds jokers).
+            // j.chips=6, j.xc=3 defaults → 6 chips/non-Jolly, 18 chips/Jolly.
+            "j_cry_bonk" -> {
+                val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
+                val add = if (isJolly) j.chips * j.xc else j.chips
+                if (add != 0.0) return Fx().apply { chipMod = add }
             }
         }
         return null
