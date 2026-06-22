@@ -63,6 +63,9 @@ internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST }
 internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
 internal data class Owned(val offer: Offer, val fj: FJoker)
+/** A shop voucher (one per shop). `extra` is the faithful config.extra (game.lua); the effect is
+ *  applied by key in RunState.redeemVoucher (Card:apply_to_run, card.lua:2322). */
+internal data class VoucherOffer(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int = 10)
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
@@ -201,9 +204,22 @@ private const val HANDS = 4
 private const val DISCARDS = 3
 
 /** 3 shop offers, deterministic per ante; ~60% of the time the first slot rolls an edition (+3 cost). */
-private fun rollShop(blind: Int): List<Offer> {
+// The six base economy vouchers (game.lua:608-618); cost $10, effects per Card:apply_to_run.
+private val VOUCHERS = listOf(
+    VoucherOffer("v_overstock_norm", "Overstock", "+1 card slot in the shop", 1),
+    VoucherOffer("v_clearance_sale", "Clearance Sale", "All shop cards 25% off", 25),
+    VoucherOffer("v_reroll_surplus", "Reroll Surplus", "Rerolls cost \$2 less", 2),
+    VoucherOffer("v_grabber", "Grabber", "+1 hand each round", 1),
+    VoucherOffer("v_wasteful", "Wasteful", "+1 discard each round", 1),
+    VoucherOffer("v_seed_money", "Seed Money", "Raise interest cap to \$10", 50),
+)
+/** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
+private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
+    VOUCHERS.filterNot { it.key in redeemed }.shuffled(Random(blind * 49157L + 5)).firstOrNull()
+
+private fun rollShop(blind: Int, slots: Int = 3): List<Offer> {
     val rng = Random(blind * 7919L + 13)
-    val base = CATALOG.shuffled(rng).take(3)
+    val base = CATALOG.shuffled(rng).take(slots)
     return base.mapIndexed { i, o ->
         if (i == 0 && rng.nextInt(100) < 60) {
             val ed = listOf(Edition.FOIL, Edition.HOLO, Edition.POLY).random(rng)
@@ -258,6 +274,16 @@ internal class RunState {
     val owned = mutableStateListOf<Owned>()
     /** Joker slots: base 5, +1 per NEGATIVE joker held (e_negative config.extra = 1 → card_limit+1). */
     val jokerSlots: Int get() = 5 + owned.count { it.offer.edition == Edition.NEGATIVE }
+    // Voucher run-modifiers (Card:apply_to_run). Persist for the whole run once redeemed.
+    var shopSlotsBonus by mutableStateOf(0)        // Overstock: +1 shop card slot
+    var discountPercent by mutableStateOf(0)       // Clearance Sale: % off all shop prices
+    var interestCap by mutableStateOf(5)           // Seed Money: max interest dollars (5 → 10)
+    var baseHands by mutableStateOf(HANDS)         // Grabber: +1 hand/round
+    var baseDiscards by mutableStateOf(DISCARDS)   // Wasteful: +1 discard/round
+    val redeemedVouchers = mutableStateListOf<String>()
+    var shopVoucher by mutableStateOf<VoucherOffer?>(null)
+    /** Shop price after the Clearance Sale discount (set_cost: floor, min $1). */
+    fun price(base: Int): Int = maxOf(1, base * (100 - discountPercent) / 100)
     var shop by mutableStateOf<List<Offer>>(emptyList())
     var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
     var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
@@ -416,8 +442,8 @@ internal class RunState {
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(8); selected = emptySet()
         roundScore = 0.0
-        handsLeft = boss?.hands(HANDS) ?: HANDS          // The Needle: 1 hand
-        discardsLeft = boss?.discards(DISCARDS) ?: DISCARDS  // The Water: 0 discards
+        handsLeft = boss?.hands(baseHands) ?: baseHands          // base (+Grabber); The Needle: 1 hand
+        discardsLeft = boss?.discards(baseDiscards) ?: baseDiscards  // base (+Wasteful); The Water: 0 discards
         lastResult = null; lastSteps = emptyList()
         phase = Phase.ROUND
         Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
@@ -520,8 +546,8 @@ internal class RunState {
         if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft, "\$1 per remaining hand", handsLeft.toString())
         val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
         if (gold > 0) rows += EvalRow(EvalKind.GOLD, gold * 3, "Gold cards held", gold.toString())
-        val interest = minOf(money / 5, 5)
-        if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$5)")
+        val interest = minOf(money / 5, interestCap)        // Seed Money raises the cap 5 → 10
+        if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$$interestCap)")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
     }
@@ -537,7 +563,8 @@ internal class RunState {
         owned.removeAll { it.fj.key in SELF_DESTRUCT_KEYS }
         blindIndex += 1
         resetRerollCost()                            // fresh shop → reroll cost back to base
-        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        shop = rollShop(blindIndex, 3 + shopSlotsBonus); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         // Pre-seed boss so blind-select and shop screens show correct name/desc.
         // startRound() re-derives the same deterministic value.
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
@@ -553,15 +580,16 @@ internal class RunState {
     }
 
     fun buy(offer: Offer, free: Boolean = false) {
-        if (!free && money < offer.cost) return
-        if (!free) money -= offer.cost
+        val cost = price(offer.cost)
+        if (!free && money < cost) return
+        if (!free) money -= cost
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
         val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
         owned.add(Owned(offer, fj))
         shop = shop.filterNot { it === offer }
-        if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
+        if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
     }
 
     fun sell(o: Owned) {
@@ -577,8 +605,9 @@ internal class RunState {
     private fun onCardBought() { owned.forEach { if (it.fj.key == "j_cry_cursor") it.fj.chips += 8.0 } }
 
     fun buyPlanet(po: PlanetOffer) {
-        if (money < po.cost) return
-        money -= po.cost
+        val cost = price(po.cost)
+        if (money < cost) return
+        money -= cost
         onCardBought()
         handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
         shopPlanets = shopPlanets.filterNot { it === po }
@@ -586,13 +615,36 @@ internal class RunState {
     }
 
     fun buyTarot(t: TarotOffer) {
-        if (money < t.cost) return
-        money -= t.cost
+        val cost = price(t.cost)
+        if (money < cost) return
+        money -= cost
         onCardBought()
         val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
         if (card != null) enhancedCount += 1
         shopTarots = shopTarots.filterNot { it === t }
         Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
+    }
+
+    /** Redeem the shop voucher — a run-persistent modifier (Card:apply_to_run, card.lua:2322). */
+    fun redeemVoucher(v: VoucherOffer) {
+        val cost = price(v.cost)
+        if (money < cost) return
+        money -= cost
+        redeemedVouchers.add(v.key)
+        shopVoucher = null
+        when (v.key) {
+            "v_overstock_norm" -> {                            // change_shop_size: +1 slot, now + future
+                shopSlotsBonus += v.extra
+                shop = shop + CATALOG.filterNot { c -> shop.any { it.key == c.key } }
+                    .shuffled(Random(blindIndex * 31L + shop.size)).take(v.extra)
+            }
+            "v_clearance_sale" -> discountPercent = v.extra    // discount_percent = 25
+            "v_reroll_surplus" -> rerollBase = maxOf(0, rerollBase - v.extra)  // round_resets.reroll_cost -= 2
+            "v_grabber" -> baseHands += v.extra                // round_resets.hands += 1
+            "v_wasteful" -> baseDiscards += v.extra            // round_resets.discards += 1
+            "v_seed_money" -> interestCap = v.extra / 5         // interest_cap = 50 → $10 max
+        }
+        Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
 
     fun handLevel(h: HandType): Int = handLevels.level(h)
@@ -602,7 +654,8 @@ internal class RunState {
     /** Populate the shop and jump to it — for the --es screen shop parity-screenshot deep-link only. */
     fun toShopForPreview() {
         resetRerollCost()
-        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        shop = rollShop(blindIndex, 3 + shopSlotsBonus); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
         phase = Phase.SHOP
     }
 
@@ -624,7 +677,8 @@ internal class RunState {
         rerollIncrease += 1                                  // +1 each reroll (calculate_reroll_cost)
         rerolls += 1
         val seed = blindIndex + rerolls * 7
-        shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
+        // reroll re-rolls the CARDS only; the voucher slot stays (Balatro keeps the voucher on reroll).
+        shop = rollShop(seed, 3 + shopSlotsBonus); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
     }
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
@@ -1679,14 +1733,18 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     s.shop.forEach { o ->
-                        ShopCard(o.name, jokerCells[o.key], cardBase, o.cost, o.desc, Balatro.Mult, s.money >= o.cost) { s.buy(o) }
+                        ShopCard(o.name, jokerCells[o.key], cardBase, s.price(o.cost), o.desc, Balatro.Mult, s.money >= s.price(o.cost)) { s.buy(o) }
                     }
                     s.shopPlanets.forEach { po ->
-                        ShopCard(po.planet.display, null, cardBase, po.cost, handName(po.planet.hand), Balatro.Chips, s.money >= po.cost) { s.buyPlanet(po) }
+                        ShopCard(po.planet.display, null, cardBase, s.price(po.cost), handName(po.planet.hand), Balatro.Chips, s.money >= s.price(po.cost)) { s.buyPlanet(po) }
                     }
                     s.shopTarots.forEach { t ->
                         val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
-                        ShopCard(t.name, null, cardBase, t.cost, fx, Balatro.Purple, s.money >= t.cost) { s.buyTarot(t) }
+                        ShopCard(t.name, null, cardBase, s.price(t.cost), fx, Balatro.Purple, s.money >= s.price(t.cost)) { s.buyTarot(t) }
+                    }
+                    // voucher slot (one per shop) — a run-persistent modifier, gold accent
+                    s.shopVoucher?.let { v ->
+                        ShopCard(v.name, null, cardBase, s.price(v.cost), v.desc, Balatro.Gold, s.money >= s.price(v.cost)) { s.redeemVoucher(v) }
                     }
                 }
             }
