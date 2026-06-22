@@ -155,10 +155,11 @@ object Oracle {
         Case("HighCard S_2 + joker(cry_double_sided),flip_side — flip retriggers double-sided once → 63", PlayingCard.hand("S_2"), 63.0, j(FJoker("j_joker", edition = "cry_double_sided"), FJoker("j_cry_flip_side"))),
         // Spectrogram(n=1): retrigger the RIGHTMOST board joker j.n times. Board [Spectrogram(n=1), Joker(rightmost)].
         // Pair aces: chips=32, mult=2. Spectrogram has no joker_main effect.
-        // joker_main: Spectrogram: no-op; rj=Spectrogram≠board.last()=Joker → 0 reps.
-        //   Joker +4→mult=6; Spectrogram votes rj=Joker===board.last() ✓, n=1→reps=1; Joker re-fires→mult=10.
-        //   Score: floor(32×10)=320.
-        Case("Pair aces + spectrogram(n=1,leftmost),joker(rightmost) — spec retriggers rightmost once → 320", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_spectrogram", n = 1), FJoker("j_joker"))),
+        // Spectrogram before-pass resets j.n=0 each hand (epic.lua:2047-2053 resets echonum per hand).
+        // No Echo cards in hand → j.n stays 0 → no extra retriggers for j_joker.
+        // joker_main: Spectrogram no-op; Joker +4→mult=6. Score: floor(32×6)=192.
+        // (Note: pre-seeded n is wiped by the before-pass reset; to test retriggers use actual Echo cards.)
+        Case("Pair aces + spectrogram(no Echo cards, n reset→0),joker → no retrigger → 192", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_spectrogram", n = 1), FJoker("j_joker"))),
         // Spectrogram accumulator: j.n starts at 0; each scored Echo card increments j.n by 1.
         // Board [Spectrogram(n=0,leftmost), Joker(rightmost)]; hand = 2 Echo Aces.
         // Per-card: S_A Echo: chips+=11→21; spectrogram sees ECHO→j.n=1. H_A Echo: chips+=11→32; j.n=2.
@@ -414,6 +415,10 @@ object Oracle {
         Case("Pair of aces + cry_exoplanet + Holo bonkers", PlayingCard.hand("S_A", "H_A"), 864.0, j(FJoker("j_cry_exoplanet"), FJoker("j_cry_bonkers", edition = "Holo"))),
         // cry_stardust: X2 per other Poly joker (OTHER_JOKER). Poly j_cry_bonkers: Poly ×1.5 (edition pass) → mult=3; stardust X2 → mult=6. chips=32 → 192.
         Case("Pair of aces + cry_stardust + Poly bonkers", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_stardust"), FJoker("j_cry_bonkers", edition = "Poly"))),
+        // cry_mprime: Emult^j.x (default 1.05) per Jolly-type joker via other_joker pass (m.lua:1534).
+        // Pair aces: chips=32, mult=2. j_jolly (PAIR) → +8 mult → mult=10. mprime sees j_jolly (isJolly) → eMult=1.05.
+        // finalMult = 10^1.05 = 11.2202… → score = floor(32 × 11.2202) = 359.
+        Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 359.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
         // --- Cryptid Emult jokers ---
         // cry_facile: eMult=3 when scored-card passes (check2) <=10 (exotic.lua:1005-1013).
         // Pair aces (2 cards, 0 retriggers): check2=2 ≤ 10 → fires. chips=32, mult=2^3=8 → 256.
@@ -426,8 +431,10 @@ object Oracle {
             j(FJoker("j_cry_exposed"), FJoker("j_cry_facile"))),
         // cry_stella_mortis: eMult=j.x when j.x>1.0. j.x=2.0: chips=32, mult=2^2=4 → 128.
         Case("Pair of aces + cry_stella_mortis (x=2.0)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_stella_mortis", x = 2.0))),
-        // cry_circulus_pistoris: xChipMod=PI, eMult=PI when handsLeft==3. chips=32*PI≈100.53, mult=2^PI≈8.825 → 887.
-        Case("Pair of aces + cry_circulus_pistoris (handsLeft=3)", PlayingCard.hand("S_A", "H_A"), 887.0, j(FJoker("j_cry_circulus_pistoris")), handsLeft = 3),
+        // cry_circulus_pistoris: echips=PI (exponentiation), emult=PI when handsLeft==3.
+        // chips=32^PI≈53526.41, mult=2^PI≈8.825 → floor(53526.41 * 8.825)=472369.
+        // (Old value of 887 used xChipMod=PI i.e. chips*PI≈100.53 — that was wrong: echips is exponentiation.)
+        Case("Pair of aces + cry_circulus_pistoris (handsLeft=3)", PlayingCard.hand("S_A", "H_A"), 472369.0, j(FJoker("j_cry_circulus_pistoris")), handsLeft = 3),
         // cry_filler: xMultMod≈1.0 always (meme joker). Pair aces: mult=2*1.00000000000003≈2.0 → chips=32*2=64.
         Case("Pair of aces + cry_filler (meme x1)", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_filler"))),
         // cry_silly: +16 Mult if Full House. FH A/A/A/K/K: chips=93, mult=4+16=20 → 1860.
@@ -571,9 +578,35 @@ object Oracle {
         return pass to cases.size
     }
 
+    /** Multi-call regression tests that require the SAME joker object to persist across two score() calls. */
+    fun runMultiCall(): Pair<Int, Int> {
+        var pass = 0; var total = 0
+        // spectrogram cross-hand reset regression (epic.lua:2047-2053 resets echonum=0 in before pass each hand).
+        // Bug: j.n accumulated across hands without reset. Fix: before pass resets j.n=0 each call.
+        // Hand 1: Pair Echo-Aces + spectrogram(n=0) + joker → j.n accumulates to 2 → joker fires 3x → 448.
+        // Hand 2: same jokers, same hand → before-pass must reset j.n to 0 → joker again fires 3x → also 448.
+        // (Pre-fix: hand 2 enters with j.n=2, accumulates to 4, joker fires 5x → mult=2+20=22 → 32*22=704.)
+        run {
+            val spectr = FJoker("j_cry_spectrogram")
+            val joker  = FJoker("j_joker")
+            val board  = listOf(spectr, joker)
+            val echoHand = listOf(en("S_A", Enhancement.ECHO), en("H_A", Enhancement.ECHO))
+            for (handNum in 1..2) {
+                total++
+                val s = Score.score(echoHand, board, emptyList(), 1).score
+                val ok = s == 448.0
+                if (ok) pass++
+                println("${if (ok) "PASS" else "FAIL"}  spectrogram cross-hand reset (hand $handNum): got $s expected 448.0")
+            }
+        }
+        println("oracle-multi-call: $pass/$total")
+        return pass to total
+    }
+
     @JvmStatic
     fun main(args: Array<String>) {
         val (pass, total) = run()
-        if (pass != total) kotlin.system.exitProcess(1)
+        val (mPass, mTotal) = runMultiCall()
+        if (pass != total || mPass != mTotal) kotlin.system.exitProcess(1)
     }
 }

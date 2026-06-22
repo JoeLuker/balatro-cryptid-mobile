@@ -71,10 +71,12 @@ class Sctx {
 class Fx {
     var chips = 0.0; var mult = 0.0; var xMult = 0.0; var hMult = 0.0
     var chipMod = 0.0; var multMod = 0.0; var xMultMod = 1.0; var xChipMod = 1.0   // Xchip_mod: Cryptid X-chips
+    var eChipMod = 1.0                                                               // Echip_mod: Cryptid exponential chips (chips^eChipMod)
     var eMult = 1.0                                                                  // Emult_mod: Cryptid exponential mult (mult^eMult)
     var repetitions = 0
     val empty get() = chips == 0.0 && mult == 0.0 && xMult == 0.0 && hMult == 0.0 &&
-        chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && xChipMod == 1.0 && eMult == 1.0 && repetitions == 0
+        chipMod == 0.0 && multMod == 0.0 && xMultMod == 1.0 && xChipMod == 1.0 &&
+        eChipMod == 1.0 && eMult == 1.0 && repetitions == 0
 }
 
 object Score {
@@ -213,6 +215,10 @@ object Score {
             "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
             // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
             "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
+            // clockwork Effect 1 (epic.lua:2227): retrigger each Steel-enhanced held card once when c1==0.
+            // j.n = c1 counter (cycles 0→1→0 per hand, limit=2). c1==0 every other hand starting from hand 1.
+            // Fires in context.repetition + context.cardarea == G.hand (held-card retrigger path).
+            "j_cry_clockwork" -> if (ctx.cardarea == "hand" && j.n == 0 && oc.enhancement == Enhancement.STEEL) return Fx().apply { repetitions = 1 }
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -288,7 +294,9 @@ object Score {
             // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
             "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
-            "j_cry_circulus_pistoris" -> if (ctx.handsLeft == 3) return Fx().apply { xChipMod = PI; eMult = PI }
+            // exotic.lua:886: returns { echips = pi, emult = pi }. Talisman echips = exponentiation (chips^pi),
+            // NOT multiplication. Use eChipMod (chips^PI) for chips and eMult (mult^PI) for mult.
+            "j_cry_circulus_pistoris" -> if (ctx.handsLeft == 3) return Fx().apply { eChipMod = PI; eMult = PI }
             // facile: Emult=3 only when scored-card passes this hand <=10 (exotic.lua:1005-1013).
             // j.n is incremented once per individual pass (incl. retrigger reps) in the individual block above.
             // Reset j.n to 0 here regardless of whether Emult fires (mirrors check2=0 in the Lua).
@@ -402,6 +410,10 @@ object Score {
             // meteor held-chips are dead in Lua ("this doesn't exist yet") — held omitted for meteor.
             "j_cry_exoplanet"  -> if (oc.edition == "Holo") return Fx().apply { hMult = 15.0 }
             "j_cry_stardust"   -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
+            // clockwork Effect 4 (epic.lua:2252-2268): extra Xmult per Steel-enhanced held card when steelenhc > 1.
+            // j.xc = steelenhc (starts at 1.0, +0.1 every 7 hands via c4 counter, limit=7).
+            // Fires context.individual + context.cardarea == G.hand + Steel enhancement + steelenhc != 1.
+            "j_cry_clockwork"  -> if (oc.enhancement == Enhancement.STEEL && j.xc > 1.0) return Fx().apply { xMult = j.xc }
         }
         // OTHER_JOKER: a joker reacting to each board joker (context.other_joker)
         val oj = ctx.otherJoker
@@ -422,6 +434,13 @@ object Score {
             "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker
             "j_cry_stardust"  -> if (oj !== j && oj.edition == "Poly") return Fx().apply { xMultMod = 2.0 }   // X2 Mult / other Poly joker
             "j_cry_universe"  -> if (oj !== j && oj.edition == "Astral") return Fx().apply { eMult = 1.2 }    // Emult^1.2 per other Astral-edition joker
+            // mprime: Emult^j.x (default 1.05) per Jolly-type or M-pool joker (m.lua:1534).
+            // is_jolly() = key j_jolly or j_cry_jollysus, or edition e_cry_m.
+            // M-pool jokers without those traits are unmodelled (FJoker has no pool field).
+            "j_cry_mprime" -> {
+                val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
+                if (isJolly && j.x > 1.0) return Fx().apply { eMult = j.x }
+            }
         }
         return null
     }
@@ -469,7 +488,12 @@ object Score {
             this.debuffedJokerKey = debuffedJokerKey; this.board = jokers
         }
 
-        // BEFORE pass: j_cry_primus gains +0.17 Emult if ANY card in the played hand is a prime rank
+        // BEFORE pass resets + per-hand scalars that must not carry over between hands.
+        // j_cry_spectrogram: reset Echo-card count to 0 each hand (epic.lua:2047-2053 resets echonum=0
+        //   in the before pass before counting scoring_hand; the engine accumulates in the per-card pass
+        //   so the reset must happen here, before the individual pass runs).
+        for (j in jokers) if (j.key == "j_cry_spectrogram") j.n = 0
+        // j_cry_primus gains +0.17 Emult if ANY card in the played hand is a prime rank
         // (exotic.lua:603-619: loops full_hand, sets check=true on any 2/3/5/7/Ace, scales when check).
         for (j in jokers) if (j.key == "j_cry_primus" && played.any { it.id in PRIMUS_PRIMES }) j.x += 0.17
         // j_cry_zooble: +1 Mult per DISTINCT rank in the scoring hand, unless the hand is a Straight (scaling).
@@ -519,15 +543,22 @@ object Score {
         }
 
         // held-in-hand pass: the card's own held effect (steel x1.5) + each joker reacting to held cards.
+        // Jokers may retrigger held cards via context.repetition + context.cardarea == G.hand
+        // (clockwork Effect 1: retrigger Steel-enhanced held cards once when c1==0).
         // Mime (j_mime) retriggers each held card once IF it produced any effect (card_effects non-empty).
         val mime = jokers.any { it.key == "j_mime" }
         ctx.heldHand = held
         for (card in held) {
             ctx.cardarea = "hand"; ctx.held = true; ctx.otherCard = card
+            // Collect held-card retrigger votes (context.repetition + cardarea=="hand").
+            var heldJokerReps = 0
+            ctx.repetition = true
+            for (j in jokers) heldJokerReps += calcJoker(j, ctx)?.repetitions ?: 0
+            ctx.repetition = false
             val effects = ArrayList<Fx>()
             effects.add(evalCard(card, ctx))
             for (j in jokers) calcJoker(j, ctx)?.let { effects.add(it) }
-            val heldReps = 1 + if (mime && effects.any { !it.empty }) 1 else 0
+            val heldReps = (1 + heldJokerReps) * (if (mime && effects.any { !it.empty }) 2 else 1)
             repeat(heldReps) {
                 for (fx in effects) { if (fx.xMult != 0.0) mult *= fx.xMult; if (fx.mult != 0.0) mult += fx.mult; if (fx.hMult != 0.0) mult += fx.hMult }
             }
@@ -542,6 +573,7 @@ object Score {
         fun applyJokerFx(fx: Fx) {
             if (fx.chipMod != 0.0) chips += fx.chipMod
             if (fx.xChipMod != 1.0) chips *= fx.xChipMod
+            if (fx.eChipMod != 1.0) chips = chips.pow(fx.eChipMod)  // echips: exponentiation (chips^eChipMod)
             if (fx.multMod != 0.0) mult += fx.multMod
             if (fx.xMultMod != 1.0) {
                 mult *= fx.xMultMod
@@ -553,6 +585,19 @@ object Score {
                 for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03
             }
             if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)
+        }
+        // JOKER MAIN + OTHER_JOKER pass (state_events.lua:847-928, board order):
+        // For each board joker (_card): fire _card's joker_main and edition effects, then immediately
+        // fire every board joker's other_joker reaction to _card — all applied before moving to the
+        // next card. This interleaved order is faithful to the Lua, which collects joker_main +
+        // all other_joker reactions into one effects table per _card, then calls trigger_effects
+        // immediately. A separate post-pass would apply circus (and baseball/universe) xmults to
+        // a larger accumulated mult, diverging from the Lua.
+        fun applyOtherJokerFx(fx: Fx) {
+            if (fx.multMod != 0.0) mult += fx.multMod
+            if (fx.chipMod != 0.0) chips += fx.chipMod
+            if (fx.xMultMod != 1.0) mult *= fx.xMultMod
+            if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // universe: Emult per Astral joker
         }
         for (j in jokers) {
             ctx.cardarea = "jokers"; ctx.jokerMain = true; ctx.individual = false; ctx.otherCard = null
@@ -587,19 +632,15 @@ object Score {
             ctx.jokerMain = true  // restore for re-fires
             repeat(jokerReps) { calcJoker(j, ctx)?.let { applyJokerFx(it) } }
             ctx.jokerMain = false
-        }
 
-        // OTHER_JOKER pass: every board joker offered to each joker once (joker-on-joker), board order
-        for (other in jokers) {
-            ctx.otherJoker = other; ctx.cardarea = "jokers"
-            for (j in jokers) calcJoker(j, ctx)?.let { fx ->
-                if (fx.multMod != 0.0) mult += fx.multMod
-                if (fx.chipMod != 0.0) chips += fx.chipMod
-                if (fx.xMultMod != 1.0) mult *= fx.xMultMod
-                if (fx.eMult != 1.0) mult = mult.pow(fx.eMult)  // universe: Emult per Astral joker
-            }
+            // OTHER_JOKER reactions to j (inline, immediately after j's main turn).
+            // In the Lua, these are collected in the same effects table as j's joker_main and
+            // applied by the same trigger_effects call — so they see the mult AFTER j's main but
+            // BEFORE the next joker's main (state_events.lua:871-918).
+            ctx.otherJoker = j; ctx.cardarea = "jokers"
+            for (voter in jokers) calcJoker(voter, ctx)?.let { applyOtherJokerFx(it) }
+            ctx.otherJoker = null
         }
-        ctx.otherJoker = null
 
         if (jokers.isNotEmpty()) trace?.add(ScoreStep("jokers", chips, mult))
         return ScoreResult(handType, chips, mult, floor(chips * mult))
