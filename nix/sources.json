@@ -32,13 +32,6 @@
     "rev": "722691889d4e3ab9ce80166a6645a0c2bc519dd5",
     "sha256": "0kwav9br1593ma6xj9vn5lhbnw4cqxf320f7ywmjl94kwgnig3za"
   },
-  "debugplus": {
-    "asset": "DebugPlus.zip",
-    "kind": "release",
-    "sha256": "1linkh2j2q3mficipihj8h37hfxb634nisc0x5bnb9zdda5d59fy",
-    "tag": "v1.5.2",
-    "url": "https://github.com/WilsontheWolf/DebugPlus/releases/download/v1.5.2/DebugPlus.zip"
-  },
   "steamodded": {
     "kind": "github",
     "owner": "Steamodded",

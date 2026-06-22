@@ -283,7 +283,8 @@ local function apply_gates(want_log, want_home)
         set_jit_hook(false)
         shsw_on = false
     end
-    if (want_log or want_home) and not (log_on or home_on) then
+    local activated = (want_log or want_home) and not (log_on or home_on)
+    if activated then
         -- activation edge: start the reporting windows now, not at t=0
         local now = (G and G.TIMERS and G.TIMERS.UPTIME) or 0
         TEL.exp_recompute_window_start = now
@@ -315,10 +316,32 @@ local function apply_gates(want_log, want_home)
         end
         boot_buf = nil
     end
+    -- OBS self-announce: fires on every off->on activation edge (logging on at
+    -- boot OR toggled live), after log_on is set so the lines reach the sinks.
+    -- OBS_REGISTRY enumerates the persisted TEL.registry, so components that
+    -- registered while logging was off still appear in the inventory.
+    if activated then
+        tel("OBS_INIT", { level = want_log and "on" or "home-only",
+            file = LOG_FILE, crashes = "crash.log",
+            home = want_home and "on" or "off" })
+        local names = {}
+        for n, r in pairs(TEL.registry) do names[#names + 1] = n .. ":" .. (r.status or "?") end
+        table.sort(names)
+        tel("OBS_REGISTRY", { n = #names, components = table.concat(names, ",") })
+    end
 end
 
 -- assigns the forward-declared local (see SHSW block above)
 function tel(event, data)
+    -- OBS: crashes are ALWAYS captured to a dedicated always-on sink (crash.log),
+    -- even when telemetry is gated off, so a crash is never lost.
+    if event == "CRASH" then
+        pcall(function()
+            local cp = {os.time(), TEL.session_id}
+            for k, v in pairs(data or {}) do cp[#cp + 1] = k .. "=" .. tostring(v) end
+            love.filesystem.append("crash.log", table.concat(cp, " ") .. "\n")
+        end)
+    end
     if log_on == false and home_on == false then return end
     local parts = {"[TEL]", event}
     if data then
@@ -342,6 +365,20 @@ end
 -- those events through the same gates and sinks. On desktop the global stays
 -- nil and the call sites fall back to print().
 ATLOG = tel
+
+-- OBS: the single observability surface. Mods, shims, loaders and the crash
+-- handler all report through this, so the parts know about each other and the
+-- log is self-describing. ATLOG stays as an alias for existing call sites.
+TEL.registry = {}
+local function obs_register(name, status, detail)
+    TEL.registry[name] = { status = status or "ok", detail = detail }
+    tel("REGISTER", { name = name, status = status or "ok", detail = detail })
+end
+OBS = {
+    event    = tel,           -- OBS.event(kind, data)
+    register = obs_register,  -- OBS.register(name, status[, detail]) — components self-announce
+    registry = TEL.registry,
+}
 
 -- Session start
 tel("SESSION_START", {id = TEL.session_id, device = love.system.getOS(),

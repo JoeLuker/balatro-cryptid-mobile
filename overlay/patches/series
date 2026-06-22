@@ -65,3 +65,10 @@ manual/64-cursor_down_duration.patch
 manual/65-drag_self_drop_hover_fix.patch
 manual/66-tap_desc_hold_drag_hover.patch
 manual/67-tap_desc_toggle.patch
+manual/68-game_draw_shader_reset.patch
+manual/69-run_select_overlay_guard.patch
+manual/70-ui_shader_reset.patch
+manual/72-cry_item_toggle.patch
+manual/73-cry_item_toggle_loc.patch
+manual/74-cry_libscan_diag.patch
+manual/75-cry_igo_diag.patch

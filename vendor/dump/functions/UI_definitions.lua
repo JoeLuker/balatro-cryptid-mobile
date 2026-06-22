@@ -3,8 +3,6 @@
 G.UIDEF = {}
 
 function create_UIBox_debug_tools()
-local debugplus = require("debugplus.core")
-debugplus.registerButtons()
   G.debug_tool_config = G.debug_tool_config or {}
   G.FUNCS.DT_add_money = function() if G.STAGE == G.STAGES.RUN then ease_dollars(10) end end
   G.FUNCS.DT_add_round = function() if G.STAGE == G.STAGES.RUN then  ease_round(1) end end
@@ -94,40 +92,7 @@ debugplus.registerButtons()
           {n=G.UIT.T, config={text = "Hover over any Joker/Playing card", scale = 0.25, colour = G.C.WHITE, shadow = true}}
         }},
         {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "hold [" .. require("debugplus.util").ctrlText .. "] (togglable in config)", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "and press [Q] to cycle Edition", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }}, 
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [W] to cycle Enhancement", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [E] to cycle Seal", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [A/S/D] to toggle Eternal/Perishable/Rental", scale = 0.2, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [F] to toggle Coupon (make free)", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [R/C] to destroy/copy card", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [M] to reload atlases", scale = 0.25, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [UP/DOWN] to cycle rank", scale = 0.2, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.00}, nodes={
-              {n=G.UIT.T, config={text = "press [RIGHT/LEFT] to cycle suit", scale = 0.2, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
-              {n=G.UIT.T, config={text = "press [z] plus [1-3] to save a save state", scale = 0.2, colour = G.C.WHITE, shadow = true}}
-          }},
-          {n=G.UIT.R, config={align = "cm", padding = 0.00}, nodes={
-              {n=G.UIT.T, config={text = "press [x] plus [1-3] to load a save state", scale = 0.2, colour = G.C.WHITE, shadow = true}}
+          {n=G.UIT.T, config={text = "and press [Q] to cycle Edition", scale = 0.25, colour = G.C.WHITE, shadow = true}}
         }},
       }},
       {n=G.UIT.R, config={align = "cm", padding = 0.05}, nodes={
@@ -159,8 +124,6 @@ debugplus.registerButtons()
           UIBox_button{ label = {"+1 Discard"}, button = "DT_add_discard", minw = 1.7, minh = 0.4, scale = 0.35},
           UIBox_button{ label = {"Boss Reroll"}, button = "DT_reroll_boss", minw = 1.7, minh = 0.4, scale = 0.35},
           UIBox_button{ label = {"Background"}, button = "DT_toggle_background", minw = 1.7, minh = 0.4, scale = 0.35},
-          UIBox_button{ label = {"Win Blind"}, button = "DT_win_blind", minw = 1.7, minh = 0.4, scale = 0.35},
-          UIBox_button{ label = {"Double Tag"}, button = "DT_double_tag", minw = 1.7, minh = 0.4, scale = 0.35},
         }},
         {n=G.UIT.C, config={align = "cm", padding = 0.15}, nodes={
           UIBox_button{ label = {"+10 chips"}, button = "DT_add_chips", minw = 1.7, minh = 0.4, scale = 0.35},
@@ -2558,12 +2521,6 @@ function create_UIBox_settings()
     tab_definition_function_args = 'Audio'
   }
 
-  if not require("debugplus.config").SMODSLoaded then
-      tabs[#tabs+1] = {
-          label = "DebugPlus",
-          tab_definition_function = require("debugplus.config").fakeConfigTab,
-      }
-  end
   local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(
     {tabs = tabs,
     tab_h = 7.05,

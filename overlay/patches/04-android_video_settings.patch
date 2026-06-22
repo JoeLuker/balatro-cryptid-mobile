@@ -1,8 +1,8 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index 29c3ec0..608abe2 100644
+index f39e78e..86eda6e 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -2587,6 +2587,17 @@ function G.UIDEF.settings_tab(tab)
+@@ -2544,6 +2544,17 @@ function G.UIDEF.settings_tab(tab)
        G.F_CRASH_REPORTS and create_toggle({label = localize('b_set_crash_reports'), ref_table = G.SETTINGS, ref_value = 'crashreports', info = localize('ml_crash_report_info')}) or nil,
      }}
    elseif tab == 'Video' then

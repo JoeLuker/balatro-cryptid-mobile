@@ -108,21 +108,6 @@ fetch_sources() {
         log_success "CardSleeves fetched"
     fi
 
-    # DebugPlus (better debug tools; re-enables Balatro's built-in debug mode +
-    # adds a Steamodded config tab). Release zip is FLAT (smods.json/lovely/
-    # debugplus/ at the archive root, no wrapping folder), so unlike fetch_mod
-    # it must extract into mods/DebugPlus/ directly. Pinned to v1.5.2.
-    # NOTE: its interactive menu (Tab) and console (/) need a hardware keyboard,
-    # so on the touch build only the debug toggles + config tab are reachable.
-    if [[ ! -d "$MODS_DIR/DebugPlus" ]]; then
-        log_info "Fetching DebugPlus v1.5.2..."
-        curl -fL -o "$MODS_DIR/DebugPlus.zip" \
-            "https://github.com/WilsontheWolf/DebugPlus/releases/download/v1.5.2/DebugPlus.zip"
-        unzip -q -o "$MODS_DIR/DebugPlus.zip" -d "$MODS_DIR/DebugPlus/"
-        rm "$MODS_DIR/DebugPlus.zip"
-        log_success "DebugPlus fetched"
-    fi
-
     # Apply config overrides
     apply_config_overrides
 
@@ -414,7 +399,7 @@ build_apk() {
     # "lovely" mod folder is only a stale dump + log. Neither is embedded.
     log_info "  Embedding Mods folder..."
     mkdir -p "$game_dir/Mods"
-    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$game_dir/Mods/"
             rm -rf "$game_dir/Mods/$mod/lovely"
@@ -451,6 +436,26 @@ return {
   repo = "https://github.com/ethangreen-dev/lovely-injector",
   version = "0.9.0",
   mod_dir = "Mods",
+  remove_var = function() return false end,
+  set_var = function() end,
+  reload_patches = function() return true end,
+  apply_patches = function(name, content)
+    if type(content) ~= 'string' then return content end
+    if name ~= 'GLSL_ES_PATCHES.fs' then return content end
+    local s = content
+    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    s = s:gsub('([%s({])int([%s([])', '%1 float%2')
+    s = s:gsub('(__%w+__%s*[<>]%s*%d+)%.', '%1')
+    s = s:gsub('([%d.]e%-?%d+)%.', '%1')
+    s = s:gsub('%[(%d+)%.%]', '[%1]')
+    s = s:gsub('%[([^%[%]]*[^%d.][^%[%]]*)%]', '[int(%1)]')
+    s = s:gsub('(%d+%.%d+)f([^%w])', '%1%2')
+    s = s:gsub('(extern%s+)(number)', '%1highp %2')
+    s = s:gsub('(uniform%s+)(number)', '%1highp %2')
+    s = s:gsub('mediump(%s+)', 'highp%1')
+    return s
+  end,
 }
 EOF
 
@@ -546,9 +551,8 @@ EOF
 
     # Patch conf.lua. This authoritative heredoc (not the desktop dump's conf.lua)
     # owns the Android love.conf — window dims must be 0 for Android fullscreen.
-    # _RELEASE_MODE = false enables Balatro's built-in debug mode, which is what
-    # makes DebugPlus's debug-tools UI + console reachable on the build; without
-    # it the dump's flip is clobbered here and DebugPlus is inert.
+    # _RELEASE_MODE = false enables Balatro's built-in debug mode (the Tab
+    # debug-tools UI); without it the dump's flip would be clobbered here.
     cat > "$game_dir/conf.lua" << 'EOF'
 _RELEASE_MODE = false
 _DEMO = false
@@ -2682,7 +2686,7 @@ prepare_transfer() {
     mkdir -p "$transfer_dir/Mods"
 
     # Copy mods to transfer folder (lovely/ payloads stripped — not used on Android)
-    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves DebugPlus; do
+    for mod in Steamodded Cryptid Amulet sticky-fingers CardSleeves; do
         if [[ -d "$MODS_DIR/$mod" ]]; then
             cp -r "$MODS_DIR/$mod" "$transfer_dir/Mods/"
             rm -rf "$transfer_dir/Mods/$mod/lovely"

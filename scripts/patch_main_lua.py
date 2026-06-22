@@ -48,6 +48,11 @@ end)
 """
         content = jit_opt_block + content
 
+    # 0a. (removed) LOGCAT_PRINT — folded into the OBS suite. Logcat output was a
+    # redundant/unreliable path (its LOVE-tag FFI sink produced nothing on-device);
+    # the canonical OBS sinks are the telemetry.log + crash.log files in the save
+    # dir (android-telemetry.lua), pulled via `just obs`.
+
     # 0b. AMULET_ROOT_MOUNT: Amulet's appended loader FFI-mounts
     # <mod_dir>/talisman and <mod_dir>/big-num as PhysFS roots so its modules
     # resolve as require("talisman.*") / load("big-num/..."). Two problems for
@@ -149,7 +154,14 @@ assert(tinymount(talisman_path .. '/big-num', 'big-num', 0) ~= 0, 'Amulet: Faile
     # mirrors Steamodded's lovely name=/source= registrations; if a require starts
     # failing at boot after a Steamodded bump, re-derive it:
     #   grep -hE '^\\s*(name|source) *=' Mods/Steamodded/lovely/*.toml
-    smods_shim = """-- Android SMODS path fix: preload lovely-registered SMODS modules + extend require path
+    smods_shim = """-- Android SMODS path fix: preload lovely-registered modules + run the preflight core
+-- before main.lua. The preflight Steamodded (fdb7442+) creates the global SMODS only
+-- in src/preflight/core.lua, which lovely runs via `load_now=true, before="main.lua"`
+-- (a runtime action the baked dump cannot capture — nothing require()s core, so without
+-- this SMODS stays nil and main.lua's appended core-load `assert(SMODS.path)` crashes).
+-- We replicate the module registry (lovely libs.toml/preflight.toml name= entries) and
+-- the load_now by eager-require below. nativefs maps to the Android love.filesystem
+-- wrapper (nativefs.lua at the game root), not the raw FFI lib.
 if love.system.getOS() == 'Android' then
     local _smods_modules = {
         ['SMODS.version']              = 'Mods/Steamodded/version.lua',
@@ -158,15 +170,29 @@ if love.system.getOS() == 'Android' then
         ['SMODS.preflight.logging']    = 'Mods/Steamodded/src/preflight/logging.lua',
         ['SMODS.preflight.loader']     = 'Mods/Steamodded/src/preflight/loader.lua',
         ['SMODS.preflight.sharedUI']   = 'Mods/Steamodded/src/preflight/sharedUI.lua',
-        ['SMODS.preflight.core']       = 'Mods/Steamodded/src/preflight/core.lua',
-        ['SMODS.nativefs']             = 'Mods/Steamodded/libs/nativefs/nativefs.lua',
+        ['SMODS.nativefs']             = 'nativefs.lua',
         ['SMODS.https']                = 'Mods/Steamodded/libs/https/smods-https.lua',
+        ['json']                       = 'Mods/Steamodded/libs/json/json.lua',
+        ['nativefs']                   = 'nativefs.lua',
+        ['luajit-curl']                = 'Mods/Steamodded/libs/https/luajit-curl.lua',
     }
     for _name, _path in pairs(_smods_modules) do
         package.preload[_name] = function() return love.filesystem.load(_path)() end
     end
-    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
+    -- core.lua's `local lovely_path = false` is normally patched by lovely to the
+    -- Steamodded directory; without lovely its `assert(lovely_path)` fails. Inject the
+    -- baked Android path (matches SMODS.path = 'Mods/Steamodded/' set below).
+    package.preload['SMODS.preflight.core'] = function()
+        local _src = assert(love.filesystem.read('Mods/Steamodded/src/preflight/core.lua'))
+        _src = _src:gsub('local lovely_path = false', "local lovely_path = 'Mods/Steamodded/'", 1)
+        return assert(load(_src, '@Mods/Steamodded/src/preflight/core.lua'))()
+    end
+    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'
     love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
+    -- Replicate lovely's `load_now=true, before="main.lua"` for the preflight core:
+    -- run it now to create the global SMODS + run the preflight, before main.lua's
+    -- appended SMODS core-load executes.
+    require('SMODS.preflight.core')
 end
 """
     if '-- Android SMODS path fix' not in content:
@@ -580,22 +606,9 @@ if love.system.getOS() == 'Android' then
 end
 """
 
-    # 12. DEBUGPLUS_CONSOLE_DISABLED: DebugPlus bakes a console render hook
-    # (console.doConsoleRender) after G:draw(), but its logger init —
-    # lovelyLoadModule.lua -> logger.registerLogHandler() — is a lovely
-    # module-load directive that does NOT bake into the Android dump. So the
-    # console renders against an uninitialised log buffer and crashes on the
-    # first frame (logger.lua:112 table.insert(nil,...)). registerLogHandler
-    # would also hijack global print, which would break the telemetry that
-    # relies on print('LONG DT...') reaching logcat. The console is keyboard-only
-    # (Tab/'/'), useless on a touch device, so skip the render entirely; debug
-    # mode + the touch-reachable debug-tools UI (debug-enhancements) stay intact.
-    if 'console.doConsoleRender()' in content and 'DEBUGPLUS_CONSOLE_DISABLED' not in content:
-        content = content.replace(
-            'console.doConsoleRender()',
-            'do end -- DEBUGPLUS_CONSOLE_DISABLED: keyboard-only console; logger init not baked, would crash + hijack print',
-            1)
-        print("DEBUGPLUS_CONSOLE_DISABLED applied")
+    # 12. (removed) DEBUGPLUS_CONSOLE_DISABLED — DebugPlus is cut from the build;
+    # the dump is regenerated without it (nix/regen-dump.sh + stage-mods.sh), so
+    # console.doConsoleRender() no longer exists in main.lua and needs no neutralizing.
 
     with open(filepath, 'w') as f:
         f.write(content)

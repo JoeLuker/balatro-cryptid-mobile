@@ -1,0 +1,13 @@
+75 ok
+diff --git a/Mods/Cryptid/lib/overrides.lua b/Mods/Cryptid/lib/overrides.lua
+index d2196c7..2a74b75 100644
+--- a/Mods/Cryptid/lib/overrides.lua
++++ b/Mods/Cryptid/lib/overrides.lua
+@@ -277,6 +277,7 @@ function Game:init_game_object()
+ 	g.events = {}
+ 	g.jokers_sold = {}
+ 	g.cry_banished_keys = {}
++	if OBS then OBS.register("cryptid-init", "ok") end
+ 	g.cry_last_used_consumeables = {}
+ 	g.cry_function_stupid_workaround = {}
+ 

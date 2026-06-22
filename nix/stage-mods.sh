@@ -38,6 +38,5 @@ unzip_to() {
 }
 unzip_to amulet      Amulet
 unzip_to cardsleeves CardSleeves
-unzip_to debugplus   DebugPlus
 
 echo "[stage-mods] staged into $DEST:"; ls -1 "$DEST"

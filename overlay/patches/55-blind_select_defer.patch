@@ -1,8 +1,8 @@
 diff --git a/game.lua b/game.lua
-index 54560be..7e55973 100644
+index 81ffd98..09ce565 100644
 --- a/game.lua
 +++ b/game.lua
-@@ -3636,8 +3636,8 @@ function Game:update_blind_select(dt)
+@@ -3620,8 +3620,8 @@ function Game:update_blind_select(dt)
          G.STATE_COMPLETE = true
          G.CONTROLLER.interrupt.focus = true
          G.E_MANAGER:add_event(Event({ func = function() 

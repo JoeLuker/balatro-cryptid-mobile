@@ -1,8 +1,8 @@
 diff --git a/Mods/Cryptid/lib/gameset.lua b/Mods/Cryptid/lib/gameset.lua
-index 8e0c874..0d2338d 100644
+index 6899afc..51e9064 100644
 --- a/Mods/Cryptid/lib/gameset.lua
 +++ b/Mods/Cryptid/lib/gameset.lua
-@@ -1430,6 +1430,26 @@ function Cryptid.update_obj_registry(m, force_enable)
+@@ -1187,6 +1187,26 @@ function Cryptid.update_obj_registry(m, force_enable)
  		end
  	end
  end
@@ -30,10 +30,10 @@ index 8e0c874..0d2338d 100644
  	if not m then
  		m = SMODS.GameObject
 diff --git a/Mods/Cryptid/lib/overrides.lua b/Mods/Cryptid/lib/overrides.lua
-index 9a23fdd..b5cb44f 100644
+index e32bb9b..c8432ba 100644
 --- a/Mods/Cryptid/lib/overrides.lua
 +++ b/Mods/Cryptid/lib/overrides.lua
-@@ -477,6 +477,7 @@ function Game:update(dt)
+@@ -436,6 +436,7 @@ function Game:update(dt)
  			and G.GAME.round_resets
  			and G.GAME.round_resets.blind_choices
  			and G.GAME.round_resets.blind_choices[c]

@@ -52,7 +52,7 @@ index 8f31dc5..02f9795 100644
      Node.remove(self)
  end
 diff --git a/game.lua b/game.lua
-index 1a01eda..54560be 100644
+index a117874..81ffd98 100644
 --- a/game.lua
 +++ b/game.lua
 @@ -2877,15 +2877,29 @@ function Game:update(dt)

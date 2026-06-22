@@ -21,7 +21,7 @@ git diff nix/sources.json    # review the bump
 ## Design decisions
 - **Game is pinned, not vendored.** `Balatro.love` (© LocalThunk) is a
   `requireFile` (bytes never enter git); `base.apk` is a pinned `fetchurl`.
-- **Mods that ship release-asset zips** (Amulet, CardSleeves, DebugPlus) are
+- **Mods that ship release-asset zips** (Amulet, CardSleeves) are
   pinned by asset URL + flat hash; the build unzips them.
 - **Mods consumed from git** (Cryptid @ tag, Steamodded/sticky-fingers @ commit)
   are `fetchFromGitHub` by rev. Steamodded was rolling `main` (unpinned) — now

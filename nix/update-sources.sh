@@ -76,7 +76,6 @@ gh_pin      cryptid        MathIsFun0     Cryptid           v0.5.16a
 gh_pin      sticky_fingers eramdam        sticky-fingers    main
 release_pin amulet         frostice482    amulet            3.5.2   Amulet.zip
 release_pin cardsleeves    larswijn       CardSleeves       v1.9.2  CardSleeves-1.9.2.zip
-release_pin debugplus      WilsontheWolf  DebugPlus         v1.5.2  DebugPlus.zip
 url_pin     base_apk       "https://lmm.shorty.systems/base.apk"
 file_pin    balatro_love   "$BALATRO_LOVE"
 

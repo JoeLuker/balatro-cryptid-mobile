@@ -15,6 +15,10 @@ ROOT_WT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="/home/jluker/balatro-cryptid-mobile"          # main checkout: build.sh + patches/
 OUT="$ROOT_WT/overlay/patches"
 WORK="$(mktemp -d)"; B="$WORK/game"
+# always clean up the workdir — $B becomes a git repo (50+ commits of the full game tree),
+# so without this each run leaks a multi-hundred-GB /tmp/tmp.* dir. chmod first: git's object
+# store is read-only, which makes a plain rm -rf fail partway and leave the dir behind.
+trap 'chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 SERIES="$OUT/series"; REPORT="$OUT/GEN-REPORT.txt"
 # byte-exact git: ignore global/system config so CRLF (Cryptid shaders) is never
 # normalised — the generated diffs must match the real files at apply time.
