@@ -187,6 +187,10 @@ object Oracle {
         Case("Pair + cursor @16 chips (read branch)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_cursor", chips = 16.0))),
         Case("Pair + eternalflame @x1.3 (read branch)", PlayingCard.hand("S_A", "H_A"), 83.0, j(FJoker("j_cry_eternalflame", x = 1.3))),
         Case("HighCard 7,2 diff suits + whip (+0.5 Xmult)", PlayingCard.hand("S_2", "H_7"), 18.0, j(FJoker("j_cry_whip"))),
+        // whip + Smeared: 2 and 7 of the SAME printed suit (both Hearts) count as different suits under
+        // Smeared (red H↔D collide) → whip fires +0.5 → x1.5. Without the smear fix it scores 12 (no trigger).
+        Case("HighCard 2H,7H same suit + smeared + whip (smear → x1.5) → 18", PlayingCard.hand("H_2", "H_7"), 18.0,
+            j(FJoker("j_smeared"), FJoker("j_cry_whip"))),
         Case("Pair + big_cube (x6 Chips)", PlayingCard.hand("S_A", "H_A"), 384.0, j(FJoker("j_cry_big_cube"))),
         Case("Pair of 4s + antennastoheaven (2x4 -> x1.2 Chips)", PlayingCard.hand("S_4", "H_4"), 43.0, j(FJoker("j_cry_antennastoheaven"))),
         Case("Pair of aces + supercell (+15c x2c +15m x2m)", PlayingCard.hand("S_A", "H_A"), 3196.0, j(FJoker("j_cry_supercell"))),
@@ -554,6 +558,12 @@ object Oracle {
         // j_cry_stronghold X5 → mult=10×5=50 → floor(350×50)=17500.
         Case("CRY_BULWARK (5 stones) + cry_stronghold (X5) → 17500",
             listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE)),
+            17500.0, j(FJoker("j_cry_stronghold"))),
+        // 5 Stones + a non-Stone King → still CRY_BULWARK (#stones>=5, not all-stone). The King isn't in the
+        // scoring hand (only stones score), so chips=350, and stronghold's containment guard fires X5 → 17500.
+        // Before the fix this evaluated as HIGH_CARD (King), stronghold didn't fire → 265.
+        Case("CRY_BULWARK (5 stones + 1 King) + cry_stronghold (X5) → 17500",
+            listOf(en("S_2", Enhancement.STONE), en("H_3", Enhancement.STONE), en("D_4", Enhancement.STONE), en("C_5", Enhancement.STONE), en("S_6", Enhancement.STONE), PlayingCard.parse("H_K")),
             17500.0, j(FJoker("j_cry_stronghold"))),
         // poker_hands for a Bulwark also contains HIGH_CARD (get_highest is non-empty), so giggly (+4 Mult if
         // hand contains High Card) fires: chips=350, mult=10+4=14 → 4900. (Without the HIGH_CARD fix: 3500.)

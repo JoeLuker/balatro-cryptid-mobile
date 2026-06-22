@@ -68,6 +68,11 @@ class Deck(seed: Long) {
     /** Count cards in the FULL persistent deck with a given enhancement (for j_stone, j_steel_joker). */
     fun countEnhancement(e: Enhancement): Int = all.count { it.enhancement == e }
 
+    /** Is any card of [rank] (2..14, Ace=14) still in the persistent deck? j_cry_blacklist
+     *  self-destructs once its blacklisted rank is gone from every zone — and play∪hand∪discard∪deck
+     *  partition the full persistent deck, so this single check is the faithful condition. */
+    fun hasRank(rank: Int): Boolean = all.any { it.rank == rank }
+
     /** Cards in the FULL persistent deck carrying ANY enhancement (j_drivers_license: X3 at >=16).
      *  Recomputed from deck state so re-enhancing a card can't drift the tally (vanilla counts
      *  cards whose get_enhancements() is non-empty). */

@@ -251,7 +251,7 @@ private val CATALOG = listOf(
     Offer("j_cry_clicked_cookie", "Clicked Cookie", "+Chips (starts 200, -1 per click)", 6),
     Offer("j_cry_monkey_dagger", "Monkey Dagger", "+10*sell_cost Chips when left joker sold", 7),
     Offer("j_cry_unjust_dagger", "Unjust Dagger", "+0.2*sell_cost Xmult when left joker sold", 8),
-    Offer("j_cry_jimball", "Jimball", "Xmult scales +0.15 when this hand type is least-played", 7),
+    Offer("j_cry_jimball", "Jimball", "Xmult scales +0.15 while this hand type is your most-played", 7),
     Offer("j_cry_pizza_slice", "Pizza Slice", "Xmult scales +0.5 per other pizza slice sold", 6),
     Offer("j_cry_wheelhope", "Wheelhope", "Xmult scales +0.5 per Wheel of Fortune trigger", 7),
     Offer("j_cry_fspinner", "Fspinner", "+6 Chips each hand another type played as much (scaling)", 6),
@@ -977,6 +977,17 @@ internal class RunState {
             "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
             // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
             "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
+            // j_cry_jimball: +0.15 Xmult while THIS hand type is the strict most-played (no other type has
+            // been played as often); resets x→1 if another type ties or beats it (misc_joker.lua:1623-1656).
+            // _handPlayed already includes this hand (recordHandPlayed ran above), matching the Lua timing.
+            "j_cry_jimball"    -> if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) {
+                val playMoreThan = handPlayed(r.handType)
+                val beaten = _handPlayed.any { (h, n) -> h != r.handType && n >= playMoreThan }
+                if (beaten) { if (o.fj.x > 1.0) o.fj.x = 1.0 } else o.fj.x += 0.15
+            }
+            // j_cry_happyhouse: +1 "check" per hand; once check > trigger(114) the joker_main gate (j.n>0)
+            // fires Emult^4 (misc_joker.lua:162,190). chips is the check counter (never read as chips here).
+            "j_cry_happyhouse" -> { o.fj.chips += 1.0; if (o.fj.chips > 114.0) o.fj.n = 1 }
         }
         // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
         // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).
@@ -984,7 +995,11 @@ internal class RunState {
         // Both fire AFTER the per-hand loop so the score engine still reads the final value this hand.
         val handSelfDestruct = owned.filter { o ->
             (o.fj.key == "j_popcorn" && o.fj.mult <= 0.0) ||
-            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0)
+            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0) ||
+            // blacklist: self-destructs once its blacklisted rank is absent from the whole deck
+            // (spooky.lua:1044-1063 — gone from play∪hand∪discard∪deck, which partition deck.all).
+            // n=0 → unset → Ace(14), matching the engine's blacklist default.
+            (o.fj.key == "j_cry_blacklist" && !deck.hasRank(if (o.fj.n == 0) 14 else o.fj.n))
         }
         if (handSelfDestruct.isNotEmpty()) {
             owned.removeAll(handSelfDestruct)
@@ -1169,6 +1184,8 @@ internal class RunState {
             "j_campfire"       -> 1.0   // starts at 1 (no bonus yet)
             "j_cry_caramel"    -> 1.75  // config.extra.x_mult=1.75 (individual xMult per scored card)
             "j_cry_starfruit"  -> 2.0   // config.emult=2 (Emult; -0.2 per reroll)
+            "j_cry_biggestm"   -> 7.0   // config.extra.xmult=7 — joker_main returns xMultMod=j.x once the
+                                        // before-pass activates it; without this it read j.x=1.0 → X1, not X7.
             else -> fjX
         }
         val fjN = when (offer.key) {
@@ -1182,6 +1199,10 @@ internal class RunState {
             // spaceglobe: target hand type starts as HIGH_CARD (config.extra.type="High Card"). Store ordinal.
             "j_cry_spaceglobe" -> HandType.HIGH_CARD.ordinal
             // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
+            // blacklist: add_to_deck rolls a random rank (pseudorandom_element(SMODS.Ranks):get_id(),
+            // spooky.lua); j.n holds that blacklisted rank id (2..14). The engine nullifies any hand
+            // containing it — without this it defaulted to 0 → always Ace, never the rolled rank.
+            "j_cry_blacklist" -> (2..14).random()
             else -> 0
         }
         val fj = FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN)

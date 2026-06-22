@@ -379,7 +379,7 @@ object Score {
             // monkey_dagger: +chips from j.chips accumulator (+10*sell_cost of left joker at setting_blind, that joker destroyed)
             "j_cry_monkey_dagger" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // unjust_dagger: Xmult from j.x accumulator (+0.2*sell_cost of left joker at setting_blind, that joker destroyed)
-            // jimball: Xmult from j.x accumulator (+0.15 per context.before when this hand type is least-played)
+            // jimball: Xmult from j.x accumulator (+0.15 per hand while this hand type is the strict most-played; resets to x1 if tied/beaten)
             // pizza_slice: Xmult from j.x accumulator (+0.5 per other pizza_slice sold)
             // wheelhope: Xmult from j.x accumulator (+0.5 per Wheel of Fortune pseudorandom_result trigger)
             // cut: Xmult from j.x accumulator (+0.5 per Code consumable destroyed when leaving shop)
@@ -396,17 +396,17 @@ object Score {
             // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
             // CRY_CLUSTERFUCK is now LIVE (Hands.evaluate detects it for ≥8 non-Gold no-pair/flush/straight cards).
             // CRY_WHOLEDECK remains DORMANT (requires scoring all 52 cards — not yet ported).
-            "j_cry_stronghold"       -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { xMultMod = 5.0 }
+            "j_cry_stronghold"       -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { xMultMod = 5.0 }
             "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
             "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
             "j_cry_the"              -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { xMultMod = 2.0 }
             "j_cry_annihalation"     -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { eMult = 5.2 }   // Emult=5.2: mult^5.2 (misc_joker.lua:5853)
             "j_cry_words_cant_even"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { xMultMod = 52000000.0 }
-            "j_cry_bonkers"          -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { multMod = 20.0 }
+            "j_cry_bonkers"          -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { multMod = 20.0 }
             "j_cry_fuckedup"         -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { multMod = 37.0 }
             "j_cry_foolhardy"        -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { multMod = 42.0 }
             "j_cry_undefined"        -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { multMod = 5.0 }
-            "j_cry_adroit"           -> if (ctx.scoringName == HandType.CRY_BULWARK)     return Fx().apply { chipMod = 170.0 }
+            "j_cry_adroit"           -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { chipMod = 170.0 }
             "j_cry_penetrating"      -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { chipMod = 270.0 }
             "j_cry_treacherous"      -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { chipMod = 300.0 }
             "j_cry_nebulous"         -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { chipMod = 30.0 }
@@ -562,7 +562,13 @@ object Score {
         // Uses get_id() in Lua — rankOf applies Maximized remapping so 2/7 can never match when Maximized is on board.
         for (j in jokers) if (j.key == "j_cry_whip") {
             fun suitsOf(id: Int) = played.filter { rankOf(it) == id }
-                .flatMap { if (it.enhancement == Enhancement.WILD) Suit.values().toList() else listOf(it.suit) }.toSet()
+                .flatMap { when {
+                    it.enhancement == Enhancement.WILD -> Suit.values().toList()
+                    // Smeared: a card's suit collides with its colour pair in every is_suit check (red H↔D, black S↔C).
+                    ctx.smeared && (it.suit == Suit.H || it.suit == Suit.D) -> listOf(Suit.H, Suit.D)
+                    ctx.smeared && (it.suit == Suit.S || it.suit == Suit.C) -> listOf(Suit.S, Suit.C)
+                    else -> listOf(it.suit)
+                } }.toSet()
             val ts = suitsOf(2); val ss = suitsOf(7)
             if (ts.isNotEmpty() && ss.isNotEmpty() && (ts.size > 1 || ss.size > 1 || ts.first() != ss.first())) j.x += 0.5
         }
