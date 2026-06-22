@@ -61,6 +61,7 @@ love.update = function(dt, ...)
     -- 3) at SELECTING_HAND with cards dealt -> settle, then screenshot
     if phase == 'selecting' and G and G.STATE == G.STATES.SELECTING_HAND and G.hand and #G.hand.cards > 0 then
         mark('SELECTING_HAND')
+        pcall(function() if G.hand.unhighlight_all then G.hand:unhighlight_all() end end)  -- clean resting row (no popped card)
         if elapsed - at('SELECTING_HAND') >= 3.0 then
             -- start_run from MENU (vs the Play button) leaves the main-menu BALATRO logo (G.SPLASH_LOGO)
             -- overlaying the board. By now its dissolve-in ease is long done, so :remove() is safe here
@@ -69,6 +70,23 @@ love.update = function(dt, ...)
                 if G.SPLASH_FRONT then G.SPLASH_FRONT:remove(); G.SPLASH_FRONT = nil end
                 if G.SPLASH_BACK then G.SPLASH_BACK:remove(); G.SPLASH_BACK = nil end
                 if G.SPLASH_LOGO then G.SPLASH_LOGO:remove(); G.SPLASH_LOGO = nil end
+            end)
+            -- dump Balatro's room→screen transform so the capture window can be sized to WIDTH-FILL
+            -- (match the rebuild's repro framing) instead of fit-to-contain letterboxing.
+            pcall(function()
+                print(string.format('REF: ROOM x=%.4f y=%.4f w=%.4f h=%.4f TILESIZE=%s TILE_W=%s TILE_H=%s scr=%dx%d',
+                    G.ROOM.T.x, G.ROOM.T.y, G.ROOM.T.w, G.ROOM.T.h, tostring(G.TILESIZE), tostring(G.TILE_W), tostring(G.TILE_H),
+                    love.graphics.getWidth(), love.graphics.getHeight()))
+            end)
+            -- dump the resting hand + HUD facts so the rebuild's loadRepro can mirror this exact frame
+            pcall(function()
+                print(string.format('REF: HUD dollars=%s ante=%s chips_needed=%s hands=%s discards=%s',
+                    tostring(G.GAME.dollars), tostring(G.GAME.round_resets.ante),
+                    tostring(G.GAME.blind and G.GAME.blind.chips), tostring(G.GAME.current_round.hands_left),
+                    tostring(G.GAME.current_round.discards_left)))
+                for i, c in ipairs(G.hand.cards) do
+                    print(string.format('REF: hand[%d] id=%s suit=%s value=%s', i, tostring(c.base.id), tostring(c.base.suit), tostring(c.base.value)))
+                end
             end)
             love.graphics.captureScreenshot(function(img)
                 local ok = pcall(function() img:encode('png', 'ref.png') end)

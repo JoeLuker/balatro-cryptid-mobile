@@ -454,22 +454,26 @@ internal class RunState {
      *  ante 2) so a render can be diffed pixel-for-pixel against it. Two Pair 40×2 frozen mid-score. */
     fun loadRepro() {
         repro = true
-        blindIndex = 3                       // ante 2, slot 0 = Small Blind → target 800
+        // The pixel-gate reference is now the STABLE first-blind SELECTING_HAND frame (vanilla seed
+        // REFSHOT1, captured by test/ref.sh → /tmp/bref_3.png). CardArea align_cards is oracle-verified
+        // correct for a resting hand, so this can reach true parity — unlike the old transient scoring
+        // frame whose mid-slide hand no static layout matched (stuck ~16.9%).
+        blindIndex = 0                       // ante 1, slot 0 = Small Blind → target 300
         money = 4
-        owned.clear()
-        buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)
-        // bref_3's 2nd joker is the Clever Joker (the Two Pair chip joker — the hand here is Two Pair),
-        // identified by the jester+fanned-cards art at Jokers.png cell (2,14) (game.lua j_clever pos x=2,y=14).
-        buy(Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 0), free = true)
+        owned.clear()                        // REFSHOT1's first blind — no jokers yet
         deck.reshuffle(); deck.draw(8)       // remaining → 44/52
-        hand = listOf(PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4))
+        // REFSHOT1's resting hand in G.hand.cards order (rank-desc), dumped by test/ref-autorun.lua.
+        hand = listOf(
+            PlayingCard(Suit.C, 13), PlayingCard(Suit.H, 12), PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11),
+            PlayingCard(Suit.H, 8), PlayingCard(Suit.D, 6), PlayingCard(Suit.C, 4), PlayingCard(Suit.S, 2),
+        )
         selected = emptySet()
-        handsLeft = 3; discardsLeft = 4; roundScore = 0.0
-        lastResult = ScoreResult(HandType.TWO_PAIR, 40.0, 2.0, 80.0)
+        handsLeft = 4; discardsLeft = 4; roundScore = 0.0
+        lastResult = ScoreResult(HandType.HIGH_CARD, 0.0, 0.0, 0.0)
         lastSteps = emptyList()
-        scoreCards = listOf(PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
-        displayChips = 40.0; displayMult = 2.0; popIndex = -1
-        scoring = true
+        scoreCards = emptyList()
+        displayChips = 0.0; displayMult = 0.0; popIndex = -1
+        scoring = false                      // resting SELECTING_HAND — no scoring overlay
         phase = Phase.ROUND
     }
 
@@ -479,12 +483,11 @@ internal class RunState {
     fun loadReproLive() {
         loadRepro()
         repro = false; scoring = false
-        // spike: edition the jokers (foil/holo) + add a poly one so all three shaders are visible in
-        // repro-live (the static repro keeps its plain jokers, so the parity gate is unaffected).
-        if (owned.size >= 2) {
-            owned[0] = owned[0].copy(offer = owned[0].offer.copy(edition = Edition.FOIL))
-            owned[1] = owned[1].copy(offer = owned[1].offer.copy(edition = Edition.HOLO))
-        }
+        // self-contained demo jokers (loadRepro no longer sets any — it's the plain SELECTING_HAND
+        // gate state): foil + holo + negative + poly so all four edition shaders show in repro-live.
+        owned.clear()
+        buy(Offer("j_joker", "Joker", "+4 Mult", 0, edition = Edition.FOIL), free = true)
+        buy(Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 0, edition = Edition.HOLO), free = true)
         buy(Offer("j_joker", "Negative Joker", "+1 joker slot", 0, edition = Edition.NEGATIVE), free = true)
         buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)   // last → demo self-destruct
         // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
@@ -1797,23 +1800,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 }) { CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {} }
             }
         }
-        // ── HAND (G.hand). LIVE: each card is an engine Moveable owned by host.hand (CardArea); the
+        // ── HAND (G.hand). Each card is an engine Moveable owned by host.hand (CardArea); the
         // state-driven area-Y in the loop makes the hand SLIDE on play, and align_cards sets the
-        // fan/arc/lift each frame — drawn at VT, scale 0.95 (oracle). STATIC repro: SpringHand, which
-        // reproduces bref_3's exact frozen mid-slide (spring-overshoot) frame the static gate can't
-        // freeze. So repro = parity fixture, live = the engine.
-        if (s.repro) {
-            Box(off(handX, handY - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
-                SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
-                    CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                        if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
-                            Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                        if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
-                            Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
-                    }
-                }
-            }
-        } else if (s.phase == Phase.ROUND) {   // hand is drawn back at end-of-round → hidden on ROUND_EVAL
+        // fan/arc/lift each frame — drawn at VT, scale 0.95 (oracle). In repro the engine places the
+        // cards at REST (reducedMotion, line ~1634), so this same CardArea path renders the static
+        // parity frame and live alike — the verified-correct stable layout.
+        if (s.phase == Phase.ROUND) {   // hand is drawn back at end-of-round → hidden on ROUND_EVAL
             s.hand.forEachIndexed { i, card ->
                 val m = host.hand.cards.getOrNull(i) ?: return@forEachIndexed
                 val interaction = remember(i) { MutableInteractionSource() }
