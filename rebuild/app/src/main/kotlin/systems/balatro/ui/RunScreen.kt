@@ -804,7 +804,7 @@ internal class RunState {
         for (o in owned) when (o.fj.key) {
             // j_green_joker: +1 Mult per hand played; -1 per discard (below).
             "j_green_joker"    -> o.fj.mult += 1.0
-            // j_popcorn: +5 Mult base, -1 per hand played; self-destruct at ≤0 is deferred (no perishable system yet).
+            // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
             // j_spare_trousers: +2 Mult each time Two Pair or Full House played.
             "j_spare_trousers" -> if (r.handType == HandType.TWO_PAIR || r.handType == HandType.FULL_HOUSE) o.fj.mult += 2.0
@@ -821,6 +821,19 @@ internal class RunState {
             "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
             // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
             "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
+        }
+        // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
+        // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).
+        // j_ramen: self-destructs when x_mult drops to ≤1.0 (card.lua equivalent; default start 2.0).
+        // Both fire AFTER the per-hand loop so the score engine still reads the final value this hand.
+        val handSelfDestruct = owned.filter { o ->
+            (o.fj.key == "j_popcorn" && o.fj.mult <= 0.0) ||
+            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0)
+        }
+        if (handSelfDestruct.isNotEmpty()) {
+            owned.removeAll(handSelfDestruct)
+            Telemetry.event("HAND_DESTROY", "n" to handSelfDestruct.size,
+                "keys" to handSelfDestruct.joinToString { it.fj.key })
         }
         // ── boss blind effects triggered after each scored hand ────────────────────────────────
         pillarPlayedCards.addAll(pendingSel)                                              // THE_PILLAR: track cards played this Ante
@@ -956,7 +969,7 @@ internal class RunState {
         for (o in owned) when (o.fj.key) {
             // j_green_joker: -1 Mult per discard (never below 0).
             "j_green_joker" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
-            // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01; self-destruct deferred).
+            // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01); self-destructs when x_mult ≤ 1.0.
             "j_ramen"       -> o.fj.x = maxOf(1.0, o.fj.x - 0.01 * discardedCards.size)
             // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
             "j_mail"        -> if (jackCount > 0) o.fj.mult += 2.0 * jackCount
@@ -977,7 +990,7 @@ internal class RunState {
         val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
         val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
         val fjMult = when (offer.key) {
-            "j_popcorn"    -> 20.0   // starts at +20 Mult, -1 per hand; self-destruct deferred
+            "j_popcorn"    -> 20.0   // starts at +20 Mult, -1 per hand; self-destructs when mult hits 0
             "j_ramen"      -> 0.0    // j.x starts at 2.0 (set below)
             "j_swashbuckler" -> owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }  // sum of current sell values
             else -> 0.0
@@ -1010,13 +1023,15 @@ internal class RunState {
         money += refund
         // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
         val soldKey = o.fj.key
+        val sellCost = refund   // maxOf(1, cost/2) — used for sell_cost >= 2 gates below
         for (rem in owned) when (rem.fj.key) {
             // j_campfire: +0.25 Xmult per joker sold (config.extra xmult=0.25; any joker, incl. self — but self is gone).
             "j_campfire"       -> rem.fj.x += 0.25
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
             "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
-            // j_cry_eternalflame: +0.1 Xmult per any joker sold (already wired; moved here for consistency).
-            "j_cry_eternalflame" -> rem.fj.x += 0.1
+            // j_cry_eternalflame: +0.1 Xmult per any joker sold with sell_cost >= 2 (misc_joker.lua:1357-1369).
+            // Lua guard: context.card.sell_cost >= 2 (or not-modest gameset). sell_cost = maxOf(1, cost/2).
+            "j_cry_eternalflame" -> if (sellCost >= 2) rem.fj.x += 0.1
             // j_cry_m: +13 Xmult per Jolly Joker sold.
             "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
             // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
