@@ -1059,6 +1059,9 @@ internal class RunState {
             // busdriver: config.extra.odds=4 (1-in-4 chance). Run loop uses j.n as odds; defaulting to 0 was
             // falling through to the hardcoded 2 fallback — wrong probability (1/2 instead of 1/4).
             "j_cry_busdriver" -> 4
+            // chad: config.extra.retriggers=2 (retriggers the leftmost joker 2 times by default).
+            // j.n=0 default → guard `j.n > 0` never fires → chad never retriggers.
+            "j_cry_chad" -> 2
             // biggestm: j.n starts at 0 (no activation yet; set to 1 in before-pass when Pair fires).
             else -> 0
         }
