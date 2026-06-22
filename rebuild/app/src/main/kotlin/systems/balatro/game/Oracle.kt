@@ -243,6 +243,13 @@ object Oracle {
         // joker_main: x=1e100 > 1 → xMultMod=1e100 → mult=2×1e100=2e100. score=floor(32×2e100)=6.4e101.
         Case("Pair of aces + googol_play(x=1e100, triggered) → 6.4e101", PlayingCard.hand("S_A", "H_A"), 6.4e101, j(FJoker("j_cry_googol_play", x = 1e100))),
         Case("Pair of aces + universe + Astral joker (Emult^1.2)", PlayingCard.hand("S_A", "H_A"), 274.0, j(FJoker("j_joker", edition = "Astral"), FJoker("j_cry_universe"))),
+        // cry_universe individual-card path (batch-10 parity audit): fires Emult^1.2 per Astral-edition scored card
+        // (misc_joker.lua:8281-8288). Previously only the other_joker pass was implemented.
+        // Pair Astral-Aces: chips=10, mult=2. Per-card: S_A→chips=21, mult=2^1.2; H_A→chips=32, mult=2^1.44.
+        // 2^1.44≈2.7130. score=floor(32×2.7130)=86.
+        Case("Pair Astral-Aces + universe (Emult^1.2 per Astral scored card, individual pass) → 86",
+            listOf(PlayingCard.parse("S_A").copy(edition = "Astral"), PlayingCard.parse("H_A").copy(edition = "Astral")),
+            86.0, j(FJoker("j_cry_universe"))),
         // --- hands/discards-remaining jokers (now threaded into the engine) ---
         Case("Pair + acrobat on last hand (x3 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_acrobat")), handsLeft = 0),
         Case("Pair + mystic_summit at 0 discards (+15 Mult)", PlayingCard.hand("S_A", "H_A"), 544.0, j(FJoker("j_mystic_summit")), discardsLeft = 0),
