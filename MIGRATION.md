@@ -22,11 +22,15 @@ patches that fail loud, a thin build. Pattern: distro source-package
 → gameLoveBase → gameLove (63 patches) → apk` builds purely via `nix build`,
 `nix/sign.sh` → signed 89M APK (v1/v2/v3 verify), 259 lua / 0 syntax errors.
 
-## ⚠ Open runtime issue — Steamodded de-drift breaks SMODS load (BLOCKS shipping)
+## ✅ RESOLVED — SMODS load fixed (preflight-module preload shim)
 
-The smoke gate (boot the built game headless, spoof Android) revealed: the
-from-pins build **crashes at boot — `main.lua: attempt to index global 'SMODS'
-(a nil value)`** — while the legacy build/game does NOT hit that crash.
+**Emulator PASSES** (`test/emulator/run.sh` on the signed Nix APK): boots to a live
+in-run frame (Small Blind, Two Pair 40×2, jokers + Cryptid/Amulet loaded) at ~30s.
+SMODS/Cryptid/Amulet all load — the from-pins Nix build runs on real Android.
+
+The smoke gate (boot the built game headless, spoof Android) first revealed: the
+from-pins build **crashed at boot — `main.lua: attempt to index global 'SMODS'
+(a nil value)`** — while the legacy build/game did NOT.
 
 **CONFIRMED on real Android** (emulator, `just emu-test` on the signed Nix APK):
 boots → `main.lua:1391: attempt to index global 'SMODS' (nil)` → static crash
@@ -44,18 +48,25 @@ no-lovely Android build → SMODS nil → crash. (Verified: anchor count legacy=
 from-pins=0; "Android SMODS path fix" absent from the built main.lua. This is the
 same silent-failure class the migration fights — now found inside patch_main_lua.py.)
 
-**Fix (pick one):**
-1. **Re-pin Steamodded to the pre-preflight (inline `SMODS = {}`) version** the
-   validated build used → regen dump + patches → re-emulate. Lowest risk; uses
-   older Steamodded. (The committed `src/dump` is from this inline era.)
-2. **Update the main.lua Android shim** to the new preflight mechanism: inject the
-   require-path setup unconditionally (not anchored on `SMODS = {}`) and
-   `package.preload` the baked preflight modules. Keeps newest Steamodded; more work.
+**Fix applied (option 2 — shim, keeps modern Steamodded):**
+- `patch_main_lua.py` now injects the Android SMODS shim **unconditionally** (no
+  `SMODS = {}` anchor) and `package.preload`s every lovely-registered module the
+  no-lovely build can't resolve by path: `SMODS.version`, `SMODS.release`, the five
+  `SMODS.preflight.*`, `SMODS.nativefs`, `SMODS.https` → their baked files under
+  `Mods/Steamodded/`. SMODS's own file-based loader (SMODS.path) handles the rest.
+- It also **fails loud** (`sys.exit`) if the shim doesn't inject — the silent
+  no-op that caused this is now impossible.
+- `gen-patches.sh` reads `build.sh`/`patch_main_lua.py` from the worktree (the
+  branch's committed scripts) and makes `main_lua` strict (propagates the failure).
+- `test/emulator/run.sh`: uninstall stale package before install; fix a post-PASS
+  `BOOT_WAIT` unbound-variable that masked PASS as exit 1.
 
-Regardless: make the shim **fail loud** when its anchor is absent (no silent no-op).
+Re-pin to an older Steamodded was rejected: higher blast radius (it would unwind
+the hand-ported `structural_mods_lock`/`mod_toggle_removed` patches re-anchored to
+`fdb7442`) and ships stale Steamodded.
 
-**`scripts/build.sh` retained** (Phase 5 deferred) — runtime-validated fallback
-until the Nix APK boots clean.
+**`scripts/build.sh` may now be retired (Phase 5)** — the Nix APK boots clean on
+the emulator.
 
 ## Emulator harness fix (committed)
 `test/emulator/run.sh` now `adb uninstall`s any stale package before install — a

@@ -156,7 +156,7 @@ else
 fi
 
 if $pass; then
-    echo "[emu] PASS — APK installed, booted, survived ${BOOT_WAIT}s, no crash markers (log: $OUT/logcat.txt)"
+    echo "[emu] PASS — APK installed, booted, reached menu at ~${elapsed:-?}s, no crash markers (log: $OUT/logcat.txt)"
     exit 0
 fi
 echo "[emu] FAIL (log: $OUT/logcat.txt, emulator log: $OUT/emulator.log)" >&2

@@ -20,7 +20,6 @@ OK    cryptid_events_guard         -> 17-cryptid_events_guard.patch
 OK    amulet_config_hardening      -> 18-amulet_config_hardening.patch
 OK    amulet_calc_delay            -> 19-amulet_calc_delay.patch
 OK    amulet_overlay_fit           -> 20-amulet_overlay_fit.patch
-SKIP  structural_mods_lock
 OK    smods_disabled_pool_gate     -> 21-smods_disabled_pool_gate.patch
 SKIP  mod_toggle_removed
 OK    cryptid_to_big_elim          -> 22-cryptid_to_big_elim.patch

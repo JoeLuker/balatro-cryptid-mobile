@@ -1,8 +1,27 @@
 diff --git a/main.lua b/main.lua
-index d34f8a5..7c2b14d 100644
+index d34f8a5..6ac5348 100644
 --- a/main.lua
 +++ b/main.lua
-@@ -1,3 +1,9 @@
+@@ -1,3 +1,28 @@
++-- Android SMODS path fix: preload lovely-registered SMODS modules + extend require path
++if love.system.getOS() == 'Android' then
++    local _smods_modules = {
++        ['SMODS.version']              = 'Mods/Steamodded/version.lua',
++        ['SMODS.release']              = 'Mods/Steamodded/release.lua',
++        ['SMODS.preflight.sharedUtil'] = 'Mods/Steamodded/src/preflight/sharedUtil.lua',
++        ['SMODS.preflight.logging']    = 'Mods/Steamodded/src/preflight/logging.lua',
++        ['SMODS.preflight.loader']     = 'Mods/Steamodded/src/preflight/loader.lua',
++        ['SMODS.preflight.sharedUI']   = 'Mods/Steamodded/src/preflight/sharedUI.lua',
++        ['SMODS.preflight.core']       = 'Mods/Steamodded/src/preflight/core.lua',
++        ['SMODS.nativefs']             = 'Mods/Steamodded/libs/nativefs/nativefs.lua',
++        ['SMODS.https']                = 'Mods/Steamodded/libs/https/smods-https.lua',
++    }
++    for _name, _path in pairs(_smods_modules) do
++        package.preload[_name] = function() return love.filesystem.load(_path)() end
++    end
++    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
++    love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
++end
 +-- JIT_OPT_RAISE: see scripts/patch_main_lua.py section 0
 +pcall(function()
 +    require("jit.opt").start(
@@ -12,7 +31,7 @@ index d34f8a5..7c2b14d 100644
  --- STEAMODDED CORE
  --- MODULE STACKTRACE
  -- NOTE: This is a modifed version of https://github.com/ignacio/StackTracePlus/blob/master/src/StackTracePlus.lua
-@@ -954,7 +960,7 @@ _mod_dir_amulet,
+@@ -954,7 +979,7 @@ _mod_dir_amulet,
  ), 0)
  end
  
@@ -21,7 +40,7 @@ index d34f8a5..7c2b14d 100644
  
  if SMODS and SMODS.Mods and not SMODS.Mods.Talisman then
  	SMODS.Mods.Talisman = {
-@@ -979,6 +985,7 @@ function love.run()
+@@ -979,6 +1004,7 @@ function love.run()
  		if love.event and G and G.CONTROLLER then
  			love.event.pump()
  			local _n,_a,_b,_c,_d,_e,_f,touched
@@ -29,7 +48,7 @@ index d34f8a5..7c2b14d 100644
  			for name, a,b,c,d,e,f in love.event.poll() do
  				if name == "quit" then
  					if not love.quit or not love.quit() then
-@@ -987,14 +994,22 @@ function love.run()
+@@ -987,14 +1013,22 @@ function love.run()
  				end
  				if name == 'touchpressed' then
  					touched = true
@@ -55,7 +74,7 @@ index d34f8a5..7c2b14d 100644
  			end
  		end
  
-@@ -1081,6 +1096,16 @@ function love.quit()
+@@ -1081,6 +1115,16 @@ function love.quit()
  	if G.SOUND_MANAGER then G.SOUND_MANAGER.channel:push({type = 'stop'}) end
  	if G.STEAM then G.STEAM:shutdown() end
  end
@@ -72,7 +91,7 @@ index d34f8a5..7c2b14d 100644
  
  function love.update( dt )
  	--Perf monitoring checkpoint
-@@ -1094,7 +1119,7 @@ function love.draw()
+@@ -1094,7 +1138,7 @@ function love.draw()
  	G:draw()
  	do
  	    local console = require("debugplus.console")
@@ -81,7 +100,7 @@ index d34f8a5..7c2b14d 100644
  	    timer_checkpoint('DebugPlus Console', 'draw')
  	end
  end
-@@ -1140,16 +1165,13 @@ function love.mousepressed(x, y, button, touch)
+@@ -1140,16 +1184,13 @@ function love.mousepressed(x, y, button, touch)
  end
  
  
@@ -101,7 +120,7 @@ index d34f8a5..7c2b14d 100644
  end
  
  function love.joystickaxis( joystick, axis, value )
-@@ -1286,7 +1308,16 @@ if false then
+@@ -1286,7 +1327,16 @@ if false then
  end
  
  function love.resize(w, h)
@@ -119,7 +138,7 @@ index d34f8a5..7c2b14d 100644
  		h = w/1
  	end
  
-@@ -1319,6 +1350,10 @@ function love.resize(w, h)
+@@ -1319,6 +1369,10 @@ function love.resize(w, h)
  
  		if G.buttons then G.buttons:recalculate() end
  		if G.HUD then G.HUD:recalculate() end
@@ -130,7 +149,7 @@ index d34f8a5..7c2b14d 100644
  	end
  
  	G.WINDOWTRANS = {
-@@ -1400,13 +1435,10 @@ end
+@@ -1400,13 +1454,10 @@ end
  sendInfoMessage("Steamodded v" .. SMODS.version, "SMODS")
  
  
@@ -148,7 +167,7 @@ index d34f8a5..7c2b14d 100644
  
  require("talisman.configinit")
  require("talisman.effects")
-@@ -1424,3 +1456,34 @@ end
+@@ -1424,3 +1475,34 @@ end
  if not Talisman.F_NO_COROUTINE then
      require("talisman.coroutine")
  end
