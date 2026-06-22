@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 android {
     namespace = "systems.balatro"
@@ -20,6 +21,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     sourceSets["main"].java.srcDir("src/main/kotlin")
+    sourceSets["test"].java.srcDir("src/test/kotlin")
     buildTypes { getByName("debug") { isMinifyEnabled = false } }
 }
 dependencies {
@@ -29,4 +31,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    testImplementation("junit:junit:4.13.2")
 }

@@ -47,4 +47,9 @@ class Deck(seed: Long) {
     }
 
     val remaining: Int get() = drawPile.size
+
+    /** The full persistent deck (with enhancements/seals) — for run serialization. */
+    fun composition(): List<PlayingCard> = all.toList()
+    /** Replace the deck with [cards] (restore from a save) and reshuffle. */
+    fun setComposition(cards: List<PlayingCard>) { all.clear(); all.addAll(cards); reshuffle() }
 }

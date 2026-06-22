@@ -48,6 +48,9 @@ import systems.balatro.engine.Moveable
 import systems.balatro.engine.Room
 import kotlin.math.floor
 import systems.balatro.game.*
+import systems.balatro.save.RunSnapshot
+import systems.balatro.save.JokerSnap
+import systems.balatro.save.CardSnap
 
 /**
  * A full run: alternating blinds and a shop, on ONE persistent engine. Beating a blind pays
@@ -743,6 +746,38 @@ internal class RunState {
     private fun closePack() { openPack = null; phase = Phase.SHOP }
 
     fun handLevel(h: HandType): Int = handLevels.level(h)
+
+    /** Capture the run for serialization (P4 RunStateSerialization). Transient ui/animation/scoring
+     *  state is not persisted — just the run-defining graph. */
+    fun snapshot(): RunSnapshot = RunSnapshot(
+        blindIndex = blindIndex, money = money,
+        jokers = owned.map { o ->
+            JokerSnap(o.offer.key, o.offer.name, o.offer.desc, o.offer.cost, o.offer.edition.name,
+                o.fj.edition, o.fj.mult, o.fj.x, o.fj.chips, o.fj.n, o.fj.rarity, o.fj.xc)
+        },
+        deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name) },
+        handLevels = handLevels.all().entries.associate { it.key.name to it.value },
+        shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
+        baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
+        redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
+    )
+
+    /** Restore a run from a snapshot (load). Lands in the shop — a safe inter-blind state. */
+    fun restore(s: RunSnapshot) {
+        blindIndex = s.blindIndex; money = s.money
+        owned.clear()
+        s.jokers.forEach { j ->
+            owned.add(Owned(
+                Offer(j.key, j.name, j.desc, j.cost, Edition.valueOf(j.edition)),
+                FJoker(j.key, j.mult, j.fjEdition, j.x, j.chips, j.n, j.rarity, j.xc)))
+        }
+        deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal)) })
+        handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
+        shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
+        baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
+        redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
+        tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
+    }
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
 

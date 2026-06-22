@@ -8,6 +8,9 @@ class HandLevels {
     private val lvl = HashMap<HandType, Int>()
     fun level(h: HandType): Int = lvl[h] ?: 1
     fun levelUp(h: HandType, by: Int = 1) { lvl[h] = level(h) + by }
+    /** Snapshot / restore the per-hand levels (run serialization). */
+    fun all(): Map<HandType, Int> = lvl.toMap()
+    fun setAll(m: Map<HandType, Int>) { lvl.clear(); lvl.putAll(m) }
 }
 
 /** A planet card levels up one hand type. The names/targets are Balatro's. */
