@@ -226,6 +226,9 @@ object Score {
             "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
             // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
             "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
+            // boredom: pseudorandom 1-in-odds (default 2) retrigger of each scored played card (epic.lua:878-886).
+            // Pseudorandom — run loop pre-resolves: j.n=1 if roll succeeded, j.n=0 if failed. Fires only for G.play.
+            "j_cry_boredom" -> if (ctx.cardarea == "play" && j.n > 0) return Fx().apply { repetitions = 1 }
             // clockwork Effect 1 (epic.lua:2227): retrigger each Steel-enhanced held card once when c1==0.
             // j.n = c1 counter (cycles 0→1→0 per hand, limit=2). c1==0 every other hand starting from hand 1.
             // Fires in context.repetition + context.cardarea == G.hand (held-card retrigger path).

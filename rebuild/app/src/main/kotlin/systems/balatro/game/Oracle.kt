@@ -167,14 +167,22 @@ object Oracle {
         //   Joker fires twice more: mult=6+4+4=14. Score: floor(32×14)=448.
         Case("Pair Echo-Aces + spectrogram(n=0 accumulates to 2),joker → joker fires 3x → 448",
             listOf(en("S_A", Enhancement.ECHO), en("H_A", Enhancement.ECHO)), 448.0, j(FJoker("j_cry_spectrogram"), FJoker("j_joker"))),
-        // boredom: 1-in-odds pseudorandom retrigger of any other joker (epic.lua:868).
-        // Run loop pre-resolves: j.n=1 (roll wins) → retrigger, j.n=0 (roll loses) → no retrigger.
-        // Board [boredom(j.n=1), j_joker]. joker_main: j_joker+4→mult=6 → score=192.
-        // Retrigger sub-loop: boredom sees rj=j_joker, j.n=1, j!==rj → repetitions=1 → j_joker fires again: mult=10.
-        // Final: floor(32×10)=320.
-        Case("Pair aces + boredom(n=1,roll-wins)+joker — boredom retriggers joker → 320", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_boredom", n = 1), FJoker("j_joker"))),
+        // boredom: 1-in-odds pseudorandom retrigger of ANY other joker AND scored played cards (epic.lua:868, 878).
+        // Run loop pre-resolves: j.n=1 (roll wins) → retrigger both jokers and cards; j.n=0 → no retrigger.
+        // Board [boredom(j.n=1), j_joker].
+        // Repetition (card retrigger, G.play): each ace retriggers once → chips=32+11+11=54.
+        // joker_main: j_joker +4 → mult=6.
+        // Retrigger sub-loop: boredom retriggers j_joker → mult=10.
+        // Final: floor(54×10)=540.
+        Case("Pair aces + boredom(n=1,roll-wins)+joker — boredom retriggers joker AND cards → 540", PlayingCard.hand("S_A", "H_A"), 540.0, j(FJoker("j_cry_boredom", n = 1), FJoker("j_joker"))),
         // boredom(j.n=0, roll lost): no retrigger — j_joker fires once only → floor(32×6)=192.
         Case("Pair aces + boredom(n=0,roll-loses)+joker — no retrigger → 192", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_boredom", n = 0), FJoker("j_joker"))),
+        // boredom card-retrigger (repetition+G.play path, epic.lua:878-886):
+        // With j.n=1, boredom retriggers each scored played card once.
+        // Pair aces (no other jokers): base chips=10+11+11=32, mult=2.
+        // Repetition: S_A retriggers (+11 chips), H_A retriggers (+11 chips) → chips=54.
+        // Score: floor(54×2)=108.
+        Case("Pair aces + boredom(n=1) — boredom retriggers scored cards → 108", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_boredom", n = 1))),
         // busdriver: +mult or -mult each joker_main, pseudorandom (misc_joker.lua:7653).
         // Run loop pre-resolves: j.mult=50 (success) or j.mult=-50 (fail, default odds=4).
         // Success: chips=32, mult=2+50=52 → floor(32×52)=1664.
