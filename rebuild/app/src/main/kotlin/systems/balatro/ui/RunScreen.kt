@@ -195,7 +195,7 @@ private val CATALOG = listOf(
     Offer("j_cry_wheelhope", "Wheelhope", "Xmult scales +0.5 per Wheel of Fortune trigger", 7),
     Offer("j_cry_fspinner", "Fspinner", "+6 Chips each hand another type played as much (scaling)", 6),
     Offer("j_cry_pirate_dagger", "Pirate Dagger", "+0.25*sell_cost Xchips when right joker sold", 7),
-    // --- Cryptid custom hand-type jokers (dispatch wired; dormant until CRY_* hand evaluation ported) ---
+    // --- Cryptid CRY_* hand-type jokers (CRY_BULWARK/ULTPAIR/CLUSTERFUCK/NONE all LIVE; only CRY_WHOLEDECK dormant) ---
     Offer("j_cry_stronghold", "Stronghold", "x5 Mult if cry_Bulwark", 8),
     Offer("j_cry_wtf", "WTF", "x10 Mult if cry_Clusterfuck", 8),
     Offer("j_cry_clash", "Clash", "x12 Mult if cry_UltPair", 8),
@@ -383,6 +383,11 @@ internal class RunState {
     var crimsonHeartDisabled: FJoker? = null
     /** CERULEAN_BELL: index into `hand` of the forced-selected card (null = none). */
     var bellForcedIdx: Int? = null
+    /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
+     *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
+     *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
+     *  cards are added here by applyFaceDown(), called from startRound() and refill(). */
+    var faceDown by mutableStateOf(setOf<Int>())
     val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
     val timesRerolled: Int get() = rerolls
 
@@ -545,10 +550,35 @@ internal class RunState {
         startRound()
     }
 
+    /** Compute which card indices should be face-down after a draw, per the active boss.
+     *  [newIndices] is the set of indices in the current `hand` that were JUST drawn (not kept from
+     *  a previous hand). Called from startRound() (all cards are new) and refill() (kept cards stay
+     *  at their previous reveal state; only newly drawn slots may flip face-down). */
+    private fun applyFaceDown(newIndices: Set<Int>) {
+        val extra = when (boss) {
+            // THE_HOUSE: entire first hand is face-down; refill() passes an empty set so nothing flips.
+            Boss.THE_HOUSE -> newIndices
+            // THE_MARK: all face cards (J/Q/K) that are newly drawn go face-down.
+            Boss.THE_MARK  -> newIndices.filter { hand.getOrNull(it)?.isFace == true }.toSet()
+            // THE_WHEEL: 1 in 7 newly drawn cards face-down. Balatro rolls a 1-in-7 per card
+            // (pseudorandom per card index). We derive deterministically from the card's identity
+            // (hash of suit+rank+blindIndex) so the same card in the same round always agrees.
+            Boss.THE_WHEEL -> newIndices.filter { i ->
+                val c = hand.getOrNull(i) ?: return@filter false
+                ((c.suit.ordinal * 13 + c.rank + blindIndex * 17) and 0x7FFFFFFF) % 7 == 0
+            }.toSet()
+            // THE_FISH: ALL newly drawn cards are face-down (cards kept from the previous hand
+            // were already revealed when the player selected them and stay face-up).
+            Boss.THE_FISH  -> newIndices
+            else -> emptySet()
+        }
+        faceDown = faceDown + extra
+    }
+
     private fun startRound() {
         boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
-        hand = deck.draw(8); selected = emptySet()
+        hand = deck.draw(8); selected = emptySet(); faceDown = emptySet()
         roundScore = 0.0
         handsLeft = boss?.hands(HANDS) ?: HANDS          // The Needle: 1 hand
         discardsLeft = boss?.discards(DISCARDS) ?: DISCARDS  // The Water: 0 discards
@@ -562,17 +592,28 @@ internal class RunState {
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
         if (boss == Boss.CERULEAN_BELL) bellForcedIdx = hand.indices.random()  // pick forced card after draw
         phase = Phase.ROUND
+        applyFaceDown(hand.indices.toSet())   // face-down bosses flip their initial cards
         Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
     }
 
     private fun refill() {
         val keep = hand.filterIndexed { i, _ -> i !in selected }
-        hand = keep + deck.draw(8 - keep.size)
+        val keepSize = keep.size
+        hand = keep + deck.draw(8 - keepSize)
+        // Face-down state: kept cards keep whatever reveal state they had; newly drawn slots
+        // (indices keepSize..hand.lastIndex) are candidates for the boss's face-down rule.
+        // THE_HOUSE does NOT re-apply on refill (only the opening hand is face-down).
+        faceDown = faceDown.filter { it < keepSize }.toSet()   // drop face-down for discarded slots
+        if (boss != Boss.THE_HOUSE) applyFaceDown((keepSize until hand.size).toSet())
         selected = emptySet()
     }
 
     fun toggle(i: Int) {
         if (phase != Phase.ROUND) return
+        // Face-down cards: first tap REVEALS (removes from faceDown) and selects simultaneously,
+        // matching vanilla Balatro where hover reveals and click selects in one gesture. The card
+        // stays revealed for the rest of the round (faceDown is not re-added on deselect).
+        if (i in faceDown) { faceDown = faceDown - i; selected = selected + i; return }
         // CERULEAN_BELL: the forced card is always selected and cannot be deselected
         if (boss == Boss.CERULEAN_BELL && i == bellForcedIdx && i in selected) return
         selected = if (i in selected) selected - i else selected + i
@@ -619,6 +660,13 @@ internal class RunState {
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
         // identity-tracked card Moveables transfer hand→play carrying their VT (the fly-in). refill()
         // keeps the held hand (selected is empty now) and draws back up to 8 at commit.
+        // Remap faceDown indices after the played cards leave the hand. Played cards were
+        // already revealed (toggle removes from faceDown before adding to selected), so faceDown
+        // only contains held-card indices; map each through to its new position in `held`.
+        val oldToNew = HashMap<Int, Int>()
+        var newIdx = 0
+        for (oldIdx in hand.indices) { if (oldIdx !in selected) { oldToNew[oldIdx] = newIdx; newIdx++ } }
+        faceDown = faceDown.mapNotNull { oldToNew[it] }.toSet()
         hand = held; selected = emptySet()
         scoreCards = sel; popIndex = -1
         displayChips = trace.firstOrNull()?.chips ?: r.chips    // start at the hand base
@@ -667,7 +715,7 @@ internal class RunState {
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
         // THE_SERPENT: after refill, discard the new hand and draw again (player never keeps held cards)
-        if (boss == Boss.THE_SERPENT) { hand = deck.draw(hand.size); selected = emptySet() }
+        if (boss == Boss.THE_SERPENT) { hand = deck.draw(hand.size); faceDown = emptySet(); applyFaceDown(hand.indices.toSet()); selected = emptySet() }
         // CRIMSON_HEART: after each play, rotate the disabled joker (never the same one twice in a row;
         // if only one joker exists, it is always the chosen one — fallback = first).
         if (boss == Boss.CRIMSON_HEART && owned.isNotEmpty()) {
@@ -750,6 +798,7 @@ internal class RunState {
         if (boss == Boss.THE_HOOK) {
             val hookIndices = hand.indices.shuffled().take(2).toSet()
             selected = hookIndices
+            faceDown = faceDown - hookIndices   // force-discarded face-down cards are revealed as they leave
         }
         discardsLeft -= 1
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
@@ -1673,17 +1722,24 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 val interaction = remember(i) { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
                 m.states.drag.isOn = pressed
+                val isFaceDown = i in s.faceDown
                 Box(
                     off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
                         rotationZ = (m.VT.r * 57.2958).toFloat()
                         scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
                     }.clickable(interaction, indication = null, enabled = !s.scoring) { s.toggle(i) }
                 ) {
-                    CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                        if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
-                            Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                        if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
-                            Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                    if (isFaceDown) {
+                        // Face-down (THE_HOUSE/MARK/WHEEL/FISH): show the card back, no rank/suit/badges visible.
+                        // CardFace with face=null and base=cardBack renders exactly the Red Deck card back.
+                        CardFace(card, null, cardBack, Modifier.fillMaxSize())
+                    } else {
+                        CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
+                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
+                                Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
+                                Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                        }
                     }
                 }
             }
