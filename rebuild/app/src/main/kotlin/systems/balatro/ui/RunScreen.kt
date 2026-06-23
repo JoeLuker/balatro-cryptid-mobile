@@ -1251,9 +1251,12 @@ internal class RunState {
         // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
         val discardedCards = hand.filterIndexed { i, _ -> i in selected }
         val jackCount = discardedCards.count { it.id == 11 }
-        // For j_castle: count cards of the flush suit in the discard (if the discarded set is a flush).
+        // For j_castle: count discarded cards matching the round's random suit (same as dropShotSuit —
+        // castle_card.suit and cry_dropshot_card.suit are the same pseudorandom value per round via
+        // reset_castle_card, common_events.lua:2743-2757 + overrides.lua:300-316).
+        // Previous approximation ("flush discard only") was wrong; correct is per-card suit match.
         val discardSuits = discardedCards.map { it.suit }.distinct()
-        val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null
+        val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null  // kept for reference
         // MANIFEST: migrated jokers evolve state on the discard event via their reducer (e.g. green_joker -1 Mult).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.Discarded(discardedCards))) }
         for (o in owned) when (o.fj.key) {
@@ -1265,9 +1268,13 @@ internal class RunState {
                 val mailCount = discardedCards.count { it.id == mailRank }
                 if (mailCount > 0) money += 5 * mailCount
             }
-            // j_castle: +3 Chips per suit in a FLUSH discard (config.extra chips=3; only counts matching suit cards).
-            // Faithful: fires in context.discard for flush hands; we approximate as "all cards same suit".
-            "j_castle"      -> if (flushSuit != null) o.fj.chips += 3.0 * discardedCards.count { it.suit == flushSuit }
+            // j_castle: +3 Chips per discarded card matching the round's random suit (card.lua:3373-3381,
+            //   context.discard, config.extra.chip_mod=3). Suit = castle_card.suit = dropShotSuit (same
+            //   reset_castle_card source). Bug fix: was "flush discard only" — correct is per-card match.
+            "j_castle" -> {
+                val smearedJoker = owned.any { it.fj.key == "j_smeared" }
+                o.fj.chips += 3.0 * discardedCards.count { it.isSuit(dropShotSuit, smearedJoker) }
+            }
         }
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
         refill()
