@@ -2908,34 +2908,34 @@ private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, ca
 }
 
 /**
- * Port of create_UIBox_blind_select (UI_definitions.lua:1417).
- * Shows three blind-choice columns (Small, Big, Boss) in a horizontal row;
- * tapping a blind calls s.selectBlind() to start the round.
+ * Port of create_UIBox_blind_select (UI_definitions.lua:1417) + create_UIBox_blind_choice
+ * (line 1485). Each slot's card tree is extracted JSON: blind_small/big/boss_tree.json.
+ * [BlindSpec] pre-loads all three; [BlindBind] wires per-slot state at build time.
  *
- * Deferred: G.blind_prompt_box DynaText prompt ("ph_choose_blind_1/2"), blind_tag extras,
- * AnimatedSprite for each blind (B placeholder holds the 1.4u×1.4u footprint),
- * disabled state, run_info view, reroll-boss voucher button.
+ * Outer composition: Column with Row of three BlindSpec-built trees, skip button, earned tags.
+ * (The outer Row itself is not a ported UIBox — create_UIBox_blind_select's outer R padding=0.5
+ * is reproduced via Compose-level Arrangement.spacedBy. Inner card trees are fully ported.)
  */
 @Composable
 private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
-    // Load all three blind sprites in one atlas pass — including the UPCOMING boss (s.boss is null
-    // during select, so use s.upcomingBoss or the boss slot shows a blank/placeholder). Re-fires per ante.
+    // Load all three blind sprites in one atlas pass — including the UPCOMING boss.
+    // Re-fires per ante (blindIndex changes each blind pick).
     val u = LocalUIScale.current
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
         Triple(null, null, null), s.blindIndex
     ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) } }
+
+    // Pre-load JSON trees once (cached by HudSpec.root); no recompose cost after first render.
+    val spec = remember(ctx) { BlindSpec.load(ctx) }
+
+    val currentSlot = s.blindIndex % 3
 
     Column(
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        BTxt("Choose Blind", Balatro.White, 20.sp)
-        Spacer(Modifier.height(12.dp))
-        // R(align="cm", padding=0.5) containing up to 3 O(UIBox{blind_choice}) nodes
-        // Rendered as a horizontal row since each blind card is a C column node.
-        val currentSlot = s.blindIndex % 3
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -2945,9 +2945,22 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                 val blindBmp: ImageBitmap? = when (slotIdx) {
                     0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
                 }
+                val enabled = slotIdx == currentSlot
+                val bossColour = if (slotIdx == 2) bossColourOf(s.upcomingBoss) else null
+
+                val tree: UI? = spec.forSlot(
+                    slotIdx    = slotIdx,
+                    enabled    = enabled,
+                    bossColour = bossColour,
+                    blindBmp   = blindBmp,
+                    stakeBmp   = stakeBmp,
+                    chipTarget = fmtR(s.targetForSlot(slotIdx)),
+                    reward     = s.rewardForSlot(slotIdx),
+                    selectAction = if (enabled) { { s.selectBlind() } } else null,
+                    skipAction   = if (slotIdx != 2) { { s.skipBlind() } } else null,
+                )
                 Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
-                    RenderUIBoxNatural(blindChoiceCard(s, slotIdx, blindBmp = blindBmp, stakeBmp = stakeBmp,
-                        enabled = (slotIdx == currentSlot)) { s.selectBlind() }, u)
+                    if (tree != null) RenderUIBoxNatural(tree, u)
                 }
             }
         }
@@ -2966,100 +2979,42 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
 }
 
 /**
- * Port of create_UIBox_blind_choice (UI_definitions.lua:1485) for one blind slot.
- * slotIdx: 0=Small, 1=Big, 2=Boss. onSelect called when the "Select" button is tapped.
- *
- * Structure (simplified — faithfully follows source tree shape):
- *   R(align="tm", minh=10, r=0.1, padding=0.05)        ← outer card
- *     R(align="cm", colour=darkPanel, r=0.1)
- *       R(align="cm", padding=0.2)
- *         R[select button](align="cm", colour=ORANGE, minh=0.6, minw=2.7, r=0.1, shadow, onClick)
- *           T(blindState label, scale=0.45, TEXT_LIGHT)
- *         R[blind_name](align="cm", padding=0.07)
- *           R(align="cm", r=0.1, outline_colour=blindCol, colour=darken(blindCol), minw=2.9, emboss=0.1)
- *             O(DynaT(blindName, WHITE, scale=0.45, maxw=2.8))
- *         R[blind_desc](align="cm", padding=0.05)
- *           R(align="cm", minh=1.5)   ← blind animation placeholder (B)
- *           R(align="cm", minh=0.7, minw=2.9)  ← description lines
- *             R(maxw=2.8) T(desc line 1, scale=0.32, WHITE)
- *         R[score_target](align="cm", r=0.1, colour=BLACK, minw=3.1, emboss=0.05)
- *           R(maxw=3) T("Score at least", scale=0.3, WHITE)
- *           R(minh=0.6) B(stake_placeholder) B(0.1) T(amount, scale=0.9*sc, RED)
- *           R T("Reward: ", WHITE) T("$$$+", MONEY, scale=0.35)
- *
- * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
+ * Boss colour from G.P_BLINDS[boss.key].boss_colour (game.lua).
+ * Each boss blind has a unique tint registered in extract.lua as "boss:bl_*" in colourName.
+ * The hex values here match the blindcolour() calls in extract.lua's G.P_BLINDS table.
  */
-private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, stakeBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
-    val light = Balatro.White
-    // mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5) = mix(#374244, #4f6367, 0.5) = #435256
-    // Source: UI_definitions.lua:1761 `colour = mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5)`
-    val darkPanel = Color(0xFF435256)
-    // get_blind_main_colour: misc_functions.lua:396-407
-    // Small: mix_colours(G.C.BLUE, G.C.BLACK, 0.6)   = mix(#009DFF, #374244, 0.6) = #21668F
-    // Big:   mix_colours(G.C.ORANGE, G.C.BLACK, 0.6) = mix(#FDA200, #374244, 0.6) = #866829
-    // Boss:  G.P_BLINDS[boss].boss_colour (per-boss; Mult is a safe non-committed fallback)
-    val blindCol = when (slotIdx) { 0 -> Color(0xFF21668F); 1 -> Color(0xFF866829); else -> Balatro.Mult }
-    // darken(blindCol, 0.3) = blindCol * 0.7 per channel
-    // Small: #21668F * 0.7 = #174764
-    // Big:   #866829 * 0.7 = #5E491D
-    val blindColDark = when (slotIdx) {
-        0 -> Color(0xFF174764); 1 -> Color(0xFF5E491D); else -> Color(0xFFB24139)
-    }
-    val blindName = s.nameForSlot(slotIdx)
-    val blindDesc = s.descForSlot(slotIdx)
-    val amount = s.targetForSlot(slotIdx)
-    val reward = s.rewardForSlot(slotIdx)
-    val dollarStr = "$".repeat(reward) + "+"
-    // G.C.UI.BACKGROUND_INACTIVE = HEX("666666FF") = #666666 (globals.lua:417)
-    // Enabled colour = G.C.ORANGE = #FDA200 (not FILTER/IMPORTANT = #FF9A00)
-    val btnColour = if (enabled) Balatro.OrangeTrue else Color(0xFF666666)
-
-    // Source: outer R has r=0.1; inner R has outline=1, outline_colour=G.C.L_BLACK (PanelLight).
-    return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
-        R(Cfg(align = "cm", colour = darkPanel, r = 0.1f,
-              outline = 1f, outlineColour = Balatro.PanelLight),
-            R(Cfg(align = "cm", padding = 0.2f),
-                // ── select button (Orange if current slot, Grey for Upcoming) ──
-                R(Cfg(align = "cm", colour = btnColour, minh = 0.6f, minw = 2.7f,
-                      padding = 0.07f, r = 0.1f, emboss = if (enabled) 0.05f else 0f,
-                      onClick = if (enabled) onSelect else null),
-                    T(Cfg(scale = 0.45f, textColour = light, shadow = enabled),
-                      if (enabled) "Select" else "Upcoming")),
-                // ── blind name band (outline=1, outline_colour=blindCol in source) ──
-                R(Cfg(align = "cm", padding = 0.07f),
-                    R(Cfg(align = "cm", r = 0.1f, colour = blindColDark,
-                          minw = 2.9f, emboss = 0.1f, padding = 0.07f,
-                          outline = 1f, outlineColour = blindCol),
-                        O(Cfg(), DynaT(seg({ blindName }, light, scale = 0.45f), shadow = true)))),
-                // ── blind art + description ──
-                R(Cfg(align = "cm", padding = 0.05f),
-                    R(Cfg(align = "cm"),
-                        // Blind sprite (frame-0 from BlindChips.png, 1.4u×1.4u).
-                        // B spacer preserves layout while atlas loads or when boss sprite is missing.
-                        R(Cfg(align = "cm", minh = 1.5f),
-                            if (blindBmp != null) O(Cfg(minw = 1.4f, minh = 1.4f), Spr(blindBmp, 1.4f, 1.4f))
-                            else B(Cfg(minw = 1.4f, minh = 1.4f, colour = blindCol))),
-                        if (blindDesc.isNotEmpty())
-                            R(Cfg(align = "cm", minh = 0.7f, padding = 0.05f, minw = 2.9f),
-                                R(Cfg(align = "cm", maxw = 2.8f),
-                                    T(Cfg(scale = 0.32f, textColour = light, shadow = true), blindDesc)))
-                        else
-                            B(Cfg(minw = 0.1f, minh = 0.1f)))),
-                // ── score target panel ──
-                R(Cfg(align = "cm", r = 0.1f, padding = 0.05f, minw = 3.1f,
-                      colour = Balatro.Panel, emboss = 0.05f),
-                    R(Cfg(align = "cm", maxw = 3f),
-                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
-                    R(Cfg(align = "cm", minh = 0.6f),
-                        // stake sprite (White Chip from chips.png; B spacer while loading)
-                        if (stakeBmp != null) O(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
-                        else B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
-                        B(Cfg(minw = 0.1f, minh = 0.1f)),
-                        T(Cfg(scale = 0.9f, textColour = Balatro.Mult, shadow = true), fmtR(amount))),
-                    R(Cfg(align = "cm"),
-                        T(Cfg(scale = 0.35f, textColour = light, shadow = true), "Reward: "),
-                        T(Cfg(scale = 0.35f, textColour = Balatro.Money, shadow = true), dollarStr))))))
+private fun bossColourOf(boss: Boss?): Color = when (boss) {
+    Boss.THE_OX        -> Color(0xFFB95B08)
+    Boss.THE_CLUB      -> Color(0xFF235955)
+    Boss.THE_FLINT     -> Color(0xFF6E3B3F)
+    Boss.THE_MARK      -> Color(0xFF594F6A)
+    Boss.THE_FISH      -> Color(0xFF1E5F69)
+    Boss.THE_PSYCHIC   -> Color(0xFF5F2565)
+    Boss.THE_GOAD      -> Color(0xFF5F5330)
+    Boss.THE_WATER     -> Color(0xFF2D5E57)
+    Boss.THE_EYE       -> Color(0xFF5A4A2B)
+    Boss.THE_MOUTH     -> Color(0xFF5F2027)
+    Boss.THE_WINDOW    -> Color(0xFF4A3A5F)
+    Boss.THE_PLANT     -> Color(0xFF34592E)
+    Boss.THE_NEEDLE    -> Color(0xFF2B3E5F)
+    Boss.THE_HEAD      -> Color(0xFF5F3530)
+    Boss.THE_TOOTH     -> Color(0xFF5F5530)
+    Boss.THE_WALL      -> Color(0xFF3B3B3B)
+    Boss.THE_WHEEL     -> Color(0xFF3B4B5F)
+    Boss.THE_HOUSE     -> Color(0xFF4B3A5F)
+    Boss.THE_HOOK      -> Color(0xFF5F2B45)
+    Boss.THE_ARM       -> Color(0xFF3B5F4F)
+    Boss.THE_PILLAR    -> Color(0xFF5F4B3A)
+    Boss.THE_SERPENT   -> Color(0xFF3B5F3B)
+    Boss.THE_MANACLE   -> Color(0xFF5F3A3A)
+    Boss.VERDANT_LEAF  -> Color(0xFF2F5F2F)
+    Boss.VIOLET_VESSEL -> Color(0xFF4B2F5F)
+    Boss.AMBER_ACORN   -> Color(0xFF5F4B1F)
+    Boss.CRIMSON_HEART -> Color(0xFF5F1F1F)
+    Boss.CERULEAN_BELL -> Color(0xFF1F4F5F)
+    null               -> Color(0xFF5F3A2B)
 }
+
 
 /**
  * Port of G.UIDEF.run_info() (UI_definitions.lua:3129): a tabbed overlay showing poker hands,

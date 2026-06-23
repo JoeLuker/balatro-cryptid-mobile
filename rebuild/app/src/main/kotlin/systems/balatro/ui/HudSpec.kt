@@ -63,7 +63,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         // vanilla G.C.DYN_UI.* and BLACK are all #374244 — stat boxes and their insets share it
         "BLACK", "DYN_UI.MAIN", "DYN_UI.DARK", "DYN_UI.BOSS_MAIN", "DYN_UI.BOSS_DARK", "DYN_UI.BOSS_PALE" -> Balatro.Panel
         "L_BLACK", "UI.TEXT_DARK" -> Balatro.PanelLight
-        "GREY" -> Balatro.Grey
+        "GREY", "UI.BACKGROUND_INACTIVE", "UI.TEXT_INACTIVE" -> Balatro.Grey
         "BLUE", "CHIPS", "UI_CHIPS" -> Balatro.Chips
         "RED", "MULT", "UI_MULT" -> Balatro.Mult
         "MONEY" -> Balatro.Money
@@ -435,5 +435,242 @@ internal class OfferCardSpec(
             buildCard(buttonJ, b),
             buyUseJ?.let { buildCard(it, b) },
         )
+    }
+}
+
+// ── BlindSpec: extracted create_UIBox_blind_choice trees ────────────────────────────────────────
+
+/**
+ * Binds a blind_*_tree.json (extracted create_UIBox_blind_choice) to a single slot's live state.
+ *
+ * Three instances are created per blind-select render — one per slot. The JSON carries:
+ *   - select button: colour ORANGE (enabled) / UI.BACKGROUND_INACTIVE (upcoming); button="select_blind"
+ *   - T ref_value=<type>: reads loc_blind_states for the button label ("Select" / "Upcoming")
+ *   - name band: DynaText segs=[{text:"<blind name>"}]; colour-op darken(get_blind_main_colour, 0.3)
+ *   - blind sprite O: __sprite="animated" → blindBmp
+ *   - stake sprite O: __sprite="stake"    → stakeBmp
+ *   - chip target T: literal text from extraction (static per slot/ante)
+ *   - reward T: "$$$+" literal
+ *   - tag block O: __sprite="tag" → tinted placeholder (tag art deferred)
+ *   - skip button: button="skip_blind" → skipAction (null for Boss slot)
+ *   - boss extras: ante-up DynaText blocks (static strings)
+ *
+ * [slotType]   — "Small", "Big", or "Boss" (matches the `id` on the outer R node)
+ * [enabled]    — true = this is the active slot (select button orange + clickable)
+ * [bossColour] — the current boss's tint (null for Small/Big; used for "boss:*" colour names)
+ * [blindBmp]   — animated sprite frame 0 crop from BlindChips.png for this slot
+ * [stakeBmp]   — stake sprite (White Chip etc.)
+ * [chipTarget] — formatted chip target string (e.g. "300")
+ * [reward]     — dollars reward (3/4/5)
+ * [selectAction] — called when the select button is tapped (null when !enabled)
+ * [skipAction]   — called when the skip button is tapped (null for Boss slot)
+ */
+internal class BlindBind(
+    val slotType: String,
+    val enabled: Boolean,
+    val bossColour: Color?,
+    val blindBmp: ImageBitmap?,
+    val stakeBmp: ImageBitmap?,
+    val chipTarget: String,
+    val reward: Int,
+    val selectAction: (() -> Unit)?,
+    val skipAction: (() -> Unit)?,
+) {
+    fun colourByName(name: String): Color = when {
+        name == "WHITE" || name == "UI.TEXT_LIGHT" -> Balatro.White
+        name == "UI.TEXT_INACTIVE"                 -> Balatro.Grey
+        name == "UI.BACKGROUND_INACTIVE"           -> Balatro.Grey
+        name == "BLACK"                            -> Balatro.Panel
+        name == "L_BLACK"                          -> Balatro.PanelLight
+        name == "GREY"                             -> Balatro.Grey
+        name == "BLUE"  || name == "CHIPS"         -> Balatro.Chips
+        name == "RED"   || name == "MULT"          -> Balatro.Mult
+        name == "MONEY"                            -> Balatro.Money
+        name == "GOLD"                             -> Balatro.Gold
+        name == "ORANGE"                           -> Balatro.OrangeTrue
+        name == "CLEAR"                            -> Color.Transparent
+        name.startsWith("boss:")                   -> bossColour ?: Balatro.Mult
+        else                                       -> Balatro.White
+    }
+
+    private fun colourOp(v: org.json.JSONObject): Color {
+        fun resolve(j: org.json.JSONObject): Color = when (j.optString("\$")) {
+            "colour"   -> colourByName(j.getString("name"))
+            "colourop" -> colourOp(j)
+            else       -> Balatro.White
+        }
+        val amt = v.optDouble("amt", 0.0).toFloat()
+        return when (v.getString("op")) {
+            "darken"  -> resolve(v.getJSONObject("base")).let { Color(it.red*(1-amt), it.green*(1-amt), it.blue*(1-amt), it.alpha) }
+            "lighten" -> resolve(v.getJSONObject("base")).let { Color(it.red+(1-it.red)*amt, it.green+(1-it.green)*amt, it.blue+(1-it.blue)*amt, it.alpha) }
+            "mix"     -> { val a = resolve(v.getJSONObject("a")); val c = resolve(v.getJSONObject("b"))
+                Color(a.red*(1-amt)+c.red*amt, a.green*(1-amt)+c.green*amt, a.blue*(1-amt)+c.blue*amt, 1f) }
+            "alpha"   -> resolve(v.getJSONObject("base")).copy(alpha = amt)
+            else      -> Balatro.White
+        }
+    }
+
+    private fun colour(v: org.json.JSONObject?): Color? {
+        v ?: return null
+        return when (v.optString("\$")) {
+            "colour"   -> colourByName(v.getString("name"))
+            "colourop" -> colourOp(v)
+            else       -> null
+        }
+    }
+
+    private fun buttonOnClick(c: org.json.JSONObject): (() -> Unit)? = when (c.optString("button")) {
+        "select_blind" -> selectAction
+        "skip_blind"   -> skipAction
+        else           -> null
+    }
+
+    fun cfg(c: org.json.JSONObject): Cfg = Cfg(
+        align        = c.optString("align", "cm"),
+        colour       = colour(c.optJSONObject("colour")),
+        padding      = c.optDouble("padding", 0.0).toFloat(),
+        r            = c.optDouble("r", 0.0).toFloat(),
+        minw         = c.optDouble("minw", 0.0).toFloat(),
+        minh         = c.optDouble("minh", 0.0).toFloat(),
+        maxw         = c.optDouble("maxw", 0.0).toFloat(),
+        wCfg         = if (c.has("w")) c.optDouble("w", 0.0).toFloat() else null,
+        hCfg         = if (c.has("h")) c.optDouble("h", 0.0).toFloat() else null,
+        scale        = c.optDouble("scale", 1.0).toFloat(),
+        textColour   = colour(c.optJSONObject("colour")) ?: Balatro.White,
+        shadow       = c.optBoolean("shadow", false),
+        emboss       = c.optDouble("emboss", 0.0).toFloat(),
+        outline      = c.optDouble("outline", 0.0).toFloat(),
+        outlineColour = colour(c.optJSONObject("outline_colour")) ?: Color.Transparent,
+        onClick      = buttonOnClick(c),
+    )
+
+    fun text(c: org.json.JSONObject): String {
+        val t = c.opt("text")
+        val colourName = c.optJSONObject("colour")?.optString("name") ?: ""
+        return when {
+            // ref_value=type reads loc_blind_states: "Select" for active slot, "Upcoming" otherwise
+            c.has("ref_value") -> if (enabled) "Select" else "Upcoming"
+            // Chip target: extracted as literal (e.g. "300" at ante 1) — inject dynamic value.
+            // Identified by colour=RED (chip count) and scale≈0.675.
+            t is String && colourName == "RED" && t.all { it.isDigit() || it == ',' || it == '.' } -> chipTarget
+            // Reward string: extracted as "$$$+" etc. — inject dynamic "$".repeat(reward)+"+".
+            t is String && colourName == "MONEY" && t.startsWith("$") -> "${"$".repeat(reward)}+"
+            t is String -> t
+            else -> ""
+        }
+    }
+
+    fun obj(c: org.json.JSONObject): Obj {
+        val o = c.optJSONObject("object") ?: return DynaText(emptyList())
+        return when (o.optString("\$")) {
+            "dynatext" -> dynatext(o)
+            "sprite"   -> when (o.optString("name")) {
+                "animated" -> blindBmp?.let { Sprite(it, 1.4f, 1.4f) }
+                              ?: DynaText(emptyList(), w = 1.4f, h = 1.4f)
+                "stake"    -> stakeBmp?.let { Sprite(it, 0.5f, 0.5f) }
+                              ?: DynaText(emptyList(), w = 0.5f, h = 0.5f)
+                // tag sprite: tinted placeholder square (tag art atlas crop deferred)
+                "tag"      -> DynaText(emptyList(), w = 0.8f, h = 0.8f)
+                else       -> DynaText(emptyList(), w = 0f, h = 0f)
+            }
+            else       -> DynaText(emptyList(), w = 0f, h = 0f)
+        }
+    }
+
+    private fun dynatext(o: org.json.JSONObject): DynaText {
+        val segsJ  = o.optJSONArray("segs") ?: return DynaText(emptyList())
+        val colsJ  = o.optJSONArray("colours")
+        val scale  = o.optDouble("scale", 1.0).toFloat()
+        val shadow = o.optBoolean("shadow", true)
+        val maxw   = o.optDouble("maxw", 0.0).toFloat()
+        val segs   = (0 until segsJ.length()).map { i ->
+            val sj  = segsJ.getJSONObject(i)
+            val col = colsJ?.optString(i.coerceAtMost((colsJ.length()-1).coerceAtLeast(0)))
+                ?.let { colourByName(it) } ?: Balatro.White
+            val reader: () -> String = when {
+                sj.has("text") -> { val txt = sj.getString("text"); { txt } }
+                else           -> { { "" } }
+            }
+            DynSeg(reader, col, scale)
+        }
+        return DynaText(segs, maxw = maxw, shadow = shadow)
+    }
+}
+
+/** Build a UI tree from a blind_*_tree.json node, bound to [b]. */
+internal fun buildBlind(node: org.json.JSONObject, b: BlindBind): UI {
+    val cfgJ   = node.optJSONObject("config") ?: org.json.JSONObject()
+    val cfg    = b.cfg(cfgJ)
+    val nodesJ = node.optJSONArray("nodes")
+    val kids   = if (nodesJ != null) (0 until nodesJ.length()).map { buildBlind(nodesJ.getJSONObject(it), b) } else emptyList()
+    return when (node.getString("n")) {
+        "R", "ROOT" -> Ro(cfg, kids)
+        "C"         -> Co(cfg, kids)
+        "B"         -> Bx(cfg, kids)
+        "T"         -> Tx(cfg, b.text(cfgJ))
+        "O"         -> Ob(cfg, b.obj(cfgJ))
+        else        -> Bx(cfg, kids)
+    }
+}
+
+/**
+ * Pre-loaded blind choice trees (blind_small_tree.json / _big_ / _boss_).
+ * Call [forSlot] to build the choice card UI for one slot bound to live state.
+ */
+internal class BlindSpec(
+    private val small: org.json.JSONObject?,
+    private val big:   org.json.JSONObject?,
+    private val boss:  org.json.JSONObject?,
+) {
+    companion object {
+        fun load(ctx: android.content.Context): BlindSpec = BlindSpec(
+            small = HudSpec.root(ctx, "blind_small_tree.json"),
+            big   = HudSpec.root(ctx, "blind_big_tree.json"),
+            boss  = HudSpec.root(ctx, "blind_boss_tree.json"),
+        )
+    }
+
+    /**
+     * Build the UI tree for slot [slotIdx] (0=Small, 1=Big, 2=Boss).
+     * Returns null if the JSON asset for that slot failed to load.
+     *
+     * [enabled]      — true when this slot is the current active one (select button orange)
+     * [bossColour]   — the upcoming boss's tint; only meaningful for slotIdx=2
+     * [blindBmp]     — cropped blind chip sprite for this slot (null → B spacer)
+     * [stakeBmp]     — stake chip sprite (null → B spacer)
+     * [chipTarget]   — formatted chip requirement string (e.g. "300")
+     * [reward]       — dollar count for this slot (3/4/5)
+     * [selectAction] — fired when "Select" is tapped; null when !enabled
+     * [skipAction]   — fired when "Skip Blind" is tapped; null for Boss slot
+     */
+    fun forSlot(
+        slotIdx: Int,
+        enabled: Boolean,
+        bossColour: Color?,
+        blindBmp: ImageBitmap?,
+        stakeBmp: ImageBitmap?,
+        chipTarget: String,
+        reward: Int,
+        selectAction: (() -> Unit)?,
+        skipAction: (() -> Unit)?,
+    ): UI? {
+        val (tree, slotType) = when (slotIdx) {
+            0 -> (small ?: return null) to "Small"
+            1 -> (big   ?: return null) to "Big"
+            2 -> (boss  ?: return null) to "Boss"
+            else -> return null
+        }
+        val bind = BlindBind(
+            slotType    = slotType,
+            enabled     = enabled,
+            bossColour  = bossColour,
+            blindBmp    = blindBmp,
+            stakeBmp    = stakeBmp,
+            chipTarget  = chipTarget,
+            reward      = reward,
+            selectAction = selectAction,
+            skipAction   = skipAction,
+        )
+        return buildBlind(tree, bind)
     }
 }
