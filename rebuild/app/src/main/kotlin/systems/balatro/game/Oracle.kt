@@ -214,6 +214,8 @@ object Oracle {
         Case("Pair + big_cube (x6 Chips)", PlayingCard.hand("S_A", "H_A"), 384.0, j(FJoker("j_cry_big_cube"))),
         Case("Pair of 4s + antennastoheaven (2x4 -> x1.2 Chips)", PlayingCard.hand("S_4", "H_4"), 43.0, j(FJoker("j_cry_antennastoheaven"))),
         Case("Pair of aces + supercell (+15c x2c +15m x2m)", PlayingCard.hand("S_A", "H_A"), 3196.0, j(FJoker("j_cry_supercell"))),
+        // cry_m: is_jolly() fix — RunScreen now triggers on j_cry_jollysus AND cry_m-edition jokers,
+        // not just j_jolly (lib/misc.lua:302). Scoring read path: x=14 → X14 → 32×(2×14)=896.
         Case("Pair of aces + m @x=14 (1 Jolly sold)", PlayingCard.hand("S_A", "H_A"), 896.0, j(FJoker("j_cry_m", x = 14.0))),
         Case("Pair of aces + iterum (x2/card, +1 retrigger/card)", PlayingCard.hand("S_A", "H_A"), 1728.0, j(FJoker("j_cry_iterum"))),
         Case("Pair of aces + iterum + exponentia (emult from 4 xmult events)", PlayingCard.hand("S_A", "H_A"), 2619.0, j(FJoker("j_cry_iterum"), FJoker("j_cry_exponentia"))),
@@ -845,6 +847,46 @@ object Oracle {
             check("keychange: x=1.5 after 2 Pair plays", kc.x == 1.5)
             val s = Score.score(PlayingCard.hand("S_A", "H_A"), listOf(kc)).score
             check("keychange: score after 2 Pair plays → 96.0", s == 96.0)
+        }
+
+        // ── j_cry_jimball accumulation logic (RunScreen when-block, parity audit cry-m-family) ───
+        // Lua: context.before reads play_more_than = G.GAME.hands[scoring_name].played BEFORE incrementing.
+        // RunScreen: recordHandPlayed runs before the when-block, so handPlayed(type) is post-increment.
+        // Fix: use (handPlayed(type) - 1) as the pre-increment equivalent.
+        // Direct test of the fixed comparison logic: simulate what RunScreen does per hand scored.
+        run {
+            // Simulate RunScreen's _handPlayed map and jimball state for the parity cases.
+            // We test the comparison formula directly since RunScreen's when-block is not a MANIFEST reducer.
+            fun jimballStep(handPlays: Map<HandType, Int>, currentType: HandType, currentX: Double): Double {
+                // This is RunScreen's jimball when-block after the fix:
+                // val playMoreThan = handPlayed(currentType) - 1
+                // val beaten = _handPlayed.any { (h, n) -> h != currentType && n >= playMoreThan }
+                val playMoreThan = (handPlays[currentType] ?: 0) - 1   // pre-increment equivalent
+                val beaten = handPlays.any { (h, n) -> h != currentType && n >= playMoreThan }
+                return if (beaten) { if (currentX > 1.0) 1.0 else currentX } else currentX + 0.15
+            }
+
+            // Case 1: First-ever hand in the run — Pair, all other types at 0 plays.
+            // Lua: play_more_than=0; any other visible hand has v.played=0 >= 0 → reset=true → x stays 1.0.
+            // Kotlin post-fix: playMoreThan=1-1=0; any other hand with n>=0 → beaten=true → no growth.
+            // The allHandsZero map simulates _handPlayed after recordHandPlayed: Pair=1, rest=0.
+            val firstPlayMap = mapOf(HandType.PAIR to 1, HandType.HIGH_CARD to 0)
+            val xAfterFirst = jimballStep(firstPlayMap, HandType.PAIR, 1.0)
+            check("jimball: first ever Pair play — other type at 0 ties → x stays 1.0 (no growth)", xAfterFirst == 1.0)
+
+            // Case 2: Pair played 3 times, no other hand type ever played.
+            // Lua: play_more_than=2 (pre-increment); other hands have 0 plays, 0 < 2 → not beaten → x grows.
+            // post-fix: playMoreThan=3-1=2; other hands 0 < 2 → beaten=false → +0.15.
+            val pairDominantMap = mapOf(HandType.PAIR to 3)  // only Pairs played
+            val xAfterDominant = jimballStep(pairDominantMap, HandType.PAIR, 1.0)
+            check("jimball: Pair played 3x, no other type — Pair dominates → x grows (+0.15)", xAfterDominant == 1.15)
+
+            // Case 3: Pair and High Card both played 2 times; playing another Pair.
+            // After recordHandPlayed: Pair=3, HC=2. Lua pre-increment: play_more_than=2; HC=2 >= 2 → beaten.
+            // post-fix: playMoreThan=3-1=2; HC=2 >= 2 → beaten=true → x resets.
+            val tiedMap = mapOf(HandType.PAIR to 3, HandType.HIGH_CARD to 2)
+            val xAfterTie = jimballStep(tiedMap, HandType.PAIR, 1.45)
+            check("jimball: Pair=3, HC=2 post-increment (tie at pre-increment level=2) → reset to 1.0", xAfterTie == 1.0)
         }
 
         println("oracle-reducer: $pass/$total")

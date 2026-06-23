@@ -1289,8 +1289,9 @@ internal class RunState {
             // j_cry_m: +13 Xmult per Jolly sold — epic.lua:745 uses is_jolly() (j_jolly key OR
             // j_cry_jollysus key OR cry_m edition), not just j_jolly (lib/misc.lua:302).
             "j_cry_m"          -> if (o.fj.isJolly()) rem.fj.x += 13.0
-            // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
-            "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
+            // j_cry_loopy: +1 retrigger count per Jolly sold — m.lua:759 uses is_jolly() (j_jolly OR
+            // j_cry_jollysus OR cry_m edition), not just j_jolly (lib/misc.lua:302).
+            "j_cry_loopy"      -> if (o.fj.isJolly()) rem.fj.n += 1
             // j_cry_mstack: retriggers +1 per sell_req (3) Jolly sells — m.lua:376 uses is_jolly()
             // (j_jolly key OR j_cry_jollysus key OR cry_m edition), not just j_jolly (lib/misc.lua:302).
             // fj.chips repurposed as the sell-progress counter (0–2); never read as chips for this key.
