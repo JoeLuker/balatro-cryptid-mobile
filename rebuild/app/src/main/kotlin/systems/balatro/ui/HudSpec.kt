@@ -22,6 +22,9 @@ internal object HudSpec {
         } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString(), "file" to file); null }
     }
 
+    /** The extracted create_shop_card_ui templates (per card-set: price / button / buy_and_use). */
+    fun cardUi(ctx: Context): JSONObject? = root(ctx, "shop_card_ui.json")
+
     /** Build the UIBox AST from the loaded tree, binding descriptors to [b]. */
     fun build(node: JSONObject, b: HudBind): UI {
         val cfgJ = node.optJSONObject("config") ?: JSONObject()
@@ -48,6 +51,11 @@ internal object HudSpec {
 internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
     /** The rebuild's blind token+target UI, injected into the (empty) row_blind node. */
     var blindContent: UI? = null
+
+    /** Per-offer context for create_shop_card_ui templates (shop_card_ui.json): the price tag binds
+     *  `card.cost`→offerCost; the buy/redeem/open button binds to offerAction. Set per offer before build. */
+    var offerCost: Int = 0
+    var offerAction: (() -> Unit)? = null
 
 
     fun colourByName(name: String): Color = when (name) {
@@ -99,6 +107,8 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         "$" -> "$"; "b_options" -> "Options"; "b_run_info_1" -> "Run"; "b_run_info_2" -> "Info"
         // shop
         "b_next_round_1" -> "Next"; "b_next_round_2" -> "Round"; "k_reroll" -> "Reroll"
+        // offer cards (create_shop_card_ui)
+        "b_buy" -> "Buy"; "b_redeem" -> "Redeem"; "b_open" -> "Open"; "b_and_use" -> "and Use"
         else -> if (key is String) key else ""   // {type=variable} loc tables (e.g. ante_x_voucher) -> blank for now
     }
 
@@ -107,6 +117,8 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
     private fun buttonOnClick(c: JSONObject): (() -> Unit)? = when (c.optString("button")) {
         "toggle_shop" -> ({ s.nextBlind() })   // Next Round → leave shop
         "reroll_shop" -> ({ s.reroll() })      // reroll() self-guards on money >= rerollCost
+        // offer-card buttons (create_shop_card_ui) → the per-offer action set on the bind
+        "buy_from_shop", "redeem_from_shop", "open_booster" -> offerAction
         else -> null
     }
 
@@ -120,6 +132,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         "win_ante" -> { { "8" } }
         "chips_text" -> { { s.chipsText } }   // dollars_chips round-score readout
         "reroll_cost" -> { { s.rerollCost.toString() } }   // shop reroll button
+        "cost" -> { { offerCost.toString() } }             // offer-card price tag ($cost), bound per offer
         "chip_text" -> { { s.chipText2 } }
         "mult_text" -> { { s.multText } }
         // hand name, played-hand chip total, and level share one row (hand_text_area top). They're
@@ -199,5 +212,228 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
             DynSeg({ prefix + reader() }, col, scale)
         }
         return DynaText(segs, maxw = maxw, shadow = shadow, spacing = spacing)
+    }
+}
+
+/**
+ * Binds the extracted create_shop_card_ui trees (shop_card_ui.json) to a single offer card.
+ * The JSON's DynaText uses ref="card"/value="cost" (from pathName[card]="card" in extract.lua);
+ * the button ROOT carries button= and func= for the action and its guard.
+ *
+ * [cost]       — the offer's displayed price (already discounted via RunState.price()).
+ * [canAfford]  — true when RunState.money >= cost AND any slot/stack guard passes (joker cap etc.).
+ * [onAction]   — fired when the buy/redeem/open button is tapped.
+ */
+internal class CardBind(val cost: Int, val canAfford: Boolean, val onAction: () -> Unit) {
+
+    fun colourByName(name: String): Color = when (name) {
+        "WHITE", "UI.TEXT_LIGHT" -> Balatro.White
+        "BLACK", "DYN_UI.MAIN"  -> Balatro.Panel
+        "L_BLACK"               -> Balatro.PanelLight
+        "GREY"                  -> Balatro.Grey
+        "GOLD"                  -> Balatro.Gold
+        "GREEN"                 -> Balatro.Green
+        "RED", "MULT"           -> Balatro.Mult
+        "MONEY"                 -> Balatro.Money
+        "CLEAR"                 -> androidx.compose.ui.graphics.Color.Transparent
+        else                    -> Balatro.White
+    }
+
+    private fun colourOp(v: JSONObject): Color {
+        fun resolve(j: JSONObject): Color = when (j.optString("\$")) {
+            "colour"   -> colourByName(j.getString("name"))
+            "colourop" -> colourOp(j)
+            else       -> Balatro.White
+        }
+        val amt = v.optDouble("amt", 0.0).toFloat()
+        return when (v.getString("op")) {
+            "darken"  -> resolve(v.getJSONObject("base")).let {
+                androidx.compose.ui.graphics.Color(it.red*(1-amt), it.green*(1-amt), it.blue*(1-amt), it.alpha) }
+            "lighten" -> resolve(v.getJSONObject("base")).let {
+                androidx.compose.ui.graphics.Color(it.red+(1-it.red)*amt, it.green+(1-it.green)*amt, it.blue+(1-it.blue)*amt, it.alpha) }
+            "mix"     -> { val a=resolve(v.getJSONObject("a")); val c=resolve(v.getJSONObject("b"))
+                androidx.compose.ui.graphics.Color(a.red*(1-amt)+c.red*amt, a.green*(1-amt)+c.green*amt, a.blue*(1-amt)+c.blue*amt, 1f) }
+            "alpha"   -> resolve(v.getJSONObject("base")).copy(alpha = amt)
+            else      -> Balatro.White
+        }
+    }
+
+    private fun colour(v: JSONObject?): Color? {
+        v ?: return null
+        return when (v.optString("\$")) {
+            "colour"   -> colourByName(v.getString("name"))
+            "colourop" -> colourOp(v)
+            else       -> null   // {"$":"ref"} ref_table anchor — not a colour, ignore
+        }
+    }
+
+    /** The func= guard maps to canAfford; button= maps to onAction. Returns null → node not clickable. */
+    private fun buttonOnClick(c: JSONObject): (() -> Unit)? {
+        val func   = c.optString("func")
+        val button = c.optString("button")
+        // Only nodes carrying a real action button get a click; pip-helper nodes do not.
+        if (button.isEmpty()) return null
+        // func= is the vanilla guard ("can_buy", "can_redeem", "can_open", "can_buy_and_use").
+        // Map all guards to canAfford — if the player can't afford, the button is inert.
+        val gated = when (func) {
+            "can_buy", "can_redeem", "can_open", "can_buy_and_use" -> canAfford
+            else -> true
+        }
+        if (!gated) return null
+        return when (button) {
+            "buy_from_shop", "redeem_from_shop", "open_booster" -> onAction
+            else -> null
+        }
+    }
+
+    /** Resolved price string: "$N" — the DynaText prefix={loc:"$"} + ref="card"/value="cost". */
+    fun read(value: String): () -> String = when (value) {
+        "cost" -> { { cost.toString() } }
+        else   -> { { "" } }
+    }
+
+    fun loc(key: Any?): String = when (key) {
+        "$"         -> "$"
+        "b_buy"     -> "Buy"
+        "b_redeem"  -> "Redeem"
+        "b_open"    -> "Open"
+        "b_and_use" -> "& Use"
+        else        -> if (key is String) key else ""
+    }
+
+    fun cfg(c: JSONObject): Cfg {
+        // When canAfford=false the button colour shifts to GREY so the disabled state is visible,
+        // matching Balatro's G.C.UI.BACKGROUND_INACTIVE used for unavailable buttons.
+        val rawColour = colour(c.optJSONObject("colour"))
+        val func = c.optString("func")
+        val isGuardedButton = func.startsWith("can_")
+        val fill = if (isGuardedButton && !canAfford) Balatro.Grey else rawColour
+        return Cfg(
+            align       = c.optString("align", "cm"),
+            colour      = fill,
+            padding     = c.optDouble("padding", 0.0).toFloat(),
+            r           = c.optDouble("r", 0.0).toFloat(),
+            minw        = c.optDouble("minw", 0.0).toFloat(),
+            minh        = c.optDouble("minh", 0.0).toFloat(),
+            maxw        = c.optDouble("maxw", 0.0).toFloat(),
+            wCfg        = if (c.has("w")) c.optDouble("w", 0.0).toFloat() else null,
+            hCfg        = if (c.has("h")) c.optDouble("h", 0.0).toFloat() else null,
+            scale       = c.optDouble("scale", 1.0).toFloat(),
+            textColour  = rawColour ?: Balatro.White,
+            shadow      = c.optBoolean("shadow", false),
+            emboss      = c.optDouble("emboss", 0.0).toFloat(),
+            outline     = c.optDouble("outline", 0.0).toFloat(),
+            outlineColour = colour(c.optJSONObject("outline_colour")) ?: androidx.compose.ui.graphics.Color.Transparent,
+            onClick     = buttonOnClick(c),
+        )
+    }
+
+    fun text(c: JSONObject): String {
+        val t = c.opt("text")
+        return when {
+            t is JSONObject && t.optString("\$") == "loc" -> loc(t.opt("key"))
+            t is String -> t
+            c.has("ref_value") -> read(c.getString("ref_value"))()
+            else -> ""
+        }
+    }
+
+    fun obj(c: JSONObject): Obj {
+        val o = c.optJSONObject("object") ?: return DynaText(emptyList())
+        return when (o.optString("\$")) {
+            "dynatext" -> dynatext(o)
+            else       -> DynaText(emptyList(), w = 0f, h = 0f)
+        }
+    }
+
+    private fun dynatext(o: JSONObject): DynaText {
+        val segsJ  = o.optJSONArray("segs") ?: return DynaText(emptyList())
+        val colsJ  = o.optJSONArray("colours")
+        val scale  = o.optDouble("scale", 1.0).toFloat()
+        val shadow = o.optBoolean("shadow", true)
+        val spacing = o.optDouble("spacing", 0.0).toFloat()
+        val maxw   = o.optDouble("maxw", 0.0).toFloat()
+        val segs   = (0 until segsJ.length()).map { i ->
+            val sj  = segsJ.getJSONObject(i)
+            val col = colsJ?.optString(i.coerceAtMost((colsJ.length()-1).coerceAtLeast(0)))
+                ?.let { colourByName(it) } ?: Balatro.White
+            val prefix = sj.optJSONObject("prefix")?.let { loc(it.opt("loc")) }
+                ?: (sj.opt("prefix") as? String ?: "")
+            val reader: () -> String = when {
+                sj.has("value") -> read(sj.getString("value"))
+                sj.has("text")  -> { val txt = sj.getString("text"); { txt } }
+                else            -> { { "" } }
+            }
+            DynSeg({ prefix + reader() }, col, scale)
+        }
+        return DynaText(segs, maxw = maxw, shadow = shadow, spacing = spacing)
+    }
+}
+
+// ── HudSpec.build overload for CardBind ──────────────────────────────────────────────────────────
+
+/**
+ * Build a UI tree from an offer-card sub-tree JSON (price tag or buy/redeem/open button) bound to
+ * the per-offer [CardBind]. Structurally identical to HudSpec.build(JSONObject, HudBind) but drives
+ * text/colour/click through [b]'s card-specific binders instead of RunState.
+ */
+internal fun buildCard(node: JSONObject, b: CardBind): UI {
+    val cfgJ  = node.optJSONObject("config") ?: JSONObject()
+    val cfg   = b.cfg(cfgJ)
+    val nodesJ = node.optJSONArray("nodes")
+    val kids  = if (nodesJ != null) (0 until nodesJ.length()).map { buildCard(nodesJ.getJSONObject(it), b) } else emptyList()
+    return when (node.getString("n")) {
+        "R", "ROOT" -> Ro(cfg, kids)
+        "C"         -> Co(cfg, kids)
+        "B"         -> Bx(cfg, kids)
+        "T"         -> Tx(cfg, b.text(cfgJ))
+        "O"         -> Ob(cfg, b.obj(cfgJ))
+        else        -> Bx(cfg, kids)
+    }
+}
+
+/**
+ * Pre-parsed offer-card trees loaded once from shop_card_ui.json.
+ * Call [forSet] to build the price + button UI pair bound to a specific offer.
+ */
+internal class OfferCardSpec(
+    private val joker:      JSONObject?,
+    private val voucher:    JSONObject?,
+    private val booster:    JSONObject?,
+    private val consumable: JSONObject?,
+) {
+    companion object {
+        fun load(ctx: Context): OfferCardSpec? {
+            val root = HudSpec.root(ctx, "shop_card_ui.json") ?: return null
+            return OfferCardSpec(
+                joker      = root.optJSONObject("joker"),
+                voucher    = root.optJSONObject("voucher"),
+                booster    = root.optJSONObject("booster"),
+                consumable = root.optJSONObject("consumable"),
+            )
+        }
+    }
+
+    enum class Set { JOKER, VOUCHER, BOOSTER, CONSUMABLE }
+
+    /**
+     * Build (priceUI, buttonUI, buyAndUseUI?) for the given [set] bound to [b].
+     * Returns null if the asset subtree is absent (graceful degradation to ShopCard fallback).
+     */
+    fun forSet(set: Set, b: CardBind): Triple<UI, UI, UI?>? {
+        val sub = when (set) {
+            Set.JOKER      -> joker
+            Set.VOUCHER    -> voucher
+            Set.BOOSTER    -> booster
+            Set.CONSUMABLE -> consumable
+        } ?: return null
+        val priceJ  = sub.optJSONObject("price")  ?: return null
+        val buttonJ = sub.optJSONObject("button") ?: return null
+        val buyUseJ = sub.optJSONObject("buy_and_use")
+        return Triple(
+            buildCard(priceJ, b),
+            buildCard(buttonJ, b),
+            buyUseJ?.let { buildCard(it, b) },
+        )
     }
 }

@@ -2744,44 +2744,80 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
 
 /** Fill a shop CardArea slot's engine-computed rect (units) with the live offers from RunState:
  *  shop_jokers = jokers + planets + tarots; shop_vouchers = the voucher; shop_booster = the packs.
- *  Each offer renders via [ShopCard] (create_shop_card_ui's structure: price tag + art + buy tag). */
+ *  Each offer renders via [ShopOfferCard]: price tag + art + buy/redeem/open button all from
+ *  create_shop_card_ui (shop_card_ui.json), with the card art box hand-built (no UIBox equivalent). */
 @Composable
 private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Float, h: Float, u: Float,
                            jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+    val ctx = LocalContext.current
+    val spec = remember { OfferCardSpec.load(ctx) }
     Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp),
         contentAlignment = Alignment.Center) {
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically) {
             when (name) {
                 "shop_jokers" -> {
-                    s.shop.forEach { o -> ShopCard(o.name, jokerCells[o.key], cardBase, s.price(o.cost), o.desc, Balatro.Mult, s.money >= s.price(o.cost) && s.owned.size < s.maxJokers) { s.buy(o) } }
-                    s.shopPlanets.forEach { po -> ShopCard(po.planet.display, null, cardBase, s.price(po.cost), handName(po.planet.hand), Balatro.Chips, s.money >= s.price(po.cost)) { s.buyPlanet(po) } }
-                    s.shopTarots.forEach { t -> val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase(); ShopCard(t.name, null, cardBase, s.price(t.cost), fx, Balatro.Purple, s.money >= s.price(t.cost)) { s.buyTarot(t) } }
+                    s.shop.forEach { o ->
+                        ShopOfferCard(spec, OfferCardSpec.Set.JOKER, o.name, jokerCells[o.key], cardBase,
+                            s.price(o.cost), o.desc, Balatro.Mult,
+                            s.money >= s.price(o.cost) && s.owned.size < s.maxJokers, u) { s.buy(o) }
+                    }
+                    s.shopPlanets.forEach { po ->
+                        ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, po.planet.display, null, cardBase,
+                            s.price(po.cost), handName(po.planet.hand), Balatro.Chips,
+                            s.money >= s.price(po.cost), u) { s.buyPlanet(po) }
+                    }
+                    s.shopTarots.forEach { t ->
+                        val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
+                        ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, t.name, null, cardBase,
+                            s.price(t.cost), fx, Balatro.Purple,
+                            s.money >= s.price(t.cost), u) { s.buyTarot(t) }
+                    }
                 }
-                "shop_vouchers" -> s.shopVoucher?.let { v -> ShopCard(v.name, null, cardBase, s.price(v.cost), v.desc, Balatro.Gold, s.money >= s.price(v.cost)) { s.redeemVoucher(v) } }
-                "shop_booster" -> s.shopBoosters.forEach { b -> ShopCard(b.name, null, cardBase, s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips, s.money >= s.price(b.cost)) { s.buyBooster(b) } }
+                "shop_vouchers" -> s.shopVoucher?.let { v ->
+                    ShopOfferCard(spec, OfferCardSpec.Set.VOUCHER, v.name, null, cardBase,
+                        s.price(v.cost), v.desc, Balatro.Gold,
+                        s.money >= s.price(v.cost), u) { s.redeemVoucher(v) }
+                }
+                "shop_booster" -> s.shopBoosters.forEach { b ->
+                    ShopOfferCard(spec, OfferCardSpec.Set.BOOSTER, b.name, null, cardBase,
+                        s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips,
+                        s.money >= s.price(b.cost), u) { s.buyBooster(b) }
+                }
             }
         }
     }
 }
 
 /**
- * One shop slot: the price tag ($N, MONEY in a dark chip) above the card, the card art (joker cell)
- * or a name-on-base placeholder (planets/tarots have no atlas loaded), and a GOLD Buy tag below —
- * create_shop_card_ui (UI_definitions.lua:810-825). `descColour` tints the effect line.
+ * One shop offer card: price tag (extracted create_shop_card_ui price tree) + card art box +
+ * desc line + buy/redeem/open button (extracted create_shop_card_ui button tree). The price and
+ * button panels are rendered via RenderUIBoxNatural using the vanilla create_shop_card_ui geometry
+ * (shop_card_ui.json). The card art body has no UIBox equivalent and is hand-built.
+ *
+ * Falls back to a plain hand-built layout if [spec] failed to load (missing asset).
  */
 @Composable
-private fun ShopCard(
-    name: String, art: ImageBitmap?, base: ImageBitmap?, cost: Int, desc: String,
-    descColour: Color, canBuy: Boolean, onBuy: () -> Unit,
+private fun ShopOfferCard(
+    spec: OfferCardSpec?, set: OfferCardSpec.Set,
+    name: String, art: ImageBitmap?, base: ImageBitmap?,
+    cost: Int, desc: String, descColour: Color, canBuy: Boolean, u: Float,
+    onAction: () -> Unit,
 ) {
+    val bind = CardBind(cost, canBuy, onAction)
+    val trees = spec?.forSet(set, bind)
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
-        // price tag — darken(BLACK,0.2) chip, $cost in MONEY
-        Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
-            BTxt("\$$cost", Balatro.Money, 13.sp)
+        if (trees != null) {
+            // price tag — create_shop_card_ui price tree: darken(BLACK,0.2) chip + DynaText "$cost" MONEY
+            RenderUIBoxNatural(trees.first, u)
+        } else {
+            // fallback: plain hand-built price badge
+            Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
+                BTxt("\$$cost", Balatro.Money, 13.sp)
+            }
         }
         Spacer(Modifier.height(2.dp))
-        // the card: real joker art, or the white card base with the name as a placeholder
+        // card art — no UIBox equivalent; hand-built (live Sprite objects in vanilla)
         Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
             if (art != null) {
                 Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
@@ -2792,14 +2828,20 @@ private fun ShopCard(
         }
         BTxt(desc, descColour, 8.sp, Modifier.padding(top = 1.dp))
         Spacer(Modifier.height(3.dp))
-        // buy tag — G.C.GOLD (UI_definitions.lua:823)
-        Box(
-            Modifier.clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
-                .clickable(enabled = canBuy) { onBuy() }.padding(horizontal = 12.dp, vertical = 4.dp),
-            contentAlignment = Alignment.Center,
-        ) { BTxt("Buy", Balatro.White, 12.sp) }
+        if (trees != null) {
+            // buy/redeem/open button — create_shop_card_ui button tree: GOLD/GREEN/GREY rounded rect
+            RenderUIBoxNatural(trees.second, u)
+        } else {
+            // fallback: plain hand-built buy button
+            Box(
+                Modifier.clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
+                    .clickable(enabled = canBuy) { onAction() }.padding(horizontal = 12.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) { BTxt("Buy", Balatro.White, 12.sp) }
+        }
     }
 }
+
 
 /** (name, desc, accentColour) for one revealed pack item. */
 private fun packItemView(item: PackItem): Triple<String, String, Color> = when (item) {
