@@ -423,18 +423,20 @@ object Oracle {
         Case("Pair, red-seal ace retriggers", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A").copy(seal = Seal.RED)), 86.0),
         Case("Pair of aces + a stone card", listOf(PlayingCard.parse("S_A"), PlayingCard.parse("H_A"), en("D_5", Enhancement.STONE)), 164.0),
         // Abstract enhancement (^Emult=1.15 when played; confirmed from SpectralPack/Cryptid items/misc.lua; not a face).
+        // replace_base_card=true (misc.lua:196) means no rank chips — chipBonus=0.0 for Abstract cards.
         // Pair [S_A(Mult), H_A(Abstract)]: chips=10, mult=2.
-        //   S_A Mult: chips+=11→21, mult+=4→6. H_A Abstract: chips+=11→32, eMult→mult=6^1.15≈7.850.
-        //   Score: floor(32×7.850)=251.
-        Case("Pair Mult-A + Abstract-A (Abstract ^Emult=1.15 → mult≈7.850) → 251",
-            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 251.0),
+        //   S_A Mult: chips+=11→21, mult+=4→6. H_A Abstract: chips+=0→21, eMult→mult=6^1.15≈7.850.
+        //   Score: floor(21×7.850)=164.
+        Case("Pair Mult-A + Abstract-A (Abstract ^Emult=1.15, 0 rank chips) → 164",
+            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 164.0),
         // sock_and_sock retriggers each Abstract card once.
-        // Same Pair + sock_and_sock: H_A Abstract fires twice.
-        //   Rep1: chips+=11→43, mult=6^1.15≈7.850. Rep2: chips+=11(wait: chips already at 43 after S_A),
-        //   actually rep1 is the first H_A fire: chips=21+11=32, mult=6^1.15; rep2: chips=32+11=43, mult=(6^1.15)^1.15=6^1.3225≈10.693.
-        //   Score: floor(43×10.693)=459.
-        Case("Pair Mult-A + Abstract-A + sock_and_sock (retrigger Abstract once) → 459",
-            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 459.0, j(FJoker("j_cry_sock_and_sock"))),
+        // Same Pair + sock_and_sock: H_A Abstract fires twice. Abstract has 0 rank chips (replace_base_card=true).
+        //   S_A Mult: chips+=11→21, mult+=4→6.
+        //   H_A Abstract rep1: chips+=0→21, eMult→mult=6^1.15≈7.850.
+        //   H_A Abstract rep2: chips+=0→21, eMult→mult=(6^1.15)^1.15=6^1.3225≈10.693.
+        //   Score: floor(21×10.693)=224.
+        Case("Pair Mult-A + Abstract-A + sock_and_sock (retrigger Abstract once, 0 rank chips) → 224",
+            listOf(en("S_A", Enhancement.MULT), en("H_A", Enhancement.ABSTRACT)), 224.0, j(FJoker("j_cry_sock_and_sock"))),
         // --- held-in-hand jokers ---
         // Baron: King held → X1.5 Mult; chips=32, mult=2*1.5=3 → 96.
         Case("Pair of aces + baron (King held)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baron")), held = listOf(PlayingCard.parse("S_K"))),

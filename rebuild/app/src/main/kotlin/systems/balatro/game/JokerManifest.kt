@@ -497,7 +497,10 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_keychange" to JokerSpec(
         reduce = { s, e -> when (e) {
             is GameEvent.HandScored ->
-                if (e.handType != HandType.NONE && (e.handPlays[e.handType] ?: 0) <= 2)
+                // Exclude unscored hand types: NONE (no hand) and CRY_NONE (0-card empty hand).
+                // Lua: G.GAME.hands[context.scoring_name] may not exist for custom types → nil check.
+                if (e.handType != HandType.NONE && e.handType != HandType.CRY_NONE
+                    && (e.handPlays[e.handType] ?: 0) <= 2)
                     s.copy(x = s.x + 0.25)
                 else s
             is GameEvent.RoundEnd   -> s.copy(x = 1.0)
