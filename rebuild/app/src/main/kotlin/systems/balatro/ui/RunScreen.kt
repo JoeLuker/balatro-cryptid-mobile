@@ -555,6 +555,17 @@ internal class RunState {
     var faceDown by mutableStateOf(setOf<Int>())
     val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
     val timesRerolled: Int get() = rerolls
+    /** G.GAME.round_scores['hand'].amt — cumulative chips scored across all rounds. */
+    var totalChipsScored by mutableStateOf(0.0); private set
+    /** G.GAME.round_scores['cards_played'].amt — total cards played in hands this run. */
+    var totalCardsPlayed by mutableStateOf(0); private set
+    /** G.GAME.round_scores['cards_discarded'].amt — total cards discarded this run. */
+    var totalCardsDiscarded by mutableStateOf(0); private set
+    /** G.GAME.round_scores['cards_purchased'].amt — total cards/packs bought this run. */
+    var totalCardsPurchased by mutableStateOf(0); private set
+    /** G.GAME.pseudorandom.seed — a display seed string generated once at run start. */
+    var runSeed: String = java.util.UUID.randomUUID().toString().take(8).uppercase(); private set
+
 
     val ante: Int get() = blindIndex / 3 + 1
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
@@ -1024,6 +1035,8 @@ internal class RunState {
         val isNewTypeThisRound = r.handType !in roundHandTypes && r.handType != HandType.NONE
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
+        totalChipsScored += r.score
+        totalCardsPlayed += pendingSel.size
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
         // ── per-hand joker accumulator hooks (the run loop owns state; score engine reads it) ──────
         totalHandsPlayed += 1
@@ -1212,6 +1225,7 @@ internal class RunState {
         }
         discardsLeft -= 1
         roundDiscardsUsed += 1   // mondrian: track discards used this round for end_of_round check
+        totalCardsDiscarded += selected.size
         // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
         val discardedCards = hand.filterIndexed { i, _ -> i in selected }
         val jackCount = discardedCards.count { it.id == 11 }
@@ -1237,7 +1251,7 @@ internal class RunState {
         if (owned.size >= maxJokers) return           // joker slot full
         val cost = price(offer.cost)
         if (!free && money < cost) return
-        if (!free) money -= cost
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
         owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
@@ -1298,7 +1312,7 @@ internal class RunState {
         if (!hasConsumableRoom()) return          // no consumable slot → can't take it
         val cost = price(po.cost)
         if (!free && money < cost) return
-        if (!free) money -= cost
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
         onCardBought()
         consumables.add(Consumable.PlanetC(po.planet))    // HELD until used (was: insta-level-up)
         shopPlanets = shopPlanets.filterNot { it === po }
@@ -1316,7 +1330,7 @@ internal class RunState {
         if (!hasConsumableRoom()) return
         val cost = price(t.cost)
         if (!free && money < cost) return
-        if (!free) money -= cost
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
         onCardBought()
         consumables.add(Consumable.TarotC(t))             // HELD until used (was: insta-enhance)
         shopTarots = shopTarots.filterNot { it === t }
@@ -1327,7 +1341,7 @@ internal class RunState {
     fun redeemVoucher(v: VoucherOffer) {
         val cost = price(v.cost)
         if (money < cost) return
-        money -= cost
+        money -= cost; totalCardsPurchased += 1
         redeemedVouchers.add(v.key)
         shopVoucher = null
         when (v.key) {
@@ -1349,7 +1363,7 @@ internal class RunState {
     fun buyBooster(b: BoosterOffer) {
         val cost = price(b.cost)
         if (money < cost) return
-        money -= cost
+        money -= cost; totalCardsPurchased += 1
         shopBoosters = shopBoosters.filterNot { it === b }
         packSeed += 1
         val rng = Random(blindIndex * 7253L + packSeed * 131L)
@@ -2663,31 +2677,46 @@ private fun EvalRowView(row: EvalRow) {
 }
 
 /**
- * Port of create_UIBox_game_over (UI_definitions.lua): "Game Over" title, a dark stats panel
- * (create_UIBox_round_scores_row), and the Start New Run (RED, notify_then_setup_run) / Main Menu
- * (RED, go_to_menu) buttons. Only stats the run actually tracks are shown — cards
- * played/discarded/purchased and seed aren't tracked yet, so they're omitted rather than faked.
+ * Port of create_UIBox_game_over (UI_definitions.lua:2862).
+ * Two-column layout matching vanilla: left column shows per-run scoring stats
+ * (chips scored, most-played hand, cards played/discarded/purchased, rerolls, seed);
+ * right column shows ante/round reached, defeated-by blind, and action buttons.
  */
 @Composable
 private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(320.dp)) {
+        Panel(Modifier.width(360.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BTxt("Game Over", Balatro.Mult, 26.sp)
-                BTxt("Defeated by ${s.blindName}", Balatro.White, 12.sp)
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                // Two-column stats panel — mirrors vanilla create_UIBox_round_scores_row layout.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel).padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    s.mostPlayedHand?.let { (h, n) -> StatRow("Most played hand", "${handName(h)} ($n)", Balatro.Orange) }
-                    StatRow("Hands played", s.handsPlayedTotal.toString(), Balatro.Chips)
-                    StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
-                    StatRow("Furthest Ante", s.ante.toString(), Balatro.Orange)        // round_scores_row 'furthest_ante'
-                    StatRow("Furthest Round", (s.blindIndex + 1).toString(), Balatro.Orange)  // 'furthest_round'
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BButton("New Run", Balatro.Mult) { onRestart() }
-                    BButton("Main Menu", Balatro.Mult) { onMainMenu() }
+                    // Left column: scoring stats
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StatRow("Chips scored",    fmtR(s.totalChipsScored),              Balatro.Mult)
+                        s.mostPlayedHand?.let { (h, n) ->
+                            StatRow("Best hand", "${handName(h)} ($n)", Balatro.White)
+                        }
+                        StatRow("Cards played",    s.totalCardsPlayed.toString(),          Balatro.Chips)
+                        StatRow("Cards discarded", s.totalCardsDiscarded.toString(),        Balatro.Mult)
+                        StatRow("Cards purchased", s.totalCardsPurchased.toString(),        Balatro.Money)
+                        StatRow("Times rerolled",  s.timesRerolled.toString(),              Balatro.Green)
+                        StatRow("Seed",            s.runSeed,                              Balatro.White)
+                    }
+                    // Right column: ante/round + defeated-by + buttons
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp),
+                           horizontalAlignment = Alignment.End) {
+                        StatRow("Ante",  s.ante.toString(),           Balatro.Orange)
+                        StatRow("Round", (s.blindIndex + 1).toString(), Balatro.Orange)
+                        Spacer(Modifier.height(4.dp))
+                        BTxt("Defeated by", Balatro.White, 10.sp)
+                        BTxt(s.blindName, Balatro.Mult, 12.sp)
+                        Spacer(Modifier.weight(1f))
+                        BButton("New Run",   Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onRestart() }
+                        BButton("Main Menu", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onMainMenu() }
+                    }
                 }
             }
         }
@@ -2695,35 +2724,44 @@ private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () ->
 }
 
 /**
- * Win screen — shown when the player beats the boss blind of Ante 8 (standard win) or
- * Ante 10 (Ante-10 showdown win). Mirrors the GameOver panel layout; uses gold/green
- * colouring to distinguish it visually. Balatro shows a "Victory!" splash with fireworks
- * animation; here we show a static panel with the same stat rows.
+ * Port of create_UIBox_win (UI_definitions.lua:2749).
+ * Two-column layout matching vanilla — same stat rows as game-over; green/Chips title instead of
+ * red. Shown when Ante 8 boss is defeated (standard win) or Ante 10 (showdown). Balatro shows
+ * fireworks + a Jimbo animation above the panel; here the panel renders without those decorations.
  */
 @Composable
 private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
     val isShowdown = s.ante > 8   // just finished ante 10 showdown
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(320.dp)) {
+        Panel(Modifier.width(360.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BTxt(if (isShowdown) "Gold Stake!" else "Victory!", Balatro.Chips, 26.sp)
-                BTxt(
-                    if (isShowdown) "Ante 10 Showdown cleared" else "Ante 8 boss defeated",
-                    Balatro.White, 12.sp
-                )
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                // Two-column stats panel — mirrors vanilla create_UIBox_round_scores_row layout.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel).padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    s.mostPlayedHand?.let { (h, n) -> StatRow("Most played hand", "${handName(h)} ($n)", Balatro.Orange) }
-                    StatRow("Hands played", s.handsPlayedTotal.toString(), Balatro.Chips)
-                    StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
-                    StatRow("Ante reached", (s.ante - 1).toString(), Balatro.Orange)
-                    StatRow("Money", "\$${s.money}", Balatro.Money)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BButton("New Run", Balatro.Mult) { onRestart() }
-                    BButton("Main Menu", Balatro.Mult) { onMainMenu() }
+                    // Left column: scoring stats
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StatRow("Chips scored",    fmtR(s.totalChipsScored),              Balatro.Mult)
+                        s.mostPlayedHand?.let { (h, n) ->
+                            StatRow("Best hand", "${handName(h)} ($n)", Balatro.White)
+                        }
+                        StatRow("Cards played",    s.totalCardsPlayed.toString(),          Balatro.Chips)
+                        StatRow("Cards discarded", s.totalCardsDiscarded.toString(),        Balatro.Mult)
+                        StatRow("Cards purchased", s.totalCardsPurchased.toString(),        Balatro.Money)
+                        StatRow("Times rerolled",  s.timesRerolled.toString(),              Balatro.Green)
+                        StatRow("Seed",            s.runSeed,                              Balatro.White)
+                    }
+                    // Right column: ante/round + Endless mode + action buttons
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp),
+                           horizontalAlignment = Alignment.End) {
+                        StatRow("Ante",  s.ante.toString(),           Balatro.Orange)
+                        StatRow("Round", (s.blindIndex + 1).toString(), Balatro.Orange)
+                        Spacer(Modifier.weight(1f))
+                        BButton("New Run",   Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onRestart() }
+                        BButton("Main Menu", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onMainMenu() }
+                    }
                 }
             }
         }
