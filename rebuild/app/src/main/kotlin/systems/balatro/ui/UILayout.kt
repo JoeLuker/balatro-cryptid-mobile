@@ -107,6 +107,7 @@ private class LNode(val ui: UI, val isRoot: Boolean) {
     }.map { LNode(it, false) }
     var x = 0f; var y = 0f; var w = 0f; var h = 0f
     var cw = 0f; var ch = 0f   // content_dimensions (pre-set_wh content size, used by set_alignments)
+    var renderScale = cfg.scale   // effective text scale after the inherited maxw rescale (calc sets it)
 }
 
 /** calculate_xywh — sets node.{x,y,w,h,cw,ch}; returns (w,h). [fac] is the inherited maxw rescale. */
@@ -117,7 +118,7 @@ private fun calc(n: LNode, tx: Float, ty: Float, fac: Float): Pair<Float, Float>
     if (n.type == T || n.type == B || n.type == O) {
         val w: Float; val h: Float
         when (n.type) {
-            T -> { w = textWidthUnits((n.ui as Tx).text, scale); h = scale * TEXT_H }
+            T -> { n.renderScale = scale; w = textWidthUnits((n.ui as Tx).text, scale); h = scale * TEXT_H }
             else -> {  // B or O: config.w/h wins, else (O) object self-measure, else 0
                 if (cfg.wCfg != null || cfg.hCfg != null) { w = cfg.wCfg ?: 0f; h = cfg.hCfg ?: 0f }
                 else if (n.type == O) { val m = objMeasure((n.ui as Ob).obj); w = m.first; h = m.second }
@@ -357,11 +358,13 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float,
         }
         T -> {
             val tx = (n.ui as Tx)
-            val size = (n.cfg.scale * u * fontRatio)
+            // renderScale = cfg.scale after the inherited maxw rescale (calc shrinks text to fit maxw).
+            // Using cfg.scale here drew text full-size inside the shrunk node → overflow (boss debuff).
+            val size = (n.renderScale * u * fontRatio)
             // Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the
             // DESCENT (bottom), so the glyph sits high in the box. Compose centres the glyph in the
             // line box, so it lands (1-0.83)/2 = 0.085·lineHeight too LOW. Shift up by that to match.
-            val vshift = -((1f - TEXT_H) / 2f * n.cfg.scale * u)
+            val vshift = -((1f - TEXT_H) / 2f * n.renderScale * u)
             Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.offset(y = vshift.dp)) {
                     if (cfg.shadow) Box {
