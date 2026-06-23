@@ -2850,10 +2850,12 @@ private fun ShopOfferCard(
                 Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
             } else {
                 base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                // Identity label only as a fallback when there's no card sprite (planets/tarots/vouchers/
+                // boosters have no art yet). Vanilla shows the sprite alone; the desc line below was a
+                // non-vanilla addition that bled red text over the art — removed.
                 BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
             }
         }
-        BTxt(desc, descColour, 8.sp, Modifier.padding(top = 1.dp))
         Spacer(Modifier.height(3.dp))
         if (trees != null) {
             // buy/redeem/open button — create_shop_card_ui button tree: GOLD/GREEN/GREY rounded rect
