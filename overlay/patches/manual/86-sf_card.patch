@@ -1,0 +1,12 @@
+diff --git a/card.lua b/card.lua
+index 4e4a5d3..a6e2f23 100644
+--- a/card.lua
++++ b/card.lua
+@@ -1952,6 +1952,7 @@ end
+ 
+ end
+ function Card:can_use_consumeable(any_state, skip_check)
++  if not self.ability.consumeable then return false end -- STICKY_SHELF
+     if not skip_check and ((G.play and #G.play.cards > 0) or
+         (G.CONTROLLER.locked) or
+         (G.GAME.STOP_USE and G.GAME.STOP_USE > 0))

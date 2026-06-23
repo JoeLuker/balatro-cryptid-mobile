@@ -1,0 +1,31 @@
+diff --git a/engine/ui.lua b/engine/ui.lua
+index b9f6f09..17c13cf 100644
+--- a/engine/ui.lua
++++ b/engine/ui.lua
+@@ -848,6 +848,18 @@ function UIElement:draw_self()
+         end
+     end
+     
++    if self.config.pulse_border then
++        self.border_pulse_timer = self.border_pulse_timer or G.TIMERS.REAL
++        local lw = 2*math.max(0, 0.5*math.cos(6*(G.TIMERS.REAL - self.border_pulse_timer)) + 0.5)
++        prep_draw(self, 1)
++        love.graphics.scale((1)/(G.TILESIZE))
++        love.graphics.setLineWidth(lw + 1)
++        love.graphics.setColor(adjust_alpha(G.C.BLACK, 0.2*lw, true))
++        self:draw_pixellated_rect('fill', parallax_dist)
++        love.graphics.setColor(self.config.colour[4] > 0 and mix_colours(G.C.WHITE, self.config.colour, 0.8) or G.C.WHITE)
++        self:draw_pixellated_rect('line', parallax_dist)
++        love.graphics.pop()
++    end -- STICKY_SHELF
+     --Draw the outline of the object
+     if self.config.outline and self.config.outline_colour[4] > 0.01 then
+         if self.config.outline then      
+@@ -1136,6 +1148,7 @@ function UIElement:stop_hover()
+ end
+ 
+ function UIElement:release(other)
++    if self.config.release_func then self.config.release_func(other) end -- STICKY_SHELF
+     if self.parent then self.parent:release(other) end
+ end
+ 

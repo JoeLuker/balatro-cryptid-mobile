@@ -75,3 +75,10 @@ manual/75-cry_igo_diag.patch
 manual/76-gamespeed_options.patch
 manual/77-sticky_fingers_dep.patch
 manual/80-save_cycle_tree.patch
+manual/81-sf_misc_append.patch
+manual/82-sf_buttoncb_append.patch
+manual/83-sf_uidef_append.patch
+manual/84-sf_controller.patch
+manual/85-sf_cardarea.patch
+manual/86-sf_card.patch
+manual/87-sf_ui.patch

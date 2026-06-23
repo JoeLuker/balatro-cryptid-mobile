@@ -1,0 +1,29 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 22ac9a1..1e4ebd4 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -364,6 +364,12 @@ function Controller:update(dt)
+                 elseif self.dragging.prev_target and self.cursor_hover.target and self.cursor_hover.target.states.release_on.can and self.cursor_hover.target ~= self.dragging.prev_target then -- DRAG_SELF_DROP_EXCLUDE: use fresh cursor_hover.target; exclude self-drop
+                     self.released_on.target = self.cursor_hover.target
+                     self.released_on.handled = false
++                elseif self.dragging.prev_target then -- STICKY_SHELF p8: drop a card onto a drag-target shelf
++                    local releasable = nil
++                    for _, v in ipairs(self.collision_list) do
++                        if v.states.hover.can and (not v.states.drag.is) and (v ~= self.dragging.prev_target) then releasable = v; break end
++                    end
++                    if releasable and releasable.states.release_on.can then self.released_on.target = releasable; self.released_on.handled = false end
+                 end
+             end
+         end
+@@ -443,6 +449,11 @@ function Controller:update(dt)
+     --Process registry clicks
+     self:process_registry()
+ 
++    --STICKY_SHELF p6: spawn drag-target shelves once a card has been held-dragged
++    if not self.dragging.handled and self.cursor_down.duration and (self.cursor_down.duration > 0.1) then
++        create_drag_target_from_card(self.dragging.target)
++        self.dragging.handled = true
++    end
+     --The object being dragged
+     if self.dragging.target then
+         self.dragging.target:drag()
