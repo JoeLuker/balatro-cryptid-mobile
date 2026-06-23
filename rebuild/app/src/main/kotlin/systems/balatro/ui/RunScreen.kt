@@ -2914,7 +2914,9 @@ private fun ShopOfferCard(
 ) {
     val bind = CardBind(cost, canBuy, onAction)
     val trees = spec?.forSet(set, bind)
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+    // Size the card in engine units (CARD_W × CARD_H × u), like the play-area cards — not a fixed dp
+    // that only matches at one resolution (port the algorithm, not the measurement).
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width((PF.CARD_W * u).dp)) {
         if (trees != null) {
             // price tag — create_shop_card_ui price tree: darken(BLACK,0.2) chip + DynaText "$cost" MONEY
             RenderUIBoxNatural(trees.first, u)
@@ -2926,7 +2928,7 @@ private fun ShopOfferCard(
         }
         Spacer(Modifier.height(2.dp))
         // card art — no UIBox equivalent; hand-built (live Sprite objects in vanilla)
-        Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size((PF.CARD_W * u).dp, (PF.CARD_H * u).dp), contentAlignment = Alignment.Center) {
             if (art != null) {
                 Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
             } else {
