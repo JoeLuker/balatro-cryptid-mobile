@@ -311,7 +311,9 @@ object Oracle {
         // cry_googol_play: x=1e100 (probability roll won externally). Pair of Aces: chips=32, mult=2.
         // joker_main: x=1e100 > 1 → xMultMod=1e100 → mult=2×1e100=2e100. score=floor(32×2e100)=6.4e101.
         Case("Pair of aces + googol_play(x=1e100, triggered) → 6.4e101", PlayingCard.hand("S_A", "H_A"), 6.4e101, j(FJoker("j_cry_googol_play", x = 1e100))),
-        Case("Pair of aces + universe + Astral joker (Emult^1.2)", PlayingCard.hand("S_A", "H_A"), 274.0, j(FJoker("j_joker", edition = "Astral"), FJoker("j_cry_universe"))),
+        // Astral j_joker: own e_mult^1.1 (post_joker) then universe's e_mult^1.2 reaction → ((2+4)^1.1)^1.2.
+        // (Was 274 before the Astral self-edition fix — that omitted the joker's OWN ^1.1.)
+        Case("Pair + universe + Astral joker (self ^1.1 then universe ^1.2) → 340", PlayingCard.hand("S_A", "H_A"), 340.0, j(FJoker("j_joker", edition = "Astral"), FJoker("j_cry_universe"))),
         // cry_universe individual-card path (batch-10 parity audit): fires Emult^1.2 per Astral-edition scored card
         // (misc_joker.lua:8281-8288). Previously only the other_joker pass was implemented.
         // Pair Astral-Aces: chips=10, mult=2. Per-card: S_A→chips=21, mult=2^1.2; H_A→chips=32, mult=2^1.44.
@@ -345,6 +347,11 @@ object Oracle {
         Case("Pair aces + Foil big_cube (Foil pre_joker → (32+50)*6) → 984", PlayingCard.hand("S_A", "H_A"), 984.0, j(FJoker("j_cry_big_cube", edition = "Foil"))),
         // Holo brokenhome (X11.4): (2+10)*11.4 → mult 136.8, chips 32 → 4377 (was 32*(2*11.4+10) = 1049).
         Case("Pair aces + Holo brokenhome (Holo pre_joker → (2+10)*11.4) → 4377", PlayingCard.hand("S_A", "H_A"), 4377.0, j(FJoker("j_cry_brokenhome", edition = "Holo"))),
+        // Cryptid joker editions (post_joker, multiplicative): Mosaic ×2.5 Chips (x_chips), Astral Mult^1.1 (e_mult).
+        // Mosaic bonkers (no-op on a Pair) → chips 32*2.5=80, mult 2 → 160.
+        Case("Pair aces + Mosaic bonkers (chips x2.5 post_joker) → 160", PlayingCard.hand("S_A", "H_A"), 160.0, j(FJoker("j_cry_bonkers", edition = "cry_mosaic"))),
+        // Astral j_joker (+4 Mult, then ^1.1): mult (2+4)^1.1=7.177, chips 32 → floor(229.6)=229.
+        Case("Pair aces + Astral j_joker (mult^1.1 post_joker) → 229", PlayingCard.hand("S_A", "H_A"), 229.0, j(FJoker("j_joker", edition = "Astral"))),
         // --- planet levels ---
         Case("Pair Lv2 of aces", PlayingCard.hand("S_A", "H_A"), 141.0, level = 2),
         Case("Pair Lv3 of aces", PlayingCard.hand("S_A", "H_A"), 248.0, level = 3),

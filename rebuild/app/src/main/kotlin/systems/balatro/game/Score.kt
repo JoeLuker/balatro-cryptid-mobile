@@ -719,6 +719,10 @@ object Score {
             // post_joker edition: Poly X1.5 Mult applies AFTER the joker's main effect (card.lua
             // context.post_joker); it fires as an x_mult_mod, so it also feeds j_cry_exponentia.
             if (j.edition == "Poly") { mult *= 1.5; for (ej in jokers) if (ej.key == "j_cry_exponentia") ej.x += 0.03 }
+            // Cryptid post_joker editions (multiplicative, like Poly): Astral raises Mult to ^1.1
+            // (e_mult, misc.lua:1182); Mosaic multiplies Chips by 2.5 (x_chips, misc.lua:747).
+            if (j.edition == "Astral") mult = mult.pow(1.1)
+            if (j.edition == "cry_mosaic") chips *= 2.5
             // JOKER-RETRIGGER sub-loop (context.retrigger_joker_check, utils.lua:1602):
             // ask every board joker whether to retrigger j (once, non-recursive per Lua guard).
             ctx.jokerRetriggerCheck = true; ctx.retriggeredJoker = j
