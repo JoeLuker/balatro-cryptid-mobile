@@ -300,6 +300,9 @@ object Score {
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             // (j_green_joker migrated to JOKER_MANIFEST.)
             // (j_spare_trousers migrated to JOKER_MANIFEST.)
+            // (j_red_card/j_popcorn/j_cry_zooble/j_cry_poor_joker/j_cry_foodm migrated to JOKER_MANIFEST — batch 8d.)
+            // j_swashbuckler stays legacy: seed is dynamic (swashSellSum) — no static initialState.
+            // j_cry_wee_fib stays legacy: j.mult accumulated in individual pass, then read here.
             "j_swashbuckler", "j_red_card", "j_popcorn",
             "j_cry_wee_fib", "j_cry_zooble", "j_cry_poor_joker", "j_cry_foodm" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
@@ -353,11 +356,14 @@ object Score {
             // stella_mortis: Emult scales via ending_shop (destroy planet -> +0.4 per planet, stored in j.x); starts at 1
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
             // starfruit: Emult = j.x (starts at 2.0, decreases by 0.2 per reroll, self-destructs at <=1)
+            // (j_cry_stella_mortis/formidiulosus/starfruit migrated to JOKER_MANIFEST — batch 8b.)
             "j_cry_stella_mortis", "j_cry_formidiulosus", "j_cry_starfruit" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // primus: Emult = j.x (base 1.01, +0.17 in the before-pass when ANY played card is a prime rank); mult^x.
             // Lives here (not the loop) so the copy-jokers can copy it like any other joker_main effect.
+            // (j_cry_primus migrated to JOKER_MANIFEST.)
             "j_cry_primus" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // happyhouse: Emult=4 after 114 hands played (joker_main fires only when j.n > 0 = check exceeded trigger)
+            // (j_cry_happyhouse migrated to JOKER_MANIFEST.)
             "j_cry_happyhouse" -> if (j.n > 0) return Fx().apply { eMult = 4.0 }
             // circulus_pistoris: fires exactly when hands_left == 3 (Lua: >=hands_remaining && <hands_remaining+1, hands_remaining=3)
             // exotic.lua:886: returns { echips = pi, emult = pi }. Talisman echips = exponentiation (chips^pi),
@@ -370,6 +376,7 @@ object Score {
             "j_cry_facile" -> { val fires = j.n <= 10; j.n = 0; if (fires) return Fx().apply { eMult = 3.0 } }
             // exponentia: scales Emult (j.x, base 1.0) +Emult_mod(0.03) each time any xmult effect fires during scoring;
             //             joker_main reads j.x and applies mult^j.x when above 1 (no-op while x==1.0 / never scaled)
+            // (j_cry_exponentia migrated to JOKER_MANIFEST.)
             "j_cry_exponentia" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // jtron: Emult = 1 + (# of base "j_joker" Jokers on the board); no-op when none present
             // (j_cry_jtron migrated to JOKER_MANIFEST.)
@@ -418,8 +425,10 @@ object Score {
             // (j_cry_supercell migrated to JOKER_MANIFEST.)
             "j_cry_supercell" -> return Fx().apply { chipMod = 15.0; xChipMod = 2.0; multMod = 15.0; xMultMod = 2.0 }
             // m: X(x_mult) Mult; x_mult starts at 1, gains +13 each time a Jolly Joker is sold (selling_card, non-scoring)
+            // (j_cry_m migrated to JOKER_MANIFEST.)
             "j_cry_m" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // longboi: Xmult = j.x (= G.GAME.monstermult at equip time, starts 1, grows end_of_round); same guard
+            // (j_cry_longboi migrated to JOKER_MANIFEST.)
             "j_cry_longboi" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // biggestm: X(j.x) Mult when j.n > 0 (j.n=1 when "before" check fired this hand, 0 otherwise)
             "j_cry_biggestm" -> if (j.n > 0) return Fx().apply { xMultMod = j.x }
@@ -428,13 +437,16 @@ object Score {
             "j_cry_kittyprinter" -> return Fx().apply { xMultMod = 2.0 }
             // spy: Xmult = j.x each joker_main (spooky.lua:664). Run loop sets j.x = card.ability.x_mult
             // (default 0.5 from config). Oracle tests must always pass j.x explicitly.
+            // (j_cry_spy migrated to JOKER_MANIFEST.)
             "j_cry_spy" -> return Fx().apply { xMultMod = j.x }
             // apjoker: X4 Xmult when the current blind is a boss blind (G.GAME.blind.boss)
             // (j_cry_apjoker migrated to JOKER_MANIFEST.)
             "j_cry_apjoker" -> if (ctx.bossBlind) return Fx().apply { xMultMod = 4.0 }
             // clicked_cookie: +chips from j.chips accumulator (starts 200, decrements 1 per cry_press click)
+            // (j_cry_clicked_cookie migrated to JOKER_MANIFEST.)
             "j_cry_clicked_cookie" -> return Fx().apply { chipMod = j.chips }
             // monkey_dagger: +chips from j.chips accumulator (+10*sell_cost of left joker at setting_blind, that joker destroyed)
+            // (j_cry_monkey_dagger migrated to JOKER_MANIFEST.)
             "j_cry_monkey_dagger" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // unjust_dagger: Xmult from j.x accumulator (+0.2*sell_cost of left joker at setting_blind, that joker destroyed)
             // jimball: Xmult from j.x accumulator (+0.15 per hand while this hand type is the strict most-played; resets to x1 if tied/beaten)
@@ -442,13 +454,16 @@ object Score {
             // wheelhope: Xmult from j.x accumulator (+0.5 per Wheel of Fortune pseudorandom_result trigger)
             // cut: Xmult from j.x accumulator (+0.5 per Code consumable destroyed when leaving shop)
             // python: Xmult from j.x accumulator (+0.15 per Code consumable used)
+            // (j_cry_unjust_dagger/jimball/pizza_slice/wheelhope/cut/python migrated to JOKER_MANIFEST — batch 8a.)
             "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope",
             "j_cry_cut", "j_cry_python" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
+            // (j_cry_fspinner migrated to JOKER_MANIFEST.)
             "j_cry_fspinner" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // membershipcardtwo: +chips = j.chips (pre-computed as chips * floor(member_count/chips_mod); epic.lua:112)
             // j.chips stores the full pre-computed chip bonus; fires when j.chips > 0.
+            // (j_cry_membershipcardtwo migrated to JOKER_MANIFEST.)
             "j_cry_membershipcardtwo" -> if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }
             // --- Cryptid custom hand-type jokers ---
             // CRY_BULWARK, CRY_ULTPAIR, CRY_NONE are now live (Hands.evaluate returns them).
@@ -489,10 +504,12 @@ object Score {
             // googol_play: X1e100 Mult with 1-in-j.n odds (default j.n=8) (epic.lua:222-229).
             // Pseudorandom — the run loop sets j.x=1e100 when the roll succeeds, else j.x=1.0.
             // At score time, fire only when j.x > 1.0. Oracle tests must pre-set j.x=1e100 to exercise this path.
+            // (j_cry_googol_play migrated to JOKER_MANIFEST.)
             "j_cry_googol_play" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // busdriver: +mult or -mult (default 50) each joker_main with 1-in-odds probability (misc_joker.lua:7653).
             // Pseudorandom — the run loop pre-resolves the roll: j.mult = +50 if success, -50 if fail (default).
             // At score time, j.mult != 0 fires; j.mult may be negative (debuff on failed roll).
+            // (j_cry_busdriver migrated to JOKER_MANIFEST.)
             "j_cry_busdriver" -> if (j.mult != 0.0) return Fx().apply { multMod = j.mult }
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)

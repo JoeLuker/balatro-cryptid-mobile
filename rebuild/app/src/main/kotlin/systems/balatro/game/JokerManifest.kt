@@ -385,6 +385,65 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_nebulous"        to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_NONE)        Effect.Chips(30.0)     else Effect.None }),
     "j_cry_many_lost_minds" to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   Effect.Chips(8.0658175e67) else Effect.None }),
 
+    // ── batch 8: jokerMain accumulator-readers (RunScreen/before-pass sets j.field; manifest reads snapshot) ─
+    // ── 8a: j.x accumulator → XMult ─────────────────────────────────────────────────────────────────────────
+    // cry_spy: Xmult = j.x (seeded 0.5 in initialFJoker, changes via run events); always fires (unconditional)
+    "j_cry_spy"         to JokerSpec(initialState = FJokerState(x = 0.5), jokerMain = { s, _ -> Effect.XMult(s.x) }),
+    // cry_m: Xmult = j.x (starts 1.0, +13 each Jolly sold); guard prevents identity effect at start
+    "j_cry_m"           to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_longboi: Xmult = j.x (= G.GAME.monstermult at equip, grows end_of_round); same guard
+    "j_cry_longboi"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_googol_play: Xmult = j.x (pre-resolved: 1e100 on success, 1.0 on fail); guard prevents identity
+    "j_cry_googol_play" to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_unjust_dagger, jimball, pizza_slice, wheelhope, cut, python: all j.x > 1.0 → XMult
+    "j_cry_unjust_dagger" to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    "j_cry_jimball"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    "j_cry_pizza_slice"   to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    "j_cry_wheelhope"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    "j_cry_cut"           to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    "j_cry_python"        to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+
+    // ── 8b: j.x accumulator → EMult ──────────────────────────────────────────────────────────────────────────
+    // cry_exponentia: Emult = j.x (base 1.0, +0.03 each time any xmult fires during scoring; grows per-hand)
+    "j_cry_exponentia"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.EMult(s.x) else Effect.None }),
+    // cry_primus: Emult = j.x (base 1.01, +0.17 in before-pass when any prime-rank card played)
+    "j_cry_primus"         to JokerSpec(initialState = FJokerState(x = 1.01), jokerMain = { s, _ -> if (s.x > 1.0) Effect.EMult(s.x) else Effect.None }),
+    // stella_mortis, formidiulosus, starfruit: Emult = j.x (all j.x > 1.0 guard, different accumulation paths)
+    "j_cry_stella_mortis"  to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.EMult(s.x) else Effect.None }),
+    "j_cry_formidiulosus"  to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.EMult(s.x) else Effect.None }),
+    "j_cry_starfruit"      to JokerSpec(initialState = FJokerState(x = 2.0), jokerMain = { s, _ -> if (s.x > 1.0) Effect.EMult(s.x) else Effect.None }),
+
+    // ── 8c: j.n accumulator → EMult ──────────────────────────────────────────────────────────────────────────
+    // cry_happyhouse: Emult=4 after 114 hands played (RunScreen sets j.n=1 when threshold crossed; stays 1)
+    "j_cry_happyhouse"  to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.EMult(4.0) else Effect.None }),
+
+    // ── 8d: j.mult accumulator → Mult ────────────────────────────────────────────────────────────────────────
+    // Vanilla scaling jokers: j.mult set by run events; before-pass loops in Score.kt stay for zooble.
+    // j_swashbuckler: NOT migrated — initialFJoker seed is dynamic (swashSellSum runtime param).
+    // A static JokerSpec.initialState cannot capture it; stays legacy until a dynamic-seed mechanism is added.
+    // j_red_card: j.mult += per pack-open skip (epic.lua) — RunScreen handles event
+    "j_red_card"        to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // j_popcorn: starts mult=20 (config), −1 per hand before-pass; self-destructs at 0 (RunScreen manages)
+    "j_popcorn"         to JokerSpec(initialState = FJokerState(mult = 20.0), jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
+    "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)
+    "j_cry_poor_joker"  to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // cry_foodm: j.mult=40 default, decrements per round, replenished by selling jolly jokers; self-destructs at 0
+    "j_cry_foodm"       to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // cry_busdriver: j.mult pre-resolved each hand (+50 success, -50 fail); fires when non-zero
+    "j_cry_busdriver"   to JokerSpec(initialState = FJokerState(n = 4), jokerMain = { s, _ -> if (s.mult != 0.0) Effect.Mult(s.mult) else Effect.None }),
+
+    // ── 8e: j.chips accumulator → Chips ──────────────────────────────────────────────────────────────────────
+    // cry_clicked_cookie: j.chips seeded 200, −1 per press; unconditional read
+    "j_cry_clicked_cookie"  to JokerSpec(initialState = FJokerState(chips = 200.0), jokerMain = { s, _ -> Effect.Chips(s.chips) }),
+    // cry_monkey_dagger: j.chips += 10*sell_cost of left joker (destroyed at setting_blind); fires when non-zero
+    "j_cry_monkey_dagger"   to JokerSpec(jokerMain = { s, _ -> if (s.chips != 0.0) Effect.Chips(s.chips) else Effect.None }),
+    // cry_fspinner: j.chips += 6 per context.before when another hand type has same play count; fires when non-zero
+    "j_cry_fspinner"        to JokerSpec(jokerMain = { s, _ -> if (s.chips != 0.0) Effect.Chips(s.chips) else Effect.None }),
+    // cry_membershipcardtwo: j.chips = pre-computed bonus (epic.lua); fires when non-zero
+    "j_cry_membershipcardtwo" to JokerSpec(initialState = FJokerState(chips = 38598.0), jokerMain = { s, _ -> if (s.chips != 0.0) Effect.Chips(s.chips) else Effect.None }),
+
     // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
     // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
     "j_steel_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(1.0 + 0.2 * s.n) else Effect.None }),
