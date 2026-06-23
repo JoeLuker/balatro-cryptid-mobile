@@ -654,12 +654,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         },
     ),
     // cry_spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored this hand).
-    // j.n is accumulated during the individual pass in Score.kt then reset at end of hand. Fires only for
-    // the last joker (ctx.board.lastOrNull()), excluding itself.
+    // j.n is set once per hand in Score.kt's before-pass (mirrors epic.lua:2047-2053: context.before iterates
+    // context.scoring_hand once, counting Echo-enhanced cards before any scoring begins). It must NOT be
+    // accumulated via perCard — the perCard hook runs inside repeat(reps), so a retriggered Echo card would
+    // be counted once per retrigger instance, inflating j.n and causing extra joker retriggers.
+    // Score.kt before-pass also resets j.n = 0 each hand, then sets it to the Echo count.
     "j_cry_spectrogram" to JokerSpec(
-        // perCard accumulates count of Echo-enhanced cards scored this hand (j.n = echonum).
-        // Score.kt preamble resets j.n = 0 before each hand (matches epic.lua:2047-2053 before-pass).
-        perCard   = { s, _, c -> if (c.enhancement == Enhancement.ECHO) s.copy(n = s.n + 1) else s },
         retrigger = { s, ctx ->
             ctx.retriggeredJoker?.let { rj ->
                 if (rj === ctx.board.lastOrNull() && ctx.selfJoker !== rj && s.n > 0) Effect.Retrigger(s.n) else Effect.None

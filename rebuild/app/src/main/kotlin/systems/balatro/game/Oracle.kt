@@ -172,6 +172,18 @@ object Oracle {
         //   Joker fires twice more: mult=6+4+4=14. Score: floor(32×14)=448.
         Case("Pair Echo-Aces + spectrogram(n=0 accumulates to 2),joker → joker fires 3x → 448",
             listOf(en("S_A", Enhancement.ECHO), en("H_A", Enhancement.ECHO)), 448.0, j(FJoker("j_cry_spectrogram"), FJoker("j_joker"))),
+        // Spectrogram retrigger-safety regression: a retriggered Echo card must NOT inflate j.n.
+        // Board [spectrogram(leftmost), hanging_chad, j_joker(rightmost)]. Hand: [S_A Echo] (HighCard).
+        // Before-pass: scoringHand has 1 Echo card → j.n = 1 (Lua: echonum=1, set once in context.before).
+        // Repetition collection: hanging_chad sees c===first → Retrigger(2) → reps=3.
+        // repeat(3): eval S_A → +11 chips each rep → chips = 5 + 11×3 = 38; mult stays 1.
+        //   hanging_chad individual: Effect.Retrigger(2) — only repetitions field is read by apply(); no score effect.
+        // Joker main: j_joker +4 → mult=5; retrigger sub-loop: spectrogram sees rj=j_joker===last,
+        //   selfJoker≠rj, n=1→Retrigger(1) → j_joker fires once more → mult=9. Score: floor(38×9)=342.
+        // Buggy (perCard path): S_A fires 3 scoring instances → j.n=3 → j_joker fires 3 extra times → mult=17 → 646.
+        Case("HighCard Echo-Ace + spectrogram + hanging_chad + joker — retrigger must NOT inflate echonum → 342",
+            listOf(en("S_A", Enhancement.ECHO)), 342.0,
+            j(FJoker("j_cry_spectrogram"), FJoker("j_hanging_chad"), FJoker("j_joker"))),
         // boredom: 1-in-odds pseudorandom retrigger of any other joker (epic.lua:868).
         // Run loop pre-resolves: j.n=1 (roll wins) → retrigger, j.n=0 (roll loses) → no retrigger.
         // Board [boredom(j.n=1), j_joker]. joker_main: j_joker+4→mult=6 → score=192.
@@ -738,10 +750,10 @@ object Oracle {
     fun runMultiCall(): Pair<Int, Int> {
         var pass = 0; var total = 0
         // spectrogram cross-hand reset regression (epic.lua:2047-2053 resets echonum=0 in before pass each hand).
-        // Bug: j.n accumulated across hands without reset. Fix: before pass resets j.n=0 each call.
-        // Hand 1: Pair Echo-Aces + spectrogram(n=0) + joker → j.n accumulates to 2 → joker fires 3x → 448.
-        // Hand 2: same jokers, same hand → before-pass must reset j.n to 0 → joker again fires 3x → also 448.
-        // (Pre-fix: hand 2 enters with j.n=2, accumulates to 4, joker fires 5x → mult=2+20=22 → 32*22=704.)
+        // Fix: before-pass sets j.n = scoringHand.count { Echo } each call — always overwrites, never accumulates.
+        // Hand 1: Pair Echo-Aces + spectrogram(n=0) + joker → j.n=2 → joker fires 3x → 448.
+        // Hand 2: same jokers, same hand → before-pass overwrites j.n=2 again → joker again fires 3x → 448.
+        // (Old accumulation bug: hand 2 entered with j.n=2, added 2 more → j.n=4 → 5x → 32*22=704.)
         run {
             val spectr = FJoker("j_cry_spectrogram")
             val joker  = FJoker("j_joker")
