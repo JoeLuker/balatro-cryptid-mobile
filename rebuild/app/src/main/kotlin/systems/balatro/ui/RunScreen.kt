@@ -1182,11 +1182,11 @@ internal class RunState {
             o.fj.n = maxOf(0, o.fj.n - 1)
             if (o.fj.n <= 0) perishableExpired.add(o)
         }
-        // Notify fading_joker and paved_joker of each expiring perishable.
+        // Notify fading_joker of each expiring perishable (+1 Xmult per perishable that expires).
+        // paved_joker is NOT notified here — Lua has no joker_main xmult path for paved_joker;
+        // its j.x accumulation was phantom scoring. paved_joker's real effect is probability-only.
         if (perishableExpired.isNotEmpty()) {
-            for (rem in owned) when (rem.fj.key) {
-                "j_cry_fading_joker", "j_cry_paved_joker" -> rem.fj.x += 1.0
-            }
+            for (rem in owned) if (rem.fj.key == "j_cry_fading_joker") rem.fj.x += 1.0
         }
         // Remove expired perishables from the board.
         if (perishableExpired.isNotEmpty()) {

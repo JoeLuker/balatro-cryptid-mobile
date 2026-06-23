@@ -848,4 +848,16 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_clockwork" to JokerSpec(
         jokerMain = { s, _ -> Effect.XMult(s.x) },
     ),
+
+    // ── PerishableExpired accumulator (RunScreen manages the event; jokerMain reads j.x) ─────────
+
+    // j_cry_fading_joker: +1 Xmult each time a perishable joker expires (misc_joker.lua:10298-10316,
+    // context.perishable_debuffed → xmult += xmult_mod(1)). Accumulation fires in RunScreen.cashOut()
+    // when chili_pepper or caramel expires (j.x += 1.0 per expired perishable). jokerMain always
+    // fires (Lua: return { xmult = card.ability.extra.xmult } unconditionally — no guard). The
+    // Kotlin legacy gate j.x > 1.0 was WRONG: a freshly acquired fading_joker with x=1.0 never
+    // scored in Kotlin but fired XMult(1.0) in Lua (safe no-op). Fixed here: no guard. blueprint_compat=true.
+    "j_cry_fading_joker" to JokerSpec(
+        jokerMain = { s, _ -> Effect.XMult(s.x) },
+    ),
 )

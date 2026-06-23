@@ -294,18 +294,26 @@ object Score {
             // j_loyalty_card migrated to JOKER_MANIFEST (jokerMain ctx-read; ctx.totalHandsPlayed + ctx.handsPlayedAtCreate).
             // j_cry_membershipcard / j_cry_verisimile / j_cry_duplicare / j_cry_clockwork / j_cry_keychange
             //   migrated to JOKER_MANIFEST (pure jokerMain readers or jokerMain+RoundEnd reset).
+            // j_cry_fading_joker migrated to JOKER_MANIFEST (jokerMain unconditional; guard bug fixed).
+            // j_cry_paved_joker: removed — Lua has no joker_main xmult path (probability-only joker).
 
             // j_cry_membershipcard migrated to JOKER_MANIFEST (pure jokerMain reader; x pre-set at init).
             // j_cry_verisimile migrated to JOKER_MANIFEST (pure jokerMain reader; pseudorandom accumulation in RunScreen).
             // j_cry_duplicare migrated to JOKER_MANIFEST (pure jokerMain reader; per-hand accumulation in RunScreen).
             // j_cry_keychange migrated to JOKER_MANIFEST (jokerMain + RoundEnd reset; per-hand accumulation in RunScreen).
             // j_cry_clockwork migrated to JOKER_MANIFEST (pure jokerMain reader; per-hand accumulation in RunScreen).
-            "j_cry_dropshot", "j_cry_fading_joker",
-            "j_cry_paved_joker" ->
+            // j_cry_fading_joker migrated to JOKER_MANIFEST (jokerMain unconditional; RunScreen perishable accumulation stays).
+            //   Bug fix: Lua fires xmult unconditionally (no > 1 guard); the old Kotlin j.x > 1.0 gate was wrong.
+            // j_cry_paved_joker: Lua has NO context.joker_main scoring path — paved_joker only does probability
+            //   manipulation (stone cards fill straights/flushes) via Cryptid.get_paved_joker() in overrides.lua.
+            //   The Kotlin j.x += 1.0 per perishable expiry and j.x > 1.0 → XMult was phantom scoring not in Lua.
+            //   Removed from xmult when-arm; RunScreen perishable accumulation for paved_joker also removed.
+            // j_cry_dropshot: NOT YET MIGRATED — requires cry_dropshot_card round-state (random suit chosen at
+            //   round start, stored per-round). Accumulates x_mult += Xmult_mod(0.2) * count of non-scoring
+            //   played cards of that suit (misc_joker.lua:57-89, context.before). Placeholder stays in-arm.
+            "j_cry_dropshot" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
-            // fading_joker: j.x += xmult_mod(1) when this perishable joker expires (perishable_debuffed, non-scoring)
-            // paved_joker: j.x += xmult_mod(1) when any perishable joker expires (perishable_debuffed, misc_joker.lua:10255)
             // pizza: has NO joker_main scoring path in Lua — only end_of_round countdown and selling_self pizza-slice
             //   spawn (misc_joker.lua:10139). j.x is never set for this key; removed from accumulator group.
             // alt_wheel_of_fortune: not a Joker object_type — only a UI tooltip key (set="Other") in wheelhope's
