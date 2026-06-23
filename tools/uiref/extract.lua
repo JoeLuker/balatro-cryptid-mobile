@@ -29,7 +29,8 @@ local C = {
   -- globals.lua:475 assigns G.C.UI_CHIPS = BLUE, G.C.UI_MULT = RED at runtime (outside the C literal),
   -- so the chips/mult readout boxes get their fill. Without these the extracted colours were nil.
   UI_CHIPS = leaf("UI_CHIPS",hx("009dff")), UI_MULT = leaf("UI_MULT",hx("fe5f55")),
-  UI = { TEXT_LIGHT = leaf("UI.TEXT_LIGHT",{1,1,1,1}), TEXT_DARK = leaf("UI.TEXT_DARK",hx("4f6367")) },
+  UI = { TEXT_LIGHT = leaf("UI.TEXT_LIGHT",{1,1,1,1}), TEXT_DARK = leaf("UI.TEXT_DARK",hx("4f6367")),
+         TRANSPARENT_DARK = leaf("UI.TRANSPARENT_DARK",{0.18,0.22,0.25,0.3}) },
   DYN_UI = { MAIN=leaf("DYN_UI.MAIN",hx("374244")), DARK=leaf("DYN_UI.DARK",hx("374244")),
              BOSS_MAIN=leaf("DYN_UI.BOSS_MAIN",hx("374244")), BOSS_DARK=leaf("DYN_UI.BOSS_DARK",hx("374244")) },
 }
@@ -51,10 +52,30 @@ function lighten(c, amt)      return { __colorop="lighten", base=c, amt=amt } en
 function mix_colours(a, b, t) return { __colorop="mix",     a=a, b=b, amt=t } end
 function adjust_alpha(c, a)   return { __colorop="alpha",   base=c, amt=a } end
 
+-- shop/blind extraction stubs: capture CardArea slots (the O-node objects) with their size + config;
+-- other engine objects (sprites, separate floating UIBoxes, events) are decorative/non-structural here.
+function CardArea(x, y, w, h, config) return { __cardarea=true, T={x=x,y=y,w=w,h=h}, w=w, h=h, config=config or {} } end
+function AnimatedSprite(...) return { __sprite="animated", define_draw_steps=function() end } end
+function Sprite(...)         return { __sprite="sprite",   define_draw_steps=function() end } end
+function UIBox(args)         return { __uibox=true } end   -- e.g. G.SHOP_SIGN — a separate floating box, not in the returned tree
+function Event(args)         return { __event=true } end
+
+-- GAME fields the shop reads
+GAME.shop = tag("G.GAME.shop", { joker_max=2 })
+GAME.current_round.reroll_cost = 5
+GAME.current_round.voucher = "v_blank"
+
 G = {
   UIT = UIT, C = C, GAME = GAME,
   LANGUAGES = { ["en-us"] = { font = { __font = "en-us" } } },
   UIDEF = {},
+  -- areas/positions the shop def references
+  hand = { T = { x=4.857, y=6.986, w=12.293, h=2.614 } },
+  ROOM = { T = { x=1.44, y=0.69, w=20, h=11.5 } },
+  CARD_W = 2.04878, CARD_H = 2.75122,
+  ANIMATION_ATLAS = setmetatable({}, { __index=function() return {} end }),
+  E_MANAGER = { add_event = function() end },
+  HUD = { get_UIE_by_ID = function() return {} end },
 }
 
 -- load the REAL vanilla create_UIBox_HUD (top-level is just G.UIDEF={}; the rest are fn defs)
@@ -76,6 +97,7 @@ local function encconfig(cfg)
       elseif type(v)=="table" and v.__loc ~= nil then d = '{"$":"loc","key":'..enc(v.__loc)..'}'
       elseif type(v)=="table" and v.__sprite then d = '{"$":"sprite","name":"'..v.__sprite..'","scale":'..tostring(v.scale)..'}'
       elseif type(v)=="table" and v.__moveable then d = '{"$":"moveable"}'
+      elseif type(v)=="table" and v.__cardarea then d = '{"$":"cardarea","name":"'..(v.__name or "?")..'","w":'..tostring(v.w)..',"h":'..tostring(v.h)..',"limit":'..tostring(v.config and v.config.card_limit or 0)..'}'
       elseif type(v)=="table" and v.__colorop then d = enccolorop(v)
       elseif type(v)=="table" and v.__dynatext then d = '{"$":"dynatext",'..encdyna(v.__dynatext)..'}'
       else d = enc(v) end
@@ -144,7 +166,17 @@ enc = function(v)
   return '"?'..t..'"'
 end
 
-local json = encnode(def)
-local outpath = (arg[0]:gsub("extract%.lua$","")) .. "hud_tree.json"
-local f = io.open(outpath, "w"); f:write(json); f:close()
-print("wrote "..outpath.." ("..#json.." bytes)")
+local function dump(node, name)
+  local json = encnode(node)
+  local outpath = (arg[0]:gsub("extract%.lua$","")) .. name
+  local f = io.open(outpath, "w"); f:write(json); f:close()
+  print("wrote "..outpath.." ("..#json.." bytes)")
+end
+dump(def, "hud_tree.json")
+
+-- SHOP: run the REAL G.UIDEF.shop(), tag the 3 CardArea slots by name, dump the frame tree.
+local shopdef = G.UIDEF.shop()
+G.shop_jokers.__name   = "shop_jokers"
+G.shop_vouchers.__name = "shop_vouchers"
+G.shop_booster.__name  = "shop_booster"
+dump(shopdef, "shop_tree.json")
