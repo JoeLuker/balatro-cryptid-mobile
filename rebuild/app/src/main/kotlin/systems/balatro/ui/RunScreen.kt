@@ -1754,11 +1754,11 @@ private fun HudColumn(s: RunState, modifier: Modifier, stakeBmp: ImageBitmap? = 
         // no blindContent → row_blind stays empty (pure tree); rebuild when the stake sprite loads.
         val ui = remember(root, stakeBmp) { HudSpec.build(root, HudBind(s, stakeBmp)) }
         Box(modifier) {
-            RenderUIBoxAbsolute(ui, u, roomH = ROOM_H) { bx, by, bw, bh ->
+            RenderUIBoxAbsolute(ui, u, roomH = ROOM_H, blindOverlay = { bx, by, bw, bh ->
                 // The blind token UIBox laid out by the SAME exact engine, centred in the row_blind slot.
                 RenderUIBoxAt(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale),
                     u, bx, by, bw, bh)
-            }
+            })
         }
     }
 }
@@ -2716,71 +2716,53 @@ private fun StatRow(label: String, value: String, accent: Color) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
-    Box(Modifier.fillMaxSize().padding(8.dp)) {
-        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
-
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            // main shop panel: [ buttons column | card-slot inset ]. fillMaxWidth so the card inset
-            // is bounded and the slots WRAP (FlowRow) instead of overflowing the play area.
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Balatro.Panel).padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // next_round_button: G.C.RED (UI_definitions.lua:696); reroll: G.C.GREEN (:706)
-                    ShopActionButton("Next\nRound", Balatro.Mult, true) { s.nextBlind() }
-                    ShopActionButton("Reroll\n\$${s.rerollCost}", Balatro.Green, s.money >= s.rerollCost) { s.reroll() }
-                }
-                Spacer(Modifier.width(10.dp))
-                // card-slot inset (G.C.L_BLACK); one ShopCard per stocked item, wrapping to a 2nd row
-                FlowRow(
-                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    s.shop.forEach { o ->
-                        ShopCard(o.name, jokerCells[o.key], cardBase, s.price(o.cost), o.desc, Balatro.Mult, s.money >= s.price(o.cost) && s.owned.size < s.maxJokers) { s.buy(o) }
-                    }
-                    s.shopPlanets.forEach { po ->
-                        ShopCard(po.planet.display, null, cardBase, s.price(po.cost), handName(po.planet.hand), Balatro.Chips, s.money >= s.price(po.cost)) { s.buyPlanet(po) }
-                    }
-                    s.shopTarots.forEach { t ->
-                        val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
-                        ShopCard(t.name, null, cardBase, s.price(t.cost), fx, Balatro.Purple, s.money >= s.price(t.cost)) { s.buyTarot(t) }
-                    }
-                    // voucher slot (one per shop) — a run-persistent modifier, gold accent
-                    s.shopVoucher?.let { v ->
-                        ShopCard(v.name, null, cardBase, s.price(v.cost), v.desc, Balatro.Gold, s.money >= s.price(v.cost)) { s.redeemVoucher(v) }
-                    }
-                    // booster packs (two slots) — buying opens the pack (Phase.PACK_OPEN)
-                    s.shopBoosters.forEach { b ->
-                        ShopCard(b.name, null, cardBase, s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips, s.money >= s.price(b.cost)) { s.buyBooster(b) }
-                    }
-                }
-            }
-            // sell owned jokers — a compact strip under the shop (not a Balatro UIBox, but the
-            // only place to offload jokers until the joker row is interactive)
-            if (s.owned.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BTxt("Sell:", Balatro.White, 12.sp)
-                    s.owned.forEach { o ->
-                        BButton("${o.offer.name}  \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
-                    }
+    // The shop FRAME is Balatro's REAL G.UIDEF.shop() tree (assets/ui/shop_tree.json, extracted by
+    // tools/uiref/extract.sh) — Next-Round / Reroll buttons + the 3 CardArea slots — laid out by the
+    // ported engine. Slot contents bind from RunState via cardAreaContent. No hand-built shop frame.
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val root = remember { HudSpec.root(ctx, "shop_tree.json") }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (root != null) {
+            val tree = HudSpec.build(root, HudBind(s, null))
+            RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+                ShopSlotOffers(s, name, x, y, w, h, u, jokerCells, cardBase)
+            })
+        }
+        // sell strip — not a Balatro UIBox; the only way to offload jokers until the joker row is interactive
+        if (s.owned.isNotEmpty()) {
+            Row(Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                BTxt("Sell:", Balatro.White, 12.sp)
+                s.owned.forEach { o ->
+                    BButton("${o.offer.name}  \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
                 }
             }
         }
     }
 }
 
-/** A stacked two-line shop button (Next Round / Reroll), Balatro's 2.8u×1.5u rounded button. */
+/** Fill a shop CardArea slot's engine-computed rect (units) with the live offers from RunState:
+ *  shop_jokers = jokers + planets + tarots; shop_vouchers = the voucher; shop_booster = the packs.
+ *  Each offer renders via [ShopCard] (create_shop_card_ui's structure: price tag + art + buy tag). */
 @Composable
-private fun ShopActionButton(text: String, colour: Color, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.width(96.dp).clip(RoundedCornerShape(8.dp)).background(if (enabled) colour else Balatro.Grey)
-            .clickable(enabled = enabled) { onClick() }.padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) { BTxt(text, Balatro.White, 14.sp) }
+private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Float, h: Float, u: Float,
+                           jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+    Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp),
+        contentAlignment = Alignment.Center) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically) {
+            when (name) {
+                "shop_jokers" -> {
+                    s.shop.forEach { o -> ShopCard(o.name, jokerCells[o.key], cardBase, s.price(o.cost), o.desc, Balatro.Mult, s.money >= s.price(o.cost) && s.owned.size < s.maxJokers) { s.buy(o) } }
+                    s.shopPlanets.forEach { po -> ShopCard(po.planet.display, null, cardBase, s.price(po.cost), handName(po.planet.hand), Balatro.Chips, s.money >= s.price(po.cost)) { s.buyPlanet(po) } }
+                    s.shopTarots.forEach { t -> val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase(); ShopCard(t.name, null, cardBase, s.price(t.cost), fx, Balatro.Purple, s.money >= s.price(t.cost)) { s.buyTarot(t) } }
+                }
+                "shop_vouchers" -> s.shopVoucher?.let { v -> ShopCard(v.name, null, cardBase, s.price(v.cost), v.desc, Balatro.Gold, s.money >= s.price(v.cost)) { s.redeemVoucher(v) } }
+                "shop_booster" -> s.shopBoosters.forEach { b -> ShopCard(b.name, null, cardBase, s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips, s.money >= s.price(b.cost)) { s.buyBooster(b) } }
+            }
+        }
+    }
 }
 
 /**

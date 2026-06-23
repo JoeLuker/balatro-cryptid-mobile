@@ -74,6 +74,7 @@ fun textWidthUnits(s: String, scale: Float): Float {
 /** O-node intrinsic size in units when config.w/h is absent: the embedded object's self-measure. */
 private fun objMeasure(o: Obj): Pair<Float, Float> = when (o) {
     is Sprite -> o.w to o.h
+    is CardAreaSlot -> o.w to o.h
     is DynaText -> {
         var w = 0f; var h = 0f
         for (seg in o.segs) {
@@ -247,13 +248,14 @@ fun RenderUIBoxAbsolute(
     roomH: Float,
     fontRatio: Float = FONT_RATIO,
     blindOverlay: (@Composable (x: Float, y: Float, w: Float, h: Float) -> Unit)? = null,
+    cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null,
 ) {
     val laid = layout(root)
     val yShift = (roomH - laid.h) / 2f          // centre the tall panel; it bleeds off top/bottom
     val placed = ArrayList<Placed>()
     flatten(laid, 0f, yShift, placed)
     Box(Modifier.size((laid.w * u).dp, (roomH * u).dp).clipToBounds()) {
-        for (p in placed) renderNode(p, u, fontRatio)
+        for (p in placed) renderNode(p, u, fontRatio, cardAreaContent)
         if (blindOverlay != null) {
             val rb = findRowBlind(laid)
             if (rb != null) blindOverlay(rb.x, rb.y + yShift, rb.w, rb.h)
@@ -268,12 +270,13 @@ fun RenderUIBoxAbsolute(
  * surrounding layout can centre/position it normally.
  */
 @Composable
-fun RenderUIBoxNatural(root: UI, u: Float, fontRatio: Float = FONT_RATIO) {
+fun RenderUIBoxNatural(root: UI, u: Float, fontRatio: Float = FONT_RATIO,
+                       cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null) {
     val laid = layout(root)
     val placed = ArrayList<Placed>()
     flatten(laid, 0f, 0f, placed)
     Box(Modifier.size((laid.w * u).dp, (laid.h * u).dp)) {
-        for (p in placed) renderNode(p, u, fontRatio)
+        for (p in placed) renderNode(p, u, fontRatio, cardAreaContent)
     }
 }
 
@@ -283,13 +286,14 @@ fun RenderUIBoxNatural(root: UI, u: Float, fontRatio: Float = FONT_RATIO) {
  * Laid out at its natural size; no clip (the caller's box clips). Same exact layout engine.
  */
 @Composable
-fun RenderUIBoxAt(root: UI, u: Float, rectX: Float, rectY: Float, rectW: Float, rectH: Float, fontRatio: Float = FONT_RATIO) {
+fun RenderUIBoxAt(root: UI, u: Float, rectX: Float, rectY: Float, rectW: Float, rectH: Float, fontRatio: Float = FONT_RATIO,
+                  cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null) {
     val laid = layout(root)
     val dx = rectX + (rectW - laid.w) / 2f
     val dy = rectY + (rectH - laid.h) / 2f
     val placed = ArrayList<Placed>()
     flatten(laid, dx, dy, placed)
-    Box(Modifier) { for (p in placed) renderNode(p, u, fontRatio) }
+    Box(Modifier) { for (p in placed) renderNode(p, u, fontRatio, cardAreaContent) }
 }
 
 /** row_blind is the single source-empty R reserved at minh=3.75 (the blind UIBox attaches separately). */
@@ -300,7 +304,8 @@ private fun findRowBlind(n: LNode): LNode? {
 }
 
 @Composable
-private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
+private fun renderNode(p: Placed, u: Float, fontRatio: Float,
+                       cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null) {
     val n = p.node
     val cfg = n.cfg
     // requiredSize (NOT size): nodes are positioned via absoluteOffset inside a box that clips. The
@@ -373,6 +378,9 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
                     Image(obj.bmp, null, at.requiredSize((n.w * u).dp, (n.h * u).dp),
                         contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                 is DynaText -> Box(at) { RenderDynaText(obj) }
+                // CardArea slot: hand the engine-computed rect (units) to the caller, which fills it
+                // with live cards/offers from RunState (the frame is the ported tree; contents bind).
+                is CardAreaSlot -> cardAreaContent?.invoke(obj.name, p.x, p.y, n.w, n.h)
             }
         }
     }
