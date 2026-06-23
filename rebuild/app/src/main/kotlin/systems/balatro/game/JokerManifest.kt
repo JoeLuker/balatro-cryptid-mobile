@@ -563,11 +563,16 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored this hand).
     // j.n is accumulated during the individual pass in Score.kt then reset at end of hand. Fires only for
     // the last joker (ctx.board.lastOrNull()), excluding itself.
-    "j_cry_spectrogram" to JokerSpec(retrigger = { s, ctx ->
-        ctx.retriggeredJoker?.let { rj ->
-            if (rj === ctx.board.lastOrNull() && ctx.selfJoker !== rj && s.n > 0) Effect.Retrigger(s.n) else Effect.None
-        } ?: Effect.None
-    }),
+    "j_cry_spectrogram" to JokerSpec(
+        // perCard accumulates count of Echo-enhanced cards scored this hand (j.n = echonum).
+        // Score.kt preamble resets j.n = 0 before each hand (matches epic.lua:2047-2053 before-pass).
+        perCard   = { s, _, c -> if (c.enhancement == Enhancement.ECHO) s.copy(n = s.n + 1) else s },
+        retrigger = { s, ctx ->
+            ctx.retriggeredJoker?.let { rj ->
+                if (rj === ctx.board.lastOrNull() && ctx.selfJoker !== rj && s.n > 0) Effect.Retrigger(s.n) else Effect.None
+            } ?: Effect.None
+        },
+    ),
     // cry_boredom: pseudorandom 1-retrigger of any other joker (1-in-2 odds; pre-resolved by run loop).
     // Run loop sets j.n=1 on success, j.n=0 on fail (reset each hand). Self-excluded.
     "j_cry_boredom"    to JokerSpec(retrigger = { s, ctx ->
