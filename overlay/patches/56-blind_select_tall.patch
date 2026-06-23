@@ -1,5 +1,5 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index 3f83dfb..337354e 100644
+index a6334b2..fd314fc 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
 @@ -1787,10 +1787,10 @@ function create_UIBox_blind_choice(type, run_info)

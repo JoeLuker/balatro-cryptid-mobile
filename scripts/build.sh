@@ -1158,10 +1158,10 @@ PYEOF
 # the vanilla Game tab pushes its content well past create_tabs' tab_h, which
 # balloons the menu frame past OVERLAY_MENU_FIT's maxh and shrinks the whole
 # menu (tabs + text) to fit — unreadably small. Give them their own "Debug" tab
-# so every tab's content fits at full scale. The Debug HUD toggle (perf_mode)
-# is the single merged FPS+perf overlay: the vanilla perf block it drives
-# already prints "Current FPS" above the timing graphs, so there is no separate
-# Show FPS toggle (it was a redundant second FPS readout that overlapped this).
+# so every tab's content fits at full scale. The HUD is split into two toggles:
+# "FPS counter" (G.SETTINGS.fps_counter) shows just the FPS readout; "Perf overlay"
+# (G.SETTINGS.perf_mode) shows the per-subsystem timing graphs. apply_debug_overlay
+# gates the FPS print on the former and the graphs on the latter.
 apply_settings_debug_tab() {
     local ui_file="$1"
     if [[ ! -f "$ui_file" ]]; then
@@ -1173,11 +1173,11 @@ apply_settings_debug_tab() {
         return 0
     fi
     # 1. Prepend a 'Debug' branch to G.UIDEF.settings_tab (in front of the Game branch).
-    sed -i "s|  if tab == 'Game' then|  if tab == 'Debug' then\n    return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.05, colour = G.C.CLEAR}, nodes={\n      create_toggle({label = \"Debug HUD (FPS + perf)\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      create_toggle({label = \"Trigger Collapsing\", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},\n    }}\n  elseif tab == 'Game' then|" "$ui_file"
+    sed -i "s|  if tab == 'Game' then|  if tab == 'Debug' then\n    return {n=G.UIT.ROOT, config={align = \"cm\", padding = 0.05, colour = G.C.CLEAR}, nodes={\n      create_toggle({label = \"FPS counter\", ref_table = G.SETTINGS, ref_value = 'fps_counter'}),\n      create_toggle({label = \"Perf overlay\", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),\n      create_toggle({label = \"Debug Logging\", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),\n      create_toggle({label = \"Phone Home Telemetry\", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),\n      create_toggle({label = \"Trigger Collapsing\", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),\n      {n=G.UIT.R, config={align = \"cm\", padding = 0.03}, nodes={{n=G.UIT.T, config={text = \"build \" .. (G.CRYPTID_MOBILE_BUILD or \"?\"), scale = 0.3, colour = G.C.UI.TEXT_INACTIVE}}}},\n    }}\n  elseif tab == 'Game' then|" "$ui_file"
     # 2. Register the Debug tab in create_UIBox_settings' tab list (last tab).
     sed -i "s|  local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(|  tabs[#tabs+1] = { label = \"Debug\", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }\n  local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(|" "$ui_file"
     if grep -q "tab == 'Debug'" "$ui_file" && grep -q "tab_definition_function_args = 'Debug'" "$ui_file" && grep -q "telemetry_home" "$ui_file"; then
-        log_success "SETTINGS_DEBUG_TAB applied (Debug tab: Debug HUD + Logging + Phone Home + Trigger Collapsing)"
+        log_success "SETTINGS_DEBUG_TAB applied (Debug tab: FPS counter + Perf overlay + Logging + Phone Home + Trigger Collapsing)"
     else
         # hard failure: telemetry_home/telemetry_log toggles live here now; if the
         # tab didn't materialise they're unreachable and consent can't be given.
@@ -1198,16 +1198,16 @@ apply_debug_overlay() {
         log_warn "files for debug overlay not found, skipping"
         return 0
     fi
-    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua"; then
+    if grep -q "G.SETTINGS.fps_counter or G.SETTINGS.perf_mode" "$game_lua"; then
         log_info "Debug overlay already applied"
         return 0
     fi
-    # The on-screen "Debug HUD" toggle (perf_mode) lives in the Debug settings tab
-    # (apply_settings_debug_tab); this only wires the draw + collection paths.
-    # collection runs with EITHER toggle: Debug Logging alone gives headless
-    # per-checkpoint timing through telemetry (no on-screen overlay — the
-    # draw stays gated on perf_mode below). The vanilla perf block already prints
-    # "Current FPS" above its timing graphs, so this IS the merged FPS+perf HUD.
+    # The two on-screen toggles (fps_counter, perf_mode) live in the Debug settings
+    # tab (apply_settings_debug_tab); this wires the draw + collection paths.
+    # collection runs with perf_mode OR Debug Logging: Debug Logging alone gives
+    # headless per-checkpoint timing through telemetry (no on-screen overlay). The
+    # outer perf block runs when EITHER on-screen toggle is on; the "Current FPS"
+    # print is gated on fps_counter, the timing graphs stay gated on perf_mode.
     sed -i 's|if not G.F_ENABLE_PERF_OVERLAY then return end|if not (G.SETTINGS.perf_mode or G.SETTINGS.telemetry_log) then return end|' "$misc"
     # Anchor on the stable "...G.F_VERBOSE then" suffix, not the full vanilla
     # condition: DebugPlus's bake rewrites the prefix of this exact line from
@@ -1215,10 +1215,14 @@ apply_debug_overlay() {
     # (it drives the same perf overlay via its showHUD config). Replacing the whole
     # condition with G.SETTINGS.perf_mode makes our Debug HUD toggle own the overlay
     # regardless of DebugPlus's prefix. "G.F_VERBOSE then" is unique in game.lua.
-    sed -i 's|if .*G\.F_VERBOSE then|if G.SETTINGS.perf_mode then|' "$game_lua"
+    sed -i 's|if .*G\.F_VERBOSE then|if G.SETTINGS.fps_counter or G.SETTINGS.perf_mode then|' "$game_lua"
     sed -i 's|        love.graphics.setColor(0, 1, 1,1)|        love.graphics.origin()\n        love.graphics.setColor(0, 1, 1,1)|' "$game_lua"
-    if grep -q "if G.SETTINGS.perf_mode then" "$game_lua"; then
-        log_success "Debug HUD (FPS + perf graphs) wired to G.SETTINGS.perf_mode"
+    # gate the "Current FPS" readout on its own toggle; the timing graphs below
+    # keep their vanilla "G.check and G.SETTINGS.perf_mode" guard, so each toggle
+    # owns exactly one half of the HUD.
+    sed -i 's|        love.graphics.print("Current FPS: "..fps, 10, 10)|        if G.SETTINGS.fps_counter then love.graphics.print("Current FPS: "..fps, 10, 10) end|' "$game_lua"
+    if grep -q "G.SETTINGS.fps_counter or G.SETTINGS.perf_mode" "$game_lua"; then
+        log_success "Debug HUD wired: FPS print -> fps_counter, perf graphs -> perf_mode"
     else
         log_warn "Debug overlay did not fully apply — check anchors"
     fi
@@ -1602,7 +1606,7 @@ apply_drag_select() {
         return 0
     fi
     # 1) default the setting on (seed into the SETTINGS table in globals.lua)
-    sed -i 's|    self.SETTINGS = {|    self.SETTINGS = {\n        enable_drag_select = true, -- DRAG_SELECT_DEFAULT|' "$globals"
+    sed -i 's|    self.SETTINGS = {|    self.SETTINGS = {\n        enable_drag_select = true, -- DRAG_SELECT_DEFAULT\n        fps_counter = false, -- FPS_COUNTER_DEFAULT|' "$globals"
     # 2) init the drag-select state alongside cursor_down
     sed -i 's|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}|self.cursor_down = {T = {x=0, y=0}, target = nil, time = 0, handled = true}\nself.dragSelectActive = {active = false, mode = nil, start_card = nil} -- DRAG_SELECT_INIT|' "$ctrl"
     # 2b) card-start slides: a touch press on a HAND card no longer picks the

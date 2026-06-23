@@ -1,8 +1,8 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index 7a664be..3f83dfb 100644
+index 6230cbf..a6334b2 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -6799,7 +6799,7 @@ function create_UIBox_generic_options(args)
+@@ -6800,7 +6800,7 @@ function create_UIBox_generic_options(args)
    end
  
    return {n=G.UIT.ROOT, config = {align = "cm", minw = G.ROOM.T.w*5, minh = G.ROOM.T.h*5,padding = 0.1, r = 0.1, colour = args.bg_colour or {G.C.GREY[1], G.C.GREY[2], G.C.GREY[3],0.7}}, nodes={

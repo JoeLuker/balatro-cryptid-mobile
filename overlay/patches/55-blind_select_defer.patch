@@ -1,5 +1,5 @@
 diff --git a/game.lua b/game.lua
-index 81ffd98..09ce565 100644
+index 85ea933..2c89c1e 100644
 --- a/game.lua
 +++ b/game.lua
 @@ -3620,8 +3620,8 @@ function Game:update_blind_select(dt)

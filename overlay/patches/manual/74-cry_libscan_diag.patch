@@ -1,30 +1,34 @@
-74 ok
 diff --git a/Mods/Cryptid/Cryptid.lua b/Mods/Cryptid/Cryptid.lua
-index 34c3414..04393f9 100644
+index 34c3414..e0d97ac 100644
 --- a/Mods/Cryptid/Cryptid.lua
 +++ b/Mods/Cryptid/Cryptid.lua
-@@ -131,13 +131,21 @@ end
+@@ -131,13 +131,25 @@ end
  
  --Load Library Files
  local files = NFS.getDirectoryItems(mod_path .. "lib")
-+-- CRY_LIB_RESILIENT: load each lib file independently so one file erroring on
-+-- the no-lovely Android build cannot abort loading overrides.lua + everything
-+-- after it. Failures report to the OBS suite (registry + LIB_LOAD_FAIL events).
-+local _cry_failed = {}
++-- CRY_LIB_RESILIENT: fully fault-tolerant lib load (pcall covers BOTH load_file
++-- and the chunk run) so one file erroring on the no-lovely Android build cannot
++-- abort overrides.lua + the rest. Results go to a GLOBAL (no I/O here:
++-- love.filesystem is not ready this early in start_up); android-telemetry flushes
++-- it to cry_libload.txt on the first frame + reports failures to OBS.
++_G.CRY_LIBLOAD = { reached = "start", n = #files, results = {} }
  for _, file in ipairs(files) do
 -	if string.match(file, "%.lua$") then -- fix the index local ret thing cuz its annoying when other files exist and cryptid tries to read em
 -		print("[CRYPTID] Loading library file " .. file)
-+	if string.match(file, "%.lua$") then
- 		local f, err = SMODS.load_file("lib/" .. file)
+-		local f, err = SMODS.load_file("lib/" .. file)
 -		assert(f, err)()
-+		local ok, rerr = pcall(function() assert(f, err)() end)
-+		if not ok then
-+			_cry_failed[#_cry_failed + 1] = file
-+			if OBS then OBS.event("LIB_LOAD_FAIL", { mod = "Cryptid", file = file, err = tostring(rerr):gsub("\n", " ") }) end
-+		end
++	if string.match(file, "%.lua$") then
++		local ok, rerr = pcall(function()
++			local f, err = SMODS.load_file("lib/" .. file)
++			assert(f, err)()
++		end)
++		_G.CRY_LIBLOAD.results[#_G.CRY_LIBLOAD.results + 1] = { file = file, ok = ok, err = (not ok) and tostring(rerr) or nil }
++		if OBS and not ok then OBS.event("LIB_LOAD_FAIL", { mod = "Cryptid", file = file, err = tostring(rerr):gsub("\n", " ") }) end
  	end
  end
-+if OBS then OBS.register("cryptid-lib", (#_cry_failed == 0) and "ok" or "degraded", (#_cry_failed > 0) and ("failed:" .. table.concat(_cry_failed, ",")) or ("loaded " .. #files)) end
++_G.CRY_LIBLOAD.reached = "done"
++local _cry_nfail = 0; for _, r in ipairs(_G.CRY_LIBLOAD.results) do if not r.ok then _cry_nfail = _cry_nfail + 1 end end
++if OBS then OBS.register("cryptid-lib", (_cry_nfail == 0) and "ok" or "degraded", "loaded " .. #files .. ", " .. _cry_nfail .. " failed") end
  local function process_items(f, mod)
  	local ret = f()
  	if ret and not ret.disabled then

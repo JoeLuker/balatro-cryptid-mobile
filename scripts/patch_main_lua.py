@@ -185,6 +185,14 @@ if love.system.getOS() == 'Android' then
     package.preload['SMODS.preflight.core'] = function()
         local _src = assert(love.filesystem.read('Mods/Steamodded/src/preflight/core.lua'))
         _src = _src:gsub('local lovely_path = false', "local lovely_path = 'Mods/Steamodded/'", 1)
+        -- Force the mod-scan dir to the relative 'Mods' (love.filesystem-resolvable to
+        -- files/save/game/Mods + the game.love archive). core.lua sets
+        -- SMODS.MODS_DIR = NFS.getWorkingDirectory(), which on Android resolves to a
+        -- bogus absolute path (files/save/ASET/Mods) so SMODS scans an empty/stale dir
+        -- and NO user mods load. The old override (append after main.lua's
+        -- set_mods_dir()) silently no-ops because the de-drifted Steamodded moved that
+        -- call out of main.lua. Set it here, right before initLoader()->loadMods().
+        _src = _src:gsub("initLoader%(%)", "SMODS.MODS_DIR = 'Mods'; initLoader()", 1)
         return assert(load(_src, '@Mods/Steamodded/src/preflight/core.lua'))()
     end
     local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'
