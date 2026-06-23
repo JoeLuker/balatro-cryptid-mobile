@@ -141,12 +141,24 @@ internal const val CRYPTID_MEMBER_COUNT = 38598
  *  acquisition path seeds identically (previously only buy() did, so Wraith-/spawn-created jokers were
  *  mis-seeded). [swashSellSum] is the current total sell value of owned jokers — only j_swashbuckler reads
  *  it; passing it in keeps this pure and directly unit-testable. */
-internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
+internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int = 0): FJoker {
     val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
     // MANIFEST: a migrated joker's initial scaling state comes from its JokerSpec (co-located with its hooks).
     JOKER_MANIFEST[offer.key]?.let { spec ->
         val s = spec.initialState
-        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = s.x, chips = s.chips, n = s.n, xc = s.xc)
+        // j_loyalty_card: n stores hands_played_at_create (card.lua:459 self.ability.hands_played_at_create = G.GAME.hands_played or 0).
+        // j_cry_blacklist: n stores the pseudorandom blacklisted rank id (2..14), chosen at add_to_deck time.
+        //   The legacy fjN block below had this random — replicated here for the MANIFEST path.
+        // All other MANIFEST jokers use s.n (usually 0).
+        val n = when (offer.key) {
+            "j_loyalty_card"  -> handsPlayed
+            "j_cry_blacklist" -> (2..14).random()
+            else              -> s.n
+        }
+        // j_cry_membershipcard: x = Xmult_mod(0.1) × member_count (initialFJoker legacy fallthrough is now
+        // unreachable for MANIFEST keys; we apply the runtime constant here instead).
+        val x = if (offer.key == "j_cry_membershipcard") 0.1 * CRYPTID_MEMBER_COUNT else s.x
+        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = x, chips = s.chips, n = n, xc = s.xc)
     }
     val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
     val fjMult = when (offer.key) {
@@ -550,6 +562,9 @@ internal class RunState {
     /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
      *  Default Spades matches Cryptid's G.GAME.current_round.cry_dropshot_card = { suit = "Spades" }. */
     private var dropShotSuit: Suit = Suit.S
+    /** Random rank chosen for j_mail each round (reset_mail_rank pattern — common_events.lua:2715-2731,
+     *  pseudoseed('mail'..ante)). Rebuild seeds by blindIndex; default Ace=14 matches Lua default. */
+    private var mailRank: Int = 14
     /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
      *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
      *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
@@ -605,7 +620,17 @@ internal class RunState {
                 val card = if (c.t.seal != Seal.NONE) deck.sealRandom(c.t.seal) else deck.enhanceRandom(c.t.enhancement)
                 Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name, "card" to (card?.key ?: "none"))
             }
-            is Consumable.PlanetC -> { handLevels.levelUp(c.planet.hand); Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display) }
+            is Consumable.PlanetC -> {
+                handLevels.levelUp(c.planet.hand)
+                // j_constellation: +0.1 Xmult per planet consumable USED (card.lua:3286 context.consumeable,
+                //   ability.set=='Planet'). Was incorrectly firing on planet purchase — fixed here.
+                for (o in owned) if (o.fj.key == "j_constellation") o.fj.x += 0.1
+                // j_hiker: +5 Chips permanently per scored played card (card.lua:3606-3608 context.individual).
+                //   Requires per-card persistent chip bonus tracking (PlayingCard.perma_bonus in Lua).
+                //   UNIMPLEMENTED: PlayingCard is immutable in this engine; no per-card bonus map exists.
+                //   Removing from wrong site (planet purchase) — correct site is the individual card-scoring pass.
+                Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display)
+            }
             is Consumable.SpectralC -> { applySpectral(c.s); Telemetry.event("RUN_USE_SPECTRAL", "spectral" to c.s.name) }
         }
         consumables.removeAt(i)
@@ -626,7 +651,7 @@ internal class RunState {
                 val keep = owned[owned.indices.random()].let { it.copy(offer = it.offer.copy(edition = Edition.POLY)) }
                 owned.clear(); owned.add(keep)
             }
-            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }))); money = 0 }
+            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed))); money = 0 }
         }
     }
     /** The tag offered for skipping the current (Small/Big) blind. */
@@ -858,6 +883,7 @@ internal class RunState {
         // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
         // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
         dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
+        mailRank = (2..14).random(Random(blindIndex * 1000000007L + 13))  // reset_mail_rank: pseudoseed('mail'..ante)
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
         maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
@@ -980,7 +1006,8 @@ internal class RunState {
             if (nonScoring.isNotEmpty()) o.fj.x += 0.2 * nonScoring.size
         }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
-                            debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
+                            debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
+                            totalHandsPlayed = totalHandsPlayed, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -1034,7 +1061,7 @@ internal class RunState {
     fun scoreBank(): Boolean {
         val r = pending ?: return false
         // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
-        val isNewTypeThisRound = r.handType !in roundHandTypes && r.handType != HandType.NONE
+        // (isNewTypeThisRound removed — keychange migrated to JOKER_MANIFEST HandScored reducer using handPlays[type] == 1.)
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
         totalChipsScored += r.score
@@ -1044,32 +1071,22 @@ internal class RunState {
         totalHandsPlayed += 1
         roundHandTypes.add(r.handType)
         // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer
-        // (green_joker +1 Mult, spare_trousers +2 on Two Pair/Full House, runner +15 on Straight, square +4 on 5 cards).
-        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size))) }
+        // (green_joker/spare_trousers/runner/square/obelisk + duplicare x+=playedCount,
+        //  clockwork +0.25 every 3rd hand, keychange +0.25 on first-type-this-round,
+        //  jimball +0.15 or reset based on handPlays map).
+        // totalHandsPlayed is post-increment (incremented above) — clockwork uses % 3 on it.
+        // handPlays snapshot is post-increment (recordHandPlayed ran above) — matches context.after.
+        val handPlaysSnapshot = _handPlayed.toMap()
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot, totalHandsPlayed))) }
         for (o in owned) when (o.fj.key) {
             // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
-            "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
-            // (spare_trousers / runner / square migrated to JOKER_MANIFEST reducers.)
-            // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
-            // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
-            "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2
-            // j_cry_clockwork: +0.25 Xmult every 3rd hand played (config.extra clock=3; totalHandsPlayed counts all hands).
-            "j_cry_clockwork"  -> if (totalHandsPlayed % 3 == 0) o.fj.x += 0.25
-            // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
-            "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
-            // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
-            "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
-            // j_cry_jimball: +0.15 Xmult while THIS hand type is the strict most-played (no other type has
-            // been played as often); resets x→1 if another type ties or beats it (misc_joker.lua:1623-1656).
-            // _handPlayed already includes this hand (recordHandPlayed ran above), matching the Lua timing.
-            "j_cry_jimball"    -> if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) {
-                val playMoreThan = handPlayed(r.handType)
-                val beaten = _handPlayed.any { (h, n) -> h != r.handType && n >= playMoreThan }
-                if (beaten) { if (o.fj.x > 1.0) o.fj.x = 1.0 } else o.fj.x += 0.15
-            }
-            // j_cry_happyhouse: +1 "check" per hand; once check > trigger(114) the joker_main gate (j.n>0)
-            // fires Emult^4 (misc_joker.lua:162,190). chips is the check counter (never read as chips here).
-            "j_cry_happyhouse" -> { o.fj.chips += 1.0; if (o.fj.chips > 114.0) o.fj.n = 1 }
+            "j_popcorn" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
+            // (spare_trousers/runner/square/obelisk migrated to JOKER_MANIFEST reducers.)
+            // (j_cry_clockwork migrated to JOKER_MANIFEST HandScored reducer — totalHandsPlayed % 3 == 0.)
+            // (j_cry_keychange migrated to JOKER_MANIFEST HandScored reducer — handPlays[type] == 1.)
+            // (j_cry_duplicare migrated to JOKER_MANIFEST HandScored reducer — x += playedCount.)
+            // (j_cry_jimball   migrated to JOKER_MANIFEST HandScored reducer — handPlays map comparison.)
+            // (j_cry_happyhouse migrated to JOKER_MANIFEST BeforeHand reducer — chips++, n=1 at >114.)
         }
         // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
         // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).
@@ -1161,16 +1178,12 @@ internal class RunState {
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
         // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
-        // chili_pepper: +0.5 Xmult per end_of_round; self-destruct when rounds_remaining hits 0
-        // (misc_joker.lua:1119-1177). j.x = Xmult accumulator; j.n = rounds_remaining (default 8).
+        // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
         // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
-        // Trigger: when chili_pepper's rounds_remaining reaches 0, notify fading/paved before removing.
+        // Trigger: when chili_pepper's rounds_remaining reaches 0 (after RoundEnd reduce), notify fading/paved.
         val perishableExpired = ArrayList<Owned>()
-        for (o in owned) if (o.fj.key == "j_cry_chili_pepper") {
-            o.fj.x += 0.5
-            o.fj.n = maxOf(0, o.fj.n - 1)  // j.n = rounds_remaining (0 → self-destruct)
-            if (o.fj.n <= 0) perishableExpired.add(o)
-        }
+        for (o in owned) if (o.fj.key == "j_cry_chili_pepper" && o.fj.n <= 0) perishableExpired.add(o)
         // caramel: counts down rounds_remaining (j.n, init 11) each end_of_round; self-destructs at 0
         // (epic.lua:1273-1312). j.x=1.75 (individual xMult per scored card) does NOT change — only
         // j.n ticks. No Xmult scaling; the x_mult is fixed for caramel's lifetime.
@@ -1178,23 +1191,19 @@ internal class RunState {
             o.fj.n = maxOf(0, o.fj.n - 1)
             if (o.fj.n <= 0) perishableExpired.add(o)
         }
-        // Notify fading_joker and paved_joker of each expiring perishable.
+        // Notify fading_joker of each expiring perishable (+1 Xmult per perishable that expires).
+        // paved_joker is NOT notified here — Lua has no joker_main xmult path for paved_joker;
+        // its j.x accumulation was phantom scoring. paved_joker's real effect is probability-only.
         if (perishableExpired.isNotEmpty()) {
-            for (rem in owned) when (rem.fj.key) {
-                "j_cry_fading_joker", "j_cry_paved_joker" -> rem.fj.x += 1.0
-            }
+            for (rem in owned) if (rem.fj.key == "j_cry_fading_joker") rem.fj.x += 1.0
         }
         // Remove expired perishables from the board.
         if (perishableExpired.isNotEmpty()) {
             owned.removeAll(perishableExpired)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to perishableExpired.size, "reason" to "perishable")
         }
-        // mondrian: +0.25 Xmult when 0 discards were used this round (misc_joker.lua:3228-3246).
-        for (o in owned) if (o.fj.key == "j_cry_mondrian" && roundDiscardsUsed == 0) o.fj.x += 0.25
-        // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
-        for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
-        // jollysus: re-arm the once-per-round spawn flag at end_of_round (m.lua:27-30).
-        for (o in owned) if (o.fj.key == "j_cry_jollysus") o.fj.n = 1
+        // (biggestm n=0 reset migrated to JOKER_MANIFEST RoundEnd reducer — m.lua:1437-1451.)
+        // (jollysus n=1 re-arm migrated to JOKER_MANIFEST RoundEnd reducer — m.lua:31-39.)
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
         val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
@@ -1231,18 +1240,30 @@ internal class RunState {
         // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
         val discardedCards = hand.filterIndexed { i, _ -> i in selected }
         val jackCount = discardedCards.count { it.id == 11 }
-        // For j_castle: count cards of the flush suit in the discard (if the discarded set is a flush).
+        // For j_castle: count discarded cards matching the round's random suit (same as dropShotSuit —
+        // castle_card.suit and cry_dropshot_card.suit are the same pseudorandom value per round via
+        // reset_castle_card, common_events.lua:2743-2757 + overrides.lua:300-316).
+        // Previous approximation ("flush discard only") was wrong; correct is per-card suit match.
         val discardSuits = discardedCards.map { it.suit }.distinct()
-        val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null
+        val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null  // kept for reference
         // MANIFEST: migrated jokers evolve state on the discard event via their reducer (e.g. green_joker -1 Mult).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.Discarded(discardedCards))) }
         for (o in owned) when (o.fj.key) {
             // (j_ramen depletion migrated to its JOKER_MANIFEST reducer on the Discarded event.)
-            // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
-            "j_mail"        -> if (jackCount > 0) o.fj.mult += 2.0 * jackCount
-            // j_castle: +3 Chips per suit in a FLUSH discard (config.extra chips=3; only counts matching suit cards).
-            // Faithful: fires in context.discard for flush hands; we approximate as "all cards same suit".
-            "j_castle"      -> if (flushSuit != null) o.fj.chips += 3.0 * discardedCards.count { it.suit == flushSuit }
+            // j_mail: +$5 per discarded card matching this round's random rank (game.lua:471 config.extra=5;
+            //   common_events.lua:2715-2731 reset_mail_rank). Fires in context.discard per matching card.
+            //   Bug fix: was "+2 Mult per Jack" — correct effect is money, amount is 5, rank is random.
+            "j_mail" -> {
+                val mailCount = discardedCards.count { it.id == mailRank }
+                if (mailCount > 0) money += 5 * mailCount
+            }
+            // j_castle: +3 Chips per discarded card matching the round's random suit (card.lua:3373-3381,
+            //   context.discard, config.extra.chip_mod=3). Suit = castle_card.suit = dropShotSuit (same
+            //   reset_castle_card source). Bug fix: was "flush discard only" — correct is per-card match.
+            "j_castle" -> {
+                val smearedJoker = owned.any { it.fj.key == "j_smeared" }
+                o.fj.chips += 3.0 * discardedCards.count { it.isSuit(dropShotSuit, smearedJoker) }
+            }
         }
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
         refill()
@@ -1255,7 +1276,7 @@ internal class RunState {
         if (!free) { money -= cost; totalCardsPurchased += 1 }
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
-        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed)))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
     }
@@ -1265,7 +1286,7 @@ internal class RunState {
     private fun createRandomJoker() {
         if (owned.size >= maxJokers) return
         val offer = CATALOG.random()
-        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed)))
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
     }
 
@@ -1283,15 +1304,7 @@ internal class RunState {
         for (rem in owned) when (rem.fj.key) {
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
             "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
-            // j_cry_m: +13 Xmult per Jolly Joker sold.
-            "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
-            // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
-            "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
-            // j_cry_mstack: retriggers +1 per sell_req (3) Jolly Joker sells (m.lua selling_card hook).
-            // fj.chips repurposed as the sell-progress counter (0–2); never read as chips for this key.
-            "j_cry_mstack"     -> if (soldKey == "j_jolly") {
-                if (rem.fj.chips + 1 >= 3) { rem.fj.n += 1; rem.fj.chips = 0.0 } else rem.fj.chips += 1.0
-            }
+            // (j_cry_m / j_cry_loopy / j_cry_mstack Sold reducers migrated to JOKER_MANIFEST.)
         }
         // j_cry_jollysus: selling any Joker (including a jollysus itself) makes each armed jollysus spawn a
         // random Joker, once per round; fj.n is the spawn flag (1=armed, reset to 1 at end_of_round). Done
@@ -1315,13 +1328,7 @@ internal class RunState {
         onCardBought()
         consumables.add(Consumable.PlanetC(po.planet))    // HELD until used (was: insta-level-up)
         shopPlanets = shopPlanets.filterNot { it === po }
-        // ── per-planet-buy joker accumulator hooks ────────────────────────────────────────────
-        for (o in owned) when (o.fj.key) {
-            // j_constellation: +0.1 Xmult per planet bought (config.extra xmult=0.1).
-            "j_constellation" -> o.fj.x += 0.1
-            // j_hiker: +5 Chips per planet bought (config.extra chips=5).
-            "j_hiker"         -> o.fj.chips += 5.0
-        }
+        // (j_constellation / j_hiker: trigger is planet USE, not purchase — hooks moved to useConsumable.)
         Telemetry.event("RUN_BUY_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
 
@@ -1384,7 +1391,14 @@ internal class RunState {
         val p = openPack ?: return
         if (p.picksLeft <= 0 || i in p.picked) return
         when (val item = p.items[i]) {
-            is PackItem.Card -> deck.add(item.card)          // Standard pack → card joins the deck
+            is PackItem.Card -> {
+                deck.add(item.card)          // Standard pack → card joins the deck
+                // MANIFEST: fire CardAdded so Hologram (and future card-add jokers) can accumulate.
+                // Mirrors Lua's playing_card_joker_effects({card}) at button_callbacks.lua:2291.
+                for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let {
+                    o.fj.restore(it(o.fj.snapshot(), GameEvent.CardAdded(count = 1)))
+                }
+            }
             is PackItem.SpectralItem -> if (hasConsumableRoom()) consumables.add(Consumable.SpectralC(item.s))   // held to use
             is PackItem.Tarot -> buyTarot(item.t, free = true)
             is PackItem.Planet -> buyPlanet(item.p, free = true)
@@ -1561,6 +1575,13 @@ internal class RunState {
         blindIndex += 1
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
         Telemetry.event("BLIND_SKIP", "tag" to tags.last().name)
+        // MANIFEST: fire BlindSkipped so Throwback (and future blind-skip jokers) can accumulate.
+        // Mirrors Lua's G.GAME.skips++ (button_callbacks.lua:2995) + SMODS.calculate_context({skip_blind=true})
+        // (button_callbacks.lua:3009). Throwback in Lua reads G.GAME.skips in its update() loop;
+        // here we accumulate +0.25 per event which is equivalent (x starts 1.0, +0.25 per skip).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let {
+            o.fj.restore(it(o.fj.snapshot(), GameEvent.BlindSkipped))
+        }
     }
 
     /** Fire (and consume) every earned tag whose trigger matches (Tag:apply_to_run by config.type). */

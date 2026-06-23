@@ -295,3 +295,466 @@ class BlueprintCopyTest {
         assertEquals(18.0, result.mult, 0.0)
     }
 }
+
+/** RoundEnd reducer: chili_pepper accumulates x and counts down n; self-destruct gate n==0. */
+class RoundEndTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    @Test fun chiliPepperAccumulatesXAndCountsDownN() {
+        val chili = spec("j_cry_chili_pepper")
+        // Initial state: x=1.0, n=8 (rounds_remaining)
+        assertEquals(1.0, chili.initialState.x, 0.0)
+        assertEquals(8, chili.initialState.n)
+
+        // After 1 RoundEnd: x=1.5, n=7 (not yet expired)
+        val s1 = chili.reduce!!(chili.initialState, GameEvent.RoundEnd(0))
+        assertEquals(1.5, s1.x, 1e-9)
+        assertEquals(7, s1.n)
+
+        // jokerMain fires at x=1.5 > 1.0 → XMult(1.5)
+        val ctx = Sctx()
+        assertEquals(Effect.XMult(1.5), chili.jokerMain!!(s1, ctx))
+
+        // Non-RoundEnd events are ignored by the reducer
+        val unchanged = chili.reduce!!(chili.initialState, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, unchanged.x, 0.0)
+        assertEquals(8, unchanged.n)
+    }
+
+    @Test fun chiliPepperCountdownFloorsAtZeroAndSignalsSelfDestruct() {
+        val chili = spec("j_cry_chili_pepper")
+        // Simulate 8 RoundEnd events (all 8 rounds_remaining consumed)
+        var s = chili.initialState
+        repeat(8) { s = chili.reduce!!(s, GameEvent.RoundEnd(0)) }
+        // After 8 rounds: x = 1.0 + 8*0.5 = 5.0, n = 0
+        assertEquals(5.0, s.x, 1e-9)
+        assertEquals(0, s.n)
+
+        // 9th RoundEnd: n is floored at 0 (no underflow), x continues to grow
+        val s9 = chili.reduce!!(s, GameEvent.RoundEnd(0))
+        assertEquals(5.5, s9.x, 1e-9)
+        assertEquals(0, s9.n)   // still 0, not -1
+
+        // RunScreen removes when n <= 0; jokerMain still reads x until removal fires
+        assertEquals(Effect.XMult(5.0), chili.jokerMain!!(s, Sctx()))
+    }
+
+    @Test fun chiliPepperJokerMainSilentAtDefaultX() {
+        val chili = spec("j_cry_chili_pepper")
+        // Fresh joker (x=1.0): jokerMain no-op (first round no Xmult yet)
+        assertEquals(Effect.None, chili.jokerMain!!(chili.initialState, Sctx()))
+    }
+
+    @Test fun mondrianAccumulatesOnlyWhenZeroDiscards() {
+        val mondrian = spec("j_cry_mondrian")
+        val s0 = mondrian.initialState     // x=1.0 (FJokerState default)
+
+        // RoundEnd with 0 discards used → +0.25
+        val s1 = mondrian.reduce!!(s0, GameEvent.RoundEnd(discardsUsed = 0))
+        assertEquals(1.25, s1.x, 1e-9)
+
+        // RoundEnd with 1 discard used → no change
+        val s2 = mondrian.reduce!!(s0, GameEvent.RoundEnd(discardsUsed = 1))
+        assertEquals(1.0, s2.x, 1e-9)
+
+        // Non-RoundEnd event → no change
+        val s3 = mondrian.reduce!!(s0, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, s3.x, 1e-9)
+
+        // jokerMain fires at x=1.25 > 1.0
+        assertEquals(Effect.XMult(1.25), mondrian.jokerMain!!(s1, Sctx()))
+        // jokerMain silent at default x=1.0
+        assertEquals(Effect.None, mondrian.jokerMain!!(s0, Sctx()))
+    }
+
+    @Test fun campfireResetsXAtRoundEnd() {
+        val campfire = spec("j_campfire")
+
+        // Sold event: +0.25 per sale
+        val sSold = campfire.reduce!!(campfire.initialState, GameEvent.Sold("j_joker", 3))
+        assertEquals(1.25, sSold.x, 1e-9)
+
+        // RoundEnd: resets to 1.0 regardless of accumulated x
+        val sAfterSale = FJokerState(x = 2.0)
+        val sReset = campfire.reduce!!(sAfterSale, GameEvent.RoundEnd(discardsUsed = 0))
+        assertEquals(1.0, sReset.x, 1e-9)
+
+        // RoundEnd fires even when x was already 1.0 (idempotent)
+        val sNoOp = campfire.reduce!!(campfire.initialState, GameEvent.RoundEnd(discardsUsed = 0))
+        assertEquals(1.0, sNoOp.x, 1e-9)
+    }
+}
+
+/** BlindSkipped reducer: throwback accumulates +0.25 Xmult per blind skipped. */
+class BlindSkippedTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    @Test fun throwbackAccumulatesXPerBlindSkipped() {
+        val throwback = spec("j_throwback")
+        val s0 = throwback.initialState     // x=1.0
+
+        // BlindSkipped → x += 0.25 each time
+        val s1 = throwback.reduce!!(s0, GameEvent.BlindSkipped)
+        assertEquals(1.25, s1.x, 1e-9)
+
+        val s2 = throwback.reduce!!(s1, GameEvent.BlindSkipped)
+        assertEquals(1.5, s2.x, 1e-9)   // Oracle: 2 skips → x=1.5 → 32*2*1.5=96
+
+        // Non-BlindSkipped event → no change
+        val sNop = throwback.reduce!!(s0, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, sNop.x, 1e-9)
+
+        // jokerMain fires at x=1.5
+        assertEquals(Effect.XMult(1.5), throwback.jokerMain!!(s2, Sctx()))
+
+        // jokerMain silent at x=1.0 (no skips yet)
+        assertEquals(Effect.None, throwback.jokerMain!!(s0, Sctx()))
+    }
+}
+
+/** BeforeHand reducer: cry_whip accumulates +0.5 Xmult when played hand has a 2 and a 7 of different suits. */
+class BeforeHandWhipTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    private fun ctx(vararg cards: PlayingCard, smeared: Boolean = false): Sctx =
+        Sctx().apply { fullHand = cards.toList(); this.smeared = smeared }
+
+    @Test fun whipAccumulatesWhen2And7DifferentSuits() {
+        val whip = spec("j_cry_whip")
+        val s0 = whip.initialState   // x=1.0
+
+        // 2H + 7S: different suits → triggers
+        val twoH = PlayingCard(rank = 2, suit = Suit.H)
+        val sevenS = PlayingCard(rank = 7, suit = Suit.S)
+        val s1 = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(twoH, sevenS)))
+        assertEquals(1.5, s1.x, 1e-9)   // Oracle: HighCard + whip x=1.5 → triggered once
+
+        // 2H + 7H: same suit → does NOT trigger
+        val sevenH = PlayingCard(rank = 7, suit = Suit.H)
+        val sNo = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(twoH, sevenH)))
+        assertEquals(1.0, sNo.x, 1e-9)
+
+        // No 2 or 7 → does NOT trigger
+        val aceS = PlayingCard(rank = 14, suit = Suit.S)
+        val sNone = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(aceS, sevenS)))
+        assertEquals(1.0, sNone.x, 1e-9)
+
+        // Non-BeforeHand event → no change
+        val sNop = whip.reduce!!(s0, GameEvent.HandScored(HandType.HIGH_CARD))
+        assertEquals(1.0, sNop.x, 1e-9)
+
+        // jokerMain fires at x=1.5
+        assertEquals(Effect.XMult(1.5), whip.jokerMain!!(s1, Sctx()))
+
+        // jokerMain silent at x=1.0
+        assertEquals(Effect.None, whip.jokerMain!!(s0, Sctx()))
+    }
+
+    @Test fun whipSmeared2HAnd7H() {
+        // Smeared: H and D are the same colour-pair; 2H and 7H become {H,D} ∩ {H,D} — still same →
+        // under smeared, H/D collapse into one pool, so 2H=={H,D} and 7H=={H,D}; single-element
+        // intersection ts={H,D}, ss={H,D} with size>1 → triggered (any 2 in one colour vs any 7
+        // in the same colour expands to 2 suits each, so ts.size>1 fires).
+        val whip = spec("j_cry_whip")
+        val s0 = whip.initialState
+        val twoH = PlayingCard(rank = 2, suit = Suit.H)
+        val sevenH = PlayingCard(rank = 7, suit = Suit.H)
+        // With Smeared: 2H expands to {H,D}, 7H expands to {H,D} — ts.size=2 → triggered
+        val sSmear = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(twoH, sevenH, smeared = true)))
+        assertEquals(1.5, sSmear.x, 1e-9)
+    }
+
+    @Test fun whipWildCard2TriggersWithAny7() {
+        // WILD 2: expands to all suits; any 7 (even same rank suit) gives diff-suit pair
+        val whip = spec("j_cry_whip")
+        val s0 = whip.initialState
+        val wild2 = PlayingCard(rank = 2, suit = Suit.H, enhancement = Enhancement.WILD)
+        val sevenH = PlayingCard(rank = 7, suit = Suit.H)
+        // WILD expands 2 to {H,D,S,C}; ts.size=4 → triggered
+        val sWild = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(wild2, sevenH)))
+        assertEquals(1.5, sWild.x, 1e-9)
+    }
+}
+
+/** CardAdded reducer: hologram accumulates +0.25 Xmult per card added to the deck. */
+class CardAddedTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    @Test fun hologramAccumulatesXPerCardAdded() {
+        val hologram = spec("j_hologram")
+        val s0 = hologram.initialState     // x=1.0 (FJokerState default)
+
+        // CardAdded(count=1) → +0.25
+        val s1 = hologram.reduce!!(s0, GameEvent.CardAdded(count = 1))
+        assertEquals(1.25, s1.x, 1e-9)
+
+        // CardAdded(count=3) → +0.75 from fresh state
+        val s3 = hologram.reduce!!(s0, GameEvent.CardAdded(count = 3))
+        assertEquals(1.75, s3.x, 1e-9)
+
+        // Non-CardAdded event → no change
+        val sNop = hologram.reduce!!(s0, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, sNop.x, 1e-9)
+
+        // jokerMain fires at x=1.75 (oracle: 32 chips × 1.75 mult = 56; with PAIR base 2+0 mult: floor(32*1.75*2)... wait)
+        // Oracle Case: "Pair of aces + hologram (x=1.75)" → 112: chips=32, mult=2, xMultMod=1.75 → floor(32*2*1.75)=112 ✓
+        assertEquals(Effect.XMult(1.75), hologram.jokerMain!!(s3, Sctx()))
+
+        // jokerMain silent at x=1.0 (no cards yet added this run)
+        assertEquals(Effect.None, hologram.jokerMain!!(s0, Sctx()))
+    }
+}
+
+/** HandScored reducer: obelisk grows x when a non-top hand is played, resets to 1.0 when current hand becomes top. */
+class ObeliskHandScoredTest {
+    private fun spec() = JOKER_MANIFEST.getValue("j_obelisk")
+
+    @Test fun obeliskGrowsWhenAnotherHandLeads() {
+        // PAIR played 1 time; HIGH_CARD also played 1 time → another type ties → grow
+        val obelisk = spec()
+        val s0 = obelisk.initialState   // x=1.0
+        val plays = mapOf(HandType.PAIR to 1, HandType.HIGH_CARD to 1)
+        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2, plays))
+        assertEquals(1.2, s1.x, 1e-9)   // PAIR is not the sole top → +0.2
+    }
+
+    @Test fun obeliskResetsWhenCurrentHandBecomesTop() {
+        // PAIR played 3 times; no other hand type → PAIR is the sole top → reset to 1.0
+        val obelisk = spec()
+        val s0 = obelisk.initialState.copy(x = 1.4)   // already accumulated
+        val plays = mapOf(HandType.PAIR to 3)   // only PAIR in history
+        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2, plays))
+        assertEquals(1.0, s1.x, 1e-9)   // PAIR is sole top → reset
+    }
+
+    @Test fun obeliskNoOpWithEmptyHandPlays() {
+        // Empty handPlays map (legacy compat: event fired without play-count context) → no change
+        val obelisk = spec()
+        val s0 = obelisk.initialState.copy(x = 1.4)
+        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2))
+        assertEquals(1.4, s1.x, 1e-9)
+    }
+
+    @Test fun obeliskJokerMainFiresAboveOne() {
+        // Oracle: x=1.4 → XMult(1.4) → chips=32, mult=2*1.4=2.8 → 89
+        val obelisk = spec()
+        assertEquals(Effect.XMult(1.4), obelisk.jokerMain!!(FJokerState(x = 1.4), Sctx()))
+        assertEquals(Effect.None, obelisk.jokerMain!!(FJokerState(x = 1.0), Sctx()))
+    }
+}
+
+/** Loyalty card jokerMain: fires X4 every 6 hands (elapsed ≡ 5 mod 6). */
+class LoyaltyCardJokerMainTest {
+    private fun spec() = JOKER_MANIFEST.getValue("j_loyalty_card")
+
+    private fun ctx(total: Int, atCreate: Int): Sctx =
+        Sctx().apply { totalHandsPlayed = total; handsPlayedAtCreate = atCreate }
+
+    @Test fun loyaltyCardFiresAtElapsedFive() {
+        // elapsed = 5 → (4 - 5) % 6 = (-1) % 6. Kotlin % is remainder; (-1).mod(6) = 5 == every(5) → fires.
+        // Use .mod() which is always non-negative in Kotlin.
+        val loyalty = spec()
+        val s = loyalty.initialState
+        // handsPlayedAtCreate=0, total=5: elapsed=5
+        assertEquals(Effect.XMult(4.0), loyalty.jokerMain!!(s, ctx(5, 0)))
+    }
+
+    @Test fun loyaltyCardSilentAtElapsedZero() {
+        val loyalty = spec()
+        val s = loyalty.initialState
+        // elapsed=0 → (4-0)%6=4 ≠ 5 → no fire
+        assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(0, 0)))
+    }
+
+    @Test fun loyaltyCardFiresAgainAtElapsedEleven() {
+        // elapsed=11 → (4-11) % 6 = (-7) % 6. Kotlin: (-7).mod(6)=5 → fires again
+        val loyalty = spec()
+        val s = loyalty.initialState
+        assertEquals(Effect.XMult(4.0), loyalty.jokerMain!!(s, ctx(11, 0)))
+    }
+
+    @Test fun loyaltyCardSilentAtElapsedFour() {
+        // elapsed=4 → (4-4)%6=0 ≠ 5 → no fire
+        val loyalty = spec()
+        val s = loyalty.initialState
+        assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(4, 0)))
+    }
+
+    @Test fun loyaltyCardWithNonZeroAtCreate() {
+        // atCreate=3, total=8 → elapsed=5 → fires
+        val loyalty = spec()
+        val s = loyalty.initialState
+        assertEquals(Effect.XMult(4.0), loyalty.jokerMain!!(s, ctx(8, 3)))
+        // atCreate=3, total=7 → elapsed=4 → no fire
+        assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(7, 3)))
+    }
+}
+
+class BlacklistJokerMainTest {
+    private fun spec() = JOKER_MANIFEST.getValue("j_cry_blacklist")
+
+    private fun ctx(played: List<PlayingCard>, held: List<PlayingCard> = emptyList()): Sctx =
+        Sctx().apply { fullHand = played; heldHand = held }
+
+    @Test fun blacklistNullifiesWhenPlayedHandContainsRank() {
+        // Blacklisted rank = 14 (Ace). Played hand contains an Ace.
+        val spec = spec()
+        val s = FJokerState(n = 14)
+        val result = spec.jokerMain!!(s, ctx(played = PlayingCard.hand("S_A", "H_K", "D_Q")))
+        assertEquals(Effect.Nullify, result)
+    }
+
+    @Test fun blacklistNullifiesWhenHeldHandContainsRank() {
+        // Rank in held hand (not played).
+        val spec = spec()
+        val s = FJokerState(n = 7)
+        val result = spec.jokerMain!!(s, ctx(
+            played = PlayingCard.hand("S_2", "H_3", "D_4", "C_5", "S_6"),
+            held   = PlayingCard.hand("H_7", "D_8"),
+        ))
+        assertEquals(Effect.Nullify, result)
+    }
+
+    @Test fun blacklistSilentWhenRankAbsent() {
+        // Rank 14 not present in played or held.
+        val spec = spec()
+        val s = FJokerState(n = 14)
+        val result = spec.jokerMain!!(s, ctx(
+            played = PlayingCard.hand("S_2", "H_3", "D_4", "C_5", "S_6"),
+            held   = PlayingCard.hand("H_7", "D_8"),
+        ))
+        assertEquals(Effect.None, result)
+    }
+
+    @Test fun blacklistDefaultNZeroTreatedAsAce() {
+        // n=0 → default rank = 14 (Ace). Ace in played hand → nullify.
+        val spec = spec()
+        val s = FJokerState(n = 0)
+        val result = spec.jokerMain!!(s, ctx(played = PlayingCard.hand("C_A")))
+        assertEquals(Effect.Nullify, result)
+    }
+}
+class HappyhouseReducerTest {
+    private val spec = JOKER_MANIFEST.getValue("j_cry_happyhouse")
+    private val reduce = spec.reduce!!
+    private fun ctx() = GameEvent.BeforeHand(Sctx().apply { scoringName = HandType.PAIR })
+
+    @Test fun incrementsCheckPerHand() {
+        val s0 = FJokerState()
+        val s1 = reduce(s0, ctx())
+        assertEquals(1.0, s1.chips, 0.0)
+        assertEquals(0, s1.n)  // gate not open yet
+    }
+
+    @Test fun gateOpensWhenCheckExceeds114() {
+        // chips = 114.0 (not yet > 114)
+        val s = reduce(FJokerState(chips = 114.0), ctx())
+        assertEquals(115.0, s.chips, 0.0)
+        assertEquals(1, s.n)  // > 114 → gate opens
+    }
+
+    @Test fun gateStaysOpenAtExactly114() {
+        // at 113 chips: +1 → 114, still < trigger → gate stays closed
+        val s = reduce(FJokerState(chips = 113.0), ctx())
+        assertEquals(114.0, s.chips, 0.0)
+        assertEquals(0, s.n)
+    }
+
+    @Test fun jokerMainFiresEMult4WhenGateOpen() {
+        assertEquals(Effect.EMult(4.0), spec.jokerMain!!(FJokerState(n = 1), Sctx()))
+        assertEquals(Effect.None,       spec.jokerMain!!(FJokerState(n = 0), Sctx()))
+    }
+}
+
+class ClockworkReducerTest {
+    private val reduce = JOKER_MANIFEST.getValue("j_cry_clockwork").reduce!!
+
+    @Test fun accumulates025OnEvery3rdHand() {
+        val s0 = FJokerState()
+        // hands 1 and 2 — no fire
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 1))
+        val s2 = reduce(s1, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 2))
+        assertEquals(1.0, s2.x, 0.001)  // unchanged
+        // hand 3 — fires
+        val s3 = reduce(s2, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 3))
+        assertEquals(1.25, s3.x, 0.001)
+        // hands 4–5 — no fire
+        val s4 = reduce(s3, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 4))
+        val s5 = reduce(s4, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 5))
+        assertEquals(1.25, s5.x, 0.001)
+        // hand 6 — fires again
+        val s6 = reduce(s5, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 6))
+        assertEquals(1.50, s6.x, 0.001)
+    }
+}
+
+class KeychangeReducerTest {
+    private val spec = JOKER_MANIFEST.getValue("j_cry_keychange")
+    private val reduce = spec.reduce!!
+
+    @Test fun accumulates025OnFirstPlayOfEachType() {
+        val s0 = FJokerState()
+        // First Pair this round: handPlays[PAIR]=1 → +0.25
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.PAIR, handPlays = mapOf(HandType.PAIR to 1)))
+        assertEquals(1.25, s1.x, 0.001)
+        // Second Pair: handPlays[PAIR]=2 → no gain
+        val s2 = reduce(s1, GameEvent.HandScored(HandType.PAIR, handPlays = mapOf(HandType.PAIR to 2)))
+        assertEquals(1.25, s2.x, 0.001)
+        // First Flush this round: +0.25
+        val s3 = reduce(s2, GameEvent.HandScored(HandType.FLUSH, handPlays = mapOf(HandType.PAIR to 2, HandType.FLUSH to 1)))
+        assertEquals(1.50, s3.x, 0.001)
+    }
+
+    @Test fun resetsTo1AtRoundEnd() {
+        val s = FJokerState(x = 2.5)
+        assertEquals(1.0, reduce(s, GameEvent.RoundEnd(0)).x, 0.001)
+    }
+}
+
+class DuplicareReducerTest {
+    private val reduce = JOKER_MANIFEST.getValue("j_cry_duplicare").reduce!!
+
+    @Test fun addsPlayedCountToX() {
+        val s0 = FJokerState()
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.FLUSH, playedCount = 5))
+        assertEquals(6.0, s1.x, 0.0)  // 1.0 + 5
+        val s2 = reduce(s1, GameEvent.HandScored(HandType.PAIR, playedCount = 2))
+        assertEquals(8.0, s2.x, 0.0)  // 6.0 + 2
+    }
+}
+
+class JimballReducerTest {
+    private val spec = JOKER_MANIFEST.getValue("j_cry_jimball")
+    private val reduce = spec.reduce!!
+
+    @Test fun accumulates015WhenStrictlyMostPlayed() {
+        val s0 = FJokerState()
+        // Only type played: Pair×1 — no competition, strictly most played
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.PAIR, handPlays = mapOf(HandType.PAIR to 1)))
+        assertEquals(1.15, s1.x, 0.001)
+    }
+
+    @Test fun resetsWhenTied() {
+        val s = FJokerState(x = 1.45)
+        // Pair×2, Flush×2 — tied → reset
+        val sAfter = reduce(s, GameEvent.HandScored(HandType.PAIR,
+            handPlays = mapOf(HandType.PAIR to 2, HandType.FLUSH to 2)))
+        assertEquals(1.0, sAfter.x, 0.001)
+    }
+
+    @Test fun resetsWhenBeaten() {
+        val s = FJokerState(x = 1.30)
+        // Pair×1, Flush×2 — Flush has beaten Pair → reset
+        val sAfter = reduce(s, GameEvent.HandScored(HandType.PAIR,
+            handPlays = mapOf(HandType.PAIR to 1, HandType.FLUSH to 2)))
+        assertEquals(1.0, sAfter.x, 0.001)
+    }
+
+    @Test fun ignoresNoneAndCryNone() {
+        val s = FJokerState(x = 1.15)
+        val sNone = reduce(s, GameEvent.HandScored(HandType.NONE, handPlays = mapOf(HandType.NONE to 1)))
+        assertEquals(1.15, sNone.x, 0.001)  // unchanged
+        val sCryNone = reduce(s, GameEvent.HandScored(HandType.CRY_NONE, handPlays = mapOf(HandType.CRY_NONE to 1)))
+        assertEquals(1.15, sCryNone.x, 0.001)  // unchanged
+    }
+}
