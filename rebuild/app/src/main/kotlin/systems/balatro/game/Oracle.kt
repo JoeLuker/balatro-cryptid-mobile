@@ -771,10 +771,91 @@ object Oracle {
         return pass to total
     }
 
+    /**
+     * Reducer-level regression tests that directly exercise joker state accumulation logic.
+     * These tests call the reducer directly, bypassing Score.score(), to verify that the
+     * accumulation condition is correct — something the jokerMain-read cases above cannot do
+     * because they pre-seed the state and only test the read path.
+     */
+    fun runReducer(): Pair<Int, Int> {
+        var pass = 0; var total = 0
+        fun check(label: String, ok: Boolean) {
+            if (ok) pass++; total++
+            println("${if (ok) "PASS" else "FAIL"}  $label")
+        }
+
+        // ── j_cry_keychange reducer ────────────────────────────────────────────
+        // Lua: played_this_round < 2 (checked BEFORE increment) → fires on count=0 (1st play) and count=1 (2nd play).
+        // Kotlin: handPlays[type] post-increment → fires on count=1 and count=2 (i.e., <= 2).
+        run {
+            val spec = JOKER_MANIFEST["j_cry_keychange"]!!.reduce!!
+            var s = FJokerState() // x starts at 1.0
+            val pairPlays = mapOf(HandType.PAIR to 1)
+            // 1st play of Pair: handPlays[PAIR]=1 ≤ 2 → +0.25 → x=1.25
+            s = spec(s, GameEvent.HandScored(HandType.PAIR, 2, pairPlays))
+            check("keychange: 1st play of PAIR → x=1.25", s.x == 1.25)
+            // 2nd play of Pair: handPlays[PAIR]=2 ≤ 2 → +0.25 → x=1.50  (was BUG: Kotlin used == 1, missed this)
+            val pairPlays2 = mapOf(HandType.PAIR to 2)
+            s = spec(s, GameEvent.HandScored(HandType.PAIR, 2, pairPlays2))
+            check("keychange: 2nd play of PAIR → x=1.50 (Lua played_this_round<2)", s.x == 1.5)
+            // 3rd play of Pair: handPlays[PAIR]=3 > 2 → no increment → x stays 1.50
+            val pairPlays3 = mapOf(HandType.PAIR to 3)
+            s = spec(s, GameEvent.HandScored(HandType.PAIR, 2, pairPlays3))
+            check("keychange: 3rd play of PAIR → x unchanged at 1.50", s.x == 1.5)
+            // Different hand type (Flush, first time): handPlays[FLUSH]=1 ≤ 2 → +0.25 → x=1.75
+            val flushPlays = mapOf(HandType.PAIR to 3, HandType.FLUSH to 1)
+            s = spec(s, GameEvent.HandScored(HandType.FLUSH, 5, flushPlays))
+            check("keychange: 1st play of FLUSH → x=1.75", s.x == 1.75)
+            // RoundEnd resets x → 1.0
+            s = spec(s, GameEvent.RoundEnd)
+            check("keychange: RoundEnd resets x to 1.0", s.x == 1.0)
+            // After reset: 1st play of Pair again → +0.25 → x=1.25 (round 2)
+            s = spec(s, GameEvent.HandScored(HandType.PAIR, 2, mapOf(HandType.PAIR to 1)))
+            check("keychange: 1st play of PAIR in round 2 after reset → x=1.25", s.x == 1.25)
+        }
+
+        // ── j_cry_clockwork reducer ─────────────────────────────────────────
+        // Lua: c2 starts at 0, clamp(c2, l2=3): c+1>=3→0 else c+1; fires xmult+=0.25 when c2==0.
+        // Counter is per-card (j.n), independent of global run hand count.
+        run {
+            val spec = JOKER_MANIFEST["j_cry_clockwork"]!!.reduce!!
+            var s = FJokerState(n = 0) // c2 starts at 0, x starts at 1.0
+            val ev = GameEvent.HandScored(HandType.PAIR, 2)
+            // Hand 1: c2=0 → newC2=1 (no fire) → x stays 1.0
+            s = spec(s, ev); check("clockwork: hand 1 (c2: 0→1) → x=1.0, n=1", s.x == 1.0 && s.n == 1)
+            // Hand 2: c2=1 → newC2=2 (no fire) → x stays 1.0
+            s = spec(s, ev); check("clockwork: hand 2 (c2: 1→2) → x=1.0, n=2", s.x == 1.0 && s.n == 2)
+            // Hand 3: c2=2 → newC2=0 (fires!) → x=1.25  (was BUG: globalising totalHandsPlayed % 3)
+            s = spec(s, ev); check("clockwork: hand 3 (c2: 2→0, fires) → x=1.25, n=0", s.x == 1.25 && s.n == 0)
+            // Hand 4: c2=0 → newC2=1 (no fire) → x stays 1.25
+            s = spec(s, ev); check("clockwork: hand 4 (c2: 0→1) → x=1.25, n=1", s.x == 1.25 && s.n == 1)
+            // Hands 5, 6: hand 6 should fire (c2: 1→2, 2→0)
+            s = spec(s, ev); s = spec(s, ev)
+            check("clockwork: hand 6 (c2: 2→0, fires again) → x=1.50, n=0", s.x == 1.5 && s.n == 0)
+        }
+
+        // ── j_cry_keychange end-to-end score: reducer+jokerMain together ───────────────
+        // Start fresh. Simulate 2 Pair hands (both should add +0.25) then score a third Pair.
+        // After 2 hands: x=1.0+0.25+0.25=1.50. Score: Pair aces chips=32, mult=2; X1.5→mult=3 → 96.
+        run {
+            val spec = JOKER_MANIFEST["j_cry_keychange"]!!.reduce!!
+            val kc = FJoker("j_cry_keychange")
+            kc.restore(spec(kc.snapshot(), GameEvent.HandScored(HandType.PAIR, 2, mapOf(HandType.PAIR to 1))))
+            kc.restore(spec(kc.snapshot(), GameEvent.HandScored(HandType.PAIR, 2, mapOf(HandType.PAIR to 2))))
+            check("keychange: x=1.5 after 2 Pair plays", kc.x == 1.5)
+            val s = Score.score(PlayingCard.hand("S_A", "H_A"), listOf(kc)).score
+            check("keychange: score after 2 Pair plays → 96.0", s == 96.0)
+        }
+
+        println("oracle-reducer: $pass/$total")
+        return pass to total
+    }
+
     @JvmStatic
     fun main(args: Array<String>) {
         val (pass, total) = run()
         val (mPass, mTotal) = runMultiCall()
-        if (pass != total || mPass != mTotal) kotlin.system.exitProcess(1)
+        val (rPass, rTotal) = runReducer()
+        if (pass != total || mPass != mTotal || rPass != rTotal) kotlin.system.exitProcess(1)
     }
 }
