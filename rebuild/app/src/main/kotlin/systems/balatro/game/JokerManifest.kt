@@ -322,4 +322,35 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_baseball"        to JokerSpec(otherJoker = { _, _, oj -> if (oj.rarity == 2) Effect.XMult(1.5) else Effect.None }),
     // cry_waluigi: X2.5 Mult per board joker including itself (Cryptid misc_joker.lua — no self-exclusion in vanilla).
     "j_cry_waluigi"     to JokerSpec(otherJoker = { _, _, _ -> Effect.XMult(2.5) }),
+
+    // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
+    // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
+    "j_steel_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(1.0 + 0.2 * s.n) else Effect.None }),
+    // stone: +25 Chips per Stone-enhanced card in the deck (before-pass sets j.n = stoneCount).
+    "j_stone"         to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.Chips(25.0 * s.n) else Effect.None }),
+    // blue_joker: +2 Chips per card remaining in the deck (before-pass sets j.n = deck.remaining).
+    "j_blue_joker"    to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.Chips(2.0 * s.n) else Effect.None }),
+    // banner: +30 Chips per remaining discard (before-pass sets j.n = discardsLeft).
+    "j_banner"        to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.Chips(30.0 * s.n) else Effect.None }),
+    // abstract: +3 Mult per joker on the board (before-pass sets j.n = owned.size).
+    "j_abstract"      to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.Mult(3.0 * s.n) else Effect.None }),
+    // drivers_license: X3 Mult when ≥16 enhanced cards in the deck (before-pass sets j.n = deck.enhancedCards).
+    "j_drivers_license" to JokerSpec(jokerMain = { s, _ -> if (s.n >= 16) Effect.XMult(3.0) else Effect.None }),
+
+    // ── batch 6b: ctx-reads — no j.n/j.x/j.chips state, reads scoring context directly ─────────────
+    // supernova: +Mult = number of times this hand type has been played this run (incl. current hand).
+    // ctx.scoringPlays is set before the joker pass to G.GAME.hands[scoringName].played + 1.
+    "j_supernova"     to JokerSpec(jokerMain = { _, ctx -> Effect.Mult(ctx.scoringPlays.toDouble()) }),
+
+    // ── batch 6c: individual retrigger — no state, fires on the first scored card ──────────────────
+    // hanging_chad: retrigger the FIRST scored card 2 additional times (game.lua config.extra.repetitions=2).
+    "j_hanging_chad"  to JokerSpec(individual = { _, ctx, c -> if (c === ctx.scoringHand.firstOrNull()) Effect.Retrigger(2) else Effect.None }),
+
+    // ── batch 6d: chips-accumulator jokerMain (j.chips set by run-loop events, jokerMain reads the total) ──
+    // castle: +j.chips (+=3 per flush-suit card discarded in a flush discard; run-loop sets it).
+    "j_castle"        to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
+    // cry_cursor: +j.chips (+=8 per card purchased; run-loop sets it via onCardBought()).
+    "j_cry_cursor"    to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
+    // cry_crustulum: +j.chips (+=4 per reroll in the shop; run-loop sets it via reroll()).
+    "j_cry_crustulum" to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
 )

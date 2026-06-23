@@ -248,6 +248,7 @@ object Score {
             // Hack retriggers 2/3/4/5 once each.
             // (j_sock_and_buskin migrated to JOKER_MANIFEST.)
             "j_sock_and_buskin" -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 1 }
+            // (j_hanging_chad migrated to JOKER_MANIFEST.)
             "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
             // (j_dusk migrated to JOKER_MANIFEST.)
             "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
@@ -318,14 +319,22 @@ object Score {
             // alt_wheel_of_fortune: not a Joker object_type — only a UI tooltip key (set="Other") in wheelhope's
             //   loc_vars (misc_joker.lua:7325). Can never appear on the board; removed from accumulator group.
             // (j_square, j_runner migrated to JOKER_MANIFEST.)
+            // (j_castle/j_cry_cursor/j_cry_crustulum migrated to JOKER_MANIFEST — j_wee remains legacy: unimplemented.)
             "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
+            // (j_steel_joker migrated to JOKER_MANIFEST.)
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
+            // (j_stone migrated to JOKER_MANIFEST.)
             "j_stone"       -> if (j.n > 0) return Fx().apply { chipMod = 25.0 * j.n }         // +25 / stone card
+            // (j_blue_joker migrated to JOKER_MANIFEST.)
             "j_blue_joker"  -> if (j.n > 0) return Fx().apply { chipMod = 2.0 * j.n }          // +2 / deck card
+            // (j_banner migrated to JOKER_MANIFEST.)
             "j_banner"      -> if (j.n > 0) return Fx().apply { chipMod = 30.0 * j.n }         // +30 / remaining discard
+            // (j_supernova migrated to JOKER_MANIFEST.)
             "j_supernova"   -> return Fx().apply { multMod = ctx.scoringPlays.toDouble() }     // +Mult = times this hand type has been played this run (incl. current)
+            // (j_abstract migrated to JOKER_MANIFEST.)
             "j_abstract"    -> if (j.n > 0) return Fx().apply { multMod = 3.0 * j.n }          // +3 / joker on board
+            // (j_drivers_license migrated to JOKER_MANIFEST.)
             "j_drivers_license" -> if (j.n >= 16) return Fx().apply { xMultMod = 3.0 }         // X3 if >=16 enhanced
             // (j_acrobat migrated to JOKER_MANIFEST.)
             "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
