@@ -87,6 +87,14 @@ object Score {
     /** Prime ranks for Cryptid's primus before-check (exotic.lua:606): 2, 3, 5, 7, Ace(14). */
     private val PRIMUS_PRIMES = setOf(2, 3, 5, 7, 14)
 
+    /** Cryptid "M" pool (m.lua jokers with pools.M). j_cry_mprime counts an M-pool joker as Jolly-equivalent
+     *  (m.lua:1538: is_jolly() OR pools.M) — NOT just j_jolly/jollysus/cry_m. (bonk uses is_jolly() only.) */
+    private val CRY_M_POOL = setOf(
+        "j_cry_bubblem", "j_cry_foodm", "j_cry_mstack", "j_cry_mneon", "j_cry_notebook", "j_cry_bonk",
+        "j_cry_loopy", "j_cry_scrabble", "j_cry_sacrifice", "j_cry_doodlem", "j_cry_virgo", "j_cry_smallestm",
+        "j_cry_biggestm", "j_cry_macabre", "j_cry_megg", "j_cry_longboi",
+    )
+
     // --- card scoring helpers (Card:get_chip_*), the played-card's own contribution -------------
     private fun chipBonus(c: PlayingCard): Double = when (c.enhancement) {   // get_chip_bonus
         Enhancement.STONE -> 50.0
@@ -495,7 +503,7 @@ object Score {
             // is_jolly() = key j_jolly or j_cry_jollysus, or edition e_cry_m.
             // M-pool jokers without those traits are unmodelled (FJoker has no pool field).
             "j_cry_mprime" -> {
-                val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m"
+                val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m" || oj.key in CRY_M_POOL
                 if (isJolly && j.x > 1.0) return Fx().apply { eMult = j.x }
             }
             // (j_cry_bonk migrated to JOKER_MANIFEST — initial state + before-pass scaling + this other_joker hook.)
