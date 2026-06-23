@@ -225,7 +225,8 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
     "j_square" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 5) s.copy(chips = s.chips + 4.0) else s },
+        // Square Joker: +4 Chips when EXACTLY 4 cards are played (vanilla j_square chip_mod=4; #full_hand==4), not 5.
+        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 4) s.copy(chips = s.chips + 4.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
 
@@ -601,7 +602,8 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
                 if (s.chips + 1.0 >= 3.0) s.copy(n = s.n + 1, chips = 0.0) else s.copy(chips = s.chips + 1.0)
             } else s
         },
-        individual = { s, ctx, _ -> if (ctx.cardarea == "play") Effect.Retrigger(s.n) else Effect.None },
+        // Lua caps the emitted repetitions at immutable.max_retriggers=40 (m.lua: math.min(retriggers, 40)).
+        individual = { s, ctx, _ -> if (ctx.cardarea == "play") Effect.Retrigger(minOf(s.n, 40)) else Effect.None },
     ),
 
     // ── 10b: jokerMain XMult from before-pass-set j.n + static j.x ─────────────────────────────────────
@@ -764,9 +766,11 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_crustulum: +j.chips (+=4 per reroll in the shop; run-loop sets it via reroll()).
     "j_cry_crustulum" to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
 
-    // ── Sold-event accumulator: eternalflame scales Xmult per any joker sold with sell_cost >= 2 ──
+    // ── Sold-event accumulator: eternalflame scales Xmult per joker sold ──
+    // Lua (misc_joker.lua:1357-1360): fires when `sell_cost >= 2 OR gameset ~= "modest"`. The rebuild targets the
+    // non-modest gameset, where the OR is always true → eternalflame scales on EVERY sale regardless of sell value.
     "j_cry_eternalflame" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.Sold && e.sellValue >= 2) s.copy(x = s.x + 0.1) else s },
+        reduce = { s, e -> if (e is GameEvent.Sold) s.copy(x = s.x + 0.1) else s },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 

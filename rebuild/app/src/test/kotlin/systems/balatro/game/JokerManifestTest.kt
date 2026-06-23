@@ -61,9 +61,9 @@ class JokerManifestTest {
         val rs = runner.reduce!!(FJokerState(), GameEvent.HandScored(HandType.STRAIGHT, 5))
         assertEquals(Effect.Chips(15.0), runner.jokerMain!!(rs, ctx(HandType.PAIR)))
 
-        val square = spec("j_square")  // accrues only on a 5-card hand (uses playedCount)
-        assertEquals(4.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 5)).chips, 0.0)
-        assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
+        val square = spec("j_square")  // accrues only on a 4-card hand (vanilla j_square: #full_hand == 4)
+        assertEquals(4.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
+        assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 5)).chips, 0.0)
     }
 
     @Test fun soldEventAccumulators() {
@@ -75,11 +75,11 @@ class JokerManifestTest {
         assertEquals(Effect.XMult(1.5), campfire.jokerMain!!(c, ctx(HandType.PAIR)))
         assertEquals(Effect.None, campfire.jokerMain!!(FJokerState(), ctx(HandType.PAIR)))   // x == 1 -> no Xmult yet
 
-        // eternalflame: +0.1 Xmult only when the sold joker's sell value >= 2.
+        // eternalflame: +0.1 Xmult on EVERY joker sold (non-modest gameset — the sell_cost>=2 gate never applies).
         val flame = spec("j_cry_eternalflame")
-        var f = flame.reduce!!(FJokerState(), GameEvent.Sold("j_x", 2))   // >= 2 -> +0.1
-        f = flame.reduce!!(f, GameEvent.Sold("j_y", 1))                   // < 2  -> no-op
-        assertEquals(1.1, f.x, 1e-9)
+        var f = flame.reduce!!(FJokerState(), GameEvent.Sold("j_x", 2))   // fires -> +0.1
+        f = flame.reduce!!(f, GameEvent.Sold("j_y", 1))                   // sellValue 1 ALSO fires -> +0.1
+        assertEquals(1.2, f.x, 1e-9)
 
         // ramen: starts x2 (manifest initialState), -0.01 per discarded card, floored at 1.
         val ramen = spec("j_ramen")
