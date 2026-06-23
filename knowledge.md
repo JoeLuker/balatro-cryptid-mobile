@@ -705,3 +705,15 @@ joker editions applied in one when-block AFTER joker_main (lines 714-720), but f
 ### Seltzer (j_selzer) audit
 vanilla card.lua:3963-3969 retriggers every scored played card once (repetitions=1, unconditional, cardarea=G.play); extra=10 is a self-destruct counter (card.lua:4203), not a retrigger gate. Engine Score.kt repetition block (lines 211-233) has NO j_selzer case — but more decisively, j_selzer is absent from CATALOG (RunScreen.kt:180-439, the sole obtainable-joker pool feeding shop/Buffoon/Wraith), so a Seltzer can never enter a run. Not a reachable score divergence; it's a missing-content gap. Canonical math (pair of aces): faithful=108, engine=64 (would-be, if it existed). Verdict: refuted as a real in-play score bug; real gap is content-completeness.
 <!-- session:2026-06-22-002ecc85 | commit:e935dc9a61aa0f39da2f52366f64b95175c45920 | files:.claude/worktrees/manifest-poc/rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt,.claude/worktrees/manifest-poc/rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,.claude/worktrees/manifest-poc/rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:.claude | date:2026-06-22 -->
+
+### Blacklist score-time vs lifecycle split
+Score.kt (lines 429-432) implements only the score-time nullify (chips=0, mult=0 when blacklisted rank appears in played/held hand). The self-destruct is a separate concern: during `joker_main`, if the blacklisted rank is absent from G.play.cards, G.hand.cards, G.discard.cards, AND G.deck.cards, the joker calls `card:start_dissolve()` and removes itself.
+<!-- session:2026-06-22-b208fa71 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-22 -->
+
+### Engine zone-model limitation
+The pure scoring engine (Score.kt) computes a single hand's score and has no board-mutation/joker-lifecycle phase, and no model of G.discard.cards or G.deck.cards. Lifecycle effects requiring discard pile + remaining deck contents must be handled in the run loop, not Score.kt.
+<!-- session:2026-06-22-b208fa71 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | date:2026-06-22 -->
+
+### Blacklist rank assignment
+Cryptid's `add_to_deck` assigns the blacklisted rank via `pseudorandom_element(SMODS.Ranks, pseudoseed("cry_blacklist"..ante))` (default 14=Ace). The engine's handling of `j.n` assignment on acquisition for this joker needed verification.
+<!-- session:2026-06-22-b208fa71 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:mods/Cryptid/items/spooky.lua | area:mods | date:2026-06-22 -->
