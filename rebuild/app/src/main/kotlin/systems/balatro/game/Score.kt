@@ -182,12 +182,19 @@ object Score {
         if (ctx.individual && ctx.cardarea == "play" && oc != null) when (j.key) {
             // (greedy/lusty/wrathful/gluttonous + even_steven/odd_todd/scholar migrated to JOKER_MANIFEST.)
             // --- vanilla individual jokers, faithful from calculate_joker (port-vanilla-jokers workflow) ---
+            // (j_arrowhead migrated to JOKER_MANIFEST.)
             "j_arrowhead"        -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
+            // (j_onyx_agate migrated to JOKER_MANIFEST.)
             "j_onyx_agate"       -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
+            // (j_fibonacci migrated to JOKER_MANIFEST.)
             "j_fibonacci"        -> if (oc.id in setOf(2, 3, 5, 8, 14)) return Fx().apply { mult = 8.0 }  // +8 Mult per A/2/3/5/8
+            // (j_scary_face migrated to JOKER_MANIFEST.)
             "j_scary_face"       -> if (oc.isFace || ctx.pareidolia) return Fx().apply { chips = 30.0 }              // +30 Chips/face
+            // (j_smiley migrated to JOKER_MANIFEST.)
             "j_smiley"           -> if (oc.isFace || ctx.pareidolia) return Fx().apply { mult = 5.0 }                // +5 Mult/face
+            // (j_triboulet migrated to JOKER_MANIFEST.)
             "j_triboulet"        -> if (oc.id == 12 || oc.id == 13) return Fx().apply { xMult = 2.0 }  // X2 Mult/K,Q
+            // (j_walkie_talkie migrated to JOKER_MANIFEST.)
             "j_walkie_talkie"    -> if (oc.id == 10 || oc.id == 4) return Fx().apply { chips = 10.0; mult = 4.0 }  // 10/4 -> +10c +4m
             // X2 on the FIRST face. is_face returns nil for debuffed cards (suit-debuff or face-debuff)
             // before the Pareidolia check, so debuffed cards never count as the first face.
@@ -236,9 +243,12 @@ object Score {
             // Hanging Chad retriggers the FIRST scored card twice (context.other_card == scoring_hand[1]);
             // Dusk retriggers every played card on the last hand (hands_left == 0);
             // Hack retriggers 2/3/4/5 once each.
+            // (j_sock_and_buskin migrated to JOKER_MANIFEST.)
             "j_sock_and_buskin" -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 1 }
             "j_hanging_chad"    -> if (oc === ctx.scoringHand.firstOrNull()) return Fx().apply { repetitions = 2 }
+            // (j_dusk migrated to JOKER_MANIFEST.)
             "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
+            // (j_hack migrated to JOKER_MANIFEST.)
             "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
             // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
             "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
@@ -251,6 +261,7 @@ object Score {
         if (ctx.jokerMain) when (j.key) {
             "j_joker"     -> return Fx().apply { multMod = 4.0 }
             // --- vanilla joker_main, self-contained (computed from the played/scoring hand) ---
+            // (j_half migrated to JOKER_MANIFEST.)
             "j_half"      -> if (ctx.fullHand.size <= 3) return Fx().apply { multMod = 20.0 }       // +20 Mult if <=3 cards
             "j_stuntman"  -> return Fx().apply { chipMod = 250.0 }                                  // +250 Chips
             "j_seeing_double" -> {                                                                  // X2 if a Club + a non-Club score
@@ -269,6 +280,7 @@ object Score {
             //     config {t_chips,type}). The generic branch (card.lua:4209) fires when the played cards
             //     CONTAIN the type via context.poker_hands — containment, not top rank (a Full House
             //     contains a Pair + Three of a Kind), exactly the Cryptid "type" jokers below. ---
+            // (j_sly migrated to JOKER_MANIFEST.)
             "j_sly"     -> if (HandType.PAIR in ctx.pokerHands)            return Fx().apply { chipMod = 50.0 }
             // (vanilla "+Chips if hand contains <type>" family j_wily..j_crafty migrated to JOKER_MANIFEST.)
             // (vanilla "+Mult if hand contains <type>" family j_jolly..j_droll migrated to JOKER_MANIFEST.)
@@ -311,8 +323,11 @@ object Score {
             "j_supernova"   -> return Fx().apply { multMod = ctx.scoringPlays.toDouble() }     // +Mult = times this hand type has been played this run (incl. current)
             "j_abstract"    -> if (j.n > 0) return Fx().apply { multMod = 3.0 * j.n }          // +3 / joker on board
             "j_drivers_license" -> if (j.n >= 16) return Fx().apply { xMultMod = 3.0 }         // X3 if >=16 enhanced
+            // (j_acrobat migrated to JOKER_MANIFEST.)
             "j_acrobat"     -> if (ctx.handsLeft == 0) return Fx().apply { xMultMod = 3.0 }    // X3 on last hand
+            // (j_mystic_summit migrated to JOKER_MANIFEST.)
             "j_mystic_summit" -> if (ctx.discardsLeft == 0) return Fx().apply { multMod = 15.0 } // +15 at 0 discards
+            // (j_cry_night migrated to JOKER_MANIFEST.)
             "j_cry_night"   -> if (ctx.handsLeft == 0) return Fx().apply { eMult = 3.0 }       // Emult: mult^3 on the final hand
             // stella_mortis: Emult scales via ending_shop (destroy planet -> +0.4 per planet, stored in j.x); starts at 1
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
@@ -337,10 +352,13 @@ object Score {
             // jtron: Emult = 1 + (# of base "j_joker" Jokers on the board); no-op when none present
             "j_cry_jtron" -> { val n = ctx.boardKeys.count { it == "j_joker" }; if (n > 0) return Fx().apply { eMult = 1.0 + n } }
             // --- Cryptid joker_main ---
+            // (j_cry_cube migrated to JOKER_MANIFEST.)
             "j_cry_cube"           -> return Fx().apply { chipMod = 6.0 }                      // +6 Chips
+            // (j_cry_brokenhome migrated to JOKER_MANIFEST.)
             "j_cry_brokenhome"     -> return Fx().apply { xMultMod = 11.4 }                    // X11.4 Mult
             "j_cry_triplet_rhythm" -> if (ctx.scoringHand.count { ctx.rankOf(it) == 3 } == 3) return Fx().apply { xMultMod = 3.0 }  // X3 iff exactly 3 threes (get_id; Maximized maps pips→10)
             // --- Cryptid "type" jokers: fire when the played cards CONTAIN this hand (context.poker_hands), flat ---
+            // (j_cry_giggly..j_cry_duos migrated to JOKER_MANIFEST — batch 4c hand-type flat jokers.)
             "j_cry_giggly"    -> if (HandType.HIGH_CARD in ctx.pokerHands)      return Fx().apply { multMod = 4.0 }
             "j_cry_silly"     -> if (HandType.FULL_HOUSE in ctx.pokerHands)     return Fx().apply { multMod = 16.0 }
             "j_cry_nutty"     -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 19.0 }
@@ -363,6 +381,7 @@ object Score {
             "j_cry_home"      -> if (HandType.FULL_HOUSE in ctx.pokerHands)    return Fx().apply { xMultMod = 3.5 }
             "j_cry_filler"    -> if (HandType.HIGH_CARD in ctx.pokerHands)     return Fx().apply { xMultMod = 1.00000000000003 }  // meme: ~X1 always
             "j_cry_nice"      -> if (ctx.fullHand.any { ctx.rankOf(it) == 6 } && ctx.fullHand.any { ctx.rankOf(it) == 9 }) return Fx().apply { chipMod = 420.0 }  // +420 Chips on a "69" (get_id; Maximized maps pips→10)
+            // (j_cry_big_cube migrated to JOKER_MANIFEST.)
             "j_cry_big_cube"  -> return Fx().apply { xChipMod = 6.0 }   // X6 Chips
             // antennastoheaven: j.xc += 0.1 per scored 4/7 (individual, accumulated above)
             // spaceglobe: j.xc += Xchipmod(0.2) each time the current target hand type is played (before, non-scoring); target rotates on match
@@ -370,6 +389,7 @@ object Score {
             "j_cry_antennastoheaven", "j_cry_spaceglobe", "j_cry_pirate_dagger" ->
                 if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
             // supercell: +15 Chips, X2 Chips, +15 Mult, X2 Mult (config.extra.stat1=15, stat2=2; non-modest path)
+            // (j_cry_supercell migrated to JOKER_MANIFEST.)
             "j_cry_supercell" -> return Fx().apply { chipMod = 15.0; xChipMod = 2.0; multMod = 15.0; xMultMod = 2.0 }
             // m: X(x_mult) Mult; x_mult starts at 1, gains +13 each time a Jolly Joker is sold (selling_card, non-scoring)
             "j_cry_m" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
@@ -378,11 +398,13 @@ object Score {
             // biggestm: X(j.x) Mult when j.n > 0 (j.n=1 when "before" check fired this hand, 0 otherwise)
             "j_cry_biggestm" -> if (j.n > 0) return Fx().apply { xMultMod = j.x }
             // kittyprinter: flat X2 Xmult every hand (config.extra.Xmult=2)
+            // (j_cry_kittyprinter migrated to JOKER_MANIFEST.)
             "j_cry_kittyprinter" -> return Fx().apply { xMultMod = 2.0 }
             // spy: Xmult = j.x each joker_main (spooky.lua:664). Run loop sets j.x = card.ability.x_mult
             // (default 0.5 from config). Oracle tests must always pass j.x explicitly.
             "j_cry_spy" -> return Fx().apply { xMultMod = j.x }
             // apjoker: X4 Xmult when the current blind is a boss blind (G.GAME.blind.boss)
+            // (j_cry_apjoker migrated to JOKER_MANIFEST.)
             "j_cry_apjoker" -> if (ctx.bossBlind) return Fx().apply { xMultMod = 4.0 }
             // clicked_cookie: +chips from j.chips accumulator (starts 200, decrements 1 per cry_press click)
             "j_cry_clicked_cookie" -> return Fx().apply { chipMod = j.chips }

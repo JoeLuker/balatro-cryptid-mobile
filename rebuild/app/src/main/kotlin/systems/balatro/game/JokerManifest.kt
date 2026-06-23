@@ -194,4 +194,78 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 5) s.copy(chips = s.chips + 4.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
+
+    // ── batch 4a: per-scored-card reactors — vanilla individual jokers ────────────────────────────────
+    // arrowhead: +50 Chips per scored Spade (game.lua)
+    "j_arrowhead"     to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.S, ctx.smeared)) Effect.Chips(50.0) else Effect.None }),
+    // onyx_agate: +7 Mult per scored Club (game.lua)
+    "j_onyx_agate"    to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.C, ctx.smeared)) Effect.Mult(7.0) else Effect.None }),
+    // fibonacci: +8 Mult per scored A, 2, 3, 5, 8 (Fibonacci ranks; get_id, Maximized maps pips→10)
+    "j_fibonacci"     to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 3, 5, 8, 14)) Effect.Mult(8.0) else Effect.None }),
+    // scary_face: +30 Chips per scored face card (includes Pareidolia)
+    "j_scary_face"    to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Chips(30.0) else Effect.None }),
+    // smiley: +5 Mult per scored face card (includes Pareidolia)
+    "j_smiley"        to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Mult(5.0) else Effect.None }),
+    // triboulet: X2 Mult per scored King or Queen (game.lua)
+    "j_triboulet"     to JokerSpec(individual = { _, _, c -> if (c.id == 12 || c.id == 13) Effect.XMult(2.0) else Effect.None }),
+    // walkie_talkie: +10 Chips, +4 Mult per scored 10 or 4 (game.lua)
+    "j_walkie_talkie" to JokerSpec(individual = { _, _, c ->
+        if (c.id == 10 || c.id == 4) Effect.All(listOf(Effect.Chips(10.0), Effect.Mult(4.0))) else Effect.None
+    }),
+    // hack: retrigger each scored 2, 3, 4, or 5 (game.lua)
+    "j_hack"          to JokerSpec(individual = { _, _, c -> if (c.id in 2..5) Effect.Retrigger(1) else Effect.None }),
+    // sock_and_buskin: retrigger each scored face card (game.lua)
+    "j_sock_and_buskin" to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Retrigger(1) else Effect.None }),
+    // dusk: retrigger every scored card on the last hand of the round (game.lua)
+    "j_dusk"          to JokerSpec(individual = { _, ctx, _ -> if (ctx.handsLeft == 0) Effect.Retrigger(1) else Effect.None }),
+
+    // ── batch 4b: joker_main flat effect — no scaling state, simple condition ────────────────────────
+    // half: +20 Mult when hand size ≤ 3 played cards (game.lua)
+    "j_half"         to JokerSpec(jokerMain = { _, ctx -> if (ctx.fullHand.size <= 3) Effect.Mult(20.0) else Effect.None }),
+    // sly: +50 Chips when played hand contains a Pair (game.lua; j_sly is the "+Chips / Pair" entry)
+    "j_sly"          to JokerSpec(jokerMain = { _, ctx -> if (HandType.PAIR in ctx.pokerHands) Effect.Chips(50.0) else Effect.None }),
+    // acrobat: X3 Mult on the final hand of the round (game.lua)
+    "j_acrobat"      to JokerSpec(jokerMain = { _, ctx -> if (ctx.handsLeft == 0) Effect.XMult(3.0) else Effect.None }),
+    // mystic_summit: +15 Mult when discards remaining is 0 (game.lua)
+    "j_mystic_summit" to JokerSpec(jokerMain = { _, ctx -> if (ctx.discardsLeft == 0) Effect.Mult(15.0) else Effect.None }),
+    // cry_night: Emult^3 (mult^3) on the final hand of the round (Cryptid misc_joker.lua)
+    "j_cry_night"    to JokerSpec(jokerMain = { _, ctx -> if (ctx.handsLeft == 0) Effect.EMult(3.0) else Effect.None }),
+    // cry_supercell: +15 Chips, X2 Chips, +15 Mult, X2 Mult unconditionally (Cryptid misc_joker.lua)
+    "j_cry_supercell" to JokerSpec(jokerMain = { _, _ ->
+        Effect.All(listOf(Effect.Chips(15.0), Effect.XChips(2.0), Effect.Mult(15.0), Effect.XMult(2.0)))
+    }),
+    // cry_kittyprinter: X2 Mult unconditionally (Cryptid misc_joker.lua config.extra.Xmult=2)
+    "j_cry_kittyprinter" to JokerSpec(jokerMain = { _, _ -> Effect.XMult(2.0) }),
+    // cry_brokenhome: X11.4 Mult unconditionally (Cryptid spooky.lua)
+    "j_cry_brokenhome"   to JokerSpec(jokerMain = { _, _ -> Effect.XMult(11.4) }),
+    // cry_cube: +6 Chips unconditionally (Cryptid misc_joker.lua config.extra.chip=6)
+    "j_cry_cube"         to JokerSpec(jokerMain = { _, _ -> Effect.Chips(6.0) }),
+    // cry_big_cube: X6 Chips (Xchip) unconditionally (Cryptid exotic.lua)
+    "j_cry_big_cube"     to JokerSpec(jokerMain = { _, _ -> Effect.XChips(6.0) }),
+    // cry_apjoker: X4 Mult on boss blinds (Cryptid misc_joker.lua)
+    "j_cry_apjoker"      to JokerSpec(jokerMain = { _, ctx -> if (ctx.bossBlind) Effect.XMult(4.0) else Effect.None }),
+
+    // ── batch 4c: Cryptid hand-type flat jokers (contains-<type> → flat stat) ────────────────────────
+    // The two-column layout: High Card, Full House, Four of a Kind, Straight Flush,
+    // Five of a Kind, Flush House, Flush Five, Two Pair — each has Mult / Chips / XMult variants.
+    "j_cry_giggly"    to JokerSpec(jokerMain = { _, ctx -> if (HandType.HIGH_CARD in ctx.pokerHands) Effect.Mult(4.0) else Effect.None }),
+    "j_cry_dubious"   to JokerSpec(jokerMain = { _, ctx -> if (HandType.HIGH_CARD in ctx.pokerHands) Effect.Chips(20.0) else Effect.None }),
+    "j_cry_silly"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FULL_HOUSE in ctx.pokerHands) Effect.Mult(16.0) else Effect.None }),
+    "j_cry_foxy"      to JokerSpec(jokerMain = { _, ctx -> if (HandType.FULL_HOUSE in ctx.pokerHands) Effect.Chips(130.0) else Effect.None }),
+    "j_cry_home"      to JokerSpec(jokerMain = { _, ctx -> if (HandType.FULL_HOUSE in ctx.pokerHands) Effect.XMult(3.5) else Effect.None }),
+    "j_cry_nutty"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) Effect.Mult(19.0) else Effect.None }),
+    "j_cry_shrewd"    to JokerSpec(jokerMain = { _, ctx -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) Effect.Chips(150.0) else Effect.None }),
+    "j_cry_manic"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) Effect.Mult(22.0) else Effect.None }),
+    "j_cry_tricksy"   to JokerSpec(jokerMain = { _, ctx -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) Effect.Chips(170.0) else Effect.None }),
+    "j_cry_nuts"      to JokerSpec(jokerMain = { _, ctx -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) Effect.XMult(5.0) else Effect.None }),
+    "j_cry_delirious" to JokerSpec(jokerMain = { _, ctx -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) Effect.Mult(22.0) else Effect.None }),
+    "j_cry_savvy"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) Effect.Chips(170.0) else Effect.None }),
+    "j_cry_quintet"   to JokerSpec(jokerMain = { _, ctx -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) Effect.XMult(5.0) else Effect.None }),
+    "j_cry_wacky"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_HOUSE in ctx.pokerHands) Effect.Mult(30.0) else Effect.None }),
+    "j_cry_subtle"    to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_HOUSE in ctx.pokerHands) Effect.Chips(240.0) else Effect.None }),
+    "j_cry_unity"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_HOUSE in ctx.pokerHands) Effect.XMult(9.0) else Effect.None }),
+    "j_cry_kooky"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_FIVE in ctx.pokerHands) Effect.Mult(30.0) else Effect.None }),
+    "j_cry_discreet"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_FIVE in ctx.pokerHands) Effect.Chips(240.0) else Effect.None }),
+    "j_cry_swarm"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_FIVE in ctx.pokerHands) Effect.XMult(9.0) else Effect.None }),
+    "j_cry_duos"      to JokerSpec(jokerMain = { _, ctx -> if (HandType.TWO_PAIR in ctx.pokerHands || HandType.FULL_HOUSE in ctx.pokerHands) Effect.XMult(2.5) else Effect.None }),
 )
