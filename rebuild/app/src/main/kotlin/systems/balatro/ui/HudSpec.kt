@@ -921,7 +921,9 @@ internal object GameOverSpec {
 private fun gameOverColour(name: String): Color = when (name) {
     "WHITE", "UI.TEXT_LIGHT" -> Balatro.White
     "BLACK", "DYN_UI.MAIN", "DYN_UI.DARK", "DYN_UI.BOSS_MAIN", "DYN_UI.BOSS_DARK" -> Balatro.Panel
-    "L_BLACK", "UI.TEXT_DARK" -> Balatro.PanelLight
+    "L_BLACK" -> Balatro.PanelLight
+    "UI.TEXT_DARK" -> Balatro.Ink                 // dark text (run-info level pip) — NOT the light L_BLACK
+    "EDITION" -> Color(0xFF8B73EB)                // holographic purple (YOU WIN! title)
     "RED", "MULT" -> Balatro.Mult; "BLUE", "CHIPS" -> Balatro.Chips
     "GREEN" -> Balatro.Green; "MONEY" -> Balatro.Money; "GOLD" -> Balatro.Gold
     "IMPORTANT", "FILTER" -> Balatro.Orange; "GREY", "JOKER_GREY" -> Balatro.Grey
@@ -951,8 +953,27 @@ private fun gameOverStat(id: String, s: RunState): String = when (id) {
     else              -> "0"
 }
 
+/** True if the subtree renders any visible text (a T with text or a dynatext O). */
+private fun goHasText(node: org.json.JSONObject): Boolean {
+    val cfgJ = node.optJSONObject("config")
+    if (node.optString("n") == "T" && cfgJ?.opt("text") != null) return true
+    if (cfgJ?.optJSONObject("object")?.optString("\$") == "dynatext") return true
+    val kids = node.optJSONArray("nodes") ?: return false
+    for (i in 0 until kids.length()) if (goHasText(kids.getJSONObject(i))) return true
+    return false
+}
+
 private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: String? = null): UI {
     val cfgJ = node.optJSONObject("config") ?: org.json.JSONObject()
+    // Prune the decorative text-less columns — the jimbo_spot sprite column (config padding=2) and the
+    // overlay_menu_infotip backing. We skip those sprites anyway, but their reserved layout width shoves
+    // the centred dialog off-screen (right column + buttons clipped). Collapsing them to zero size lets
+    // the dialog centre on its own bounds. Scoped to subtrees that contain ONLY those ids (no text).
+    val tag0 = node.optString("n")
+    if ((tag0 == "C" || tag0 == "R" || tag0 == "B") && !goHasText(node)) {
+        val s = node.toString()
+        if ("jimbo_spot" in s || "overlay_menu_infotip" in s) return Bx(Cfg())
+    }
     val myId = cfgJ.optString("id")
     val childStat = if (myId in GAMEOVER_STAT_IDS) myId else statId   // thread the stat-row id to its DynaText
     val cv = cfgJ.optJSONObject("colour")
@@ -999,9 +1020,8 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
                 val segs = if (segsJ != null) (0 until segsJ.length()).map { i ->
                     val sj = segsJ.getJSONObject(i)
                     val txt = when {
+                        childStat != null -> gameOverStat(childStat, b.s)   // live run stat overrides the captured snapshot
                         sj.has("text") -> sj.getString("text")
-                        sj.has("value") && childStat != null -> gameOverStat(childStat, b.s)   // bound run stat
-                        sj.has("value") -> ""
                         else -> ""
                     }
                     DynSeg({ txt }, col, scale)

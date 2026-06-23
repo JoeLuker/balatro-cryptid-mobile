@@ -2713,7 +2713,14 @@ private fun EndScreen(s: RunState, win: Boolean, onRestart: () -> Unit, onMainMe
             // create_UIBox_game_over / _win is a 100×57.5u overlay backing with the dialog centred in
             // it; render it centred over the full surface (RenderUIBoxAt centres tree in the rect) and
             // clip the oversized backing to the screen — exactly how vanilla layers the overlay menu.
-            RenderUIBoxAt(tree, u, 0f, 0f, maxWidth.value / u, maxHeight.value / u)
+            // The game-over dialog (title + stat grid + Copy/New-Run/Main-Menu) needs ~14.5u of height;
+            // when the surface is shorter (height-constrained 16:9 → ~12.9u room), scale the overlay down
+            // so the title top and bottom button aren't clipped (overlays fit-scale to the window).
+            val sw = maxWidth.value; val sh = maxHeight.value
+            val fit = minOf(1f, (sh / u) / 14.5f)
+            Box(Modifier.graphicsLayer { scaleX = fit; scaleY = fit }) {
+                RenderUIBoxAt(tree, u, 0f, 0f, sw / u, sh / u)
+            }
         } else {
             Panel(Modifier.width(360.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
