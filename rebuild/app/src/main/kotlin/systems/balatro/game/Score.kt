@@ -308,12 +308,8 @@ object Score {
             //   manipulation (stone cards fill straights/flushes) via Cryptid.get_paved_joker() in overrides.lua.
             //   The Kotlin j.x += 1.0 per perishable expiry and j.x > 1.0 → XMult was phantom scoring not in Lua.
             //   Removed from xmult when-arm; RunScreen perishable accumulation for paved_joker also removed.
-            // j_cry_dropshot: NOT YET MIGRATED — requires cry_dropshot_card round-state (random suit chosen at
-            //   round start, stored per-round). Accumulates x_mult += Xmult_mod(0.2) * count of non-scoring
-            //   played cards of that suit (misc_joker.lua:57-89, context.before). Placeholder stays in-arm.
-            "j_cry_dropshot" ->
-                if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
-            // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
+            // j_cry_dropshot migrated to JOKER_MANIFEST (jokerMain x > 1 reader; RunScreen.dropShotSuit
+            //   infrastructure and per-hand accumulation (RunScreen:984-986) were already complete).
             // pizza: has NO joker_main scoring path in Lua — only end_of_round countdown and selling_self pizza-slice
             //   spawn (misc_joker.lua:10139). j.x is never set for this key; removed from accumulator group.
             // alt_wheel_of_fortune: not a Joker object_type — only a UI tooltip key (set="Other") in wheelhope's

@@ -860,4 +860,16 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_fading_joker" to JokerSpec(
         jokerMain = { s, _ -> Effect.XMult(s.x) },
     ),
+
+    // j_cry_dropshot: +0.2 Xmult per non-scoring played-hand card of this round's target suit
+    // (misc_joker.lua:57-89, context.before). The target suit is chosen at round start via
+    // reset_castle_card (overrides.lua:303-316): pseudorandom_element of the deck seeded by ante,
+    // stored in G.GAME.current_round.cry_dropshot_card.suit. In Kotlin: RunScreen.dropShotSuit is
+    // set in startRound() (seeded by blindIndex) and the accumulation loop at RunScreen:984-986
+    // applies j.x += 0.2 * nonScoring.size (held cards of that suit, isSuit honours WILD/Smeared).
+    // jokerMain: x > 1 → XMult(x). blueprint_compat=true, perishable_compat=false.
+    // Infrastructure was already complete; only the MANIFEST jokerMain spec was missing.
+    "j_cry_dropshot" to JokerSpec(
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
 )
