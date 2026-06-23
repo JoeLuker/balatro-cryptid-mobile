@@ -63,6 +63,8 @@ class Sctx {
     var board: List<FJoker> = emptyList()   // every joker in board order — Blueprint/Brainstorm resolve copy targets here
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
+    var totalHandsPlayed: Int = 0            // G.GAME.hands_played (all hand types, cumulative) — loyalty_card jokerMain
+    var handsPlayedAtCreate: Int = 0         // self.ability.hands_played_at_create — set per-joker in Score.kt calcJoker
     var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
     var selfJoker: FJoker? = null           // set by dispatchManifest to j before invoking any hook — enables identity guard (j !== rj / j !== oj)
     /** j_cry_maximized patches get_id: pips→10, faces→13. Used by every rank-literal comparison in
@@ -288,7 +290,9 @@ object Score {
             // j_cry_mondrian migrated to JOKER_MANIFEST (batch 9b: RoundEnd(discardsUsed==0) reducer).
             // j_throwback migrated to JOKER_MANIFEST (BlindSkipped-event reducer; RunScreen.skipBlind() dispatches).
             // j_cry_whip migrated to JOKER_MANIFEST (BeforeHand reducer; Score.kt before-pass loop removed).
-            "j_obelisk", "j_loyalty_card",
+            // j_obelisk migrated to JOKER_MANIFEST (HandScored reducer; handPlays map passed from RunScreen).
+            // j_loyalty_card migrated to JOKER_MANIFEST (jokerMain ctx-read; ctx.totalHandsPlayed + ctx.handsPlayedAtCreate).
+
             "j_cry_dropshot", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
             "j_cry_paved_joker", "j_cry_membershipcard" ->
@@ -503,6 +507,7 @@ object Score {
         bossBlind: Boolean = false,
         debuffedJokerKey: String? = null,   // CRIMSON_HEART: key of the disabled joker for this hand
         handTypePlays: Map<HandType, Int> = emptyMap(),  // PRIOR run-total plays per hand type (NOT incl. this hand); supernova reads scoringName's count +1
+        totalHandsPlayed: Int = 0,          // G.GAME.hands_played (all types, cumulative) — loyalty_card needs this in jokerMain
         trace: MutableList<ScoreStep>? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
@@ -530,6 +535,7 @@ object Score {
             this.scoringPlays = (handTypePlays[handType] ?: 0) + 1   // +1: this hand counts as a play (vanilla increments hand.played before the joker pass)
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
+            this.totalHandsPlayed = totalHandsPlayed
             this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
             this.debuffFace = debuff is Debuff.DebuffFace
             this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards

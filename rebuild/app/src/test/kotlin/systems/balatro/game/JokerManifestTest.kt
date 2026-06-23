@@ -504,3 +504,88 @@ class CardAddedTest {
         assertEquals(Effect.None, hologram.jokerMain!!(s0, Sctx()))
     }
 }
+
+/** HandScored reducer: obelisk grows x when a non-top hand is played, resets to 1.0 when current hand becomes top. */
+class ObeliskHandScoredTest {
+    private fun spec() = JOKER_MANIFEST.getValue("j_obelisk")
+
+    @Test fun obeliskGrowsWhenAnotherHandLeads() {
+        // PAIR played 1 time; HIGH_CARD also played 1 time → another type ties → grow
+        val obelisk = spec()
+        val s0 = obelisk.initialState   // x=1.0
+        val plays = mapOf(HandType.PAIR to 1, HandType.HIGH_CARD to 1)
+        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2, plays))
+        assertEquals(1.2, s1.x, 1e-9)   // PAIR is not the sole top → +0.2
+    }
+
+    @Test fun obeliskResetsWhenCurrentHandBecomesTop() {
+        // PAIR played 3 times; no other hand type → PAIR is the sole top → reset to 1.0
+        val obelisk = spec()
+        val s0 = obelisk.initialState.copy(x = 1.4)   // already accumulated
+        val plays = mapOf(HandType.PAIR to 3)   // only PAIR in history
+        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2, plays))
+        assertEquals(1.0, s1.x, 1e-9)   // PAIR is sole top → reset
+    }
+
+    @Test fun obeliskNoOpWithEmptyHandPlays() {
+        // Empty handPlays map (legacy compat: event fired without play-count context) → no change
+        val obelisk = spec()
+        val s0 = obelisk.initialState.copy(x = 1.4)
+        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2))
+        assertEquals(1.4, s1.x, 1e-9)
+    }
+
+    @Test fun obeliskJokerMainFiresAboveOne() {
+        // Oracle: x=1.4 → XMult(1.4) → chips=32, mult=2*1.4=2.8 → 89
+        val obelisk = spec()
+        assertEquals(Effect.XMult(1.4), obelisk.jokerMain!!(FJokerState(x = 1.4), Sctx()))
+        assertEquals(Effect.None, obelisk.jokerMain!!(FJokerState(x = 1.0), Sctx()))
+    }
+}
+
+/** Loyalty card jokerMain: fires X4 every 6 hands (elapsed ≡ 5 mod 6). */
+class LoyaltyCardJokerMainTest {
+    private fun spec() = JOKER_MANIFEST.getValue("j_loyalty_card")
+
+    private fun ctx(total: Int, atCreate: Int): Sctx =
+        Sctx().apply { totalHandsPlayed = total; handsPlayedAtCreate = atCreate }
+
+    @Test fun loyaltyCardFiresAtElapsedFive() {
+        // elapsed = 5 → (4 - 5) % 6 = (-1) % 6. Kotlin % is remainder; (-1).mod(6) = 5 == every(5) → fires.
+        // Use .mod() which is always non-negative in Kotlin.
+        val loyalty = spec()
+        val s = loyalty.initialState
+        // handsPlayedAtCreate=0, total=5: elapsed=5
+        assertEquals(Effect.XMult(4.0), loyalty.jokerMain!!(s, ctx(5, 0)))
+    }
+
+    @Test fun loyaltyCardSilentAtElapsedZero() {
+        val loyalty = spec()
+        val s = loyalty.initialState
+        // elapsed=0 → (4-0)%6=4 ≠ 5 → no fire
+        assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(0, 0)))
+    }
+
+    @Test fun loyaltyCardFiresAgainAtElapsedEleven() {
+        // elapsed=11 → (4-11) % 6 = (-7) % 6. Kotlin: (-7).mod(6)=5 → fires again
+        val loyalty = spec()
+        val s = loyalty.initialState
+        assertEquals(Effect.XMult(4.0), loyalty.jokerMain!!(s, ctx(11, 0)))
+    }
+
+    @Test fun loyaltyCardSilentAtElapsedFour() {
+        // elapsed=4 → (4-4)%6=0 ≠ 5 → no fire
+        val loyalty = spec()
+        val s = loyalty.initialState
+        assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(4, 0)))
+    }
+
+    @Test fun loyaltyCardWithNonZeroAtCreate() {
+        // atCreate=3, total=8 → elapsed=5 → fires
+        val loyalty = spec()
+        val s = loyalty.initialState
+        assertEquals(Effect.XMult(4.0), loyalty.jokerMain!!(s, ctx(8, 3)))
+        // atCreate=3, total=7 → elapsed=4 → no fire
+        assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(7, 3)))
+    }
+}

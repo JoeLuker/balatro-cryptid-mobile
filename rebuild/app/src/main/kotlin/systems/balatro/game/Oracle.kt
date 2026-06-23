@@ -16,6 +16,7 @@ object Oracle {
         val handsLeft: Int = -1, val discardsLeft: Int = -1, val bossBlind: Boolean = false,
         val debuffedJokerKey: String? = null,
         val handTypePlays: Map<HandType, Int> = emptyMap(),   // prior run-total plays per hand type (supernova)
+        val totalHandsPlayed: Int = 0,              // G.GAME.hands_played — loyalty_card jokerMain
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -471,7 +472,7 @@ object Oracle {
         // Campfire: Xmult +0.25 per joker sold (j.x); x=1.5 (2 sold) → mult=2*1.5=3 → 96.
         Case("Pair of aces + campfire (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_campfire", x = 1.5))),
         // Loyalty Card: X4 when active (j.x=4.0); chips=32, mult=2*4=8 → 256.
-        Case("Pair of aces + loyalty_card (x=4.0 active)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_loyalty_card", x = 4.0))),
+        Case("Pair of aces + loyalty_card (x=4.0 active)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_loyalty_card")), totalHandsPlayed = 5),
         // Throwback: Xmult +0.25/skipped blind (j.x); x=1.5 (2 blinds) → mult=2*1.5=3 → 96.
         Case("Pair of aces + throwback (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_throwback", x = 1.5))),
         // Runner: +Chips per Straight in run (j.chips); chips=30 → chips=32+30=62, mult=2 → 124.
@@ -713,7 +714,7 @@ object Oracle {
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")

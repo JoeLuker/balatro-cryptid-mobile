@@ -92,8 +92,10 @@ internal fun Effect.intoFx(individual: Boolean): Fx {
 sealed interface GameEvent {
     /** Before-pass, once per hand, with the scoring context (scoringName / pokerHands known). */
     data class BeforeHand(val ctx: Sctx) : GameEvent
-    /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.). */
-    data class HandScored(val handType: HandType, val playedCount: Int = 0) : GameEvent
+    /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.).
+     *  [handPlays] = play-counts per hand type AFTER this hand is recorded (matching Lua context.after timing
+     *  where G.GAME.hands[...].played has already been incremented). Obelisk uses this to decide grow vs reset. */
+    data class HandScored(val handType: HandType, val playedCount: Int = 0, val handPlays: Map<HandType, Int> = emptyMap()) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
     /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost), for the eternalflame >= 2 gate. */
@@ -133,6 +135,7 @@ data class JokerSpec(
 internal fun dispatchManifest(spec: JokerSpec, j: FJoker, ctx: Sctx): Fx? {
     val self = j.snapshot()
     ctx.selfJoker = j   // expose live self identity for hooks that need j !== rj / j !== oj guards
+    ctx.handsPlayedAtCreate = j.n   // j.n stores hands_played_at_create for loyalty_card; safe default=0 for all others
     val individual = (ctx.individual && ctx.cardarea == "play") || ctx.held
     val effect: Effect = when {
         ctx.jokerRetriggerCheck                  -> spec.retrigger?.invoke(self, ctx) ?: Effect.None
@@ -717,6 +720,44 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_hologram" to JokerSpec(
         reduce    = { s, e -> if (e is GameEvent.CardAdded) s.copy(x = s.x + 0.25 * e.count) else s },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── HandScored-event accumulator: obelisk ──────────────────────────────────────────────────────
+    // j_obelisk: +0.2 Xmult per hand NOT of the most-played type; resets x→1.0 if the played hand
+    // becomes the new sole top-played (card.lua:4105-4130, context.after).
+    // Lua timing: G.GAME.hands[...].played++ happens BEFORE context.after fires, so HandScored.handPlays
+    // already includes the current hand (matching Lua). Reset condition: no OTHER hand type has
+    // played >= this hand's count → this hand IS the new most-played → reset to 1.0.
+    // No self-destruct, no blueprint. Removed from Score.kt legacy xMult when-group (j.x reader).
+    "j_obelisk" to JokerSpec(
+        reduce = { s, e ->
+            if (e is GameEvent.HandScored && e.handPlays.isNotEmpty()) {
+                val thisCount = e.handPlays[e.handType] ?: 0
+                // Any other hand type with play count >= thisCount means current hand is NOT the sole top → grow.
+                val anotherLeads = e.handPlays.any { (h, n) -> h != e.handType && n >= thisCount }
+                if (anotherLeads) s.copy(x = s.x + 0.2) else s.copy(x = 1.0)
+            } else s
+        },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── jokerMain ctx-read: loyalty_card ─────────────────────────────────────────────────────────
+    // j_loyalty_card: X4 every 6th hand in a repeating cycle (every+1=6). The cycle index is
+    // (every-1-(handsPlayedTotal-handsPlayedAtCreate)) % (every+1) where every=5 (card.lua:4175-4194).
+    // Fires when loyalty_remaining == every (== 5). NOT an accumulator — jokerMain recomputes each hand.
+    // j.n stores handsPlayedAtCreate (set in RunScreen.initialFJoker/owned.add sites at equip time).
+    // Requires ctx.totalHandsPlayed (added to Sctx / score() signature). blueprint_compat=true.
+    // Removed from Score.kt legacy xMult when-group.
+    "j_loyalty_card" to JokerSpec(
+        initialState = FJokerState(x = 1.0),   // x is unused by the reducer; jokerMain reads ctx
+        jokerMain = { _, ctx ->
+            val every = 5
+            val elapsed = ctx.totalHandsPlayed - ctx.handsPlayedAtCreate
+            // Lua's % is floored (always non-negative); Kotlin's % is remainder (can be negative).
+            // Use .mod() for the non-negative modulo equivalent to Lua's x % y.
+            val loyaltyRemaining = (every - 1 - elapsed).mod(every + 1)
+            if (loyaltyRemaining == every) Effect.XMult(4.0) else Effect.None
+        },
     ),
 
     // ── BlindSkipped-event accumulator ────────────────────────────────────────────────────────────

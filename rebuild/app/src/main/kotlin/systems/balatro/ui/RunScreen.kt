@@ -141,12 +141,15 @@ internal const val CRYPTID_MEMBER_COUNT = 38598
  *  acquisition path seeds identically (previously only buy() did, so Wraith-/spawn-created jokers were
  *  mis-seeded). [swashSellSum] is the current total sell value of owned jokers — only j_swashbuckler reads
  *  it; passing it in keeps this pure and directly unit-testable. */
-internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
+internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int = 0): FJoker {
     val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
     // MANIFEST: a migrated joker's initial scaling state comes from its JokerSpec (co-located with its hooks).
     JOKER_MANIFEST[offer.key]?.let { spec ->
         val s = spec.initialState
-        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = s.x, chips = s.chips, n = s.n, xc = s.xc)
+        // j_loyalty_card: n stores hands_played_at_create (card.lua:459 self.ability.hands_played_at_create = G.GAME.hands_played or 0).
+        // All other MANIFEST jokers use s.n (usually 0).
+        val n = if (offer.key == "j_loyalty_card") handsPlayed else s.n
+        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = s.x, chips = s.chips, n = n, xc = s.xc)
     }
     val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
     val fjMult = when (offer.key) {
@@ -626,7 +629,7 @@ internal class RunState {
                 val keep = owned[owned.indices.random()].let { it.copy(offer = it.offer.copy(edition = Edition.POLY)) }
                 owned.clear(); owned.add(keep)
             }
-            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }))); money = 0 }
+            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed))); money = 0 }
         }
     }
     /** The tag offered for skipping the current (Small/Big) blind. */
@@ -980,7 +983,8 @@ internal class RunState {
             if (nonScoring.isNotEmpty()) o.fj.x += 0.2 * nonScoring.size
         }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
-                            debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed, trace = trace)
+                            debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
+                            totalHandsPlayed = totalHandsPlayed, trace = trace)
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -1045,14 +1049,15 @@ internal class RunState {
         roundHandTypes.add(r.handType)
         // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer
         // (green_joker +1 Mult, spare_trousers +2 on Two Pair/Full House, runner +15 on Straight, square +4 on 5 cards).
-        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size))) }
+        // Pass a snapshot of _handPlayed AFTER recordHandPlayed so HandScored.handPlays matches
+        // Lua's context.after timing (G.GAME.hands[...].played++ runs before context.after fires).
+        val handPlaysSnapshot = _handPlayed.toMap()
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot))) }
         for (o in owned) when (o.fj.key) {
             // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
             // (spare_trousers / runner / square migrated to JOKER_MANIFEST reducers.)
-            // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
-            // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
-            "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2
+            // j_obelisk migrated to JOKER_MANIFEST (HandScored reducer with handPlays map; handles both grow and reset).
             // j_cry_clockwork: +0.25 Xmult every 3rd hand played (config.extra clock=3; totalHandsPlayed counts all hands).
             "j_cry_clockwork"  -> if (totalHandsPlayed % 3 == 0) o.fj.x += 0.25
             // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
@@ -1249,7 +1254,7 @@ internal class RunState {
         if (!free) { money -= cost; totalCardsPurchased += 1 }
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
-        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed)))
         shop = shop.filterNot { it === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
     }
@@ -1259,7 +1264,7 @@ internal class RunState {
     private fun createRandomJoker() {
         if (owned.size >= maxJokers) return
         val offer = CATALOG.random()
-        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) })))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed)))
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
     }
 
