@@ -1,0 +1,267 @@
+diff --git a/Mods/Cryptid/lib/gameset.lua b/Mods/Cryptid/lib/gameset.lua
+index 8e2e64d..76a461a 100644
+--- a/Mods/Cryptid/lib/gameset.lua
++++ b/Mods/Cryptid/lib/gameset.lua
+@@ -770,6 +770,16 @@ function Cryptid.gameset_config_UI(center)
+ 		args.back2_func = "your_collection_current_set"
+ 		args.back2_label = localize("cry_view_set_contents")
+ 		args.back2_colour = G.C.CRY_SELECTED
++		-- CRY_ITEM_TOGGLE: per-item enable/disable entry point. Only shown when
++		-- the content set actually has toggleable items. See the PER-ITEM TOGGLE
++		-- UI block appended at the end of this file.
++		local set_items = Cryptid.cry_items_for_set(center.key)
++		if #set_items > 0 then
++			args.back3 = true
++			args.back3_func = "cry_item_toggle_UI"
++			args.back3_label = localize("cry_toggle_items_in_set")
++			args.back3_colour = G.C.CRY_GREENGRADIENT
++		end
+ 	end
+ 	local t = create_UIBox_generic_options(args)
+ 	G.FUNCS.overlay_menu({
+@@ -1862,3 +1872,245 @@ SMODS.Atlas.inject = function(self)
+ 		G.ASSET_ATLAS[self.key_noloc or self.key] = G[self.atlas_table][self.key_noloc or self.key]
+ 	end
+ end
++
++---------------------------------
++---- PER-ITEM TOGGLE UI ---------
++---------------------------------
++-- CRY_ITEM_TOGGLE: per-item enable/disable for the items of a Content Set.
++-- Re-derived onto the current Cryptid pin as an anchored patch. The override
++-- resolution itself (cry_gameset_overrides[center.key] -> gameset) is already
++-- native to Cryptid.gameset upstream; this block only adds the editing UI plus
++-- the helper that writes overrides. Functions are defined as Cryptid.* methods
++-- (not file-locals) so gameset_config_UI (earlier in this file) can call them
++-- regardless of definition order.
++
++-- How many toggle rows fit comfortably on one page.
++-- The config tab root has minh=6; each toggle row is ~0.72 units tall.
++-- 7 rows leaves room for the page-cycle widget.
++local CRY_TOGGLES_PER_PAGE = 7
++
++-- Helper: write one item's override and persist. Does NOT call update_obj_registry.
++-- Call Cryptid.update_obj_registry() + G:save_progress() separately (deferred to close).
++function Cryptid.cry_set_item_override(key, enabled)
++	if enabled then
++		if G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides then
++			G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides[key] = nil
++			local empty = true
++			for _ in pairs(G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides) do
++				empty = false
++				break
++			end
++			if empty then
++				G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides = nil
++			end
++		end
++	else
++		if not G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides then
++			G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides = {}
++		end
++		G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides[key] = "disabled"
++	end
++end
++
++-- Build a sorted list of items belonging to a content set key.
++function Cryptid.cry_items_for_set(set_key)
++	local items = {}
++	Cryptid.index_items(function(v)
++		if v.set == "Content Set" then return end
++		if v.dependencies and v.dependencies.items then
++			for _, dep in ipairs(v.dependencies.items) do
++				if dep == set_key then
++					items[#items + 1] = v
++					break
++				end
++			end
++		end
++	end)
++	table.sort(items, function(a, b)
++		return (a.cry_order or a.order or 0) < (b.cry_order or b.order or 0)
++	end)
++	return items
++end
++
++-- Returns a display name for a center object.
++-- Falls back to the raw key if localization is missing or returns a table.
++function Cryptid.cry_item_display_name(v)
++	local ok, name = pcall(function()
++		return localize({ type = "name_text", set = v.set, key = v.key })
++	end)
++	if ok and type(name) == "string" and name ~= "ERROR" and name ~= "" then
++		return name
++	end
++	-- If name is a table (multi-line), use the first entry
++	if ok and type(name) == "table" and name[1] and type(name[1]) == "string" then
++		return name[1]
++	end
++	-- strip class prefix (e.g. "j_cry_dropshot" -> "cry_dropshot")
++	local stripped = v.key:match("^[a-z]+_(.+)$") or v.key
++	return stripped
++end
++
++-- Build the toggle-row nodes for one page of items.
++-- item_states: table of {key -> bool} used as ref_table for each toggle.
++function Cryptid.cry_build_toggle_page(items, page, item_states)
++	local nodes = {}
++	local base = (page - 1) * CRY_TOGGLES_PER_PAGE + 1
++	for i = base, math.min(base + CRY_TOGGLES_PER_PAGE - 1, #items) do
++		local v = items[i]
++		local label = Cryptid.cry_item_display_name(v)
++		nodes[#nodes + 1] = create_toggle({
++			label = label,
++			active_colour = HEX("51e099"),
++			ref_table = item_states,
++			ref_value = v.key,
++			callback = function(new_val)
++				Cryptid.cry_set_item_override(v.key, new_val)
++				-- Mark dirty so close handler knows to apply changes.
++				G.cry_item_toggle_dirty = true
++			end,
++		})
++	end
++	return nodes
++end
++
++-- Open the per-item toggle screen for G.viewedContentSet.
++function Cryptid.item_toggle_UI(content_set)
++	content_set = content_set or G.viewedContentSet
++	if not content_set then return end
++
++	local items = Cryptid.cry_items_for_set(content_set.key)
++	if #items == 0 then return end
++
++	-- Snapshot current enabled state into a flat boolean table.
++	-- This is the live ref_table for all toggle widgets on this screen.
++	local item_states = {}
++	local overrides = G.PROFILES[G.SETTINGS.profile].cry_gameset_overrides or {}
++	for _, v in ipairs(items) do
++		item_states[v.key] = (overrides[v.key] ~= "disabled")
++	end
++
++	local total_pages = math.max(1, math.ceil(#items / CRY_TOGGLES_PER_PAGE))
++
++	-- page_options: human-readable strings for create_option_cycle
++	local page_options = {}
++	for p = 1, total_pages do
++		page_options[p] = localize("k_page") .. " " .. p .. "/" .. total_pages
++	end
++
++	-- Shared mutable state for the currently visible page.
++	-- We store rendered nodes in a UIBox that we replace on page change.
++	local current_page = { n = 1 }
++
++	-- Build the inner toggle list for a given page number.
++	local toggle_area_id = "cry_item_toggle_area"
++
++	G.FUNCS.cry_item_toggle_page = function(args)
++		if not args or not args.cycle_config then return end
++		local p = args.cycle_config.current_option
++		current_page.n = p
++		local toggle_area = G.OVERLAY_MENU and G.OVERLAY_MENU:get_UIE_by_ID(toggle_area_id)
++		if toggle_area and toggle_area.config.object then
++			toggle_area.config.object:remove()
++			toggle_area.config.object = UIBox({
++				definition = {
++					n = G.UIT.ROOT,
++					config = { align = "tl", padding = 0.05, colour = G.C.CLEAR },
++					nodes = Cryptid.cry_build_toggle_page(items, p, item_states),
++				},
++				config = { offset = { x = 0, y = 0 }, parent = toggle_area },
++			})
++		end
++	end
++
++	-- Initial toggle list (page 1)
++	local initial_toggles = UIBox({
++		definition = {
++			n = G.UIT.ROOT,
++			config = { align = "tl", padding = 0.05, colour = G.C.CLEAR },
++			nodes = Cryptid.cry_build_toggle_page(items, 1, item_states),
++		},
++		config = { offset = { x = 0, y = 0 } },
++	})
++
++	-- Set name header
++	local set_name = localize({ type = "name_text", set = "Content Set", key = content_set.key })
++		 or content_set.key
++
++	local contents = {
++		-- Header: set name
++		{
++			n = G.UIT.R,
++			config = { align = "cm", padding = 0.05 },
++			nodes = {
++				{
++					n = G.UIT.T,
++					config = {
++						text = set_name,
++						scale = 0.45,
++						colour = G.C.WHITE,
++						shadow = true,
++					},
++				},
++			},
++		},
++		-- Toggle list area (replaced on page change)
++		{
++			n = G.UIT.R,
++			config = { align = "tl", minh = 5.0, minw = 9.0, padding = 0.05, colour = G.C.CLEAR },
++			nodes = {
++				{
++					n = G.UIT.O,
++					config = {
++						id = toggle_area_id,
++						object = initial_toggles,
++					},
++				},
++			},
++		},
++	}
++
++	-- Page cycle widget (only shown when more than one page)
++	if total_pages > 1 then
++		contents[#contents + 1] = {
++			n = G.UIT.R,
++			config = { align = "cm" },
++			nodes = {
++				create_option_cycle({
++					options = page_options,
++					w = 4.5,
++					cycle_shoulders = true,
++					opt_callback = "cry_item_toggle_page",
++					current_option = 1,
++					colour = G.C.RED,
++					no_pips = true,
++					focus_args = { snap_to = true, nav = "wide" },
++				}),
++			},
++		}
++	end
++
++	G.cry_item_toggle_dirty = false
++
++	local t = create_UIBox_generic_options({
++		back_func = "cry_item_toggle_close",
++		back_label = localize("b_back"),
++		snap_back = true,
++		contents = contents,
++	})
++	G.FUNCS.overlay_menu({ definition = t })
++end
++
++-- Back handler: apply pending registry updates then return to the gameset config UI.
++G.FUNCS.cry_item_toggle_close = function()
++	if G.cry_item_toggle_dirty then
++		Cryptid.update_obj_registry()
++		G:save_progress()
++		G.cry_item_toggle_dirty = false
++	end
++	-- Return to the per-set gameset config (which set G.viewedContentSet)
++	Cryptid.gameset_config_UI(G.viewedContentSet)
++end
++
++G.FUNCS.cry_item_toggle_UI = function()
++	Cryptid.item_toggle_UI()
++end

@@ -1,0 +1,11 @@
+diff --git a/Mods/sticky-fingers/touch-mode.json b/Mods/sticky-fingers/touch-mode.json
+index 60c4e78..f5d56a9 100644
+--- a/Mods/sticky-fingers/touch-mode.json
++++ b/Mods/sticky-fingers/touch-mode.json
+@@ -10,5 +10,5 @@
+   "badge_text_colour": "FFFFFF",
+   "display_name": "Sticky Fingers",
+   "version": "1.4.1",
+-  "dependencies": ["Steamodded (>=1.*)", "Lovely (>=0.6)"]
++  "dependencies": ["Steamodded (>=1.0.0~BETA-0827c)", "Lovely (>=0.6)"]
+ }

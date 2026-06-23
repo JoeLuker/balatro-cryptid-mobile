@@ -1,6 +1,6 @@
 -- Android love.conf — OWNED file (was a heredoc in scripts/build.sh).
 -- Window dims must be 0 for Android fullscreen. _RELEASE_MODE=false enables
--- Balatro's built-in debug mode (what makes DebugPlus's tools/console reachable);
+-- Balatro's built-in debug mode (the Tab debug-tools UI);
 -- this authoritative copy overrides the desktop dump's conf.lua.
 _RELEASE_MODE = false
 _DEMO = false

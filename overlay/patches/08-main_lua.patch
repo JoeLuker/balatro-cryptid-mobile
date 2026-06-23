@@ -1,9 +1,16 @@
 diff --git a/main.lua b/main.lua
-index d34f8a5..6ac5348 100644
+index 653f85e..58b4799 100644
 --- a/main.lua
 +++ b/main.lua
-@@ -1,3 +1,28 @@
-+-- Android SMODS path fix: preload lovely-registered SMODS modules + extend require path
+@@ -1,3 +1,57 @@
++-- Android SMODS path fix: preload lovely-registered modules + run the preflight core
++-- before main.lua. The preflight Steamodded (fdb7442+) creates the global SMODS only
++-- in src/preflight/core.lua, which lovely runs via `load_now=true, before="main.lua"`
++-- (a runtime action the baked dump cannot capture — nothing require()s core, so without
++-- this SMODS stays nil and main.lua's appended core-load `assert(SMODS.path)` crashes).
++-- We replicate the module registry (lovely libs.toml/preflight.toml name= entries) and
++-- the load_now by eager-require below. nativefs maps to the Android love.filesystem
++-- wrapper (nativefs.lua at the game root), not the raw FFI lib.
 +if love.system.getOS() == 'Android' then
 +    local _smods_modules = {
 +        ['SMODS.version']              = 'Mods/Steamodded/version.lua',
@@ -12,15 +19,37 @@ index d34f8a5..6ac5348 100644
 +        ['SMODS.preflight.logging']    = 'Mods/Steamodded/src/preflight/logging.lua',
 +        ['SMODS.preflight.loader']     = 'Mods/Steamodded/src/preflight/loader.lua',
 +        ['SMODS.preflight.sharedUI']   = 'Mods/Steamodded/src/preflight/sharedUI.lua',
-+        ['SMODS.preflight.core']       = 'Mods/Steamodded/src/preflight/core.lua',
-+        ['SMODS.nativefs']             = 'Mods/Steamodded/libs/nativefs/nativefs.lua',
++        ['SMODS.nativefs']             = 'nativefs.lua',
 +        ['SMODS.https']                = 'Mods/Steamodded/libs/https/smods-https.lua',
++        ['json']                       = 'Mods/Steamodded/libs/json/json.lua',
++        ['nativefs']                   = 'nativefs.lua',
++        ['luajit-curl']                = 'Mods/Steamodded/libs/https/luajit-curl.lua',
 +    }
 +    for _name, _path in pairs(_smods_modules) do
 +        package.preload[_name] = function() return love.filesystem.load(_path)() end
 +    end
-+    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/DebugPlus/?.lua;Mods/DebugPlus/?/init.lua;Mods/?.lua;Mods/?/init.lua'
++    -- core.lua's `local lovely_path = false` is normally patched by lovely to the
++    -- Steamodded directory; without lovely its `assert(lovely_path)` fails. Inject the
++    -- baked Android path (matches SMODS.path = 'Mods/Steamodded/' set below).
++    package.preload['SMODS.preflight.core'] = function()
++        local _src = assert(love.filesystem.read('Mods/Steamodded/src/preflight/core.lua'))
++        _src = _src:gsub('local lovely_path = false', "local lovely_path = 'Mods/Steamodded/'", 1)
++        -- Force the mod-scan dir to the relative 'Mods' (love.filesystem-resolvable to
++        -- files/save/game/Mods + the game.love archive). core.lua sets
++        -- SMODS.MODS_DIR = NFS.getWorkingDirectory(), which on Android resolves to a
++        -- bogus absolute path (files/save/ASET/Mods) so SMODS scans an empty/stale dir
++        -- and NO user mods load. The old override (append after main.lua's
++        -- set_mods_dir()) silently no-ops because the de-drifted Steamodded moved that
++        -- call out of main.lua. Set it here, right before initLoader()->loadMods().
++        _src = _src:gsub("initLoader%(%)", "SMODS.MODS_DIR = 'Mods'; initLoader()", 1)
++        return assert(load(_src, '@Mods/Steamodded/src/preflight/core.lua'))()
++    end
++    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'
 +    love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)
++    -- Replicate lovely's `load_now=true, before="main.lua"` for the preflight core:
++    -- run it now to create the global SMODS + run the preflight, before main.lua's
++    -- appended SMODS core-load executes.
++    require('SMODS.preflight.core')
 +end
 +-- JIT_OPT_RAISE: see scripts/patch_main_lua.py section 0
 +pcall(function()
@@ -31,7 +60,7 @@ index d34f8a5..6ac5348 100644
  --- STEAMODDED CORE
  --- MODULE STACKTRACE
  -- NOTE: This is a modifed version of https://github.com/ignacio/StackTracePlus/blob/master/src/StackTracePlus.lua
-@@ -954,7 +979,7 @@ _mod_dir_amulet,
+@@ -954,7 +1008,7 @@ _mod_dir_amulet,
  ), 0)
  end
  
@@ -40,7 +69,7 @@ index d34f8a5..6ac5348 100644
  
  if SMODS and SMODS.Mods and not SMODS.Mods.Talisman then
  	SMODS.Mods.Talisman = {
-@@ -979,6 +1004,7 @@ function love.run()
+@@ -979,6 +1033,7 @@ function love.run()
  		if love.event and G and G.CONTROLLER then
  			love.event.pump()
  			local _n,_a,_b,_c,_d,_e,_f,touched
@@ -48,7 +77,7 @@ index d34f8a5..6ac5348 100644
  			for name, a,b,c,d,e,f in love.event.poll() do
  				if name == "quit" then
  					if not love.quit or not love.quit() then
-@@ -987,14 +1013,22 @@ function love.run()
+@@ -987,14 +1042,22 @@ function love.run()
  				end
  				if name == 'touchpressed' then
  					touched = true
@@ -74,7 +103,7 @@ index d34f8a5..6ac5348 100644
  			end
  		end
  
-@@ -1081,6 +1115,16 @@ function love.quit()
+@@ -1081,6 +1144,16 @@ function love.quit()
  	if G.SOUND_MANAGER then G.SOUND_MANAGER.channel:push({type = 'stop'}) end
  	if G.STEAM then G.STEAM:shutdown() end
  end
@@ -91,16 +120,7 @@ index d34f8a5..6ac5348 100644
  
  function love.update( dt )
  	--Perf monitoring checkpoint
-@@ -1094,7 +1138,7 @@ function love.draw()
- 	G:draw()
- 	do
- 	    local console = require("debugplus.console")
--	    console.doConsoleRender()
-+	    do end -- DEBUGPLUS_CONSOLE_DISABLED: keyboard-only console; logger init not baked, would crash + hijack print
- 	    timer_checkpoint('DebugPlus Console', 'draw')
- 	end
- end
-@@ -1140,16 +1184,13 @@ function love.mousepressed(x, y, button, touch)
+@@ -1135,16 +1208,13 @@ function love.mousepressed(x, y, button, touch)
  end
  
  
@@ -120,7 +140,7 @@ index d34f8a5..6ac5348 100644
  end
  
  function love.joystickaxis( joystick, axis, value )
-@@ -1286,7 +1327,16 @@ if false then
+@@ -1281,7 +1351,16 @@ if false then
  end
  
  function love.resize(w, h)
@@ -138,7 +158,7 @@ index d34f8a5..6ac5348 100644
  		h = w/1
  	end
  
-@@ -1319,6 +1369,10 @@ function love.resize(w, h)
+@@ -1314,6 +1393,10 @@ function love.resize(w, h)
  
  		if G.buttons then G.buttons:recalculate() end
  		if G.HUD then G.HUD:recalculate() end
@@ -149,7 +169,7 @@ index d34f8a5..6ac5348 100644
  	end
  
  	G.WINDOWTRANS = {
-@@ -1400,13 +1454,10 @@ end
+@@ -1395,13 +1478,10 @@ end
  sendInfoMessage("Steamodded v" .. SMODS.version, "SMODS")
  
  
@@ -167,7 +187,7 @@ index d34f8a5..6ac5348 100644
  
  require("talisman.configinit")
  require("talisman.effects")
-@@ -1424,3 +1475,34 @@ end
+@@ -1419,3 +1499,34 @@ end
  if not Talisman.F_NO_COROUTINE then
      require("talisman.coroutine")
  end

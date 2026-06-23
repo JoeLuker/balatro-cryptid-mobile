@@ -1,23 +1,24 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index 608abe2..bf8c48f 100644
+index 86eda6e..57ea719 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -2564,6 +2564,7 @@ function create_UIBox_settings()
-           tab_definition_function = require("debugplus.config").fakeConfigTab,
-       }
-   end
+@@ -2521,6 +2521,7 @@ function create_UIBox_settings()
+     tab_definition_function_args = 'Audio'
+   }
+ 
 +  tabs[#tabs+1] = { label = "Debug", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }
    local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(
      {tabs = tabs,
      tab_h = 7.05,
-@@ -2574,7 +2575,15 @@ return t
+@@ -2531,7 +2532,16 @@ return t
  end
  
  function G.UIDEF.settings_tab(tab)
 -  if tab == 'Game' then
 +  if tab == 'Debug' then
 +    return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
-+      create_toggle({label = "Debug HUD (FPS + perf)", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),
++      create_toggle({label = "FPS counter", ref_table = G.SETTINGS, ref_value = 'fps_counter'}),
++      create_toggle({label = "Perf overlay", ref_table = G.SETTINGS, ref_value = 'perf_mode'}),
 +      create_toggle({label = "Debug Logging", ref_table = G.SETTINGS, ref_value = 'telemetry_log'}),
 +      create_toggle({label = "Phone Home Telemetry", ref_table = G.SETTINGS, ref_value = 'telemetry_home'}),
 +      create_toggle({label = "Trigger Collapsing", ref_table = G.SETTINGS, ref_value = 'trigger_collapse'}),

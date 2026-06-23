@@ -1,0 +1,20 @@
+diff --git a/game.lua b/game.lua
+index 0c84761..a365e1b 100644
+--- a/game.lua
++++ b/game.lua
+@@ -3006,6 +3006,7 @@ function Game:draw()
+             G.SPLASH_BACK:translate_container()
+             G.SPLASH_BACK:draw()
+             love.graphics.pop()
++            love.graphics.setShader() -- DRAW_SHADER_RESET: patch 57 caller-coverage (drain splash shader before UI/element draws)
+         end
+     end
+ 
+@@ -3034,6 +3035,7 @@ function Game:draw()
+         G.SPLASH_LOGO:translate_container()
+         G.SPLASH_LOGO:draw()
+         love.graphics.pop()
++        love.graphics.setShader() -- DRAW_SHADER_RESET: patch 57 caller-coverage (drain dissolve before shaderless UIBox rectangle fills)
+     end
+ 
+     if G.debug_splash_size_toggle then 

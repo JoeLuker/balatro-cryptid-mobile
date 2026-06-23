@@ -283,7 +283,8 @@ local function apply_gates(want_log, want_home)
         set_jit_hook(false)
         shsw_on = false
     end
-    if (want_log or want_home) and not (log_on or home_on) then
+    local activated = (want_log or want_home) and not (log_on or home_on)
+    if activated then
         -- activation edge: start the reporting windows now, not at t=0
         local now = (G and G.TIMERS and G.TIMERS.UPTIME) or 0
         TEL.exp_recompute_window_start = now
@@ -315,10 +316,32 @@ local function apply_gates(want_log, want_home)
         end
         boot_buf = nil
     end
+    -- OBS self-announce: fires on every off->on activation edge (logging on at
+    -- boot OR toggled live), after log_on is set so the lines reach the sinks.
+    -- OBS_REGISTRY enumerates the persisted TEL.registry, so components that
+    -- registered while logging was off still appear in the inventory.
+    if activated then
+        tel("OBS_INIT", { level = want_log and "on" or "home-only",
+            file = LOG_FILE, crashes = "crash.log",
+            home = want_home and "on" or "off" })
+        local names = {}
+        for n, r in pairs(TEL.registry) do names[#names + 1] = n .. ":" .. (r.status or "?") end
+        table.sort(names)
+        tel("OBS_REGISTRY", { n = #names, components = table.concat(names, ",") })
+    end
 end
 
 -- assigns the forward-declared local (see SHSW block above)
 function tel(event, data)
+    -- OBS: crashes are ALWAYS captured to a dedicated always-on sink (crash.log),
+    -- even when telemetry is gated off, so a crash is never lost.
+    if event == "CRASH" then
+        pcall(function()
+            local cp = {os.time(), TEL.session_id}
+            for k, v in pairs(data or {}) do cp[#cp + 1] = k .. "=" .. tostring(v) end
+            love.filesystem.append("crash.log", table.concat(cp, " ") .. "\n")
+        end)
+    end
     if log_on == false and home_on == false then return end
     local parts = {"[TEL]", event}
     if data then
@@ -342,6 +365,20 @@ end
 -- those events through the same gates and sinks. On desktop the global stays
 -- nil and the call sites fall back to print().
 ATLOG = tel
+
+-- OBS: the single observability surface. Mods, shims, loaders and the crash
+-- handler all report through this, so the parts know about each other and the
+-- log is self-describing. ATLOG stays as an alias for existing call sites.
+TEL.registry = {}
+local function obs_register(name, status, detail)
+    TEL.registry[name] = { status = status or "ok", detail = detail }
+    tel("REGISTER", { name = name, status = status or "ok", detail = detail })
+end
+OBS = {
+    event    = tel,           -- OBS.event(kind, data)
+    register = obs_register,  -- OBS.register(name, status[, detail]) — components self-announce
+    registry = TEL.registry,
+}
 
 -- Session start
 tel("SESSION_START", {id = TEL.session_id, device = love.system.getOS(),
@@ -469,6 +506,46 @@ end
 -- Hook Game:update to track state transitions and exp_recompute rate
 local _original_game_update = Game.update
 function Game:update(dt)
+    -- OBS one-shot: flush the Cryptid lib-load results captured at load time.
+    -- love.filesystem isn't ready during start_up (when the libs load) and OBS
+    -- loads after the mods, so the lib-load can't write/report itself — it stows
+    -- results in _G.CRY_LIBLOAD (patch 74) and we flush them here on frame 1.
+    if not TEL._diag_flushed then
+        TEL._diag_flushed = true
+        pcall(function()
+            local L = { os.time() .. " FLUSH_RAN cry_libload=" ..
+                tostring(_G.CRY_LIBLOAD and _G.CRY_LIBLOAD.reached or "NIL") }
+            if _G.CRY_LIBLOAD and _G.CRY_LIBLOAD.results then
+                for _, r in ipairs(_G.CRY_LIBLOAD.results) do
+                    L[#L + 1] = "  lib " .. r.file .. (r.ok and " OK"
+                        or (" FAIL " .. tostring(r.err):gsub("\n", " | ")))
+                end
+            end
+            if SMODS and SMODS.Mods then
+                for id, m in pairs(SMODS.Mods) do
+                    local iss = ""
+                    if type(m.load_issues) == "table" then
+                        for k, v in pairs(m.load_issues) do
+                            iss = iss .. " [" .. tostring(k) .. "=" .. tostring(v) .. "]" end
+                    elseif m.load_issues then iss = " " .. tostring(m.load_issues) end
+                    L[#L + 1] = "  mod " .. tostring(id) .. " can_load=" ..
+                        tostring(m.can_load) .. " disabled=" .. tostring(m.disabled) .. iss
+                end
+            end
+            -- MODPATH DIAG: what does SMODS's mod scan actually see?
+            local lf = love.filesystem
+            L[#L + 1] = "saveDir=" .. tostring(lf.getSaveDirectory())
+            L[#L + 1] = "MODS_DIR=" .. tostring(SMODS and SMODS.MODS_DIR)
+            L[#L + 1] = "lf.items('Mods')=[" .. table.concat(lf.getDirectoryItems("Mods") or {}, ",") .. "]"
+            L[#L + 1] = "Mods.realdir=" .. tostring(lf.getRealDirectory("Mods"))
+            L[#L + 1] = "Amulet dir=" .. (lf.getInfo("Mods/Amulet") and "y" or "n")
+                .. " smods.json=" .. (lf.getInfo("Mods/Amulet/smods.json") and "y" or "n")
+                .. " realdir=" .. tostring(lf.getRealDirectory("Mods/Amulet"))
+            L[#L + 1] = "Cryptid dir=" .. (lf.getInfo("Mods/Cryptid") and "y" or "n")
+                .. " Cryptid.json=" .. (lf.getInfo("Mods/Cryptid/Cryptid.json") and "y" or "n")
+            love.filesystem.append("cry_diag.txt", table.concat(L, "\n") .. "\n")
+        end)
+    end
     -- resolve/refresh the gates from settings before anything can emit this
     -- frame. settings.jkr merges in start_up() (inside love.load), so the
     -- first frame's read is already the persisted value; after that this is

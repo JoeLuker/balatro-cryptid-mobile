@@ -1,0 +1,9 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index f39e78e..012d337 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2535,3 +2535,3 @@ function G.UIDEF.settings_tab(tab)
+     return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
+-      create_option_cycle({label = localize('b_set_gamespeed'),scale = 0.8, options = {0.5, 1, 2, 4}, opt_callback = 'change_gamespeed', current_option = (G.SETTINGS.GAMESPEED == 0.5 and 1 or G.SETTINGS.GAMESPEED == 4 and 4 or G.SETTINGS.GAMESPEED + 1)}),
++      create_option_cycle({label = localize('b_set_gamespeed'),scale = 0.8, options = {0.5, 1, 2, 4, 8, 16, 32, 64}, opt_callback = 'change_gamespeed', current_option = (({[0.5]=1,[1]=2,[2]=3,[4]=4,[8]=5,[16]=6,[32]=7,[64]=8})[G.SETTINGS.GAMESPEED] or 2)}),
+       Talisman.config_sections.disable_anim(),

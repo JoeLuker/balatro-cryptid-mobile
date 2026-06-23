@@ -175,30 +175,46 @@ save-logs:
     adb logcat -d > build/logcat.txt
     @echo "Logs saved to build/logcat.txt"
 
-# Watch telemetry events (live)
-tel:
-    adb logcat -s SDL/APP:I | grep --line-buffered TEL
-
-# Pull the persistent telemetry log from the device (no live observer needed —
-# the app appends events + PERF_SNAPSHOT frame stats to telemetry.log in its
-# save dir, flushed every 5s and on crash/background, rotated at 1MB).
-# Requires Settings > Game > Debug Logging ON (default OFF — shareable APK).
-perf-pull:
-    @mkdir -p build/telemetry
-    adb exec-out "run-as systems.shorty.lmm cat files/save/game/telemetry.log" > build/telemetry/telemetry.log 2>/dev/null || echo "no telemetry.log on device yet"
-    -adb exec-out "run-as systems.shorty.lmm cat files/save/game/telemetry.log.1" > build/telemetry/telemetry.log.1 2>/dev/null
-    @echo "pulled to build/telemetry/ — lines: $(wc -l < build/telemetry/telemetry.log)"
-
-# Run the phone-home telemetry receiver in the foreground (the app POSTs its
-# flushed telemetry here over the tailnet — lands in ~/balatro-telemetry/phone.log
-# the moment it happens, no adb needed). --print-unit emits a systemd user unit.
-# Requires Settings > Game > Phone Home Telemetry ON (default OFF).
-tel-home:
-    python3 scripts/telemetry-home.py
-
-# Summarize pulled telemetry (fps/frame-time per state, crashes, session list)
-perf-summary:
-    @awk '$3=="PERF_SNAPSHOT" {for(i=4;i<=NF;i++){split($i,a,"="); v[a[1]]=a[2]}; n[v["state"]]++; fps[v["state"]]+=v["fps"]; dtm[v["state"]]=(v["dt_max_ms"]>dtm[v["state"]])?v["dt_max_ms"]:dtm[v["state"]]} $3=="CRASH" {print "CRASH:", $0} END {printf "%-22s %6s %8s %10s\n","state","snaps","avg_fps","worst_ms"; for(s in n) printf "%-22s %6d %8.1f %10.1f\n", s, n[s], fps[s]/n[s], dtm[s]}' build/telemetry/telemetry.log
+# OBS — unified observability suite (telemetry + crashes). One entry point:
+#   just obs           dashboard: component registry + per-state fps + crash count (pulls first)
+#   just obs pull      pull telemetry.log (+ .1) and crash.log from the device
+#   just obs crashes   pull + print every crash (crash.log is ALWAYS captured, even with logging off)
+#   just obs perf      per-state fps / worst-frame summary
+#   just obs watch     live telemetry over logcat
+#   just obs home      run the phone-home receiver
+# Gate: Settings > Game > Debug Logging (telemetry) / Phone Home Telemetry.
+# Crashes are captured to crash.log regardless of the gate. Sinks self-announce
+# in the log (OBS_INIT) and list component health (OBS_REGISTRY). See docs/OBSERVABILITY.md.
+obs cmd="dashboard":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    APP=systems.shorty.lmm; SD=files/save/game; OUT=build/telemetry
+    _pull() {
+      mkdir -p "$OUT"
+      adb exec-out "run-as $APP cat $SD/telemetry.log"   > "$OUT/telemetry.log"   2>/dev/null || true
+      adb exec-out "run-as $APP cat $SD/telemetry.log.1" > "$OUT/telemetry.log.1" 2>/dev/null || true
+      adb exec-out "run-as $APP cat $SD/crash.log"       > "$OUT/crash.log"       2>/dev/null || true
+    }
+    _perf() {
+      awk '$3=="PERF_SNAPSHOT" {for(i=4;i<=NF;i++){split($i,a,"="); v[a[1]]=a[2]}; n[v["state"]]++; fps[v["state"]]+=v["fps"]; dtm[v["state"]]=(v["dt_max_ms"]>dtm[v["state"]])?v["dt_max_ms"]:dtm[v["state"]]} END {printf "%-22s %6s %8s %10s\n","state","snaps","avg_fps","worst_ms"; for(s in n) printf "%-22s %6d %8.1f %10.1f\n", s, n[s], fps[s]/n[s], dtm[s]}' "$OUT/telemetry.log" 2>/dev/null || echo "  (no telemetry.log — run: just obs pull)"
+    }
+    case "{{cmd}}" in
+      pull)    _pull; echo "pulled → $OUT/  (telemetry $(wc -l < "$OUT/telemetry.log" 2>/dev/null || echo 0) lines, crash.log $(wc -l < "$OUT/crash.log" 2>/dev/null || echo 0) lines)";;
+      crashes) _pull
+               if [ -s "$OUT/crash.log" ]; then echo "=== crash.log (always-on, gate-independent) ==="; cat "$OUT/crash.log"; else echo "no crashes in crash.log 🎉"; fi
+               grep -a CRASH "$OUT/telemetry.log" 2>/dev/null || true;;
+      perf)    _pull; _perf;;
+      watch)   adb logcat -s SDL/APP:I | grep --line-buffered TEL;;
+      home)    python3 scripts/telemetry-home.py;;
+      dashboard|*)
+               _pull
+               echo "=== OBS registry (component health) ==="
+               grep -a OBS_INIT     "$OUT/telemetry.log" 2>/dev/null | tail -1 || true
+               grep -a OBS_REGISTRY "$OUT/telemetry.log" 2>/dev/null | tail -1 || echo "  (no OBS_REGISTRY — enable Debug Logging + boot, then: just obs)"
+               echo "=== per-state perf ==="; _perf
+               echo "=== crashes ==="
+               if [ -s "$OUT/crash.log" ]; then echo "  crash.log lines: $(wc -l < "$OUT/crash.log")  (just obs crashes to view)"; else echo "  none 🎉"; fi;;
+    esac
 
 # Watch telemetry from a specific device (pass serial)
 tel-device serial:

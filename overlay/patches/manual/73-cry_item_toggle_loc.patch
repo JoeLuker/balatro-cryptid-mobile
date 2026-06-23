@@ -1,0 +1,16 @@
+diff --git a/Mods/Cryptid/localization/en-us.lua b/Mods/Cryptid/localization/en-us.lua
+index 8f65425..546f08d 100644
+--- a/Mods/Cryptid/localization/en-us.lua
++++ b/Mods/Cryptid/localization/en-us.lua
+@@ -5299,6 +5299,11 @@ return {
+ 			cry_gameset_exp_mainline = "Experimental (Mainline)",
+ 			cry_gameset_exp_madness = "Experimental (Madness)",
+ 
++			-- CRY_ITEM_TOGGLE: the per-item toggle feature (Mods/Cryptid/lib/gameset.lua,
++			-- patch 72) consumes the two keys below for its entry buttons. They are
++			-- vendored natively by the current Cryptid pin, so no new strings are
++			-- added here. This anchored marker hard-fails patch 73 if a future
++			-- Cryptid bump renames or removes either key, surfacing the drift.
+ 			cry_view_set_contents = "View Items in Set",
+ 			cry_toggle_items_in_set = "Toggle Items in Set",
+ 

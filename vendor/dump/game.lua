@@ -2680,7 +2680,7 @@ function Game:update(dt)
     self.TIMERS.BACKGROUND = self.TIMERS.BACKGROUND + dt*(G.ARGS.spin and G.ARGS.spin.amount or 0)
     self.real_dt = dt
 
-    if require('debugplus.config').getValue('enableLongDT') and self.real_dt > 0.05 then print('LONG DT @ '..math.floor(G.TIMERS.REAL)..': '..self.real_dt) end
+    if self.real_dt > 0.05 then print('LONG DT @ '..math.floor(G.TIMERS.REAL)..': '..self.real_dt) end
     if not G.fbf or G.new_frame then
         G.new_frame = false
 
@@ -3262,23 +3262,11 @@ love.graphics.pop()
 
     timer_checkpoint('canvas', 'draw')
 
-    if require("debugplus.config").getValue("showHUD") and not G.video_control and G.F_VERBOSE then
+    if not _RELEASE_MODE and G.DEBUG and not G.video_control and G.F_VERBOSE then 
         love.graphics.push()
         love.graphics.setColor(0, 1, 1,1)
         local fps = love.timer.getFPS( )
-        do
-            local otherSize = 0
-            for k,v in pairs(G.E_MANAGER.queues or {}) do 
-                if k ~= 'base' then 
-                    otherSize = otherSize + #v
-                end
-            end
-            if otherSize ~= 0 then
-                love.graphics.print(string.format("Current FPS: %d\nBase event queue: %d\nOther event queues: %d", fps, #(G.E_MANAGER.queues and G.E_MANAGER.queues.base or {}), otherSize), 10, 10)
-            else
-                love.graphics.print(string.format("Current FPS: %d\nBase event queue: %d", fps, #(G.E_MANAGER.queues and G.E_MANAGER.queues.base or {})), 10, 10)
-            end
-        end
+        love.graphics.print("Current FPS: "..fps, 10, 10)
 
         if G.check and G.SETTINGS.perf_mode then
             local section_h = 30
@@ -3297,10 +3285,6 @@ love.graphics.pop()
                         end
                         love.graphics.rectangle('fill', 10+poll_w*kk,  20 + v_off, 5*poll_w, -(vv)*resolution)
                     end
-                    v_off = v_off + section_h
-                    end
-                    local v_off = v_off - section_h * #b.checkpoint_list
-                    for k, v in ipairs(b.checkpoint_list) do
                     love.graphics.setColor(a == 2 and 0.5 or 1, a == 2 and 1 or 0.5, 1,1)
                     love.graphics.print(v.label..': '..(string.format("%.2f",1000*(v.average or 0)))..'\n', 10, -section_h + 30 + v_off)
                     v_off = v_off + section_h

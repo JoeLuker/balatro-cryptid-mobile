@@ -1092,11 +1092,6 @@ function love.draw()
 	--Perf monitoring checkpoint
     timer_checkpoint(nil, 'draw', true)
 	G:draw()
-	do
-	    local console = require("debugplus.console")
-	    console.doConsoleRender()
-	    timer_checkpoint('DebugPlus Console', 'draw')
-	end
 end
 
 function love.keypressed(key)

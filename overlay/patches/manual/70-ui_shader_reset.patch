@@ -1,0 +1,31 @@
+diff --git a/Mods/Steamodded/src/utils.lua b/Mods/Steamodded/src/utils.lua
+index 00e660c..35d0f63 100644
+--- a/Mods/Steamodded/src/utils.lua
++++ b/Mods/Steamodded/src/utils.lua
+@@ -4096,7 +4096,7 @@ function SMODS.set_ui_element_shader(element, input_args)
+ end
+ 
+ function DynaText:set_letter_shader(shader, send, shadow, letter)
+-    if not shader and not self.shadered then return end
++    if not shader and not self.shadered then love.graphics.setShader(); return end -- UI_SHADER_RESET: patch 57 left a sprite shader (dissolve) bound; reset before shaderless UI draws
+     SMODS.set_ui_element_shader(self, {
+         shader = shader,
+         send = send,
+@@ -4119,7 +4119,7 @@ function DynaText:set_letter_shader(shader, send, shadow, letter)
+     })
+ end
+ function UIElement:set_element_shader(shader, send, shadow)
+-    if not shader and not self.shadered then return end
++    if not shader and not self.shadered then love.graphics.setShader(); return end -- UI_SHADER_RESET: patch 57 left a sprite shader (dissolve) bound; reset before shaderless UI draws
+     SMODS.set_ui_element_shader(self, {
+         shader = shader,
+         send = send,
+@@ -4134,7 +4134,7 @@ function UIElement:set_element_shader(shader, send, shadow)
+     })
+ end
+ function UIElement:set_text_shader(shader, send, shadow)
+-    if not shader and not self.shadered then return end
++    if not shader and not self.shadered then love.graphics.setShader(); return end -- UI_SHADER_RESET: patch 57 left a sprite shader (dissolve) bound; reset before shaderless UI draws
+     SMODS.set_ui_element_shader(self, {
+         shader = shader,
+         send = send,

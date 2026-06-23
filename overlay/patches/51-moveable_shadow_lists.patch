@@ -52,7 +52,7 @@ index 8f31dc5..02f9795 100644
      Node.remove(self)
  end
 diff --git a/game.lua b/game.lua
-index 1a01eda..54560be 100644
+index 4f535c4..85ea933 100644
 --- a/game.lua
 +++ b/game.lua
 @@ -2877,15 +2877,29 @@ function Game:update(dt)
@@ -93,10 +93,10 @@ index 1a01eda..54560be 100644
      end
      
 diff --git a/globals.lua b/globals.lua
-index bcf8759..42206e3 100644
+index 587cd9a..5569bf6 100644
 --- a/globals.lua
 +++ b/globals.lua
-@@ -364,6 +364,12 @@ function Game:set_globals()
+@@ -365,6 +365,12 @@ function Game:set_globals()
      self.ANIMATION_ATLAS = {}
      self.ASSET_ATLAS = {}
      self.MOVEABLES = {}

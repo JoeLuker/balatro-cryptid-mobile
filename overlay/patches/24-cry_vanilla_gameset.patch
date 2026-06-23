@@ -51,7 +51,7 @@ index 34c3414..a4ee1ef 100644
  	return {
  		{
 diff --git a/Mods/Cryptid/lib/gameset.lua b/Mods/Cryptid/lib/gameset.lua
-index 21d38db..8e0c874 100644
+index 8e2e64d..6899afc 100644
 --- a/Mods/Cryptid/lib/gameset.lua
 +++ b/Mods/Cryptid/lib/gameset.lua
 @@ -206,12 +206,26 @@ G.FUNCS.cry_intro_part = function(_part)
