@@ -906,6 +906,95 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
     }
 }
 
+/** End-screen (game-over / win) callbacks bound to the extracted tree's buttons. */
+internal class GameOverBind(val s: RunState, val onRestart: () -> Unit, val onMainMenu: () -> Unit)
+
+/** Renders the REAL create_UIBox_game_over / create_UIBox_win trees (game_over_tree.json /
+ *  win_tree.json). Structure + labels + buttons come from the extracted tree; stat values bind to
+ *  RunState where tracked (ante/round/rerolls/score/seed), else show "0" (the rest aren't tracked). */
+internal object GameOverSpec {
+    fun load(ctx: Context, win: Boolean): org.json.JSONObject? =
+        HudSpec.root(ctx, if (win) "win_tree.json" else "game_over_tree.json")
+    fun build(node: org.json.JSONObject, b: GameOverBind): UI = buildGameOver(node, b)
+}
+
+private fun gameOverColour(name: String): Color = when (name) {
+    "WHITE", "UI.TEXT_LIGHT" -> Balatro.White
+    "BLACK", "DYN_UI.MAIN", "DYN_UI.DARK", "DYN_UI.BOSS_MAIN", "DYN_UI.BOSS_DARK" -> Balatro.Panel
+    "L_BLACK", "UI.TEXT_DARK" -> Balatro.PanelLight
+    "RED", "MULT" -> Balatro.Mult; "BLUE", "CHIPS" -> Balatro.Chips
+    "GREEN" -> Balatro.Green; "MONEY" -> Balatro.Money; "GOLD" -> Balatro.Gold
+    "IMPORTANT", "FILTER" -> Balatro.Orange; "GREY" -> Balatro.Grey
+    "CLEAR" -> Color.Transparent; else -> Color.Transparent
+}
+
+private val GAMEOVER_STAT_IDS = setOf("cards_played", "cards_discarded", "cards_purchased",
+    "times_rerolled", "hand", "poker_hand", "seed", "furthest_ante", "furthest_round", "defeated_by", "new_collection")
+
+/** The run stat for a round_scores_row id, from RunState (the same values the old hand-built screen showed). */
+private fun gameOverStat(id: String, s: RunState): String = when (id) {
+    "cards_played"    -> s.totalCardsPlayed.toString()
+    "cards_discarded" -> s.totalCardsDiscarded.toString()
+    "cards_purchased" -> s.totalCardsPurchased.toString()
+    "times_rerolled"  -> s.timesRerolled.toString()
+    "hand"            -> s.totalChipsScored.toLong().toString()
+    "poker_hand"      -> s.mostPlayedHand?.first?.name ?: ""
+    "seed"            -> s.runSeed
+    "furthest_ante"   -> s.ante.toString()
+    "furthest_round"  -> (s.blindIndex + 1).toString()
+    "defeated_by"     -> s.blindName
+    else              -> "0"
+}
+
+private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: String? = null): UI {
+    val cfgJ = node.optJSONObject("config") ?: org.json.JSONObject()
+    val myId = cfgJ.optString("id")
+    val childStat = if (myId in GAMEOVER_STAT_IDS) myId else statId   // thread the stat-row id to its DynaText
+    val cv = cfgJ.optJSONObject("colour")
+    val fill: Color? = when (cv?.optString("\$")) { "colour" -> gameOverColour(cv.getString("name")); else -> null }
+    val onClick: (() -> Unit)? = when (cfgJ.optString("button")) {
+        "notify_then_setup_run" -> b.onRestart            // New Run
+        "go_to_menu", "exit_overlay_menu", "x" -> b.onMainMenu
+        else -> null
+    }
+    val cfg = Cfg(
+        align = cfgJ.optString("align", "cm"), colour = fill,
+        padding = cfgJ.optDouble("padding", 0.0).toFloat(), r = cfgJ.optDouble("r", 0.0).toFloat(),
+        minw = cfgJ.optDouble("minw", 0.0).toFloat(), minh = cfgJ.optDouble("minh", 0.0).toFloat(),
+        emboss = cfgJ.optDouble("emboss", 0.0).toFloat(), shadow = cfgJ.optBoolean("shadow", false),
+        textColour = (cv?.takeIf { it.optString("\$") == "colour" }?.let { gameOverColour(it.getString("name")) }) ?: Balatro.White,
+        onClick = onClick,
+    )
+    val nodesJ = node.optJSONArray("nodes")
+    val kids = if (nodesJ != null) (0 until nodesJ.length()).map { buildGameOver(nodesJ.getJSONObject(it), b, childStat) } else emptyList()
+    return when (node.getString("n")) {
+        "R", "ROOT" -> Ro(cfg, kids)
+        "C" -> Co(cfg, kids)
+        "B" -> Bx(cfg, kids)
+        "T" -> { val t = cfgJ.opt("text"); Tx(cfg, when { t is String -> t; t is org.json.JSONObject && t.optString("\$") == "loc" -> t.opt("key")?.toString() ?: ""; else -> "" }) }
+        "O" -> {
+            val o = cfgJ.optJSONObject("object")
+            if (o?.optString("\$") == "dynatext") {
+                val segsJ = o.optJSONArray("segs"); val cols = o.optJSONArray("colours")
+                val col = cols?.optString(0)?.let { gameOverColour(it) } ?: Balatro.White
+                val scale = o.optDouble("scale", 1.0).toFloat()
+                val segs = if (segsJ != null) (0 until segsJ.length()).map { i ->
+                    val sj = segsJ.getJSONObject(i)
+                    val txt = when {
+                        sj.has("text") -> sj.getString("text")
+                        sj.has("value") && childStat != null -> gameOverStat(childStat, b.s)   // bound run stat
+                        sj.has("value") -> ""
+                        else -> ""
+                    }
+                    DynSeg({ txt }, col, scale)
+                } else emptyList()
+                Ob(cfg, DynaText(segs))
+            } else Bx(cfg)   // sprites (jimbo/chips) → skip; structure still renders
+        }
+        else -> Bx(cfg, kids)
+    }
+}
+
 private fun buildRoundEvalCfg(c: org.json.JSONObject): Cfg {
     fun colourByName(name: String): Color = when (name) {
         "BLACK"                  -> Balatro.Panel
