@@ -146,3 +146,130 @@ class EffectTest {
         assertEquals(10.0, fx.multMod, 0.0)
     }
 }
+
+/** Verify that ctx.selfJoker identity guard works for circus and joker-retrigger-check jokers. */
+class SelfJokerIdentityGuardTest {
+    @Test fun circusExcludesSelf() {
+        val circus = FJoker("j_cry_circus", rarity = 4)  // Legendary rarity=4 → would be X4 if not excluded
+        val spec = JOKER_MANIFEST.getValue("j_cry_circus")
+        val ctx = Sctx().apply { selfJoker = circus }
+        // Self → excluded (oj === selfJoker)
+        assertEquals(Effect.None, spec.otherJoker!!(circus.snapshot(), ctx, circus))
+        // Other Rare joker → X2
+        val rare = FJoker("j_joker", rarity = 3)
+        assertEquals(Effect.XMult(2.0), spec.otherJoker!!(circus.snapshot(), ctx, rare))
+        // Other Legendary → X4
+        val legend = FJoker("j_other", rarity = 4)
+        assertEquals(Effect.XMult(4.0), spec.otherJoker!!(circus.snapshot(), ctx, legend))
+    }
+
+    @Test fun chadRetriggersLeftmostNotSelf() {
+        val spec = JOKER_MANIFEST.getValue("j_cry_chad")
+        val chad = FJoker("j_cry_chad").also { it.restore(spec.initialState) }  // apply n=2 seed
+        val other = FJoker("j_joker")
+
+        // board=[other, chad]: other is leftmost. chad votes to retrigger other (+2) since other !== chad.
+        val ctx1 = Sctx().apply { board = listOf(other, chad); retriggeredJoker = other; selfJoker = chad }
+        assertEquals(2, dispatchManifest(spec, chad, ctx1.apply { jokerRetriggerCheck = true })?.repetitions ?: 0)
+
+        // board=[chad, other]: chad is leftmost. chad is also the retrigger target → self-exclusion → null.
+        val ctx2 = Sctx().apply { board = listOf(chad, other); retriggeredJoker = chad; selfJoker = chad }
+        assertEquals(null, dispatchManifest(spec, chad, ctx2.apply { jokerRetriggerCheck = true }))
+
+        // board=[other, chad]: chad is NOT leftmost. other is retriggered → fires.
+        // Non-leftmost joker retriggered while chad is in play — fires because other === board.first().
+        // (Confirm it does NOT fire when non-leftmost joker is retriggered)
+        val ctx3 = Sctx().apply { board = listOf(other, chad); retriggeredJoker = chad; selfJoker = chad }
+        assertEquals(null, dispatchManifest(spec, chad, ctx3.apply { jokerRetriggerCheck = true }))
+    }
+
+    @Test fun loopyExcludesSelf() {
+        val loopy = FJoker("j_cry_loopy")
+        loopy.n = 5
+        val other = FJoker("j_joker")
+        val spec = JOKER_MANIFEST.getValue("j_cry_loopy")
+        // Other is retriggered target → fires
+        val ctx1 = Sctx().apply { retriggeredJoker = other; selfJoker = loopy; jokerRetriggerCheck = true }
+        assertEquals(5, dispatchManifest(spec, loopy, ctx1)?.repetitions ?: 0)
+        // Self is retriggered → excluded
+        val ctx2 = Sctx().apply { retriggeredJoker = loopy; selfJoker = loopy; jokerRetriggerCheck = true }
+        assertEquals(null, dispatchManifest(spec, loopy, ctx2))
+    }
+}
+
+/** Verify perCard accumulation + two-phase jokerMain reads. */
+class PerCardAccumulationTest {
+    @Test fun krustytheclownAccumulatesXPerCard() {
+        val j = FJoker("j_cry_krustytheclown")
+        val spec = JOKER_MANIFEST.getValue("j_cry_krustytheclown")
+        val c = PlayingCard(Suit.S, 5)
+        val ctx = Sctx().apply { individual = true; cardarea = "play"; otherCard = c }
+        // Before any scoring: x=1.0, jokerMain no-op
+        assertEquals(Effect.None, spec.jokerMain!!(j.snapshot(), ctx))
+        // After 1 perCard invocation: x=1.02
+        j.restore(spec.perCard!!(j.snapshot(), ctx, c))
+        assertEquals(1.02, j.x, 1e-9)
+        // After 50 cards: x = 1.0 + 50*0.02 = 2.0
+        repeat(49) { j.restore(spec.perCard!!(j.snapshot(), ctx, c)) }
+        assertEquals(2.0, j.x, 1e-9)
+        val xm = spec.jokerMain!!(j.snapshot(), ctx); check(xm is Effect.XMult) { "expected XMult but got $xm" }; assertEquals(2.0, (xm as Effect.XMult).x, 1e-6)
+    }
+
+    @Test fun weeFibAccumulatesOnFibRanksOnly() {
+        val j = FJoker("j_cry_wee_fib")
+        val spec = JOKER_MANIFEST.getValue("j_cry_wee_fib")
+        val ctx = Sctx()   // default rankOf = id
+        // Fibonacci ranks: 14(A), 2, 3, 5, 8
+        for (rank in listOf(14, 2, 3, 5, 8)) {
+            val c = PlayingCard(Suit.S, rank)
+            j.restore(spec.perCard!!(j.snapshot(), ctx, c))
+        }
+        assertEquals(15.0, j.mult, 0.0)   // 5 * 3.0
+        // Non-fibonacci ranks should not accumulate
+        val c7 = PlayingCard(Suit.S, 7)
+        j.restore(spec.perCard!!(j.snapshot(), ctx, c7))
+        assertEquals(15.0, j.mult, 0.0)   // unchanged
+        assertEquals(Effect.Mult(15.0), spec.jokerMain!!(j.snapshot(), ctx))
+    }
+
+    @Test fun facileFiresAtOrBelow10ThenResetsViaReducer() {
+        val j = FJoker("j_cry_facile")
+        val spec = JOKER_MANIFEST.getValue("j_cry_facile")
+        val ctx = Sctx()
+        val c = PlayingCard(Suit.S, 5)
+        // Fire 10 perCard passes → n=10, jokerMain fires EMult(3.0)
+        repeat(10) { j.restore(spec.perCard!!(j.snapshot(), ctx, c)) }
+        assertEquals(10, j.n)
+        assertEquals(Effect.EMult(3.0), spec.jokerMain!!(j.snapshot(), ctx))
+        // 11th card → n=11, jokerMain no-op
+        j.restore(spec.perCard!!(j.snapshot(), ctx, c))
+        assertEquals(Effect.None, spec.jokerMain!!(j.snapshot(), ctx))
+        // HandScored reducer resets n to 0
+        j.restore(spec.reduce!!(j.snapshot(), GameEvent.HandScored(HandType.PAIR)))
+        assertEquals(0, j.n)
+    }
+}
+
+/** Blueprint copies through the manifest — verifies the pre-manifest copy block delegates correctly. */
+class BlueprintCopyTest {
+    @Test fun blueprintCopiesJollyViaManifest() {
+        val jolly     = FJoker("j_jolly")
+        val blueprint = FJoker("j_blueprint")
+        // Blueprint copies the joker to its RIGHT. board=[blueprint, jolly] → blueprint copies jolly.
+        // Hand must be a PAIR for jolly (+8 Mult) to fire. A=14, A=14 is a pair.
+        val played = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 14))
+        val result = Score.score(played, listOf(blueprint, jolly))
+        // PAIR base mult=2, jolly +8=10, blueprint copies jolly +8=18.
+        assertEquals(18.0, result.mult, 0.0)
+    }
+
+    @Test fun brainstormCopiesLeftmost() {
+        val jolly      = FJoker("j_jolly")
+        val brainstorm = FJoker("j_brainstorm")
+        // Brainstorm copies leftmost (jolly). board=[jolly, brainstorm] → brainstorm copies jolly.
+        val played = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 14))
+        val result = Score.score(played, listOf(jolly, brainstorm))
+        // PAIR base mult=2, jolly +8=10, brainstorm copies jolly +8=18.
+        assertEquals(18.0, result.mult, 0.0)
+    }
+}
