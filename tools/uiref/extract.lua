@@ -690,3 +690,7 @@ dump(create_UIBox_game_over(), "game_over_tree.json")
 -- captures the container geometry (G.hand.T.w-2 wide, padding=0.1, r=0.1, BLACK, emboss=0.05).
 -- Extracting gives the frame; Kotlin fills the id-slotted rows from RunState.evalRows at render.
 dump(create_UIBox_round_evaluation(), "round_eval_tree.json")
+
+-- ── RUN INFO (G.UIDEF.run_info): the in-run stats/deck popup ──────────────────────────────────────
+local ok_ri, ridef = pcall(G.UIDEF.run_info)
+if ok_ri and ridef then dump(ridef, "run_info_tree.json") else print("RUNINFO ERR: "..tostring(ridef)) end

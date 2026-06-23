@@ -1620,6 +1620,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
             "eval" -> s.toEvalForPreview()
             "over" -> s.phase = Phase.OVER
+            "win" -> s.phase = Phase.WIN
             "repro" -> s.loadRepro()      // PROOF: freeze the exact reference-screenshot state for pixel-diff
             "repro-live" -> s.loadReproLive()  // live-cascade harness: bref_3 state, plays the Two Pair so scoring animates
         }
@@ -1713,13 +1714,16 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                             Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
                             Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
-                            Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+                            Phase.OVER, Phase.WIN -> {}   // rendered as a full-screen overlay below (vanilla covers everything)
                             Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, cardBase, cells)
-                            Phase.WIN  -> WinScreen(s, onRestart = onRestart, onMainMenu = onClose)
                         }
                     }
                 }
             }
+            // Game-over / win are full-screen overlays (G.OVERLAY_MENU) in vanilla — they cover the
+            // HUD + board, not a play-area panel. Render the extracted tree full-screen over everything.
+            if (s.phase == Phase.OVER) GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+            if (s.phase == Phase.WIN)  WinScreen(s, onRestart = onRestart, onMainMenu = onClose)
         }
         // Minimal close affordance (NOT part of Balatro's HUD) — a small corner overlay so the
         // sidebar itself stays a faithful create_UIBox_HUD with no injected dev chrome.
@@ -2686,101 +2690,42 @@ private fun EvalRowView(row: EvalRow) {
  * right column shows ante/round reached, defeated-by blind, and action buttons.
  */
 @Composable
-private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(360.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BTxt("Game Over", Balatro.Mult, 26.sp)
-                // Two-column stats panel — mirrors vanilla create_UIBox_round_scores_row layout.
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel).padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // Left column: scoring stats
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        StatRow("Chips scored",    fmtR(s.totalChipsScored),              Balatro.Mult)
-                        s.mostPlayedHand?.let { (h, n) ->
-                            StatRow("Best hand", "${handName(h)} ($n)", Balatro.White)
-                        }
-                        StatRow("Cards played",    s.totalCardsPlayed.toString(),          Balatro.Chips)
-                        StatRow("Cards discarded", s.totalCardsDiscarded.toString(),        Balatro.Mult)
-                        StatRow("Cards purchased", s.totalCardsPurchased.toString(),        Balatro.Money)
-                        StatRow("Times rerolled",  s.timesRerolled.toString(),              Balatro.Green)
-                        StatRow("Seed",            s.runSeed,                              Balatro.White)
-                    }
-                    // Right column: ante/round + defeated-by + buttons
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp),
-                           horizontalAlignment = Alignment.End) {
-                        StatRow("Ante",  s.ante.toString(),           Balatro.Orange)
-                        StatRow("Round", (s.blindIndex + 1).toString(), Balatro.Orange)
-                        Spacer(Modifier.height(4.dp))
-                        BTxt("Defeated by", Balatro.White, 10.sp)
-                        BTxt(s.blindName, Balatro.Mult, 12.sp)
-                        Spacer(Modifier.weight(1f))
-                        BButton("New Run",   Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onRestart() }
-                        BButton("Main Menu", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onMainMenu() }
-                    }
-                }
-            }
-        }
-    }
-}
+private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) =
+    EndScreen(s, win = false, onRestart = onRestart, onMainMenu = onMainMenu)
+
+/** Win screen: the REAL create_UIBox_win tree (win_tree.json), bound like game-over. */
+@Composable
+private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) =
+    EndScreen(s, win = true, onRestart = onRestart, onMainMenu = onMainMenu)
 
 /**
- * Port of create_UIBox_win (UI_definitions.lua:2749).
- * Two-column layout matching vanilla — same stat rows as game-over; green/Chips title instead of
- * red. Shown when Ante 8 boss is defeated (standard win) or Ante 10 (showdown). Balatro shows
- * fireworks + a Jimbo animation above the panel; here the panel renders without those decorations.
+ * Game-over / win, rendered from the REAL create_UIBox_game_over / create_UIBox_win trees
+ * (game_over_tree.json / win_tree.json) through the ported layout engine via [GameOverSpec] — no
+ * hand-built panel. Structure + labels + buttons come from the extracted tree; the round_scores_row
+ * stat values bind to RunState (the same values the old hand-built screen showed); New-Run / Main-Menu
+ * buttons fire via the tree's bound onClick. Falls back to a minimal panel only if the asset is missing.
  */
 @Composable
-private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
-    val isShowdown = s.ante > 8   // just finished ante 10 showdown
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(360.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BTxt(if (isShowdown) "Gold Stake!" else "Victory!", Balatro.Chips, 26.sp)
-                // Two-column stats panel — mirrors vanilla create_UIBox_round_scores_row layout.
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel).padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // Left column: scoring stats
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        StatRow("Chips scored",    fmtR(s.totalChipsScored),              Balatro.Mult)
-                        s.mostPlayedHand?.let { (h, n) ->
-                            StatRow("Best hand", "${handName(h)} ($n)", Balatro.White)
-                        }
-                        StatRow("Cards played",    s.totalCardsPlayed.toString(),          Balatro.Chips)
-                        StatRow("Cards discarded", s.totalCardsDiscarded.toString(),        Balatro.Mult)
-                        StatRow("Cards purchased", s.totalCardsPurchased.toString(),        Balatro.Money)
-                        StatRow("Times rerolled",  s.timesRerolled.toString(),              Balatro.Green)
-                        StatRow("Seed",            s.runSeed,                              Balatro.White)
-                    }
-                    // Right column: ante/round + Endless mode + action buttons
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp),
-                           horizontalAlignment = Alignment.End) {
-                        StatRow("Ante",  s.ante.toString(),           Balatro.Orange)
-                        StatRow("Round", (s.blindIndex + 1).toString(), Balatro.Orange)
-                        Spacer(Modifier.weight(1f))
-                        BButton("New Run",   Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onRestart() }
-                        BButton("Main Menu", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onMainMenu() }
-                    }
+private fun EndScreen(s: RunState, win: Boolean, onRestart: () -> Unit, onMainMenu: () -> Unit) {
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val root = remember(ctx, win) { GameOverSpec.load(ctx, win) }
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
+        if (root != null) {
+            val tree = remember(root) { GameOverSpec.build(root, GameOverBind(s, onRestart, onMainMenu)) }
+            // create_UIBox_game_over / _win is a 100×57.5u overlay backing with the dialog centred in
+            // it; render it centred over the full surface (RenderUIBoxAt centres tree in the rect) and
+            // clip the oversized backing to the screen — exactly how vanilla layers the overlay menu.
+            RenderUIBoxAt(tree, u, 0f, 0f, maxWidth.value / u, maxHeight.value / u)
+        } else {
+            Panel(Modifier.width(360.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BTxt(if (win) "Victory!" else "Game Over", if (win) Balatro.Chips else Balatro.Mult, 26.sp)
+                    BButton("New Run",   Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onRestart() }
+                    BButton("Main Menu", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onMainMenu() }
                 }
             }
         }
-    }
-}
-
-/** One create_UIBox_round_scores_row: label on the left, coloured value on the right. */
-@Composable
-private fun StatRow(label: String, value: String, accent: Color) {
-    Row(
-        Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BTxt(label, Balatro.White, 11.sp)
-        Spacer(Modifier.width(8.dp))
-        BTxt(value, accent, 13.sp)
     }
 }
 
