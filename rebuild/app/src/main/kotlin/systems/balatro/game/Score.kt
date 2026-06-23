@@ -249,6 +249,7 @@ object Score {
             "j_cry_exposed"   -> if (!(oc.isFace || ctx.pareidolia)) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
             // (j_cry_mask migrated to JOKER_MANIFEST.)
             "j_cry_mask"      -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
+            // (j_cry_mstack migrated to JOKER_MANIFEST.)
             "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
             // vanilla retrigger jokers (card.lua:3895): Sock and Buskin retriggers each face once;
             // Hanging Chad retriggers the FIRST scored card twice (context.other_card == scoring_hand[1]);
@@ -427,6 +428,7 @@ object Score {
             // antennastoheaven: j.xc += 0.1 per scored 4/7 (individual, accumulated above)
             // spaceglobe: j.xc += Xchipmod(0.2) each time the current target hand type is played (before, non-scoring); target rotates on match
             // pirate_dagger: j.xc += 0.25 * sell_cost of joker to the right (which is destroyed) at setting_blind
+            // (j_cry_spaceglobe/j_cry_pirate_dagger migrated to JOKER_MANIFEST — batch 10c. j_cry_antennastoheaven stays legacy: individual mutates j.xc.)
             "j_cry_antennastoheaven", "j_cry_spaceglobe", "j_cry_pirate_dagger" ->
                 if (j.xc > 1.0) return Fx().apply { xChipMod = j.xc }  // accumulated Xchips
             // supercell: +15 Chips, X2 Chips, +15 Mult, X2 Mult (config.extra.stat1=15, stat2=2; non-modest path)
@@ -439,6 +441,7 @@ object Score {
             // (j_cry_longboi migrated to JOKER_MANIFEST.)
             "j_cry_longboi" -> if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
             // biggestm: X(j.x) Mult when j.n > 0 (j.n=1 when "before" check fired this hand, 0 otherwise)
+            // (j_cry_biggestm migrated to JOKER_MANIFEST.)
             "j_cry_biggestm" -> if (j.n > 0) return Fx().apply { xMultMod = j.x }
             // kittyprinter: flat X2 Xmult every hand (config.extra.Xmult=2)
             // (j_cry_kittyprinter migrated to JOKER_MANIFEST.)

@@ -510,6 +510,30 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         individual = { s, _, _ -> if (s.x >= 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 
+    // ── batch 10: remaining "other" jokers + two-phase (before-pass sets field, jokerMain reads) ────────
+    // ── 10a: individual retrigger reads ────────────────────────────────────────────────────────────────────
+    // cry_mstack: +j.n retriggers per scored played card; j.n=1 default, grows per jolly-type sold
+    "j_cry_mstack"     to JokerSpec(
+        initialState = FJokerState(n = 1),
+        individual = { s, ctx, _ -> if (ctx.cardarea == "play") Effect.Retrigger(s.n) else Effect.None },
+    ),
+
+    // ── 10b: jokerMain XMult from before-pass-set j.n + static j.x ─────────────────────────────────────
+    // cry_biggestm: X(j.x=7.0) when j.n>0 (Score.kt before-pass sets j.n=1 when hand is PAIR; stays until end-of-round reset)
+    "j_cry_biggestm"   to JokerSpec(
+        initialState = FJokerState(x = 7.0),
+        jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── 10c: jokerMain XChips from RunScreen-grown j.xc ─────────────────────────────────────────────────
+    // cry_spaceglobe: XChip = j.xc (starts 1.0, +0.2 each time target hand type played; seeded n=HandType.HIGH_CARD ordinal)
+    "j_cry_spaceglobe" to JokerSpec(
+        initialState = FJokerState(n = HandType.HIGH_CARD.ordinal),
+        jokerMain = { s, _ -> if (s.xc > 1.0) Effect.XChips(s.xc) else Effect.None },
+    ),
+    // cry_pirate_dagger: XChip = j.xc (+0.25 * sell_cost of joker to the right at setting_blind, that joker destroyed)
+    "j_cry_pirate_dagger" to JokerSpec(jokerMain = { s, _ -> if (s.xc > 1.0) Effect.XChips(s.xc) else Effect.None }),
+
     // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
     // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
     "j_steel_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(1.0 + 0.2 * s.n) else Effect.None }),
