@@ -101,15 +101,22 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         }
     }
 
-    fun loc(key: Any?): String = when (key) {
-        "k_hud_hands" -> "Hands"; "k_hud_discards" -> "Discards"
-        "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "score"
-        "$" -> "$"; "b_options" -> "Options"; "b_run_info_1" -> "Run"; "b_run_info_2" -> "Info"
-        // shop
-        "b_next_round_1" -> "Next"; "b_next_round_2" -> "Round"; "k_reroll" -> "Reroll"
-        // offer cards (create_shop_card_ui)
-        "b_buy" -> "Buy"; "b_redeem" -> "Redeem"; "b_open" -> "Open"; "b_and_use" -> "and Use"
-        else -> if (key is String) key else ""   // {type=variable} loc tables (e.g. ante_x_voucher) -> blank for now
+    fun loc(key: Any?): String {
+        // {type=variable} loc tables carry a key + vars (e.g. ante_x_voucher = "ANTE #1# VOUCHER").
+        if (key is JSONObject) return when (key.optString("key")) {
+            "ante_x_voucher" -> "ANTE ${s.ante} VOUCHER"   // #1# = current ante (round_resets.ante)
+            else -> ""
+        }
+        return when (key) {
+            "k_hud_hands" -> "Hands"; "k_hud_discards" -> "Discards"
+            "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "score"
+            "$" -> "$"; "b_options" -> "Options"; "b_run_info_1" -> "Run"; "b_run_info_2" -> "Info"
+            // shop
+            "b_next_round_1" -> "Next"; "b_next_round_2" -> "Round"; "k_reroll" -> "Reroll"
+            // offer cards (create_shop_card_ui)
+            "b_buy" -> "Buy"; "b_redeem" -> "Redeem"; "b_open" -> "Open"; "b_and_use" -> "and Use"
+            else -> if (key is String) key else ""
+        }
     }
 
     /** A config.button -> a live RunState action, gated by config.func. Only real action buttons map;
@@ -158,11 +165,13 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         // hand-name row keeps its 1.1u reservation (the played-hand name floats into it).
         minh = c.optDouble("minh", 0.0).toFloat(),
         maxw = c.optDouble("maxw", 0.0).toFloat(),
+        maxh = c.optDouble("maxh", 0.0).toFloat(),
         wCfg = if (c.has("w")) c.optDouble("w", 0.0).toFloat() else null,
         hCfg = if (c.has("h")) c.optDouble("h", 0.0).toFloat() else null,
         scale = c.optDouble("scale", 1.0).toFloat(),
         textColour = colour(c.optJSONObject("colour")) ?: Balatro.White,
         shadow = c.optBoolean("shadow", false),
+        vert = c.optBoolean("vert", false),   // vertical sidebar label (e.g. "ANTE x VOUCHER")
         emboss = c.optDouble("emboss", 0.0).toFloat(),
         onClick = buttonOnClick(c),   // shop Next-Round / Reroll buttons (null for non-action nodes)
     )
