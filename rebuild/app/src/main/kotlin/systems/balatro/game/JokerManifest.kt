@@ -96,6 +96,8 @@ sealed interface GameEvent {
     data class HandScored(val handType: HandType, val playedCount: Int = 0) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
+    /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost), for the eternalflame >= 2 gate. */
+    data class Sold(val soldKey: String, val sellValue: Int) : GameEvent
 }
 
 typealias ScoreHook = (self: FJokerState, ctx: Sctx) -> Effect
@@ -174,7 +176,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         reduce = { s, e -> when (e) {
             is GameEvent.HandScored -> s.copy(mult = s.mult + 1.0)
             is GameEvent.Discarded  -> s.copy(mult = maxOf(0.0, s.mult - 1.0))
-            is GameEvent.BeforeHand -> s
+            else -> s   // BeforeHand / Sold / future events: green only reacts to hands & discards
         } },
         jokerMain = { s, _ -> Effect.multOrNone(if (s.mult > 0.0) s.mult else 0.0) },
     ),
@@ -456,9 +458,17 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── batch 9: remaining jokerMain accumulator-readers (j.x > 1.0 group) + ctx-read jokers ─────────────
     // ── 9a: j.x > 1.0 → XMult (the big Xmult group; RunScreen grows j.x per event) ───────────────────────
     // j_ramen: X(j.x) Mult; starts x=2.0, -0.01 per discarded card; self-destructs at x≤1.0
-    "j_ramen"              to JokerSpec(initialState = FJokerState(x = 2.0), jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
-    // j_campfire: X(j.x) Mult; starts x=1.0, +0.25 per joker sold; self-destructs at round end? (resets to 1.0)
-    "j_campfire"           to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // j_ramen: X(j.x) Mult; starts x=2.0, depletes -0.01 per discarded card (run loop self-destructs at x<=1).
+    "j_ramen"              to JokerSpec(
+        initialState = FJokerState(x = 2.0),
+        reduce = { s, e -> if (e is GameEvent.Discarded) s.copy(x = maxOf(1.0, s.x - 0.01 * e.cards.size)) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+    // j_campfire: X(j.x) Mult; starts x=1.0 (default), +0.25 per joker sold (run loop resets it at round end).
+    "j_campfire"           to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.Sold) s.copy(x = s.x + 0.25) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
     // j_obelisk: X(j.x) Mult; x grows when the played hand type isn't the current top-played hand
     "j_obelisk"            to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_paved_joker: X(j.x) Mult; x grows when any perishable joker expires
@@ -660,4 +670,10 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_cursor"    to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
     // cry_crustulum: +j.chips (+=4 per reroll in the shop; run-loop sets it via reroll()).
     "j_cry_crustulum" to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
+
+    // ── Sold-event accumulator: eternalflame scales Xmult per any joker sold with sell_cost >= 2 ──
+    "j_cry_eternalflame" to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.Sold && e.sellValue >= 2) s.copy(x = s.x + 0.1) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
 )

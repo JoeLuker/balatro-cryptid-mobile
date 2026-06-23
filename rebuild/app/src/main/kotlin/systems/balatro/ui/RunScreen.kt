@@ -155,8 +155,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
         else -> 0.0
     }
     val fjXInit = when (offer.key) {
-        "j_ramen"          -> 2.0   // x2 Mult, depletes per discard
-        "j_campfire"       -> 1.0
+        // (j_ramen x=2.0 / j_campfire x=1.0 now come from their JOKER_MANIFEST initialState — unreachable here.)
         "j_cry_caramel"    -> 1.75  // config.extra.x_mult
         "j_cry_starfruit"  -> 2.0   // config.emult
         "j_cry_biggestm"   -> 7.0   // config.extra.xmult (read once the before-pass activates it)
@@ -1238,8 +1237,7 @@ internal class RunState {
         // MANIFEST: migrated jokers evolve state on the discard event via their reducer (e.g. green_joker -1 Mult).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.Discarded(discardedCards))) }
         for (o in owned) when (o.fj.key) {
-            // j_ramen: -0.01 Xmult per discarded card (config.extra depletion=0.01); self-destructs when x_mult ≤ 1.0.
-            "j_ramen"       -> o.fj.x = maxOf(1.0, o.fj.x - 0.01 * discardedCards.size)
+            // (j_ramen depletion migrated to its JOKER_MANIFEST reducer on the Discarded event.)
             // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
             "j_mail"        -> if (jackCount > 0) o.fj.mult += 2.0 * jackCount
             // j_castle: +3 Chips per suit in a FLUSH discard (config.extra chips=3; only counts matching suit cards).
@@ -1279,14 +1277,12 @@ internal class RunState {
         // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
         val soldKey = o.fj.key
         val sellCost = refund   // maxOf(1, cost/2) — used for sell_cost >= 2 gates below
+        // MANIFEST: migrated jokers react to the sale via their reducer on the Sold event
+        // (campfire +0.25 Xmult per sale; eternalflame +0.1 when the sold joker's sell_cost >= 2).
+        for (rem in owned) JOKER_MANIFEST[rem.fj.key]?.reduce?.let { rem.fj.restore(it(rem.fj.snapshot(), GameEvent.Sold(soldKey, sellCost))) }
         for (rem in owned) when (rem.fj.key) {
-            // j_campfire: +0.25 Xmult per joker sold (config.extra xmult=0.25; any joker, incl. self — but self is gone).
-            "j_campfire"       -> rem.fj.x += 0.25
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
             "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
-            // j_cry_eternalflame: +0.1 Xmult per any joker sold with sell_cost >= 2 (misc_joker.lua:1357-1369).
-            // Lua guard: context.card.sell_cost >= 2 (or not-modest gameset). sell_cost = maxOf(1, cost/2).
-            "j_cry_eternalflame" -> if (sellCost >= 2) rem.fj.x += 0.1
             // j_cry_m: +13 Xmult per Jolly Joker sold.
             "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
             // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
