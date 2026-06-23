@@ -1562,6 +1562,13 @@ internal class RunState {
         blindIndex += 1
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
         Telemetry.event("BLIND_SKIP", "tag" to tags.last().name)
+        // MANIFEST: fire BlindSkipped so Throwback (and future blind-skip jokers) can accumulate.
+        // Mirrors Lua's G.GAME.skips++ (button_callbacks.lua:2995) + SMODS.calculate_context({skip_blind=true})
+        // (button_callbacks.lua:3009). Throwback in Lua reads G.GAME.skips in its update() loop;
+        // here we accumulate +0.25 per event which is equivalent (x starts 1.0, +0.25 per skip).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let {
+            o.fj.restore(it(o.fj.snapshot(), GameEvent.BlindSkipped))
+        }
     }
 
     /** Fire (and consume) every earned tag whose trigger matches (Tag:apply_to_run by config.type). */

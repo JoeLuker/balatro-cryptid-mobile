@@ -385,6 +385,97 @@ class RoundEndTest {
     }
 }
 
+/** BlindSkipped reducer: throwback accumulates +0.25 Xmult per blind skipped. */
+class BlindSkippedTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    @Test fun throwbackAccumulatesXPerBlindSkipped() {
+        val throwback = spec("j_throwback")
+        val s0 = throwback.initialState     // x=1.0
+
+        // BlindSkipped → x += 0.25 each time
+        val s1 = throwback.reduce!!(s0, GameEvent.BlindSkipped)
+        assertEquals(1.25, s1.x, 1e-9)
+
+        val s2 = throwback.reduce!!(s1, GameEvent.BlindSkipped)
+        assertEquals(1.5, s2.x, 1e-9)   // Oracle: 2 skips → x=1.5 → 32*2*1.5=96
+
+        // Non-BlindSkipped event → no change
+        val sNop = throwback.reduce!!(s0, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, sNop.x, 1e-9)
+
+        // jokerMain fires at x=1.5
+        assertEquals(Effect.XMult(1.5), throwback.jokerMain!!(s2, Sctx()))
+
+        // jokerMain silent at x=1.0 (no skips yet)
+        assertEquals(Effect.None, throwback.jokerMain!!(s0, Sctx()))
+    }
+}
+
+/** BeforeHand reducer: cry_whip accumulates +0.5 Xmult when played hand has a 2 and a 7 of different suits. */
+class BeforeHandWhipTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    private fun ctx(vararg cards: PlayingCard, smeared: Boolean = false): Sctx =
+        Sctx().apply { fullHand = cards.toList(); this.smeared = smeared }
+
+    @Test fun whipAccumulatesWhen2And7DifferentSuits() {
+        val whip = spec("j_cry_whip")
+        val s0 = whip.initialState   // x=1.0
+
+        // 2H + 7S: different suits → triggers
+        val twoH = PlayingCard(rank = 2, suit = Suit.H)
+        val sevenS = PlayingCard(rank = 7, suit = Suit.S)
+        val s1 = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(twoH, sevenS)))
+        assertEquals(1.5, s1.x, 1e-9)   // Oracle: HighCard + whip x=1.5 → triggered once
+
+        // 2H + 7H: same suit → does NOT trigger
+        val sevenH = PlayingCard(rank = 7, suit = Suit.H)
+        val sNo = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(twoH, sevenH)))
+        assertEquals(1.0, sNo.x, 1e-9)
+
+        // No 2 or 7 → does NOT trigger
+        val aceS = PlayingCard(rank = 14, suit = Suit.S)
+        val sNone = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(aceS, sevenS)))
+        assertEquals(1.0, sNone.x, 1e-9)
+
+        // Non-BeforeHand event → no change
+        val sNop = whip.reduce!!(s0, GameEvent.HandScored(HandType.HIGH_CARD))
+        assertEquals(1.0, sNop.x, 1e-9)
+
+        // jokerMain fires at x=1.5
+        assertEquals(Effect.XMult(1.5), whip.jokerMain!!(s1, Sctx()))
+
+        // jokerMain silent at x=1.0
+        assertEquals(Effect.None, whip.jokerMain!!(s0, Sctx()))
+    }
+
+    @Test fun whipSmeared2HAnd7H() {
+        // Smeared: H and D are the same colour-pair; 2H and 7H become {H,D} ∩ {H,D} — still same →
+        // under smeared, H/D collapse into one pool, so 2H=={H,D} and 7H=={H,D}; single-element
+        // intersection ts={H,D}, ss={H,D} with size>1 → triggered (any 2 in one colour vs any 7
+        // in the same colour expands to 2 suits each, so ts.size>1 fires).
+        val whip = spec("j_cry_whip")
+        val s0 = whip.initialState
+        val twoH = PlayingCard(rank = 2, suit = Suit.H)
+        val sevenH = PlayingCard(rank = 7, suit = Suit.H)
+        // With Smeared: 2H expands to {H,D}, 7H expands to {H,D} — ts.size=2 → triggered
+        val sSmear = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(twoH, sevenH, smeared = true)))
+        assertEquals(1.5, sSmear.x, 1e-9)
+    }
+
+    @Test fun whipWildCard2TriggersWithAny7() {
+        // WILD 2: expands to all suits; any 7 (even same rank suit) gives diff-suit pair
+        val whip = spec("j_cry_whip")
+        val s0 = whip.initialState
+        val wild2 = PlayingCard(rank = 2, suit = Suit.H, enhancement = Enhancement.WILD)
+        val sevenH = PlayingCard(rank = 7, suit = Suit.H)
+        // WILD expands 2 to {H,D,S,C}; ts.size=4 → triggered
+        val sWild = whip.reduce!!(s0, GameEvent.BeforeHand(ctx(wild2, sevenH)))
+        assertEquals(1.5, sWild.x, 1e-9)
+    }
+}
+
 /** CardAdded reducer: hologram accumulates +0.25 Xmult per card added to the deck. */
 class CardAddedTest {
     private fun spec(key: String) = JOKER_MANIFEST.getValue(key)

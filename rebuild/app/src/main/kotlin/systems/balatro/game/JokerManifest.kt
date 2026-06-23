@@ -104,6 +104,10 @@ sealed interface GameEvent {
      *  Familiar/Grim/Incantation, Marble Joker, DNA). [count] mirrors #context.cards in Lua's
      *  playing_card_joker_effects call — always >=1. Hologram accumulates +0.25 × count. */
     data class CardAdded(val count: Int = 1) : GameEvent
+    /** The player skipped a Small or Big blind (button_callbacks.lua:2995 G.GAME.skips++,
+     *  SMODS.calculate_context({skip_blind=true})). Throwback recomputes x_mult = 1 + skips*0.25
+     *  in Lua's update() loop; here we mirror that with x += 0.25 per skip event. */
+    object BlindSkipped : GameEvent
 }
 
 typealias ScoreHook = (self: FJokerState, ctx: Sctx) -> Effect
@@ -712,6 +716,46 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // (setting_blind), DNA (first hand 1-card play) — all unimplemented in Kotlin today.
     "j_hologram" to JokerSpec(
         reduce    = { s, e -> if (e is GameEvent.CardAdded) s.copy(x = s.x + 0.25 * e.count) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── BlindSkipped-event accumulator ────────────────────────────────────────────────────────────
+    // j_throwback: +0.25 Xmult per blind skipped this run (card.lua:4708-4709, game.lua config.extra=0.25).
+    // Lua recomputes x_mult = 1 + G.GAME.skips * extra in update() every frame, making it a live
+    // read from a global counter. Kotlin mirrors this with x += 0.25 per BlindSkipped event
+    // dispatched from RunScreen.skipBlind(). Equivalent because x starts at 1.0 and each skip
+    // adds exactly 0.25, so the accumulated value equals 1 + skips*0.25 at all times.
+    // No self-destruct, no reset. perishable_compat=true (game.lua). Blueprint excluded in Lua
+    // (context.skip_blind path is display-only; scoring reads self.ability.x_mult directly).
+    "j_throwback" to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.BlindSkipped) s.copy(x = s.x + 0.25) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── BeforeHand-event accumulator ─────────────────────────────────────────────────────────────
+    // j_cry_whip: +0.5 Xmult when the played hand holds a 2 AND a 7 of different suits
+    // (misc_joker.lua:585-661, context.before). Suit resolution honours WILD enhancement
+    // (counts as all suits) and Smeared Joker (red H↔D, black S↔C collide). Uses get_id()
+    // in Lua so Maximized remapping applies (rankOf). No self-destruct, no reset, no blueprint.
+    // Previously accumulated in the Score.kt before-pass loop (j.x += 0.5 inline); now
+    // migrated to BeforeHand so the MANIFEST early-return at calcJoker handles jokerMain.
+    "j_cry_whip" to JokerSpec(
+        reduce = { s, e ->
+            if (e is GameEvent.BeforeHand) {
+                val ctx = e.ctx
+                fun suitsOf(id: Int) = ctx.fullHand.filter { ctx.rankOf(it) == id }
+                    .flatMap { when {
+                        it.enhancement == Enhancement.WILD -> Suit.values().toList()
+                        ctx.smeared && (it.suit == Suit.H || it.suit == Suit.D) -> listOf(Suit.H, Suit.D)
+                        ctx.smeared && (it.suit == Suit.S || it.suit == Suit.C) -> listOf(Suit.S, Suit.C)
+                        else -> listOf(it.suit)
+                    } }.toSet()
+                val ts = suitsOf(2); val ss = suitsOf(7)
+                val triggered = ts.isNotEmpty() && ss.isNotEmpty() &&
+                    (ts.size > 1 || ss.size > 1 || ts.first() != ss.first())
+                if (triggered) s.copy(x = s.x + 0.5) else s
+            } else s
+        },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 )

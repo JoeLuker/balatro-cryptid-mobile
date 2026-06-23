@@ -286,7 +286,9 @@ object Score {
             // j_cry_chili_pepper migrated to JOKER_MANIFEST (batch 9b: RoundEnd reducer; MANIFEST early-return at Score.kt:155).
             // j_hologram migrated to JOKER_MANIFEST (CardAdded-event reducer; RunScreen dispatches on Standard pack pick).
             // j_cry_mondrian migrated to JOKER_MANIFEST (batch 9b: RoundEnd(discardsUsed==0) reducer).
-            "j_obelisk", "j_loyalty_card", "j_throwback", "j_cry_whip",
+            // j_throwback migrated to JOKER_MANIFEST (BlindSkipped-event reducer; RunScreen.skipBlind() dispatches).
+            // j_cry_whip migrated to JOKER_MANIFEST (BeforeHand reducer; Score.kt before-pass loop removed).
+            "j_obelisk", "j_loyalty_card",
             "j_cry_dropshot", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
             "j_cry_paved_joker", "j_cry_membershipcard" ->
@@ -555,20 +557,7 @@ object Score {
         // MANIFEST before-pass: migrated jokers evolve their persistent state via their reducer (BeforeHand)
         // before the joker passes read it — e.g. j_cry_bonk scales its chip bonus on a Pair.
         for (j in jokers) JOKER_MANIFEST[j.key]?.reduce?.let { j.restore(it(j.snapshot(), GameEvent.BeforeHand(ctx))) }
-        // j_cry_whip: +0.5 Xmult if the played hand holds a 2 and a 7 of different suits (WILD = all suits).
-        // Uses get_id() in Lua — rankOf applies Maximized remapping so 2/7 can never match when Maximized is on board.
-        for (j in jokers) if (j.key == "j_cry_whip") {
-            fun suitsOf(id: Int) = played.filter { rankOf(it) == id }
-                .flatMap { when {
-                    it.enhancement == Enhancement.WILD -> Suit.values().toList()
-                    // Smeared: a card's suit collides with its colour pair in every is_suit check (red H↔D, black S↔C).
-                    ctx.smeared && (it.suit == Suit.H || it.suit == Suit.D) -> listOf(Suit.H, Suit.D)
-                    ctx.smeared && (it.suit == Suit.S || it.suit == Suit.C) -> listOf(Suit.S, Suit.C)
-                    else -> listOf(it.suit)
-                } }.toSet()
-            val ts = suitsOf(2); val ss = suitsOf(7)
-            if (ts.isNotEmpty() && ss.isNotEmpty() && (ts.size > 1 || ss.size > 1 || ts.first() != ss.first())) j.x += 0.5
-        }
+        // j_cry_whip migrated to JOKER_MANIFEST (BeforeHand reducer). The MANIFEST loop above handles it.
         trace?.add(ScoreStep("base · ${handType.name.lowercase().replace('_', ' ')}", chips, mult))
 
         fun apply(fx: Fx) {                         // the effects[ii] application block (lines 702-777)
