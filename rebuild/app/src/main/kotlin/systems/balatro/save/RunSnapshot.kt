@@ -30,6 +30,14 @@ data class JokerSnap(
 @Serializable data class OfferSnap(val key: String, val name: String, val desc: String, val cost: Int, val edition: String)
 @Serializable data class PlanetSnap(val planet: String, val cost: Int)
 @Serializable data class TarotSnap(val name: String, val enh: String, val cost: Int, val seal: String)
+/** One slot of the unified shop pool (vanilla's single mixed CardArea). `kind` selects which payload
+ *  is populated. An ordered list of these preserves the per-slot poll order across save/load. */
+@Serializable data class ShopItemSnap(
+    val kind: String,                       // "joker" | "planet" | "tarot"
+    val joker: OfferSnap? = null,
+    val planet: PlanetSnap? = null,
+    val tarot: TarotSnap? = null,
+)
 @Serializable data class VoucherSnap(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int)
 @Serializable data class BoosterSnap(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int)
 
@@ -51,9 +59,7 @@ data class RunSnapshot(
     val consumables: List<ConsumableSnap> = emptyList(),
     // exact mid-shop resume: the phase to land in + the live shop stock + per-shop reroll/tag state
     val phase: String = "BLIND_SELECT",
-    val shop: List<OfferSnap> = emptyList(),
-    val shopPlanets: List<PlanetSnap> = emptyList(),
-    val shopTarots: List<TarotSnap> = emptyList(),
+    val shopItems: List<ShopItemSnap> = emptyList(),
     val shopVoucher: VoucherSnap? = null,
     val shopBoosters: List<BoosterSnap> = emptyList(),
     val rerollIncrease: Int = 0,
