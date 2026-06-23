@@ -1723,6 +1723,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
         value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
     }
+    // Shop card art for the non-joker offers (planets/tarots/spectrals/vouchers/boosters).
+    val shopArt by produceState(ShopArt.Cells.EMPTY) {
+        value = withContext(Dispatchers.Default) { ShopArt.cache(ctx) }
+    }
     // Stake sprite (White Chip, stake 1 — always-active). chips.png 2x: 58×58px, pos={x=0,y=0}.
     val stakeBmp by produceState<ImageBitmap?>(null) {
         value = withContext(Dispatchers.Default) { StakeArt.whiteChip(ctx) }
@@ -1780,11 +1784,11 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                         when (s.phase) {
                             Phase.ROUND -> {}                                  // rendered full-screen above
                             Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
-                            Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
+                            Phase.SHOP -> ShopPhase(s, jokerCells, shopArt, cardBase)
                             Phase.RUN_INFO -> RunInfoScreen(s)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
                             Phase.OVER, Phase.WIN -> {}   // rendered as a full-screen overlay below (vanilla covers everything)
-                            Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, cardBase, cells)
+                            Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, shopArt, cardBase, cells)
                         }
                     }
                 }
@@ -2814,7 +2818,7 @@ private fun EndScreen(s: RunState, win: Boolean, onRestart: () -> Unit, onMainMe
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?) {
     // The shop FRAME is Balatro's REAL G.UIDEF.shop() tree (assets/ui/shop_tree.json, extracted by
     // tools/uiref/extract.sh) — Next-Round / Reroll buttons + the 3 CardArea slots — laid out by the
     // ported engine. Slot contents bind from RunState via cardAreaContent. No hand-built shop frame.
@@ -2825,7 +2829,7 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
         if (root != null) {
             val tree = HudSpec.build(root, HudBind(s, null))
             RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
-                ShopSlotOffers(s, name, x, y, w, h, u, jokerCells, cardBase)
+                ShopSlotOffers(s, name, x, y, w, h, u, jokerCells, shopArt, cardBase)
             })
         }
         // sell strip — not a Balatro UIBox; the only way to offload jokers until the joker row is interactive
@@ -2847,7 +2851,7 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
  *  create_shop_card_ui (shop_card_ui.json), with the card art box hand-built (no UIBox equivalent). */
 @Composable
 private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Float, h: Float, u: Float,
-                           jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
+                           jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?) {
     val ctx = LocalContext.current
     val spec = remember { OfferCardSpec.load(ctx) }
     Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp),
@@ -2865,26 +2869,26 @@ private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Flo
                         }
                         is ShopItem.Pl -> {
                             val po = item.po
-                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, po.planet.display, null, cardBase,
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, po.planet.display, shopArt.planets[po.planet], cardBase,
                                 s.price(po.cost), handName(po.planet.hand), Balatro.Chips,
                                 s.money >= s.price(po.cost), u) { s.buyPlanet(po) }
                         }
                         is ShopItem.Tt -> {
                             val t = item.t
                             val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
-                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, t.name, null, cardBase,
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, t.name, shopArt.tarots[t.name], cardBase,
                                 s.price(t.cost), fx, Balatro.Purple,
                                 s.money >= s.price(t.cost), u) { s.buyTarot(t) }
                         }
                     }
                 }
                 "shop_vouchers" -> s.shopVoucher?.let { v ->
-                    ShopOfferCard(spec, OfferCardSpec.Set.VOUCHER, v.name, null, cardBase,
+                    ShopOfferCard(spec, OfferCardSpec.Set.VOUCHER, v.name, shopArt.vouchers[v.key], cardBase,
                         s.price(v.cost), v.desc, Balatro.Gold,
                         s.money >= s.price(v.cost), u) { s.redeemVoucher(v) }
                 }
                 "shop_booster" -> s.shopBoosters.forEach { b ->
-                    ShopOfferCard(spec, OfferCardSpec.Set.BOOSTER, b.name, null, cardBase,
+                    ShopOfferCard(spec, OfferCardSpec.Set.BOOSTER, b.name, shopArt.boosters[b.key], cardBase,
                         s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips,
                         s.money >= s.price(b.cost), u) { s.buyBooster(b) }
                 }
@@ -2971,7 +2975,7 @@ private fun packItemView(item: PackItem): Triple<String, String, Color> = when (
  * [PackBind] wires pack_choices (pick count) and the skip_booster button to live state.
  */
 @Composable
-private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap>) {
+private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap>) {
     val p = s.openPack ?: return
     val ctx = LocalContext.current
     val u = LocalUIScale.current
@@ -2991,7 +2995,7 @@ private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, ca
         if (tree != null) {
             RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
                 if (name == "pack_cards") {
-                    PackItemsContent(p, x, y, w, h, u, jokerCells, cardBase, cells, s)
+                    PackItemsContent(p, x, y, w, h, u, jokerCells, shopArt, cardBase, cells, s)
                 }
             })
         } else {
@@ -3013,7 +3017,7 @@ private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, ca
  */
 @Composable
 private fun PackItemsContent(p: OpenPack, x: Float, y: Float, w: Float, h: Float, u: Float,
-                             jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?,
+                             jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?,
                              cells: Map<PlayingCard, ImageBitmap>, s: RunState) {
     val n = p.items.size
     if (n == 0) return
@@ -3044,8 +3048,17 @@ private fun PackItemsContent(p: OpenPack, x: Float, y: Float, w: Float, h: Float
                         }
                     }
                     else -> {
-                        cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                        BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                        val art = when (item) {
+                            is PackItem.Planet -> shopArt.planets[item.p.planet]
+                            is PackItem.Tarot -> shopArt.tarots[item.t.name]
+                            is PackItem.SpectralItem -> shopArt.spectrals[item.s]
+                            else -> null
+                        }
+                        if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        else {
+                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                            BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                        }
                     }
                 }
                 // Taken overlay
