@@ -884,7 +884,11 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
     // invokes cardAreaContent(id, x, y, w, h) — same pattern as shop/pack card areas.
     if (id in setOf("base_round_eval", "bonus_round_eval", "eval_bottom")) {
         val minw = cfgJ.optDouble("minw", 0.0).toFloat()
-        val minh = cfgJ.optDouble("minh", 0.0).toFloat()
+        var minh = cfgJ.optDouble("minh", 0.0).toFloat()
+        // The extracted slots are empty (0 height — their reward rows are added dynamically at runtime,
+        // not captured in the static tree). Give the content slots room so the overlaid rows render
+        // instead of collapsing to a zero-height strip (~0.7u per reward row + the cash-out button).
+        if (minh <= 0f) minh = when (id) { "eval_bottom" -> 1.5f; else -> 2.4f }
         val align = cfgJ.optString("align", "cm")
         val slotCfg = Cfg(align = align, minw = minw, minh = minh)
         return Ob(slotCfg, CardAreaSlot(id, minw, minh))
