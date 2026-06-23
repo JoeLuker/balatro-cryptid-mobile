@@ -888,7 +888,7 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
         // The extracted slots are empty (0 height — their reward rows are added dynamically at runtime,
         // not captured in the static tree). Give the content slots room so the overlaid rows render
         // instead of collapsing to a zero-height strip (~0.7u per reward row + the cash-out button).
-        if (minh <= 0f) minh = when (id) { "eval_bottom" -> 1.5f; else -> 2.4f }
+        if (minh <= 0f) minh = when (id) { "eval_bottom" -> 1.1f; else -> 1.5f }
         val align = cfgJ.optString("align", "cm")
         val slotCfg = Cfg(align = align, minw = minw, minh = minh)
         return Ob(slotCfg, CardAreaSlot(id, minw, minh))
@@ -1035,7 +1035,7 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
 
 private fun buildRoundEvalCfg(c: org.json.JSONObject): Cfg {
     fun colourByName(name: String): Color = when (name) {
-        "BLACK"                  -> Balatro.Panel
+        "BLACK"                  -> Color(0xFF1A2123)   // distinct near-black frame — NOT the scene-matching Panel
         "DYN_UI.MAIN"            -> Balatro.Panel
         "DYN_UI.BOSS_DARK"       -> Balatro.Panel
         "UI.TRANSPARENT_DARK"    -> Balatro.Panel.copy(alpha = 0.3f)
