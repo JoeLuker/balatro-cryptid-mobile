@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
@@ -118,7 +119,11 @@ private fun calc(n: LNode, tx: Float, ty: Float, fac: Float): Pair<Float, Float>
     if (n.type == T || n.type == B || n.type == O) {
         val w: Float; val h: Float
         when (n.type) {
-            T -> { n.renderScale = scale; w = textWidthUnits((n.ui as Tx).text, scale); h = scale * TEXT_H }
+            T -> {                                     // ui.lua:135-145
+                n.renderScale = scale
+                val tw = textWidthUnits((n.ui as Tx).text, scale); val th = scale * TEXT_H
+                if (cfg.vert) { w = th; h = tw } else { w = tw; h = th }   // vert swaps tx/ty
+            }
             else -> {  // B or O: config.w/h wins, else (O) object self-measure, else 0
                 if (cfg.wCfg != null || cfg.hCfg != null) { w = cfg.wCfg ?: 0f; h = cfg.hCfg ?: 0f }
                 else if (n.type == O) { val m = objMeasure((n.ui as Ob).obj); w = m.first; h = m.second }
@@ -361,16 +366,23 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float,
             // renderScale = cfg.scale after the inherited maxw rescale (calc shrinks text to fit maxw).
             // Using cfg.scale here drew text full-size inside the shrunk node → overflow (boss debuff).
             val size = (n.renderScale * u * fontRatio)
-            // Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the
-            // DESCENT (bottom), so the glyph sits high in the box. Compose centres the glyph in the
-            // line box, so it lands (1-0.83)/2 = 0.085·lineHeight too LOW. Shift up by that to match.
-            val vshift = -((1f - TEXT_H) / 2f * n.renderScale * u)
-            Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.offset(y = vshift.dp)) {
-                    if (cfg.shadow) Box {
-                        BTxt(tx.text, Color.Black.copy(alpha = 0.3f), size.sp, Modifier.offset(y = 2.dp))
-                        BTxt(tx.text, cfg.textColour, size.sp)
-                    } else BTxt(tx.text, cfg.textColour, size.sp)
+            @Composable fun glyphs() = if (cfg.shadow) Box {
+                BTxt(tx.text, Color.Black.copy(alpha = 0.3f), size.sp, Modifier.offset(y = 2.dp))
+                BTxt(tx.text, cfg.textColour, size.sp)
+            } else BTxt(tx.text, cfg.textColour, size.sp)
+            if (cfg.vert) {
+                // vert: text rotated -90° (ui.lua:699); the node box already swapped w/h in calc, so
+                // centring the rotated glyphs (pivot = centre) fits them into the narrow vertical strip.
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.rotate(-90f)) { glyphs() }
+                }
+            } else {
+                // Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the
+                // DESCENT (bottom), so the glyph sits high in the box. Compose centres the glyph in the
+                // line box, so it lands (1-0.83)/2 = 0.085·lineHeight too LOW. Shift up by that to match.
+                val vshift = -((1f - TEXT_H) / 2f * n.renderScale * u)
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.offset(y = vshift.dp)) { glyphs() }
                 }
             }
         }
