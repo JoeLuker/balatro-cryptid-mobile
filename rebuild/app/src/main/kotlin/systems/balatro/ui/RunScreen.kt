@@ -162,6 +162,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
         "j_cry_biggestm"   -> 7.0   // config.extra.xmult (read once the before-pass activates it)
         "j_cry_mprime"     -> 1.05  // config.extra.mult (^Emult exponent per Jolly/M joker)
         "j_cry_membershipcard" -> 0.1 * CRYPTID_MEMBER_COUNT   // Xmult_mod(0.1) × member count → read as xMultMod
+        "j_cry_spy"        -> 0.5   // config.extra.x_mult — static, before-pass never sets this
         else -> fjX
     }
     val fjN = when (offer.key) {
@@ -176,6 +177,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
     }
     val fjChips = when (offer.key) {
         "j_cry_membershipcardtwo" -> CRYPTID_MEMBER_COUNT.toDouble()  // chips(1) × floor(member count / chips_mod=1)
+        "j_cry_clicked_cookie" -> 200.0                               // config.extra.chips — decrements via cry_press (unimplemented)
         else -> 0.0
     }
     return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips)

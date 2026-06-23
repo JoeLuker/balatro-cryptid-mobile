@@ -29,6 +29,8 @@ class InitialFJokerTest {
         assertTrue(make("j_cry_blacklist").n in 2..14)        // random blacklisted rank id
         assertEquals(0.1 * CRYPTID_MEMBER_COUNT, make("j_cry_membershipcard").x, 0.0)          // 3859.8 → xMultMod
         assertEquals(CRYPTID_MEMBER_COUNT.toDouble(), make("j_cry_membershipcardtwo").chips, 0.0)  // 38598 → +chips
+        assertEquals(0.5,   make("j_cry_spy").x, 0.0)                  // config.extra.x_mult — was 1.0 (no-op) before fix
+        assertEquals(200.0, make("j_cry_clicked_cookie").chips, 0.0)  // config.extra.chips — was 0.0 (no-op) before fix
     }
 
     @Test fun swashbucklerReadsSellSum() {
