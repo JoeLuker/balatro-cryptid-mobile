@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -2589,16 +2590,56 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
  * Each row shows a description on the left and the gold $ payout on the right.
  */
 @Composable
+/**
+ * Port of create_UIBox_round_evaluation (UI_definitions.lua:1612). The extracted round_eval_tree.json
+ * provides the frame skeleton (three id-tagged empty R nodes); [RoundEvalSpec] converts those R nodes
+ * to CardAreaSlot O-nodes so [RenderUIBoxNatural]'s cardAreaContent callback fills each slot:
+ *   base_round_eval  — BLIND + HANDS rows (earned during the round)
+ *   bonus_round_eval — GOLD + INTEREST rows (bonus payout lines)
+ *   eval_bottom      — Cash Out button
+ */
 private fun RoundEvalScreen(s: RunState) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(300.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Cash Out button — G.C.ORANGE (#FDA200), label "Cash Out: $TOTAL".
-                BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
-                Spacer(Modifier.height(2.dp))
-                s.evalRows.forEach { EvalRowView(it) }
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val evalRoot = remember(ctx) { RoundEvalSpec.load(ctx) }
+    if (evalRoot == null) {
+        // Fallback: hand-built panel if asset missing.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Panel(Modifier.width(300.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
+                    Spacer(Modifier.height(2.dp))
+                    s.evalRows.forEach { EvalRowView(it) }
+                }
             }
         }
+        return
+    }
+    val baseRows  = s.evalRows.filter { it.kind == EvalKind.BLIND || it.kind == EvalKind.HANDS }
+    val bonusRows = s.evalRows.filter { it.kind == EvalKind.GOLD  || it.kind == EvalKind.INTEREST }
+    val tree = remember(evalRoot) { RoundEvalSpec.build(evalRoot) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+            val slotMod = Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp)
+            when (name) {
+                "base_round_eval"  -> Box(slotMod) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
+                           verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
+                        baseRows.forEach { EvalRowView(it) }
+                    }
+                }
+                "bonus_round_eval" -> Box(slotMod) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
+                           verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
+                        bonusRows.forEach { EvalRowView(it) }
+                    }
+                }
+                "eval_bottom"      -> Box(slotMod, contentAlignment = Alignment.Center) {
+                    BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = (0.2f * u).dp)) { s.cashOut() }
+                }
+            }
+        })
     }
 }
 
@@ -2856,53 +2897,97 @@ private fun packItemView(item: PackItem): Triple<String, String, Color> = when (
     is PackItem.SpectralItem -> Triple(item.s.display, item.s.desc, Balatro.Mult)
 }
 
-/** Booster pack opening (Phase.PACK_OPEN): tap to pick `choose` of the revealed items, or Skip. */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Port of create_UIBox_arcana/spectral/standard/buffoon/celestial_pack.
+ * The frame tree (pack_*_tree.json) is rendered by [PackSpec]; the CardArea slot ("pack_cards")
+ * is filled by [PackItemsContent] which lays out items from RunState.openPack.items.
+ *
+ * [PackSpec] pre-loads all five pack JSON trees once per PackOpenScreen composition.
+ * [PackBind] wires pack_choices (pick count) and the skip_booster button to live state.
+ */
 @Composable
 private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap>) {
     val p = s.openPack ?: return
-    Box(Modifier.fillMaxSize().padding(8.dp)) {
-        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            BTxt(p.name, Balatro.White, 18.sp)
-            BTxt(if (p.picksLeft > 0) "Pick ${p.picksLeft}" else "Done", Balatro.Gold, 13.sp)
-            Spacer(Modifier.height(8.dp))
-            FlowRow(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val spec = remember(ctx) { PackSpec.load(ctx) }
+    val kind = when (p.kind) {
+        "Arcana"   -> PackSpec.Kind.ARCANA
+        "Spectral" -> PackSpec.Kind.SPECTRAL
+        "Standard" -> PackSpec.Kind.STANDARD
+        "Buffoon"  -> PackSpec.Kind.BUFFOON
+        else       -> PackSpec.Kind.CELESTIAL   // "Celestial"
+    }
+    val tree = remember(kind, p.picksLeft) {
+        spec.forPack(kind, PackBind(p.picksLeft) { s.skipPack() })
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd).padding(8.dp))
+        if (tree != null) {
+            RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+                if (name == "pack_cards") {
+                    PackItemsContent(p, x, y, w, h, u, jokerCells, cardBase, cells, s)
+                }
+            })
+        } else {
+            // Fallback if JSON missing: plain column layout.
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BTxt(p.name, Balatro.White, 18.sp)
+                BTxt(if (p.picksLeft > 0) "Pick ${p.picksLeft}" else "Done", Balatro.Gold, 13.sp)
+                Spacer(Modifier.height(8.dp))
+                BButton("Skip", Balatro.Mult) { s.skipPack() }
+            }
+        }
+    }
+}
+
+/**
+ * Fills the pack_cards CardAreaSlot with the revealed items. Each item is sized to CARD_W × CARD_H
+ * Balatro units and spaced evenly across the slot width. Items outside the slot are clipped.
+ * Tap to pick (if picks remain and not already taken); highlight taken items with grey overlay.
+ */
+@Composable
+private fun PackItemsContent(p: OpenPack, x: Float, y: Float, w: Float, h: Float, u: Float,
+                             jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?,
+                             cells: Map<PlayingCard, ImageBitmap>, s: RunState) {
+    val n = p.items.size
+    if (n == 0) return
+    val cardW = w / n                   // Balatro units per item (CARD_W ≈ 2.049, spaced to fill slot)
+    val cardH = h                       // slot height = CARD_H
+    Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp).clip(RectangleShape)) {
+        p.items.forEachIndexed { i, item ->
+            val taken    = i in p.picked
+            val canPick  = !taken && p.picksLeft > 0
+            val (name, desc, accent) = packItemView(item)
+            val iX = i * cardW
+            Box(
+                Modifier
+                    .absoluteOffset((iX * u).dp, 0.dp)
+                    .size((cardW * u).dp, (cardH * u).dp)
+                    .clickable(enabled = canPick) { s.pickPackItem(i) },
+                contentAlignment = Alignment.Center,
             ) {
-                p.items.forEachIndexed { i, item ->
-                    val taken = i in p.picked
-                    val (name, desc, accent) = packItemView(item)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
-                        Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
-                            when (item) {
-                                is PackItem.Card -> CardFace(item.card, cells[item.card], cardBase, Modifier.fillMaxSize()) {}
-                                is PackItem.Joker -> {
-                                    val art = jokerCells[item.o.key]
-                                    if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                                    else { cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }; BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp)) }
-                                }
-                                else -> {
-                                    cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                                    BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
-                                }
-                            }
+                when (item) {
+                    is PackItem.Card ->
+                        CardFace(item.card, cells[item.card], cardBase, Modifier.fillMaxSize()) {}
+                    is PackItem.Joker -> {
+                        val art = jokerCells[item.o.key]
+                        if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        else {
+                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                            BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
                         }
-                        BTxt(desc, accent, 8.sp, Modifier.padding(top = 1.dp))
-                        Spacer(Modifier.height(3.dp))
-                        val canPick = !taken && p.picksLeft > 0
-                        Box(
-                            Modifier.clip(RoundedCornerShape(6.dp)).background(if (canPick) Balatro.Gold else Balatro.Grey)
-                                .clickable(enabled = canPick) { s.pickPackItem(i) }.padding(horizontal = 10.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { BTxt(if (taken) "Taken" else "Select", Balatro.White, 11.sp) }
+                    }
+                    else -> {
+                        cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                        BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
                     }
                 }
+                // Taken overlay
+                if (taken) Box(Modifier.fillMaxSize().background(Balatro.Panel.copy(alpha = 0.55f)))
+                // Item label under card
+                BTxt(desc, accent, 7.sp, Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
             }
-            Spacer(Modifier.height(10.dp))
-            BButton("Skip", Balatro.Mult) { s.skipPack() }
         }
     }
 }
