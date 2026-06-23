@@ -27,6 +27,17 @@ class JokerManifestTest {
         assertEquals(Effect.Mult(10.0), spec("j_droll").jokerMain!!(FJokerState(), ctx(HandType.FLUSH)))
     }
 
+    @Test fun individualCardReactors() {
+        val s = FJokerState(); val plain = Sctx()
+        assertEquals(Effect.Mult(3.0), spec("j_greedy_joker").individual!!(s, plain, PlayingCard(Suit.D, 10)))
+        assertEquals(Effect.None, spec("j_greedy_joker").individual!!(s, plain, PlayingCard(Suit.H, 10)))
+        assertEquals(Effect.Mult(4.0), spec("j_even_steven").individual!!(s, plain, PlayingCard(Suit.S, 8)))
+        assertEquals(Effect.None, spec("j_even_steven").individual!!(s, plain, PlayingCard(Suit.S, 7)))
+        assertEquals(Effect.Chips(31.0), spec("j_odd_todd").individual!!(s, plain, PlayingCard(Suit.S, 14)))  // Ace is odd
+        assertEquals(Effect.All(listOf(Effect.Chips(20.0), Effect.Mult(4.0))), spec("j_scholar").individual!!(s, plain, PlayingCard(Suit.S, 14)))
+        assertEquals(Effect.Chips(80.0), spec("j_clever").jokerMain!!(s, ctx(HandType.TWO_PAIR)))
+    }
+
     @Test fun bonkInitScalingAndPerJoker() {
         val bonk = spec("j_cry_bonk")
         assertEquals(6.0, bonk.initialState.chips, 0.0)
