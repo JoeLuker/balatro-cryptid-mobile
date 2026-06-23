@@ -1199,10 +1199,8 @@ internal class RunState {
             owned.removeAll(perishableExpired)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to perishableExpired.size, "reason" to "perishable")
         }
-        // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
-        for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
-        // jollysus: re-arm the once-per-round spawn flag at end_of_round (m.lua:27-30).
-        for (o in owned) if (o.fj.key == "j_cry_jollysus") o.fj.n = 1
+        // (biggestm n=0 reset migrated to JOKER_MANIFEST RoundEnd reducer — m.lua:1437-1451.)
+        // (jollysus n=1 re-arm migrated to JOKER_MANIFEST RoundEnd reducer — m.lua:31-39.)
         val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
         val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1

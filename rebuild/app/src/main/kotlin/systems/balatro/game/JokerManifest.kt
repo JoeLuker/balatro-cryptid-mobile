@@ -569,10 +569,21 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     ),
 
     // ── 10b: jokerMain XMult from before-pass-set j.n + static j.x ─────────────────────────────────────
-    // cry_biggestm: X(j.x=7.0) when j.n>0 (Score.kt before-pass sets j.n=1 when hand is PAIR; stays until end-of-round reset)
+    // cry_biggestm: X(j.x=7.0) when j.n>0 (Score.kt before-pass sets j.n=1 when hand is PAIR; stays until end-of-round reset).
+    // RoundEnd reducer resets j.n=0 (m.lua:1437-1451, context.end_of_round → check=false). RunScreen.cashOut() inline removed.
     "j_cry_biggestm"   to JokerSpec(
         initialState = FJokerState(x = 7.0),
+        reduce    = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = 0) else s },
         jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // cry_jollysus: spawns a random Joker when any Joker is sold (selling_card context, m.lua:41-65).
+    // Spawn is once-per-round: j.n=1 = armed, j.n=0 = spent. Re-armed at end_of_round (m.lua:31-39).
+    // The spawn action (createRandomJoker()) stays in RunScreen.sell() — it mutates `owned`, can't be a reducer.
+    // RoundEnd reducer re-arms the spawn flag (n=1). RunScreen.cashOut() inline removed.
+    "j_cry_jollysus"   to JokerSpec(
+        initialState = FJokerState(n = 1),
+        reduce    = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = 1) else s },
     ),
 
     // ── 10c: jokerMain XChips from RunScreen-grown j.xc ─────────────────────────────────────────────────
