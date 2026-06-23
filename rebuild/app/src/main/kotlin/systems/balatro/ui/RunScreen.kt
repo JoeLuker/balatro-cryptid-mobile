@@ -3029,6 +3029,7 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                     reward     = s.rewardForSlot(slotIdx),
                     selectAction = if (enabled) { { s.selectBlind() } } else null,
                     skipAction   = if (slotIdx != 2) { { s.skipBlind() } } else null,
+                    mostPlayedHand = s.mostPlayedHand?.first?.let { handName(it) } ?: "High Card",
                 )
                 Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
                     if (tree != null) RenderUIBoxNatural(tree, u)

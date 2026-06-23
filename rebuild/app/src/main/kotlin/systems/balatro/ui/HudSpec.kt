@@ -475,11 +475,12 @@ internal class BlindBind(
     val reward: Int,
     val selectAction: (() -> Unit)?,
     val skipAction: (() -> Unit)?,
+    val mostPlayedHand: String = "High Card",   // for the boss debuff "#1#" var (vanilla: most_played_poker_hand)
 ) {
     fun colourByName(name: String): Color = when {
         name == "WHITE" || name == "UI.TEXT_LIGHT" -> Balatro.White
-        name == "UI.TEXT_INACTIVE"                 -> Balatro.Grey
-        name == "UI.BACKGROUND_INACTIVE"           -> Balatro.Grey
+        name == "UI.TEXT_INACTIVE"                 -> Color(0xFFC2C9CF)   // legible light grey — the in-card "Skip Blind" label
+        name == "UI.BACKGROUND_INACTIVE"           -> Color(0xFF5A656B)   // distinct darker grey — the inactive skip-button fill
         name == "BLACK"                            -> Balatro.Panel
         name == "L_BLACK"                          -> Balatro.PanelLight
         name == "GREY"                             -> Balatro.Grey
@@ -555,7 +556,8 @@ internal class BlindBind(
             t is String && colourName == "RED" && t.all { it.isDigit() || it == ',' || it == '.' } -> chipTarget
             // Reward string: extracted as "$$$+" etc. — inject dynamic "$".repeat(reward)+"+".
             t is String && colourName == "MONEY" && t.startsWith("$") -> "${"$".repeat(reward)}+"
-            t is String -> t
+            // Boss debuff (The Ox etc.) carries a "#1#" var — vanilla substitutes the most-played hand name.
+            t is String -> t.replace("#1#", mostPlayedHand)
             else -> ""
         }
     }
@@ -653,6 +655,7 @@ internal class BlindSpec(
         reward: Int,
         selectAction: (() -> Unit)?,
         skipAction: (() -> Unit)?,
+        mostPlayedHand: String = "High Card",
     ): UI? {
         val (tree, slotType) = when (slotIdx) {
             0 -> (small ?: return null) to "Small"
@@ -670,6 +673,7 @@ internal class BlindSpec(
             reward      = reward,
             selectAction = selectAction,
             skipAction   = skipAction,
+            mostPlayedHand = mostPlayedHand,
         )
         return buildBlind(tree, bind)
     }
