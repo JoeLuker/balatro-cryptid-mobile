@@ -549,8 +549,12 @@ internal class BlindBind(
         val t = c.opt("text")
         val colourName = c.optJSONObject("colour")?.optString("name") ?: ""
         return when {
-            // ref_value=type reads loc_blind_states: "Select" for active slot, "Upcoming" otherwise
-            c.has("ref_value") -> if (enabled) "Select" else "Upcoming"
+            // The status button reads loc_blind_states via a {$:"ref", path:…} ref_table → "Select" for
+            // the active slot, "Upcoming" otherwise.
+            c.optJSONObject("ref_table")?.optString("\$") == "ref" -> if (enabled) "Select" else "Upcoming"
+            // Any other ref node (the boss debuff prefix is ref_value=val, ref_table={val:""}) reads its
+            // ref_table value verbatim — here empty, so it must NOT echo the blind state.
+            c.has("ref_value") -> c.optJSONObject("ref_table")?.optString("val", "") ?: ""
             // Chip target: extracted as literal (e.g. "300" at ante 1) — inject dynamic value.
             // Identified by colour=RED (chip count) and scale≈0.675.
             t is String && colourName == "RED" && t.all { it.isDigit() || it == ',' || it == '.' } -> chipTarget
