@@ -924,7 +924,12 @@ private fun gameOverColour(name: String): Color = when (name) {
     "L_BLACK", "UI.TEXT_DARK" -> Balatro.PanelLight
     "RED", "MULT" -> Balatro.Mult; "BLUE", "CHIPS" -> Balatro.Chips
     "GREEN" -> Balatro.Green; "MONEY" -> Balatro.Money; "GOLD" -> Balatro.Gold
-    "IMPORTANT", "FILTER" -> Balatro.Orange; "GREY" -> Balatro.Grey
+    "IMPORTANT", "FILTER" -> Balatro.Orange; "GREY", "JOKER_GREY" -> Balatro.Grey
+    // run-info poker-hand level pips (white → blue/green/pink/gold/orange → red)
+    "HAND_LEVELS.1" -> Color(0xFFE7E7E7); "HAND_LEVELS.2" -> Color(0xFF93C2EB)
+    "HAND_LEVELS.3" -> Color(0xFF96E69B); "HAND_LEVELS.4" -> Color(0xFFEB9BBA)
+    "HAND_LEVELS.5" -> Color(0xFFF0C97A); "HAND_LEVELS.6" -> Color(0xFFF1A25F)
+    "HAND_LEVELS.7" -> Color(0xFFFE5F55)
     "CLEAR" -> Color.Transparent; else -> Color.Transparent
 }
 
@@ -951,7 +956,16 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
     val myId = cfgJ.optString("id")
     val childStat = if (myId in GAMEOVER_STAT_IDS) myId else statId   // thread the stat-row id to its DynaText
     val cv = cfgJ.optJSONObject("colour")
-    val fill: Color? = when (cv?.optString("\$")) { "colour" -> gameOverColour(cv.getString("name")); else -> null }
+    val fill: Color? = when (cv?.optString("\$")) {
+        "colour" -> gameOverColour(cv.getString("name"))
+        "colourop" -> {   // darken(base, amt) — run-info hand-row backgrounds
+            val amt = cv.optDouble("amt", 0.0).toFloat()
+            val base = cv.optJSONObject("base")
+            val bc = if (base?.optString("\$") == "colour") gameOverColour(base.getString("name")) else Balatro.Grey
+            if (cv.optString("op") == "darken") Color(bc.red*(1-amt), bc.green*(1-amt), bc.blue*(1-amt), bc.alpha) else bc
+        }
+        else -> null
+    }
     val onClick: (() -> Unit)? = when (cfgJ.optString("button")) {
         "notify_then_setup_run" -> b.onRestart            // New Run
         "go_to_menu", "exit_overlay_menu", "x" -> b.onMainMenu
@@ -971,7 +985,11 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
         "R", "ROOT" -> Ro(cfg, kids)
         "C" -> Co(cfg, kids)
         "B" -> Bx(cfg, kids)
-        "T" -> { val t = cfgJ.opt("text"); Tx(cfg, when { t is String -> t; t is org.json.JSONObject && t.optString("\$") == "loc" -> t.opt("key")?.toString() ?: ""; else -> "" }) }
+        "T" -> { val t = cfgJ.opt("text"); Tx(cfg, when {
+            t is String -> t
+            t is Number -> { val d = t.toDouble(); if (d == d.toLong().toDouble()) d.toLong().toString() else t.toString() }  // run-info chips/mult/played are numbers
+            t is org.json.JSONObject && t.optString("\$") == "loc" -> t.opt("key")?.toString() ?: ""
+            else -> "" }) }
         "O" -> {
             val o = cfgJ.optJSONObject("object")
             if (o?.optString("\$") == "dynatext") {

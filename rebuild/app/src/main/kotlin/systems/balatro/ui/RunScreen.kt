@@ -1617,6 +1617,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             "eval" -> s.toEvalForPreview()
             "over" -> s.phase = Phase.OVER
             "win" -> s.phase = Phase.WIN
+            "runinfo" -> s.openRunInfo()
             "repro" -> s.loadRepro()      // PROOF: freeze the exact reference-screenshot state for pixel-diff
             "repro-live" -> s.loadReproLive()  // live-cascade harness: bref_3 state, plays the Two Pair so scoring animates
         }
@@ -1708,7 +1709,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                             Phase.ROUND -> {}                                  // rendered full-screen above
                             Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                             Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
-                            Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
+                            Phase.RUN_INFO -> RunInfoScreen(s)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
                             Phase.OVER, Phase.WIN -> {}   // rendered as a full-screen overlay below (vanilla covers everything)
                             Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, cardBase, cells)
@@ -3080,102 +3081,34 @@ private fun bossColourOf(boss: Boss?): Color = when (boss) {
 
 
 /**
- * Port of G.UIDEF.run_info() (UI_definitions.lua:3129): a tabbed overlay showing poker hands,
- * blinds, and vouchers. Simplified to a single "Poker Hands" tab (create_UIBox_current_hands)
- * and a Back button. Tabs deferred; blinds/vouchers tabs deferred.
+ * Run Info — the poker-hands level table, rendered from the REAL create_UIBox_current_hands tree
+ * (run_info_tree.json) through the ported engine via [GameOverSpec]'s generic builder. G.UIDEF.run_info()
+ * itself extracts only to the overlay shell (its tabbed content is built dynamically by the overlay-menu
+ * system at display time), so the iconic poker-hands tab — 12 rows of level pip + name + per-level
+ * chips/mult + lifetime play count — is extracted directly. Back returns to the prior phase.
+ * Deferred: the blinds/vouchers tabs, and live per-hand level/play binding (the table shows base values).
  */
 @Composable
-private fun RunInfoScreen(s: RunState, jokerCells: Map<String, ImageBitmap>) {
+private fun RunInfoScreen(s: RunState) {
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val root = remember(ctx) { HudSpec.root(ctx, "run_info_tree.json") }
     Column(
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val u = LocalUIScale.current
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BTxt("Run Info", Balatro.White, 20.sp)
             Spacer(Modifier.weight(1f))
             BButton("Back", Balatro.Orange) { s.closeRunInfo() }
         }
-        // Joker display
-        if (s.owned.isNotEmpty()) {
-            BTxt("Jokers", Balatro.Orange, 14.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                s.owned.forEach { o ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.size(44.dp, 60.dp)) }
-                        BTxt(o.offer.name, Balatro.White, 9.sp)
-                    }
-                }
-            }
+        if (root != null) {
+            val tree = remember(root) { GameOverSpec.build(root, GameOverBind(s, { s.closeRunInfo() }, { s.closeRunInfo() })) }
+            RenderUIBoxNatural(tree, u)
         }
-        // Poker hand levels — port of create_UIBox_current_hands (UI_definitions.lua:3080).
-        BTxt("Poker Hands", Balatro.White, 14.sp)
-        RenderUIBoxNatural(currentHandsUI(s), u)
     }
 }
 
-/**
- * Port of create_UIBox_current_hands (UI_definitions.lua:3080) + create_UIBox_current_hand_row
- * (line 3042). Shows each visible hand type with its level badge, chips×mult, and play count.
- *
- * Hand row structure:
- *   R(align="cm", padding=0.05, r=0.1, colour=darkGrey, emboss=0.05)
- *     C(align="cl", padding=0, minw=5) [ level badge | hand name ]
- *     C(align="cm", padding=0.05, colour=BLACK, r=0.1) [ chips | X | mult ]
- *     C(align="cm") T("#")
- *     C(align="cm", padding=0.05, colour=L_BLACK, r=0.1, minw=0.9) [ played count ]
- *
- * G.C.HAND_LEVELS[min(7,level)] → Balatro uses 7 distinct level colours; approximated with
- * Chips tint for now. G.C.JOKER_GREY darken ≈ Balatro.Panel.
- * Deferred: on_demand_tooltip, play-count tracking, invisible hands (G.GAME.hands[h].visible).
- */
-private fun currentHandsUI(s: RunState): UI {
-    val darkGrey = Balatro.Panel
-    val dark = Color.Black.copy(alpha = 0.6f)
-    val panelLight = Balatro.PanelLight
-    val light = Balatro.White
-    val dark2 = Color(0xFFABB3BF)  // darken(JOKER_GREY, 0.1): JOKER_GREY=#bfc7d5 * 0.9
-
-    // Ordered list matching G.GAME.hands order: highest scoring hands first
-    val visibleHands = listOf(
-        HandType.FLUSH_FIVE, HandType.FLUSH_HOUSE, HandType.FIVE_OF_A_KIND,
-        HandType.STRAIGHT_FLUSH, HandType.FOUR_OF_A_KIND, HandType.FULL_HOUSE,
-        HandType.FLUSH, HandType.STRAIGHT, HandType.THREE_OF_A_KIND,
-        HandType.TWO_PAIR, HandType.PAIR, HandType.HIGH_CARD
-    )
-
-    fun handRow(h: HandType): UI {
-        val lvl = s.handLevel(h)
-        val chips = h.baseChips + (lvl - 1) * h.lChips
-        val mult  = h.baseMult  + (lvl - 1) * h.lMult
-        val played = s.handPlayed(h)
-        val lvlColour = Balatro.handLevelColour(lvl)   // G.C.HAND_LEVELS[min(7,lvl)]
-
-        return R(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = dark2, emboss = 0.05f),
-            C(Cfg(align = "cl", padding = 0f, minw = 5f),
-                C(Cfg(align = "cm", padding = 0.01f, r = 0.1f, colour = lvlColour,
-                      minw = 1.5f, outline = 0.8f, outlineColour = light),
-                    T(Cfg(scale = 0.5f, textColour = Balatro.Ink), "Lv$lvl")),
-                C(Cfg(align = "cm", minw = 4.5f, maxw = 4.5f),
-                    T(Cfg(scale = 0.45f, textColour = light, shadow = true), " ${handName(h)}"))),
-            C(Cfg(align = "cm", padding = 0.05f, colour = dark, r = 0.1f),
-                C(Cfg(align = "cr", padding = 0.01f, r = 0.1f, colour = Balatro.Chips, minw = 1.1f),
-                    T(Cfg(scale = 0.45f, textColour = light), "$chips"),
-                    B(Cfg(minw = 0.08f, minh = 0.01f))),
-                T(Cfg(scale = 0.45f, textColour = Balatro.Mult), "X"),
-                C(Cfg(align = "cl", padding = 0.01f, r = 0.1f, colour = Balatro.Mult, minw = 1.1f),
-                    B(Cfg(minw = 0.08f, minh = 0.01f)),
-                    T(Cfg(scale = 0.45f, textColour = light), "$mult"))),
-            // Play count column: T("  #") label + C(L_BLACK) with count (source lines 3065-3070)
-            C(Cfg(align = "cm"),
-                T(Cfg(scale = 0.45f, textColour = light, shadow = true), "  #")),
-            C(Cfg(align = "cm", padding = 0.05f, colour = panelLight, r = 0.1f, minw = 0.9f),
-                O(Cfg(), DynaT(seg({ "$played" }, Balatro.Orange, scale = 0.45f), shadow = true))))
-    }
-
-    return R(Cfg(align = "cm", minw = 3f, padding = 0.1f, r = 0.1f),
-        *visibleHands.map { handRow(it) }.toTypedArray()
-    )
-}
 
 private fun fmtR(v: Double): String = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
