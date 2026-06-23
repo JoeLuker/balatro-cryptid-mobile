@@ -210,16 +210,7 @@ object Score {
             // facile: count every scored-card pass (including retrigger repetitions) in j.n (= check2).
             // joker_main fires Emult=3 only when j.n <= 10 (exotic.lua:1002-1013), then resets to 0.
             // (j_cry_facile migrated to JOKER_MANIFEST — batch 12 perCard hook.)
-            // Edition reactors: fire per scored playing card carrying that edition (misc_joker.lua:3635,3726,3817).
-            // Separate from the other_joker path which fires per Foil/Holo/Poly joker on the board.
-            // meteor held-chips are dead in Lua too (dev comment: "this doesn't exist yet"); held omitted.
             // (j_cry_meteor/exoplanet/stardust/universe migrated to JOKER_MANIFEST — batch 5c edition reactors.)
-            "j_cry_meteor"            -> if (oc.edition == "Foil") return Fx().apply { chips = 75.0 }
-            "j_cry_exoplanet"         -> if (oc.edition == "Holo") return Fx().apply { mult = 15.0 }
-            "j_cry_stardust"          -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
-            // universe: Emult^1.2 per scored Astral-edition playing card (misc_joker.lua:8281-8288).
-            // Also fires per Astral-edition joker (other_joker pass) and per Astral-edition held card (held pass).
-            "j_cry_universe"          -> if (oc.edition == "Astral") return Fx().apply { eMult = 1.2 }
         }
         // REPETITION: jokers that retrigger a scored card (context.repetition)
         if (ctx.repetition && oc != null) when (j.key) {
@@ -237,13 +228,8 @@ object Score {
             // (j_hanging_chad migrated to JOKER_MANIFEST.)
             // (j_dusk migrated to JOKER_MANIFEST.)
             // (j_hack migrated to JOKER_MANIFEST.)
-            // (j_cry_sock_and_sock migrated to JOKER_MANIFEST.)
-            // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
-            "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
-            // clockwork Effect 1 (epic.lua:2227): retrigger each Steel-enhanced held card once when c1==0.
-            // j.n = c1 counter (cycles 0→1→0 per hand, limit=2). c1==0 every other hand starting from hand 1.
-            // Fires in context.repetition + context.cardarea == G.hand (held-card retrigger path).
-            "j_cry_clockwork" -> if (ctx.cardarea == "hand" && j.n == 0 && oc.enhancement == Enhancement.STEEL) return Fx().apply { repetitions = 1 }
+            // (j_cry_sock_and_sock migrated to JOKER_MANIFEST — retrigger per Abstract-enhanced scored card.)
+            // (j_cry_clockwork Effect 1 migrated to JOKER_MANIFEST — retrigger Steel held card when c1 counter == 0.)
         }
         // JOKER_MAIN: the joker's main flat/scaling effect (context.joker_main)
         if (ctx.jokerMain) when (j.key) {
@@ -271,8 +257,8 @@ object Score {
             //   j.mult accumulates during the perCard pass and the when-branch is only reached by the fallthrough
             //   of TRULY legacy keys (j.key not in JOKER_MANIFEST). Since wee_fib IS in manifest, the
             //   manifest early-return intercepts it — this entry is now dead for wee_fib. Remove wee_fib.
-            "j_swashbuckler", "j_red_card", "j_popcorn",
-            "j_cry_zooble", "j_cry_poor_joker", "j_cry_foodm" ->
+            // (j_red_card/j_popcorn/j_cry_zooble/j_cry_poor_joker/j_cry_foodm migrated to JOKER_MANIFEST.)
+            "j_swashbuckler" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             // j_popcorn: starts at +20 Mult (config.mult=20), −1 per hand (RunScreen before-pass); self-destructs at 0.
             //   RunScreen removes it before the next score() call, so score engine never sees mult<=0.
@@ -316,8 +302,9 @@ object Score {
             //   loc_vars (misc_joker.lua:7325). Can never appear on the board; removed from accumulator group.
             // (j_square, j_runner migrated to JOKER_MANIFEST.)
             // (j_castle/j_cry_cursor/j_cry_crustulum migrated to JOKER_MANIFEST — j_wee remains legacy: unimplemented.)
-            "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
-                if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
+            // (j_castle/j_cry_cursor/j_cry_crustulum migrated to JOKER_MANIFEST.)
+            "j_wee" ->
+                if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips (j_wee: unimplemented placeholder)
             // (j_steel_joker migrated to JOKER_MANIFEST.)
             // (j_stone migrated to JOKER_MANIFEST.)
             // (j_blue_joker migrated to JOKER_MANIFEST.)
@@ -332,7 +319,6 @@ object Score {
             // formidiulosus: Emult = 1 + 0.01*candy_count (update() hook, stored in j.x); joker_main reads j.x
             // starfruit: Emult = j.x (starts at 2.0, decreases by 0.2 per reroll, self-destructs at <=1)
             // (j_cry_stella_mortis/formidiulosus/starfruit migrated to JOKER_MANIFEST — batch 8b.)
-            "j_cry_stella_mortis", "j_cry_formidiulosus", "j_cry_starfruit" -> if (j.x > 1.0) return Fx().apply { eMult = j.x }
             // primus: Emult = j.x (base 1.01, +0.17 in the before-pass when ANY played card is a prime rank); mult^x.
             // Lives here (not the loop) so the copy-jokers can copy it like any other joker_main effect.
             // (j_cry_primus migrated to JOKER_MANIFEST.)
@@ -357,26 +343,9 @@ object Score {
             // (j_cry_triplet_rhythm migrated to JOKER_MANIFEST.)
             // --- Cryptid "type" jokers: fire when the played cards CONTAIN this hand (context.poker_hands), flat ---
             // (j_cry_giggly..j_cry_duos migrated to JOKER_MANIFEST — batch 4c hand-type flat jokers.)
-            "j_cry_giggly"    -> if (HandType.HIGH_CARD in ctx.pokerHands)      return Fx().apply { multMod = 4.0 }
-            "j_cry_silly"     -> if (HandType.FULL_HOUSE in ctx.pokerHands)     return Fx().apply { multMod = 16.0 }
-            "j_cry_nutty"     -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 19.0 }
-            "j_cry_manic"     -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) return Fx().apply { multMod = 22.0 }
-            "j_cry_delirious" -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 22.0 }
-            "j_cry_wacky"     -> if (HandType.FLUSH_HOUSE in ctx.pokerHands)    return Fx().apply { multMod = 30.0 }
-            "j_cry_kooky"     -> if (HandType.FLUSH_FIVE in ctx.pokerHands)     return Fx().apply { multMod = 30.0 }
-            "j_cry_dubious"   -> if (HandType.HIGH_CARD in ctx.pokerHands)      return Fx().apply { chipMod = 20.0 }
-            "j_cry_shrewd"    -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) return Fx().apply { chipMod = 150.0 }
-            "j_cry_tricksy"   -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) return Fx().apply { chipMod = 170.0 }
-            "j_cry_foxy"      -> if (HandType.FULL_HOUSE in ctx.pokerHands)     return Fx().apply { chipMod = 130.0 }
-            "j_cry_savvy"     -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) return Fx().apply { chipMod = 170.0 }
-            "j_cry_subtle"    -> if (HandType.FLUSH_HOUSE in ctx.pokerHands)    return Fx().apply { chipMod = 240.0 }
-            "j_cry_discreet"  -> if (HandType.FLUSH_FIVE in ctx.pokerHands)     return Fx().apply { chipMod = 240.0 }
-            "j_cry_nuts"      -> if (HandType.STRAIGHT_FLUSH in ctx.pokerHands) return Fx().apply { xMultMod = 5.0 }
-            "j_cry_quintet"   -> if (HandType.FIVE_OF_A_KIND in ctx.pokerHands) return Fx().apply { xMultMod = 5.0 }
-            "j_cry_unity"     -> if (HandType.FLUSH_HOUSE in ctx.pokerHands)    return Fx().apply { xMultMod = 9.0 }
-            "j_cry_swarm"     -> if (HandType.FLUSH_FIVE in ctx.pokerHands)     return Fx().apply { xMultMod = 9.0 }
-            "j_cry_duos"      -> if (HandType.TWO_PAIR in ctx.pokerHands || HandType.FULL_HOUSE in ctx.pokerHands) return Fx().apply { xMultMod = 2.5 }  // X2.5 Two Pair/Full House
-            "j_cry_home"      -> if (HandType.FULL_HOUSE in ctx.pokerHands)    return Fx().apply { xMultMod = 3.5 }
+            // (j_cry_giggly..j_cry_kooky hand-type +Mult group migrated to JOKER_MANIFEST — batch 4c.)
+            // (j_cry_dubious..j_cry_discreet hand-type +Chips group migrated to JOKER_MANIFEST — batch 4c.)
+            // (j_cry_nuts..j_cry_home hand-type Xmult group migrated to JOKER_MANIFEST — batch 4c.)
             // (j_cry_filler migrated to JOKER_MANIFEST.)
             // (j_cry_nice migrated to JOKER_MANIFEST.)
             // (j_cry_big_cube migrated to JOKER_MANIFEST.)
@@ -410,9 +379,7 @@ object Score {
             // cut: Xmult from j.x accumulator (+0.5 per Code consumable destroyed when leaving shop)
             // python: Xmult from j.x accumulator (+0.15 per Code consumable used)
             // (j_cry_unjust_dagger/jimball/pizza_slice/wheelhope/cut/python migrated to JOKER_MANIFEST — batch 8a.)
-            "j_cry_unjust_dagger", "j_cry_jimball", "j_cry_pizza_slice", "j_cry_wheelhope",
-            "j_cry_cut", "j_cry_python" ->
-                if (j.x > 1.0) return Fx().apply { xMultMod = j.x }
+            // (j_cry_unjust_dagger/jimball/pizza_slice/wheelhope/cut/python Xmult accumulator group migrated to JOKER_MANIFEST — batch 8a.)
             // fspinner: +chips from j.chips accumulator (+6 per context.before when another hand type has been played as many times)
             // (j_cry_fspinner migrated to JOKER_MANIFEST.)
             // membershipcardtwo: +chips = j.chips (pre-computed as chips * floor(member_count/chips_mod); epic.lua:112)
@@ -423,20 +390,7 @@ object Score {
             // CRY_CLUSTERFUCK is now LIVE (Hands.evaluate detects it for ≥8 non-Gold no-pair/flush/straight cards).
             // CRY_WHOLEDECK remains DORMANT (requires scoring all 52 cards — not yet ported).
             // (j_cry_wtf..j_cry_many_lost_minds migrated to JOKER_MANIFEST — batch 7d custom hand-type group.)
-            "j_cry_wtf"              -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { xMultMod = 10.0 }
-            "j_cry_clash"            -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { xMultMod = 12.0 }
-            "j_cry_the"              -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { xMultMod = 2.0 }
-            "j_cry_annihalation"     -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { eMult = 5.2 }   // Emult=5.2: mult^5.2 (misc_joker.lua:5853)
-            "j_cry_words_cant_even"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { xMultMod = 52000000.0 }
-            "j_cry_bonkers"          -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { multMod = 20.0 }
-            "j_cry_fuckedup"         -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { multMod = 37.0 }
-            "j_cry_foolhardy"        -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { multMod = 42.0 }
-            "j_cry_undefined"        -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { multMod = 5.0 }
-            "j_cry_adroit"           -> if (HandType.CRY_BULWARK in ctx.pokerHands)      return Fx().apply { chipMod = 170.0 }
-            "j_cry_penetrating"      -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) return Fx().apply { chipMod = 270.0 }
-            "j_cry_treacherous"      -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     return Fx().apply { chipMod = 300.0 }
-            "j_cry_nebulous"         -> if (ctx.scoringName == HandType.CRY_NONE)        return Fx().apply { chipMod = 30.0 }
-            "j_cry_many_lost_minds"  -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   return Fx().apply { chipMod = 8.0658175e67 }
+            // (j_cry_wtf..j_cry_many_lost_minds custom hand-type group migrated to JOKER_MANIFEST — batch 7d.)
             // thalia: Xmult = C(n,2) * xmgain (xmgain=1) where n = count of DISTINCT rarities among all board jokers
             // (including Thalia itself, rarity=4 Legendary). ctx.board now carries FJoker.rarity so this is faithful.
             // n=1→bonus=0 (no-op); n=2→bonus=1 (X1, identity); n=3→bonus=3 (X3); n=4→bonus=6 (X6); n=5→bonus=10 (X10).
@@ -464,19 +418,8 @@ object Score {
             // (j_baron migrated to JOKER_MANIFEST.)
             // (j_shoot_the_moon migrated to JOKER_MANIFEST.)
             // (j_raised_fist migrated to JOKER_MANIFEST.)
-            // (j_cry_exoplanet/stardust/universe held paths migrated to JOKER_MANIFEST.)
-            // Edition reactors: fire per held card with that edition (misc_joker.lua:3735,3826).
-            // Lua shows a "debuffed" message (no score) for debuffed held cards; the engine has no
-            // held-card debuff tracking, so that edge case is not modelled — the fire condition is edition only.
-            // meteor held-chips are dead in Lua ("this doesn't exist yet") — held omitted for meteor.
-            "j_cry_exoplanet"  -> if (oc.edition == "Holo") return Fx().apply { hMult = 15.0 }
-            "j_cry_stardust"   -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
-            // universe: Emult^1.2 per held Astral-edition card (misc_joker.lua:8290-8308).
-            "j_cry_universe"   -> if (oc.edition == "Astral") return Fx().apply { eMult = 1.2 }
-            // clockwork Effect 4 (epic.lua:2252-2268): extra Xmult per Steel-enhanced held card when steelenhc > 1.
-            // j.xc = steelenhc (starts at 1.0, +0.1 every 7 hands via c4 counter, limit=7).
-            // Fires context.individual + context.cardarea == G.hand + Steel enhancement + steelenhc != 1.
-            "j_cry_clockwork"  -> if (oc.enhancement == Enhancement.STEEL && j.xc > 1.0) return Fx().apply { xMult = j.xc }
+            // (j_cry_exoplanet/stardust/universe held paths migrated to JOKER_MANIFEST — batch 5c.)
+            // (j_cry_clockwork Effect 4 migrated to JOKER_MANIFEST — Xmult per Steel held card when xc > 1.)
         }
         // OTHER_JOKER: a joker reacting to each board joker (context.other_joker)
         val oj = ctx.otherJoker
@@ -488,11 +431,7 @@ object Score {
             // (j_cry_circus migrated to JOKER_MANIFEST — batch 11b.)
             // (j_cry_waluigi migrated to JOKER_MANIFEST.)
             // (j_cry_meteor/exoplanet/stardust/universe other_joker paths migrated to JOKER_MANIFEST.)
-            // --- Cryptid edition reactors (joker-on-joker path; card edition paths handled in individual/held blocks) ---
-            "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
-            "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker
-            "j_cry_stardust"  -> if (oj !== j && oj.edition == "Poly") return Fx().apply { xMultMod = 2.0 }   // X2 Mult / other Poly joker
-            "j_cry_universe"  -> if (oj !== j && oj.edition == "Astral") return Fx().apply { eMult = 1.2 }    // Emult^1.2 per other Astral-edition joker
+            // (j_cry_meteor/exoplanet/stardust/universe other_joker paths migrated to JOKER_MANIFEST — batch 5c.)
             // mprime: Emult^j.x (default 1.05) per Jolly-type or M-pool joker (m.lua:1534).
             // is_jolly() = key j_jolly or j_cry_jollysus, or edition e_cry_m.
             // M-pool jokers without those traits are unmodelled (FJoker has no pool field).
