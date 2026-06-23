@@ -269,6 +269,9 @@ object Oracle {
         // --- batch-19: m.lua scoring jokers: foodm/mstack/biggestm/longboi ---
         Case("Pair of aces + foodm @mult=40 (perishable +40 Mult)", PlayingCard.hand("S_A", "H_A"), 1344.0, j(FJoker("j_cry_foodm", mult = 40.0))),
         Case("Pair of aces + mstack @n=1 (retrigger 1/card)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_mstack", n = 1))),
+        // mstack retrigger count is capped at max_retriggers=40 (m.lua). @n=41 each Ace scores 1+min(41,40)=41×:
+        // chips 10 + 2·41·11 = 912, ×2 mult = 1824 (uncapped would be 1+41=42 → 934×2 = 1868).
+        Case("Pair of aces + mstack @n=41 (retrigger capped at 40/card)", PlayingCard.hand("S_A", "H_A"), 1824.0, j(FJoker("j_cry_mstack", n = 41))),
         Case("Pair of aces + biggestm @x=7,n=1 (x7 when active)", PlayingCard.hand("S_A", "H_A"), 448.0, j(FJoker("j_cry_biggestm", x = 7.0, n = 1))),
         // biggestm before-pass activation (parity audit batch-13): n=0 on Pair hand → before-pass sets n=1 → fires X7.
         // Pair aces: chips=32, mult=2; xMultMod=7 → mult=14; floor(32×14)=448.
