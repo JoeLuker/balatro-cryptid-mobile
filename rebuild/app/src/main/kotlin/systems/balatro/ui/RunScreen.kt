@@ -1161,16 +1161,12 @@ internal class RunState {
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
         // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
-        // chili_pepper: +0.5 Xmult per end_of_round; self-destruct when rounds_remaining hits 0
-        // (misc_joker.lua:1119-1177). j.x = Xmult accumulator; j.n = rounds_remaining (default 8).
+        // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
         // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
-        // Trigger: when chili_pepper's rounds_remaining reaches 0, notify fading/paved before removing.
+        // Trigger: when chili_pepper's rounds_remaining reaches 0 (after RoundEnd reduce), notify fading/paved.
         val perishableExpired = ArrayList<Owned>()
-        for (o in owned) if (o.fj.key == "j_cry_chili_pepper") {
-            o.fj.x += 0.5
-            o.fj.n = maxOf(0, o.fj.n - 1)  // j.n = rounds_remaining (0 → self-destruct)
-            if (o.fj.n <= 0) perishableExpired.add(o)
-        }
+        for (o in owned) if (o.fj.key == "j_cry_chili_pepper" && o.fj.n <= 0) perishableExpired.add(o)
         // caramel: counts down rounds_remaining (j.n, init 11) each end_of_round; self-destructs at 0
         // (epic.lua:1273-1312). j.x=1.75 (individual xMult per scored card) does NOT change — only
         // j.n ticks. No Xmult scaling; the x_mult is fixed for caramel's lifetime.
@@ -1189,8 +1185,6 @@ internal class RunState {
             owned.removeAll(perishableExpired)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to perishableExpired.size, "reason" to "perishable")
         }
-        // mondrian: +0.25 Xmult when 0 discards were used this round (misc_joker.lua:3228-3246).
-        for (o in owned) if (o.fj.key == "j_cry_mondrian" && roundDiscardsUsed == 0) o.fj.x += 0.25
         // biggestm: reset j.n to 0 at end_of_round (m.lua: the before-pass check persists until reset).
         for (o in owned) if (o.fj.key == "j_cry_biggestm") o.fj.n = 0
         // jollysus: re-arm the once-per-round spawn flag at end_of_round (m.lua:27-30).
@@ -1384,7 +1378,14 @@ internal class RunState {
         val p = openPack ?: return
         if (p.picksLeft <= 0 || i in p.picked) return
         when (val item = p.items[i]) {
-            is PackItem.Card -> deck.add(item.card)          // Standard pack → card joins the deck
+            is PackItem.Card -> {
+                deck.add(item.card)          // Standard pack → card joins the deck
+                // MANIFEST: fire CardAdded so Hologram (and future card-add jokers) can accumulate.
+                // Mirrors Lua's playing_card_joker_effects({card}) at button_callbacks.lua:2291.
+                for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let {
+                    o.fj.restore(it(o.fj.snapshot(), GameEvent.CardAdded(count = 1)))
+                }
+            }
             is PackItem.SpectralItem -> if (hasConsumableRoom()) consumables.add(Consumable.SpectralC(item.s))   // held to use
             is PackItem.Tarot -> buyTarot(item.t, free = true)
             is PackItem.Planet -> buyPlanet(item.p, free = true)

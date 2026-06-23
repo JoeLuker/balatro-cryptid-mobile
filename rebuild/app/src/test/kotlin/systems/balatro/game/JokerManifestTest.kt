@@ -295,3 +295,121 @@ class BlueprintCopyTest {
         assertEquals(18.0, result.mult, 0.0)
     }
 }
+
+/** RoundEnd reducer: chili_pepper accumulates x and counts down n; self-destruct gate n==0. */
+class RoundEndTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    @Test fun chiliPepperAccumulatesXAndCountsDownN() {
+        val chili = spec("j_cry_chili_pepper")
+        // Initial state: x=1.0, n=8 (rounds_remaining)
+        assertEquals(1.0, chili.initialState.x, 0.0)
+        assertEquals(8, chili.initialState.n)
+
+        // After 1 RoundEnd: x=1.5, n=7 (not yet expired)
+        val s1 = chili.reduce!!(chili.initialState, GameEvent.RoundEnd(0))
+        assertEquals(1.5, s1.x, 1e-9)
+        assertEquals(7, s1.n)
+
+        // jokerMain fires at x=1.5 > 1.0 → XMult(1.5)
+        val ctx = Sctx()
+        assertEquals(Effect.XMult(1.5), chili.jokerMain!!(s1, ctx))
+
+        // Non-RoundEnd events are ignored by the reducer
+        val unchanged = chili.reduce!!(chili.initialState, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, unchanged.x, 0.0)
+        assertEquals(8, unchanged.n)
+    }
+
+    @Test fun chiliPepperCountdownFloorsAtZeroAndSignalsSelfDestruct() {
+        val chili = spec("j_cry_chili_pepper")
+        // Simulate 8 RoundEnd events (all 8 rounds_remaining consumed)
+        var s = chili.initialState
+        repeat(8) { s = chili.reduce!!(s, GameEvent.RoundEnd(0)) }
+        // After 8 rounds: x = 1.0 + 8*0.5 = 5.0, n = 0
+        assertEquals(5.0, s.x, 1e-9)
+        assertEquals(0, s.n)
+
+        // 9th RoundEnd: n is floored at 0 (no underflow), x continues to grow
+        val s9 = chili.reduce!!(s, GameEvent.RoundEnd(0))
+        assertEquals(5.5, s9.x, 1e-9)
+        assertEquals(0, s9.n)   // still 0, not -1
+
+        // RunScreen removes when n <= 0; jokerMain still reads x until removal fires
+        assertEquals(Effect.XMult(5.0), chili.jokerMain!!(s, Sctx()))
+    }
+
+    @Test fun chiliPepperJokerMainSilentAtDefaultX() {
+        val chili = spec("j_cry_chili_pepper")
+        // Fresh joker (x=1.0): jokerMain no-op (first round no Xmult yet)
+        assertEquals(Effect.None, chili.jokerMain!!(chili.initialState, Sctx()))
+    }
+
+    @Test fun mondrianAccumulatesOnlyWhenZeroDiscards() {
+        val mondrian = spec("j_cry_mondrian")
+        val s0 = mondrian.initialState     // x=1.0 (FJokerState default)
+
+        // RoundEnd with 0 discards used → +0.25
+        val s1 = mondrian.reduce!!(s0, GameEvent.RoundEnd(discardsUsed = 0))
+        assertEquals(1.25, s1.x, 1e-9)
+
+        // RoundEnd with 1 discard used → no change
+        val s2 = mondrian.reduce!!(s0, GameEvent.RoundEnd(discardsUsed = 1))
+        assertEquals(1.0, s2.x, 1e-9)
+
+        // Non-RoundEnd event → no change
+        val s3 = mondrian.reduce!!(s0, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, s3.x, 1e-9)
+
+        // jokerMain fires at x=1.25 > 1.0
+        assertEquals(Effect.XMult(1.25), mondrian.jokerMain!!(s1, Sctx()))
+        // jokerMain silent at default x=1.0
+        assertEquals(Effect.None, mondrian.jokerMain!!(s0, Sctx()))
+    }
+
+    @Test fun campfireResetsXAtRoundEnd() {
+        val campfire = spec("j_campfire")
+
+        // Sold event: +0.25 per sale
+        val sSold = campfire.reduce!!(campfire.initialState, GameEvent.Sold("j_joker", 3))
+        assertEquals(1.25, sSold.x, 1e-9)
+
+        // RoundEnd: resets to 1.0 regardless of accumulated x
+        val sAfterSale = FJokerState(x = 2.0)
+        val sReset = campfire.reduce!!(sAfterSale, GameEvent.RoundEnd(discardsUsed = 0))
+        assertEquals(1.0, sReset.x, 1e-9)
+
+        // RoundEnd fires even when x was already 1.0 (idempotent)
+        val sNoOp = campfire.reduce!!(campfire.initialState, GameEvent.RoundEnd(discardsUsed = 0))
+        assertEquals(1.0, sNoOp.x, 1e-9)
+    }
+}
+
+/** CardAdded reducer: hologram accumulates +0.25 Xmult per card added to the deck. */
+class CardAddedTest {
+    private fun spec(key: String) = JOKER_MANIFEST.getValue(key)
+
+    @Test fun hologramAccumulatesXPerCardAdded() {
+        val hologram = spec("j_hologram")
+        val s0 = hologram.initialState     // x=1.0 (FJokerState default)
+
+        // CardAdded(count=1) → +0.25
+        val s1 = hologram.reduce!!(s0, GameEvent.CardAdded(count = 1))
+        assertEquals(1.25, s1.x, 1e-9)
+
+        // CardAdded(count=3) → +0.75 from fresh state
+        val s3 = hologram.reduce!!(s0, GameEvent.CardAdded(count = 3))
+        assertEquals(1.75, s3.x, 1e-9)
+
+        // Non-CardAdded event → no change
+        val sNop = hologram.reduce!!(s0, GameEvent.HandScored(HandType.PAIR))
+        assertEquals(1.0, sNop.x, 1e-9)
+
+        // jokerMain fires at x=1.75 (oracle: 32 chips × 1.75 mult = 56; with PAIR base 2+0 mult: floor(32*1.75*2)... wait)
+        // Oracle Case: "Pair of aces + hologram (x=1.75)" → 112: chips=32, mult=2, xMultMod=1.75 → floor(32*2*1.75)=112 ✓
+        assertEquals(Effect.XMult(1.75), hologram.jokerMain!!(s3, Sctx()))
+
+        // jokerMain silent at x=1.0 (no cards yet added this run)
+        assertEquals(Effect.None, hologram.jokerMain!!(s0, Sctx()))
+    }
+}

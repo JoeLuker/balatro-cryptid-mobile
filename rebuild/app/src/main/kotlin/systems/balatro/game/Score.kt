@@ -278,19 +278,21 @@ object Score {
             // foodm: j.mult=40 by default (decreases per round, self-destructs; replenished by selling jolly jokers)
             // (j_ramen/j_campfire/j_obelisk/j_cry_paved_joker/j_cry_membershipcard/j_cry_dropshot/j_cry_chili_pepper/
             //  j_cry_mondrian/j_cry_fading_joker/j_cry_keychange/j_cry_verisimile/j_cry_duplicare/j_cry_clockwork migrated
-            //  to JOKER_MANIFEST — batch 9a. Remaining: j_obelisk/j_hologram/j_ramen/j_campfire/j_loyalty_card/j_throwback/
-            //  j_cry_krustytheclown/j_cry_eternalflame/j_cry_whip stay in-group for legacy compat.)
+            //  to JOKER_MANIFEST — batch 9a. Remaining: j_obelisk/j_loyalty_card/j_throwback/
+            //  j_cry_whip stay in-group for legacy compat.)
             // j_cry_krustytheclown migrated to JOKER_MANIFEST (batch 12 perCard); removed from accumulator group.
             // j_cry_dropshot/mondrian/fading_joker/keychange/verisimile/duplicare/clockwork/paved_joker/membershipcard migrated to JOKER_MANIFEST (batch 9a).
             // j_ramen/j_campfire/j_cry_eternalflame migrated to JOKER_MANIFEST (Sold/Discarded-event accumulators).
-            "j_obelisk", "j_hologram", "j_loyalty_card", "j_throwback", "j_cry_whip",
-            "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
+            // j_cry_chili_pepper migrated to JOKER_MANIFEST (batch 9b: RoundEnd reducer; MANIFEST early-return at Score.kt:155).
+            // j_hologram migrated to JOKER_MANIFEST (CardAdded-event reducer; RunScreen dispatches on Standard pack pick).
+            // j_cry_mondrian migrated to JOKER_MANIFEST (batch 9b: RoundEnd(discardsUsed==0) reducer).
+            "j_obelisk", "j_loyalty_card", "j_throwback", "j_cry_whip",
+            "j_cry_dropshot", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
             "j_cry_paved_joker", "j_cry_membershipcard" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
             // clockwork: j.x += xmult_mod(0.25) every 3rd hand (before, non-scoring); joker_main reads j.x
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
-            // chili_pepper: j.x += Xmult_mod(0.5) each end_of_round (non-scoring); self-destructs after rounds_remaining hits 0
             // mondrian:    j.x += extra(0.25) each end_of_round where discard was not used (non-scoring)
             // fading_joker: j.x += xmult_mod(1) when this perishable joker expires (perishable_debuffed, non-scoring)
             // keychange:   j.x += xmgain(0.25) each time a hand type is played for the first time this round (before, non-scoring); resets end_of_round

@@ -98,6 +98,12 @@ sealed interface GameEvent {
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
     /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost), for the eternalflame >= 2 gate. */
     data class Sold(val soldKey: String, val sellValue: Int) : GameEvent
+    /** End of round (cashOut, context.end_of_round). [discardsUsed] = discards consumed this round (mondrian: guards +0.25 only when 0). */
+    data class RoundEnd(val discardsUsed: Int) : GameEvent
+    /** One or more playing cards were added to the persistent deck (Standard pack pick; future: Certificate,
+     *  Familiar/Grim/Incantation, Marble Joker, DNA). [count] mirrors #context.cards in Lua's
+     *  playing_card_joker_effects call — always >=1. Hologram accumulates +0.25 × count. */
+    data class CardAdded(val count: Int = 1) : GameEvent
 }
 
 typealias ScoreHook = (self: FJokerState, ctx: Sctx) -> Effect
@@ -467,9 +473,14 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         reduce = { s, e -> if (e is GameEvent.Discarded) s.copy(x = maxOf(1.0, s.x - 0.01 * e.cards.size)) else s },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
-    // j_campfire: X(j.x) Mult; starts x=1.0 (default), +0.25 per joker sold (run loop resets it at round end).
+    // j_campfire: X(j.x) Mult; starts x=1.0, +0.25 per joker sold; resets to x=1.0 at end of round.
+    // (Vanilla game.lua: campfire resets config.extra.Xmult=1 in end_of_round context.)
     "j_campfire"           to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.Sold) s.copy(x = s.x + 0.25) else s },
+        reduce = { s, e -> when (e) {
+            is GameEvent.Sold     -> s.copy(x = s.x + 0.25)
+            is GameEvent.RoundEnd -> s.copy(x = 1.0)
+            else                  -> s
+        }},
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
     // j_obelisk: X(j.x) Mult; x grows when the played hand type isn't the current top-played hand
@@ -481,9 +492,19 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_dropshot: X(j.x) Mult; x grows per before-pass by non-scoring hand cards of a random suit
     "j_cry_dropshot"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_chili_pepper: X(j.x) Mult; x grows end-of-round; self-destructs when perishable countdown hits 0
-    "j_cry_chili_pepper"   to JokerSpec(initialState = FJokerState(n = 8), jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // (misc_joker.lua:1119-1192). j.x = Xmult accumulator (starts 1.0); j.n = rounds_remaining (init 8).
+    // RoundEnd reducer: x += 0.5 (Xmult_mod), n -= 1 floored at 0. Self-destruct: RunScreen removes when n==0.
+    "j_cry_chili_pepper"   to JokerSpec(
+        initialState = FJokerState(n = 8),
+        reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(x = s.x + 0.5, n = maxOf(0, s.n - 1)) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
     // cry_mondrian: X(j.x) Mult; x grows end-of-round when no discard was used that round
-    "j_cry_mondrian"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // (misc_joker.lua:3228-3246). RoundEnd reducer: +0.25 only when discardsUsed == 0.
+    "j_cry_mondrian"       to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.RoundEnd && e.discardsUsed == 0) s.copy(x = s.x + 0.25) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
     // cry_fading_joker: X(j.x) Mult; x grows when this perishable joker expires (before the debuff takes effect)
     "j_cry_fading_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_keychange: X(j.x) Mult; x grows when a hand type is played for the first time this round; resets end-of-round
@@ -677,6 +698,20 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── Sold-event accumulator: eternalflame scales Xmult per any joker sold with sell_cost >= 2 ──
     "j_cry_eternalflame" to JokerSpec(
         reduce = { s, e -> if (e is GameEvent.Sold && e.sellValue >= 2) s.copy(x = s.x + 0.1) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── CardAdded-event accumulator ────────────────────────────────────────────────────────────────
+    // j_hologram: +0.25 Xmult per playing card added to the deck (card.lua:2979-2990).
+    // Lua: context.playing_card_added, self.ability.x_mult += self.ability.extra * #context.cards.
+    // config = {extra=0.25, Xmult=1}; x starts at 1.0 (FJokerState default). No self-destruct,
+    // no reset. perishable_compat=false (game.lua:464). Blueprint excluded in Lua (not context.blueprint);
+    // the Kotlin event fires only on real deck adds — no blueprint path exists here.
+    // Dispatch site: RunScreen.kt pickPackItem():CardAdded (Standard pack pick). Future sites:
+    // Certificate (first_hand_drawn), Familiar/Grim/Incantation (spectral use), Marble Joker
+    // (setting_blind), DNA (first hand 1-card play) — all unimplemented in Kotlin today.
+    "j_hologram" to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.CardAdded) s.copy(x = s.x + 0.25 * e.count) else s },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 )
