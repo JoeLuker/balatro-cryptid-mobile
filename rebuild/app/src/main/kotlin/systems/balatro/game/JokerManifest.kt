@@ -416,8 +416,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── 8a: j.x accumulator → XMult ─────────────────────────────────────────────────────────────────────────
     // cry_spy: Xmult = j.x (seeded 0.5 in initialFJoker, changes via run events); always fires (unconditional)
     "j_cry_spy"         to JokerSpec(initialState = FJokerState(x = 0.5), jokerMain = { s, _ -> Effect.XMult(s.x) }),
-    // cry_m: Xmult = j.x (starts 1.0, +13 each Jolly sold); guard prevents identity effect at start
-    "j_cry_m"           to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_m: Xmult = j.x (starts 1.0, +13 each Jolly sold — m.lua selling_card: soldKey=="j_jolly" → x+=13).
+    // Sold reducer replaces RunScreen.sell() inline. jokerMain guard prevents identity effect at start.
+    "j_cry_m"           to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.Sold && e.soldKey == "j_jolly") s.copy(x = s.x + 13.0) else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
     // cry_longboi: Xmult = j.x (= G.GAME.monstermult at equip, grows end_of_round); same guard
     "j_cry_longboi"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_googol_play: Xmult = j.x (pre-resolved: 1e100 on success, 1.0 on fail); guard prevents identity
@@ -562,9 +566,16 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
 
     // ── batch 10: remaining "other" jokers + two-phase (before-pass sets field, jokerMain reads) ────────
     // ── 10a: individual retrigger reads ────────────────────────────────────────────────────────────────────
-    // cry_mstack: +j.n retriggers per scored played card; j.n=1 default, grows per jolly-type sold
+    // cry_mstack: +j.n retriggers per scored played card; j.n=1 default, grows per jolly-type sold.
+    // sell_req=3: every 3 Jolly sells → n+=1; j.chips repurposed as the sell-progress counter (0-2).
+    // Sold reducer replaces RunScreen.sell() inline (m.lua selling_card: sell_count%sell_req==0 → n+=1).
     "j_cry_mstack"     to JokerSpec(
         initialState = FJokerState(n = 1),
+        reduce = { s, e ->
+            if (e is GameEvent.Sold && e.soldKey == "j_jolly") {
+                if (s.chips + 1.0 >= 3.0) s.copy(n = s.n + 1, chips = 0.0) else s.copy(chips = s.chips + 1.0)
+            } else s
+        },
         individual = { s, ctx, _ -> if (ctx.cardarea == "play") Effect.Retrigger(s.n) else Effect.None },
     ),
 
@@ -608,10 +619,13 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         },
     ),
     // cry_loopy: retrigger ALL other board jokers min(j.n, 40) times (j.n = Jolly Jokers sold, starts 0).
-    // j.n grows via RunScreen sell events; no-op until first Jolly sold.
-    "j_cry_loopy"      to JokerSpec(retrigger = { s, ctx ->
-        if (ctx.selfJoker !== ctx.retriggeredJoker && s.n > 0) Effect.Retrigger(minOf(s.n, 40)) else Effect.None
-    }),
+    // Sold reducer replaces RunScreen.sell() inline (m.lua selling_card: soldKey=="j_jolly" → n+=1).
+    "j_cry_loopy"      to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.Sold && e.soldKey == "j_jolly") s.copy(n = s.n + 1) else s },
+        retrigger = { s, ctx ->
+            if (ctx.selfJoker !== ctx.retriggeredJoker && s.n > 0) Effect.Retrigger(minOf(s.n, 40)) else Effect.None
+        },
+    ),
     // cry_spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored this hand).
     // j.n is accumulated during the individual pass in Score.kt then reset at end of hand. Fires only for
     // the last joker (ctx.board.lastOrNull()), excluding itself.

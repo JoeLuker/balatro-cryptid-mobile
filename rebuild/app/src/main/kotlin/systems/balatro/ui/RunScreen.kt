@@ -1289,15 +1289,7 @@ internal class RunState {
         for (rem in owned) when (rem.fj.key) {
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
             "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
-            // j_cry_m: +13 Xmult per Jolly Joker sold.
-            "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
-            // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
-            "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
-            // j_cry_mstack: retriggers +1 per sell_req (3) Jolly Joker sells (m.lua selling_card hook).
-            // fj.chips repurposed as the sell-progress counter (0–2); never read as chips for this key.
-            "j_cry_mstack"     -> if (soldKey == "j_jolly") {
-                if (rem.fj.chips + 1 >= 3) { rem.fj.n += 1; rem.fj.chips = 0.0 } else rem.fj.chips += 1.0
-            }
+            // (j_cry_m / j_cry_loopy / j_cry_mstack Sold reducers migrated to JOKER_MANIFEST.)
         }
         // j_cry_jollysus: selling any Joker (including a jollysus itself) makes each armed jollysus spawn a
         // random Joker, once per round; fj.n is the spawn flag (1=armed, reset to 1 at end_of_round). Done
