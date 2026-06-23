@@ -274,7 +274,8 @@ object Score {
             // (vanilla "+Mult if hand contains <type>" family j_jolly..j_droll migrated to JOKER_MANIFEST.)
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             // (j_green_joker migrated to JOKER_MANIFEST.)
-            "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_popcorn",
+            // (j_spare_trousers migrated to JOKER_MANIFEST.)
+            "j_swashbuckler", "j_red_card", "j_popcorn",
             "j_cry_wee_fib", "j_cry_zooble", "j_cry_poor_joker", "j_cry_foodm" ->
                 if (j.mult > 0.0) return Fx().apply { multMod = j.mult }                       // accumulated +Mult
             // j_popcorn: starts at +20 Mult (config.mult=20), −1 per hand (RunScreen before-pass); self-destructs at 0.
@@ -300,7 +301,8 @@ object Score {
             //   spawn (misc_joker.lua:10139). j.x is never set for this key; removed from accumulator group.
             // alt_wheel_of_fortune: not a Joker object_type — only a UI tooltip key (set="Other") in wheelhope's
             //   loc_vars (misc_joker.lua:7325). Can never appear on the board; removed from accumulator group.
-            "j_square", "j_runner", "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
+            // (j_square, j_runner migrated to JOKER_MANIFEST.)
+            "j_castle", "j_wee", "j_cry_cursor", "j_cry_crustulum" ->
                 if (j.chips != 0.0) return Fx().apply { chipMod = j.chips }                    // accumulated +Chips
             "j_steel_joker" -> if (j.n > 0) return Fx().apply { xMultMod = 1.0 + 0.2 * j.n }   // X(1 + 0.2*steel cards)
             "j_stone"       -> if (j.n > 0) return Fx().apply { chipMod = 25.0 * j.n }         // +25 / stone card

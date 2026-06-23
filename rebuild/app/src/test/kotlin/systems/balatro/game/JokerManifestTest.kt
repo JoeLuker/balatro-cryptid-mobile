@@ -49,6 +49,23 @@ class JokerManifestTest {
         assertEquals(Effect.Chips(21.0), bonk.otherJoker!!(afterPair, ctx(HandType.PAIR), FJoker("j_jolly")))   // jolly: 7*3
     }
 
+    @Test fun statefulAccumulators() {
+        val trousers = spec("j_spare_trousers")
+        var s = trousers.reduce!!(FJokerState(), GameEvent.HandScored(HandType.TWO_PAIR, 4))
+        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.FULL_HOUSE, 5))
+        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.PAIR, 2))   // not Two Pair / Full House -> no-op
+        assertEquals(4.0, s.mult, 0.0)
+        assertEquals(Effect.Mult(4.0), trousers.jokerMain!!(s, ctx(HandType.PAIR)))
+
+        val runner = spec("j_runner")
+        val rs = runner.reduce!!(FJokerState(), GameEvent.HandScored(HandType.STRAIGHT, 5))
+        assertEquals(Effect.Chips(15.0), runner.jokerMain!!(rs, ctx(HandType.PAIR)))
+
+        val square = spec("j_square")  // accrues only on a 5-card hand (uses playedCount)
+        assertEquals(4.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 5)).chips, 0.0)
+        assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
+    }
+
     @Test fun greenJokerAccumulatesAndFloorsAtZero() {
         val green = spec("j_green_joker")
         var st = FJokerState()
