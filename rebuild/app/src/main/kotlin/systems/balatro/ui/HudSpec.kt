@@ -14,12 +14,12 @@ import systems.balatro.bridge.Telemetry
  * flame_handler nodes are present, sized w=0/h=0 exactly as the source, flame visual pending).
  */
 internal object HudSpec {
-    @Volatile private var cached: JSONObject? = null
-    fun root(ctx: Context): JSONObject? {
-        cached?.let { return it }
+    private val cache = HashMap<String, JSONObject>()
+    fun root(ctx: Context, file: String = "hud_tree.json"): JSONObject? {
+        cache[file]?.let { return it }
         return try {
-            JSONObject(ctx.assets.open("ui/hud_tree.json").bufferedReader().use { it.readText() }).also { cached = it }
-        } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString(), "file" to "hud_tree.json"); null }
+            JSONObject(ctx.assets.open("ui/$file").bufferedReader().use { it.readText() }).also { cache[file] = it }
+        } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString(), "file" to file); null }
     }
 
     /** Build the UIBox AST from the loaded tree, binding descriptors to [b]. */
@@ -97,7 +97,17 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         "k_hud_hands" -> "Hands"; "k_hud_discards" -> "Discards"
         "k_ante" -> "Ante"; "k_round" -> "Round"; "k_lower_score" -> "score"
         "$" -> "$"; "b_options" -> "Options"; "b_run_info_1" -> "Run"; "b_run_info_2" -> "Info"
-        else -> key?.toString() ?: ""
+        // shop
+        "b_next_round_1" -> "Next"; "b_next_round_2" -> "Round"; "k_reroll" -> "Reroll"
+        else -> if (key is String) key else ""   // {type=variable} loc tables (e.g. ante_x_voucher) -> blank for now
+    }
+
+    /** A config.button -> a live RunState action, gated by config.func. Only real action buttons map;
+     *  controller pip hints (button='x'/'y' + func='set_button_pip') return null (not clickable). */
+    private fun buttonOnClick(c: JSONObject): (() -> Unit)? = when (c.optString("button")) {
+        "toggle_shop" -> ({ s.nextBlind() })   // Next Round → leave shop
+        "reroll_shop" -> ({ s.reroll() })      // reroll() self-guards on money >= rerollCost
+        else -> null
     }
 
     /** ref_value (or current_hand value) -> a live reader of RunState. */
@@ -109,6 +119,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         "round" -> { { "1" } }
         "win_ante" -> { { "8" } }
         "chips_text" -> { { s.chipsText } }   // dollars_chips round-score readout
+        "reroll_cost" -> { { s.rerollCost.toString() } }   // shop reroll button
         "chip_text" -> { { s.chipText2 } }
         "mult_text" -> { { s.multText } }
         // hand name, played-hand chip total, and level share one row (hand_text_area top). They're
@@ -140,6 +151,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         textColour = colour(c.optJSONObject("colour")) ?: Balatro.White,
         shadow = c.optBoolean("shadow", false),
         emboss = c.optDouble("emboss", 0.0).toFloat(),
+        onClick = buttonOnClick(c),   // shop Next-Round / Reroll buttons (null for non-action nodes)
     )
 
     /** A T node's text: a literal string, a {loc}, or a ref binding (win_ante) resolved once. */
@@ -158,6 +170,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
         val o = c.optJSONObject("object") ?: return DynaText(emptyList())
         return when (o.optString("\$")) {
             "dynatext" -> dynatext(o)
+            "cardarea" -> CardAreaSlot(o.getString("name"), o.optDouble("w", 0.0).toFloat(), o.optDouble("h", 0.0).toFloat())
             "sprite" -> stakeBmp?.let { Sprite(it, o.optDouble("scale", 0.5).toFloat(), o.optDouble("scale", 0.5).toFloat()) }
                 ?: DynaText(emptyList(), w = o.optDouble("scale", 0.5).toFloat(), h = o.optDouble("scale", 0.5).toFloat())
             else -> DynaText(emptyList(), w = 0f, h = 0f)   // moveable (flame anchor): zero-size, flame visual pending

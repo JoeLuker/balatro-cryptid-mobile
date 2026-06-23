@@ -132,6 +132,11 @@ class DynaText(
     override val h: Float = 0f,
 ) : Obj
 
+/** A CardArea slot O (shop_jokers/_vouchers/_booster, pack contents, blind tokens): the extracted
+ *  tree carries the slot's name + size; the render site fills the engine-computed rect with the live
+ *  cards/offers from RunState (so the frame is the ported tree and the contents bind like the hand). */
+class CardAreaSlot(val name: String, override val w: Float, override val h: Float) : Obj
+
 // builders that read like the Lua: R(cfg){ ... }
 fun R(cfg: Cfg = Cfg(), vararg kids: UI) = Ro(cfg, kids.toList())
 fun C(cfg: Cfg = Cfg(), vararg kids: UI) = Co(cfg, kids.toList())
