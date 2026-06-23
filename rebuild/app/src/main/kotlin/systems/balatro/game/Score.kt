@@ -292,20 +292,20 @@ object Score {
             // j_cry_whip migrated to JOKER_MANIFEST (BeforeHand reducer; Score.kt before-pass loop removed).
             // j_obelisk migrated to JOKER_MANIFEST (HandScored reducer; handPlays map passed from RunScreen).
             // j_loyalty_card migrated to JOKER_MANIFEST (jokerMain ctx-read; ctx.totalHandsPlayed + ctx.handsPlayedAtCreate).
+            // j_cry_membershipcard / j_cry_verisimile / j_cry_duplicare / j_cry_clockwork / j_cry_keychange
+            //   migrated to JOKER_MANIFEST (pure jokerMain readers or jokerMain+RoundEnd reset).
 
-            "j_cry_dropshot", "j_cry_fading_joker", "j_cry_keychange",
-            "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
-            "j_cry_paved_joker", "j_cry_membershipcard" ->
+            // j_cry_membershipcard migrated to JOKER_MANIFEST (pure jokerMain reader; x pre-set at init).
+            // j_cry_verisimile migrated to JOKER_MANIFEST (pure jokerMain reader; pseudorandom accumulation in RunScreen).
+            // j_cry_duplicare migrated to JOKER_MANIFEST (pure jokerMain reader; per-hand accumulation in RunScreen).
+            // j_cry_keychange migrated to JOKER_MANIFEST (jokerMain + RoundEnd reset; per-hand accumulation in RunScreen).
+            // j_cry_clockwork migrated to JOKER_MANIFEST (pure jokerMain reader; per-hand accumulation in RunScreen).
+            "j_cry_dropshot", "j_cry_fading_joker",
+            "j_cry_paved_joker" ->
                 if (j.x > 1.0) return Fx().apply { xMultMod = j.x }                            // accumulated Xmult
-            // clockwork: j.x += xmult_mod(0.25) every 3rd hand (before, non-scoring); joker_main reads j.x
             // dropshot:    j.x += Xmult_mod(0.2) * non-scoring-hand cards of random suit each hand (before, non-scoring)
-            // mondrian:    j.x += extra(0.25) each end_of_round where discard was not used (non-scoring)
             // fading_joker: j.x += xmult_mod(1) when this perishable joker expires (perishable_debuffed, non-scoring)
-            // keychange:   j.x += xmgain(0.25) each time a hand type is played for the first time this round (before, non-scoring); resets end_of_round
-            // verisimile:  j.x += denominator each pseudorandom_result hit; joker_main reads j.x
-            // duplicare:   j.x += Xmult_mod(1) per post_trigger / individual card played (non-scoring); joker_main reads j.x
             // paved_joker: j.x += xmult_mod(1) when any perishable joker expires (perishable_debuffed, misc_joker.lua:10255)
-            // membershipcard: j.x = Xmult_mod(0.1) * member_count (run loop pre-computes; misc_joker.lua:7877)
             // pizza: has NO joker_main scoring path in Lua — only end_of_round countdown and selling_self pizza-slice
             //   spawn (misc_joker.lua:10139). j.x is never set for this key; removed from accumulator group.
             // alt_wheel_of_fortune: not a Joker object_type — only a UI tooltip key (set="Other") in wheelhope's

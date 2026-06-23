@@ -799,4 +799,53 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
+
+    // ── Pure jokerMain readers (no run-loop event; accumulation managed by RunScreen when-block) ──
+
+    // j_cry_membershipcard: Xmult_mod(0.1) × Cryptid.member_count (epic.lua:7893-7901, context.joker_main).
+    // j.x = 0.1 * CRYPTID_MEMBER_COUNT is set at construction in initialFJoker; it never changes at
+    // runtime. Fires when x > 1 (member count > 10). blueprint_compat=true; no accumulation event.
+    "j_cry_membershipcard" to JokerSpec(
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // j_cry_verisimile: Xmult += denominator each pseudorandom_result hit (exotic.lua:1214-1253).
+    // Accumulation is in RunScreen (no Kotlin event for pseudorandom_result yet). jokerMain always
+    // fires (Lua: return { xmult = ... } with no guard). Starting x=1.0; no guard needed because
+    // XMult(1.0) is a mathematical no-op and the Kotlin engine suppresses the exponentia side-effect
+    // when xMult==1.0 (apply() guard: if fx.xMult != 1.0). blueprint_compat=true.
+    "j_cry_verisimile" to JokerSpec(
+        jokerMain = { s, _ -> Effect.XMult(s.x) },
+    ),
+
+    // j_cry_duplicare: Xmult += Xmult_mod(1) per played card this hand (exotic.lua:1288-1318,
+    // context.individual cardarea==G.play OR context.post_trigger). Accumulation in RunScreen
+    // per-hand when-block (o.fj.x += pendingSel.size). jokerMain: Xmult > 1 → XMult(j.x).
+    // blueprint_compat=true. The post_trigger path (other joker fires) is unimplemented in Kotlin.
+    "j_cry_duplicare" to JokerSpec(
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
+    // ── Mixed: jokerMain + RoundEnd reset ────────────────────────────────────────────────────────
+
+    // j_cry_keychange: +0.25 Xmult each time a new hand type is played for the first time this round
+    // (misc_joker.lua:10546-10568, context.before, hands[scoring_name].played_this_round < 2).
+    // Resets to xm=1 at context.end_of_round (Lua line 10564-10566). Accumulation in RunScreen
+    // per-hand when-block; reset PREVIOUSLY missing from Kotlin — now added via RoundEnd reducer.
+    // jokerMain fires Xmult always (Lua: return { xmult = card.ability.extra.xm }; no guard in Lua,
+    // but Kotlin engine suppresses XMult(1.0) side-effect, so always-fire is safe).
+    "j_cry_keychange" to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(x = 1.0) else s },
+        jokerMain = { s, _ -> Effect.XMult(s.x) },
+    ),
+
+    // j_cry_clockwork: +0.25 Xmult every 3rd hand played (epic.lua:2198-2216, context.before,
+    // immutable counter c2 cycles 0→1→2→0; fires when c2==0). Accumulation in RunScreen per-hand
+    // when-block (totalHandsPlayed % 3 == 0 → x += 0.25). jokerMain: always fires (Lua returns
+    // xmult unconditionally at context.joker_main — XMult(1.0) is safe no-op). No reset, no self-
+    // destruct. blueprint_compat=true. Also has steel-retrigger and steel-enhancement side effects
+    // in context.repetition and context.before — those remain in Score.kt / unimplemented.
+    "j_cry_clockwork" to JokerSpec(
+        jokerMain = { s, _ -> Effect.XMult(s.x) },
+    ),
 )

@@ -149,7 +149,10 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int 
         // j_loyalty_card: n stores hands_played_at_create (card.lua:459 self.ability.hands_played_at_create = G.GAME.hands_played or 0).
         // All other MANIFEST jokers use s.n (usually 0).
         val n = if (offer.key == "j_loyalty_card") handsPlayed else s.n
-        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = s.x, chips = s.chips, n = n, xc = s.xc)
+        // j_cry_membershipcard: x = Xmult_mod(0.1) × member_count (initialFJoker legacy fallthrough is now
+        // unreachable for MANIFEST keys; we apply the runtime constant here instead).
+        val x = if (offer.key == "j_cry_membershipcard") 0.1 * CRYPTID_MEMBER_COUNT else s.x
+        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = x, chips = s.chips, n = n, xc = s.xc)
     }
     val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
     val fjMult = when (offer.key) {
