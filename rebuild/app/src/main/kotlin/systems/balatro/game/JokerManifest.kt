@@ -99,6 +99,7 @@ sealed interface GameEvent {
 }
 
 typealias ScoreHook = (self: FJokerState, ctx: Sctx) -> Effect
+typealias CardHook = (self: FJokerState, ctx: Sctx, card: PlayingCard) -> Effect   // individual / held: the card is passed, never null
 typealias OtherJokerHook = (self: FJokerState, ctx: Sctx, other: FJoker) -> Effect
 typealias Reducer = (state: FJokerState, event: GameEvent) -> FJokerState
 
@@ -106,8 +107,8 @@ typealias Reducer = (state: FJokerState, event: GameEvent) -> FJokerState
 data class JokerSpec(
     val initialState: FJokerState = FJokerState(),
     val jokerMain: ScoreHook? = null,        // context.joker_main
-    val individual: ScoreHook? = null,        // context.individual, per scored played card
-    val held: ScoreHook? = null,              // context.cardarea == hand
+    val individual: CardHook? = null,         // context.individual, per scored played card (receives the card)
+    val held: CardHook? = null,               // context.cardarea == hand (receives the held card)
     val otherJoker: OtherJokerHook? = null,   // context.other_joker
     val retrigger: ScoreHook? = null,         // context.retrigger_joker_check
     val reduce: Reducer? = null,              // pure state evolution on game events
@@ -119,8 +120,8 @@ internal fun dispatchManifest(spec: JokerSpec, j: FJoker, ctx: Sctx): Fx? {
     val individual = (ctx.individual && ctx.cardarea == "play") || ctx.held
     val effect: Effect = when {
         ctx.jokerRetriggerCheck                  -> spec.retrigger?.invoke(self, ctx) ?: Effect.None
-        ctx.individual && ctx.cardarea == "play" -> spec.individual?.invoke(self, ctx) ?: Effect.None
-        ctx.held                                 -> spec.held?.invoke(self, ctx) ?: Effect.None
+        ctx.individual && ctx.cardarea == "play" && ctx.otherCard != null -> spec.individual?.invoke(self, ctx, ctx.otherCard!!) ?: Effect.None
+        ctx.held && ctx.otherCard != null        -> spec.held?.invoke(self, ctx, ctx.otherCard!!) ?: Effect.None
         ctx.otherJoker != null                   -> spec.otherJoker?.invoke(self, ctx, ctx.otherJoker!!) ?: Effect.None
         ctx.jokerMain                            -> spec.jokerMain?.invoke(self, ctx) ?: Effect.None
         else                                     -> Effect.None
@@ -164,4 +165,19 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         } },
         jokerMain = { s, _ -> Effect.multOrNone(if (s.mult > 0.0) s.mult else 0.0) },
     ),
+
+    // ── batch 2: vanilla "+Chips if hand contains <type>" family (game.lua j_wily..j_crafty) ─────────
+    "j_wily"    to JokerSpec(jokerMain = { _, ctx -> if (HandType.THREE_OF_A_KIND in ctx.pokerHands) Effect.Chips(100.0) else Effect.None }),
+    "j_clever"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.TWO_PAIR in ctx.pokerHands) Effect.Chips(80.0) else Effect.None }),
+    "j_devious" to JokerSpec(jokerMain = { _, ctx -> if (HandType.STRAIGHT in ctx.pokerHands) Effect.Chips(100.0) else Effect.None }),
+    "j_crafty"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH in ctx.pokerHands) Effect.Chips(80.0) else Effect.None }),
+
+    // ── batch 2: per-scored-card reactors (the individual pass) ─────────────────────────────────────
+    "j_greedy_joker"     to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.D, ctx.smeared)) Effect.Mult(3.0) else Effect.None }),
+    "j_lusty_joker"      to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.H, ctx.smeared)) Effect.Mult(3.0) else Effect.None }),
+    "j_wrathful_joker"   to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.S, ctx.smeared)) Effect.Mult(3.0) else Effect.None }),
+    "j_gluttenous_joker" to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.C, ctx.smeared)) Effect.Mult(3.0) else Effect.None }),
+    "j_even_steven"      to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 4, 6, 8, 10)) Effect.Mult(4.0) else Effect.None }),
+    "j_odd_todd"         to JokerSpec(individual = { _, _, c -> if (c.id == 14 || c.id in setOf(3, 5, 7, 9)) Effect.Chips(31.0) else Effect.None }),
+    "j_scholar"          to JokerSpec(individual = { _, _, c -> if (c.id == 14) Effect.All(listOf(Effect.Chips(20.0), Effect.Mult(4.0))) else Effect.None }),
 )

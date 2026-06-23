@@ -180,13 +180,7 @@ object Score {
         val oc = ctx.otherCard
         // INDIVIDUAL: a joker reacting to each scored card (context.individual, cardarea == G.play)
         if (ctx.individual && ctx.cardarea == "play" && oc != null) when (j.key) {
-            "j_greedy_joker"     -> if (oc.isSuit(Suit.D, ctx.smeared)) return Fx().apply { mult = 3.0 }
-            "j_lusty_joker"      -> if (oc.isSuit(Suit.H, ctx.smeared)) return Fx().apply { mult = 3.0 }
-            "j_wrathful_joker"   -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { mult = 3.0 }
-            "j_gluttenous_joker" -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 3.0 }
-            "j_even_steven"      -> if (oc.id in setOf(2, 4, 6, 8, 10)) return Fx().apply { mult = 4.0 }
-            "j_odd_todd"         -> if (oc.id == 14 || oc.id in setOf(3, 5, 7, 9)) return Fx().apply { chips = 31.0 }
-            "j_scholar"          -> if (oc.id == 14) return Fx().apply { chips = 20.0; mult = 4.0 }
+            // (greedy/lusty/wrathful/gluttonous + even_steven/odd_todd/scholar migrated to JOKER_MANIFEST.)
             // --- vanilla individual jokers, faithful from calculate_joker (port-vanilla-jokers workflow) ---
             "j_arrowhead"        -> if (oc.isSuit(Suit.S, ctx.smeared)) return Fx().apply { chips = 50.0 }      // +50 Chips/Spade
             "j_onyx_agate"       -> if (oc.isSuit(Suit.C, ctx.smeared)) return Fx().apply { mult = 7.0 }        // +7 Mult/Club
@@ -276,10 +270,7 @@ object Score {
             //     CONTAIN the type via context.poker_hands — containment, not top rank (a Full House
             //     contains a Pair + Three of a Kind), exactly the Cryptid "type" jokers below. ---
             "j_sly"     -> if (HandType.PAIR in ctx.pokerHands)            return Fx().apply { chipMod = 50.0 }
-            "j_wily"    -> if (HandType.THREE_OF_A_KIND in ctx.pokerHands) return Fx().apply { chipMod = 100.0 }
-            "j_clever"  -> if (HandType.TWO_PAIR in ctx.pokerHands)        return Fx().apply { chipMod = 80.0 }
-            "j_devious" -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { chipMod = 100.0 }
-            "j_crafty"  -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { chipMod = 80.0 }
+            // (vanilla "+Chips if hand contains <type>" family j_wily..j_crafty migrated to JOKER_MANIFEST.)
             // (vanilla "+Mult if hand contains <type>" family j_jolly..j_droll migrated to JOKER_MANIFEST.)
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             // (j_green_joker migrated to JOKER_MANIFEST.)
