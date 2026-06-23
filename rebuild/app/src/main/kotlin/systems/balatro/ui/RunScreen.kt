@@ -173,6 +173,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double): FJoker {
         "j_cry_blacklist"    -> (2..14).random()             // random blacklisted rank id
         "j_cry_busdriver"    -> 4   // before-hand roll odds
         "j_cry_jollysus"     -> 1   // spawn flag armed (config.extra.spawn=true); reset to 1 at end_of_round
+        "j_cry_chad"         -> 2   // config.extra.retriggers — retriggers the leftmost board joker j.n times
         else -> 0
     }
     val fjChips = when (offer.key) {

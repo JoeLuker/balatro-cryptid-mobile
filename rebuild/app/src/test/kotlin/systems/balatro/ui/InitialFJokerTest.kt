@@ -31,6 +31,7 @@ class InitialFJokerTest {
         assertEquals(CRYPTID_MEMBER_COUNT.toDouble(), make("j_cry_membershipcardtwo").chips, 0.0)  // 38598 → +chips
         assertEquals(0.5,   make("j_cry_spy").x, 0.0)                  // config.extra.x_mult — was 1.0 (no-op) before fix
         assertEquals(200.0, make("j_cry_clicked_cookie").chips, 0.0)  // config.extra.chips — was 0.0 (no-op) before fix
+        assertEquals(2, make("j_cry_chad").n)                            // config.extra.retriggers — was 0 (silent no-op) before fix
     }
 
     @Test fun swashbucklerReadsSellSum() {
