@@ -42,6 +42,11 @@ local C = {
          TEXT_INACTIVE = leaf("UI.TEXT_INACTIVE",hx("666666")) },
   DYN_UI = { MAIN=leaf("DYN_UI.MAIN",hx("374244")), DARK=leaf("DYN_UI.DARK",hx("374244")),
              BOSS_MAIN=leaf("DYN_UI.BOSS_MAIN",hx("374244")), BOSS_DARK=leaf("DYN_UI.BOSS_DARK",hx("374244")) },
+  -- run-info poker-hand level pips: G.C.HAND_LEVELS[min(7, level)] (white → blue/green/pink → red)
+  HAND_LEVELS = { leaf("HAND_LEVELS.1",hx("e7e7e7")), leaf("HAND_LEVELS.2",hx("93c2eb")),
+                  leaf("HAND_LEVELS.3",hx("96e69b")), leaf("HAND_LEVELS.4",hx("eb9bba")),
+                  leaf("HAND_LEVELS.5",hx("f0c97a")), leaf("HAND_LEVELS.6",hx("f1a25f")),
+                  leaf("HAND_LEVELS.7",hx("fe5f55")) },
 }
 
 -- path-tagged G.GAME subtables (so ref_table=G.GAME.current_round serializes to that path)
@@ -74,17 +79,23 @@ GAME.orbital_choices = {}
 -- pseudorandom seed state (needed by pseudoseed function)
 GAME.pseudorandom = { seed='1', hashed_seed=0 }
 -- hands table: one entry per playable hand (only visible=true ones are picked for orbital)
+-- Each hand needs level/chips/mult/played (run-info's create_UIBox_current_hand_row reads them) plus
+-- l_chips/l_mult (per-level deltas). Secret hands (Flush Five/House, Five of a Kind) are iterated too.
+local function H(level, chips, mult, lc, lm) return { visible=true, level=level, chips=chips, mult=mult, played=0, l_chips=lc, l_mult=lm } end
 GAME.hands = {
-  ['High Card']       = { visible=true },
-  ['Pair']            = { visible=true },
-  ['Two Pair']        = { visible=true },
-  ['Three of a Kind'] = { visible=true },
-  ['Straight']        = { visible=true },
-  ['Flush']           = { visible=true },
-  ['Full House']      = { visible=true },
-  ['Four of a Kind']  = { visible=true },
-  ['Straight Flush']  = { visible=true },
-  ['Royal Flush']     = { visible=true },
+  ['Flush Five']      = H(1, 160, 16, 50, 3),
+  ['Flush House']     = H(1, 140, 14, 40, 4),
+  ['Five of a Kind']  = H(1, 120, 12, 35, 3),
+  ['Straight Flush']  = H(1, 100,  8, 40, 4),
+  ['Four of a Kind']  = H(1,  60,  7, 30, 3),
+  ['Full House']      = H(1,  40,  4, 25, 2),
+  ['Flush']           = H(1,  35,  4, 15, 2),
+  ['Straight']        = H(1,  30,  4, 30, 3),
+  ['Three of a Kind'] = H(1,  30,  3, 20, 2),
+  ['Two Pair']        = H(1,  20,  2, 20, 1),
+  ['Pair']            = H(1,  10,  2, 15, 1),
+  ['High Card']       = H(1,   5,  1, 10, 1),
+  ['Royal Flush']     = H(1, 100,  8, 40, 4),
 }
 -- blind object (HUD blind token; during blind-select G.GAME.blind is not yet set — stubs for safety)
 GAME.blind = tag("G.GAME.blind", {
@@ -130,7 +141,13 @@ function localize(a, misc_cat)
       ph_score_new_collection='Collection', ph_score_seed='Seed',
       k_defeated_by='Defeated by', k_none='None', k_seed='Seed',
       ph_demo_thanks_1='Thanks', ph_demo_thanks_2='for playing!',
+      -- run-info tab labels (create_tabs concatenates these as strings)
+      b_poker_hands='Poker Hands', b_blinds='Blinds', b_vouchers='Vouchers', b_stake='Stake',
+      k_level_prefix='lvl.',
     }
+    -- run-info concatenates the poker-hand name/description as a string ('lvl.'..level, ' '..name),
+    -- so these categories must return a plain string (the key), not a {__loc} descriptor.
+    if misc_cat == 'poker_hands' or misc_cat == 'poker_hand_descriptions' then return a end
     if misc_cat then return { __loc = {key=a, cat=misc_cat} } end
     return dict[a] or { __loc = a }
   end
@@ -691,6 +708,10 @@ dump(create_UIBox_game_over(), "game_over_tree.json")
 -- Extracting gives the frame; Kotlin fills the id-slotted rows from RunState.evalRows at render.
 dump(create_UIBox_round_evaluation(), "round_eval_tree.json")
 
--- ── RUN INFO (G.UIDEF.run_info): the in-run stats/deck popup ──────────────────────────────────────
-local ok_ri, ridef = pcall(G.UIDEF.run_info)
+-- ── RUN INFO: the poker-hands tab (create_UIBox_current_hands) ─────────────────────────────────────
+-- G.UIDEF.run_info() itself extracts to only the overlay shell (the tabbed content is built
+-- dynamically by the overlay-menu system at display time, not embedded in the static return). The
+-- iconic content is the poker-hands level table — extract create_UIBox_current_hands directly: a
+-- ROOT holding 12 hand rows (level pip + localized name + per-level chips/mult + lifetime play count).
+local ok_ri, ridef = pcall(create_UIBox_current_hands, false)
 if ok_ri and ridef then dump(ridef, "run_info_tree.json") else print("RUNINFO ERR: "..tostring(ridef)) end
