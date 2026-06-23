@@ -395,15 +395,7 @@ object Score {
             // (including Thalia itself, rarity=4 Legendary). ctx.board now carries FJoker.rarity so this is faithful.
             // n=1→bonus=0 (no-op); n=2→bonus=1 (X1, identity); n=3→bonus=3 (X3); n=4→bonus=6 (X6); n=5→bonus=10 (X10).
             // (j_cry_thalia migrated to JOKER_MANIFEST.)
-            // blacklist: if the blacklisted rank (j.n, default 0→Ace=14) appears in the played or held hand,
-            // zero both chips and mult (spooky.lua:1021-1038). Uses Fx.nullify since this is not expressible
-            // as a standard additive/multiplicative modifier — must clobber both accumulators atomically.
-            // j.n stores the blacklisted rank (0 = unset → treat as 14/Ace, matching config.extra.blacklist=14).
-            "j_cry_blacklist" -> {
-                val rank = if (j.n == 0) 14 else j.n
-                val found = ctx.fullHand.any { it.id == rank } || ctx.heldHand.any { it.id == rank }
-                if (found) return Fx().apply { nullify = true }
-            }
+            // (j_cry_blacklist migrated to JOKER_MANIFEST — jokerMain Effect.Nullify when blacklisted rank found.)
             // googol_play: X1e100 Mult with 1-in-j.n odds (default j.n=8) (epic.lua:222-229).
             // Pseudorandom — the run loop sets j.x=1e100 when the roll succeeds, else j.x=1.0.
             // At score time, fire only when j.x > 1.0. Oracle tests must pre-set j.x=1e100 to exercise this path.

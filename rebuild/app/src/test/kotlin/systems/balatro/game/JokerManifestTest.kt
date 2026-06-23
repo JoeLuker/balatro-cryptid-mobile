@@ -589,3 +589,48 @@ class LoyaltyCardJokerMainTest {
         assertEquals(Effect.None, loyalty.jokerMain!!(s, ctx(7, 3)))
     }
 }
+
+class BlacklistJokerMainTest {
+    private fun spec() = JOKER_MANIFEST.getValue("j_cry_blacklist")
+
+    private fun ctx(played: List<PlayingCard>, held: List<PlayingCard> = emptyList()): Sctx =
+        Sctx().apply { fullHand = played; heldHand = held }
+
+    @Test fun blacklistNullifiesWhenPlayedHandContainsRank() {
+        // Blacklisted rank = 14 (Ace). Played hand contains an Ace.
+        val spec = spec()
+        val s = FJokerState(n = 14)
+        val result = spec.jokerMain!!(s, ctx(played = PlayingCard.hand("S_A", "H_K", "D_Q")))
+        assertEquals(Effect.Nullify, result)
+    }
+
+    @Test fun blacklistNullifiesWhenHeldHandContainsRank() {
+        // Rank in held hand (not played).
+        val spec = spec()
+        val s = FJokerState(n = 7)
+        val result = spec.jokerMain!!(s, ctx(
+            played = PlayingCard.hand("S_2", "H_3", "D_4", "C_5", "S_6"),
+            held   = PlayingCard.hand("H_7", "D_8"),
+        ))
+        assertEquals(Effect.Nullify, result)
+    }
+
+    @Test fun blacklistSilentWhenRankAbsent() {
+        // Rank 14 not present in played or held.
+        val spec = spec()
+        val s = FJokerState(n = 14)
+        val result = spec.jokerMain!!(s, ctx(
+            played = PlayingCard.hand("S_2", "H_3", "D_4", "C_5", "S_6"),
+            held   = PlayingCard.hand("H_7", "D_8"),
+        ))
+        assertEquals(Effect.None, result)
+    }
+
+    @Test fun blacklistDefaultNZeroTreatedAsAce() {
+        // n=0 → default rank = 14 (Ace). Ace in played hand → nullify.
+        val spec = spec()
+        val s = FJokerState(n = 0)
+        val result = spec.jokerMain!!(s, ctx(played = PlayingCard.hand("C_A")))
+        assertEquals(Effect.Nullify, result)
+    }
+}

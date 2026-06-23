@@ -872,4 +872,19 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_dropshot" to JokerSpec(
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
+
+    // j_cry_blacklist: zeros chips AND mult when the blacklisted rank (stored in j.n; default 0 → Ace=14)
+    // appears in the played hand (G.play.cards) OR the held hand (G.hand.cards) — spooky.lua:1021-1038.
+    // Effect.Nullify sets Fx.nullify=true, which the cascade engine uses to atomically zero both accumulators
+    // (not expressible as additive/multiplicative). blueprint_compat=false, eternal_compat=false.
+    // RunScreen sets j.n to a pseudorandom rank at add_to_deck time (line 178); self-destruct check at RunScreen:1089.
+    "j_cry_blacklist" to JokerSpec(
+        jokerMain = { s, ctx ->
+            val rank = if (s.n == 0) 14 else s.n
+            if (ctx.fullHand.any { it.id == rank } || ctx.heldHand.any { it.id == rank })
+                Effect.Nullify
+            else
+                Effect.None
+        },
+    ),
 )

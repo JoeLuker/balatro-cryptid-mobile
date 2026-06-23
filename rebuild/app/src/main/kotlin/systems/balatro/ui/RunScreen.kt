@@ -147,8 +147,14 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int 
     JOKER_MANIFEST[offer.key]?.let { spec ->
         val s = spec.initialState
         // j_loyalty_card: n stores hands_played_at_create (card.lua:459 self.ability.hands_played_at_create = G.GAME.hands_played or 0).
+        // j_cry_blacklist: n stores the pseudorandom blacklisted rank id (2..14), chosen at add_to_deck time.
+        //   The legacy fjN block below had this random — replicated here for the MANIFEST path.
         // All other MANIFEST jokers use s.n (usually 0).
-        val n = if (offer.key == "j_loyalty_card") handsPlayed else s.n
+        val n = when (offer.key) {
+            "j_loyalty_card"  -> handsPlayed
+            "j_cry_blacklist" -> (2..14).random()
+            else              -> s.n
+        }
         // j_cry_membershipcard: x = Xmult_mod(0.1) × member_count (initialFJoker legacy fallthrough is now
         // unreachable for MANIFEST keys; we apply the runtime constant here instead).
         val x = if (offer.key == "j_cry_membershipcard") 0.1 * CRYPTID_MEMBER_COUNT else s.x
