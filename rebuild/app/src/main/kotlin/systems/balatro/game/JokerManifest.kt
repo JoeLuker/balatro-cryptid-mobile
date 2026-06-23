@@ -95,7 +95,7 @@ sealed interface GameEvent {
     /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.).
      *  [handPlays] = play-counts per hand type AFTER this hand is recorded (matching Lua context.after timing
      *  where G.GAME.hands[...].played has already been incremented). Obelisk uses this to decide grow vs reset. */
-    data class HandScored(val handType: HandType, val playedCount: Int = 0, val handPlays: Map<HandType, Int> = emptyMap()) : GameEvent
+    data class HandScored(val handType: HandType, val playedCount: Int = 0, val handPlays: Map<HandType, Int> = emptyMap(), val totalHandsPlayed: Int = 0) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
     /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost), for the eternalflame >= 2 gate. */
@@ -428,7 +428,21 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_googol_play" to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_unjust_dagger, jimball, pizza_slice, wheelhope, cut, python: all j.x > 1.0 → XMult
     "j_cry_unjust_dagger" to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
-    "j_cry_jimball"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // j_cry_jimball: +0.15 Xmult while THIS hand type is the strict most-played (no other type
+    // has been played as often); x resets to 1.0 if another type ties or beats it
+    // (misc_joker.lua:1623-1656). HandScored.handPlays is the post-increment snapshot so
+    // handPlays[handType] is the updated count. handType NONE / CRY_NONE are skipped (Lua
+    // only fires in context.after with a real scoring_name). jokerMain: if x > 1 → XMult(x).
+    "j_cry_jimball" to JokerSpec(
+        reduce    = { s, e ->
+            if (e is GameEvent.HandScored && e.handType != HandType.NONE && e.handType != HandType.CRY_NONE) {
+                val thisCount = e.handPlays[e.handType] ?: 0
+                val beaten = e.handPlays.any { (h, n) -> h != e.handType && n >= thisCount }
+                if (beaten) s.copy(x = 1.0) else s.copy(x = s.x + 0.15)
+            } else s
+        },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
     "j_cry_pizza_slice"   to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     "j_cry_wheelhope"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     "j_cry_cut"           to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
@@ -445,8 +459,16 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_starfruit"      to JokerSpec(initialState = FJokerState(x = 2.0), jokerMain = { s, _ -> if (s.x > 1.0) Effect.EMult(s.x) else Effect.None }),
 
     // ── 8c: j.n accumulator → EMult ──────────────────────────────────────────────────────────────────────────
-    // cry_happyhouse: Emult=4 after 114 hands played (RunScreen sets j.n=1 when threshold crossed; stays 1)
-    "j_cry_happyhouse"  to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.EMult(4.0) else Effect.None }),
+    // cry_happyhouse: Emult=4 after 114 hands played (misc_joker.lua:155-198).
+    // check counter (j.chips) increments in context.before; once check > trigger(114), gate j.n=1
+    // opens permanently and joker_main fires emult=4. Reducer migrated from RunScreen per-hand loop.
+    "j_cry_happyhouse" to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.BeforeHand) {
+            val newChips = s.chips + 1.0
+            if (newChips > 114.0) s.copy(chips = newChips, n = 1) else s.copy(chips = newChips)
+        } else s },
+        jokerMain = { s, _ -> if (s.n > 0) Effect.EMult(4.0) else Effect.None },
+    ),
 
     // ── 8d: j.mult accumulator → Mult ────────────────────────────────────────────────────────────────────────
     // Vanilla scaling jokers: j.mult set by run events; before-pass loops in Score.kt stay for zooble.
@@ -844,10 +866,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     ),
 
     // j_cry_duplicare: Xmult += Xmult_mod(1) per played card this hand (exotic.lua:1288-1318,
-    // context.individual cardarea==G.play OR context.post_trigger). Accumulation in RunScreen
-    // per-hand when-block (o.fj.x += pendingSel.size). jokerMain: Xmult > 1 → XMult(j.x).
-    // blueprint_compat=true. The post_trigger path (other joker fires) is unimplemented in Kotlin.
+    // context.individual cardarea==G.play OR context.post_trigger). HandScored.playedCount is the
+    // number of played cards (pendingSel.size); reducer adds that count to x each hand scored.
+    // jokerMain: Xmult > 1 → XMult(j.x). blueprint_compat=true.
+    // The post_trigger path (other joker fires) remains unimplemented in Kotlin.
     "j_cry_duplicare" to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.HandScored) s.copy(x = s.x + e.playedCount.toDouble()) else s },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 
@@ -855,22 +879,27 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
 
     // j_cry_keychange: +0.25 Xmult each time a new hand type is played for the first time this round
     // (misc_joker.lua:10546-10568, context.before, hands[scoring_name].played_this_round < 2).
-    // Resets to xm=1 at context.end_of_round (Lua line 10564-10566). Accumulation in RunScreen
-    // per-hand when-block; reset PREVIOUSLY missing from Kotlin — now added via RoundEnd reducer.
-    // jokerMain fires Xmult always (Lua: return { xmult = card.ability.extra.xm }; no guard in Lua,
-    // but Kotlin engine suppresses XMult(1.0) side-effect, so always-fire is safe).
+    // "First time this round" ≡ handPlays[handType] == 1 post-increment (HandScored carries post-
+    // increment snapshot). Resets to xm=1 at end_of_round (Lua line 10564-10566). Accumulation
+    // and reset fully migrated from RunScreen per-hand when-block + startRound.
+    // jokerMain fires Xmult always (no guard in Lua; XMult(1.0) is a safe no-op in Kotlin engine).
     "j_cry_keychange" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(x = 1.0) else s },
+        reduce = { s, e -> when (e) {
+            is GameEvent.HandScored -> if ((e.handPlays[e.handType] ?: 0) == 1) s.copy(x = s.x + 0.25) else s
+            is GameEvent.RoundEnd   -> s.copy(x = 1.0)
+            else                    -> s
+        }},
         jokerMain = { s, _ -> Effect.XMult(s.x) },
     ),
 
     // j_cry_clockwork: +0.25 Xmult every 3rd hand played (epic.lua:2198-2216, context.before,
-    // immutable counter c2 cycles 0→1→2→0; fires when c2==0). Accumulation in RunScreen per-hand
-    // when-block (totalHandsPlayed % 3 == 0 → x += 0.25). jokerMain: always fires (Lua returns
-    // xmult unconditionally at context.joker_main — XMult(1.0) is safe no-op). No reset, no self-
-    // destruct. blueprint_compat=true. Also has steel-retrigger and steel-enhancement side effects
-    // in context.repetition and context.before — those remain in Score.kt / unimplemented.
+    // immutable counter c2 cycles 0→1→2→0; fires when c2==0). HandScored.totalHandsPlayed carries
+    // the post-increment total so (totalHandsPlayed % 3 == 0) matches Lua's every-3rd semantics.
+    // jokerMain: always fires (Lua: return { xmult = card.ability.extra.xmult } unconditionally).
+    // No reset, no self-destruct. blueprint_compat=true. Steel-retrigger and steel-enhancement side
+    // effects remain in Score.kt (context.repetition / context.before) — unimplemented for now.
     "j_cry_clockwork" to JokerSpec(
+        reduce    = { s, e -> if (e is GameEvent.HandScored && e.totalHandsPlayed % 3 == 0) s.copy(x = s.x + 0.25) else s },
         jokerMain = { s, _ -> Effect.XMult(s.x) },
     ),
 

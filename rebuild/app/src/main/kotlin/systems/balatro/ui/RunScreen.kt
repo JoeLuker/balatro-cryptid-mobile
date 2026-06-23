@@ -1061,7 +1061,7 @@ internal class RunState {
     fun scoreBank(): Boolean {
         val r = pending ?: return false
         // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
-        val isNewTypeThisRound = r.handType !in roundHandTypes && r.handType != HandType.NONE
+        // (isNewTypeThisRound removed — keychange migrated to JOKER_MANIFEST HandScored reducer using handPlays[type] == 1.)
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
         totalChipsScored += r.score
@@ -1071,33 +1071,22 @@ internal class RunState {
         totalHandsPlayed += 1
         roundHandTypes.add(r.handType)
         // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer
-        // (green_joker +1 Mult, spare_trousers +2 on Two Pair/Full House, runner +15 on Straight, square +4 on 5 cards).
-        // Pass a snapshot of _handPlayed AFTER recordHandPlayed so HandScored.handPlays matches
-        // Lua's context.after timing (G.GAME.hands[...].played++ runs before context.after fires).
+        // (green_joker/spare_trousers/runner/square/obelisk + duplicare x+=playedCount,
+        //  clockwork +0.25 every 3rd hand, keychange +0.25 on first-type-this-round,
+        //  jimball +0.15 or reset based on handPlays map).
+        // totalHandsPlayed is post-increment (incremented above) — clockwork uses % 3 on it.
+        // handPlays snapshot is post-increment (recordHandPlayed ran above) — matches context.after.
         val handPlaysSnapshot = _handPlayed.toMap()
-        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot))) }
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot, totalHandsPlayed))) }
         for (o in owned) when (o.fj.key) {
             // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
-            "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
-            // (spare_trousers / runner / square migrated to JOKER_MANIFEST reducers.)
-            // j_obelisk migrated to JOKER_MANIFEST (HandScored reducer with handPlays map; handles both grow and reset).
-            // j_cry_clockwork: +0.25 Xmult every 3rd hand played (config.extra clock=3; totalHandsPlayed counts all hands).
-            "j_cry_clockwork"  -> if (totalHandsPlayed % 3 == 0) o.fj.x += 0.25
-            // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
-            "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
-            // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
-            "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
-            // j_cry_jimball: +0.15 Xmult while THIS hand type is the strict most-played (no other type has
-            // been played as often); resets x→1 if another type ties or beats it (misc_joker.lua:1623-1656).
-            // _handPlayed already includes this hand (recordHandPlayed ran above), matching the Lua timing.
-            "j_cry_jimball"    -> if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) {
-                val playMoreThan = handPlayed(r.handType)
-                val beaten = _handPlayed.any { (h, n) -> h != r.handType && n >= playMoreThan }
-                if (beaten) { if (o.fj.x > 1.0) o.fj.x = 1.0 } else o.fj.x += 0.15
-            }
-            // j_cry_happyhouse: +1 "check" per hand; once check > trigger(114) the joker_main gate (j.n>0)
-            // fires Emult^4 (misc_joker.lua:162,190). chips is the check counter (never read as chips here).
-            "j_cry_happyhouse" -> { o.fj.chips += 1.0; if (o.fj.chips > 114.0) o.fj.n = 1 }
+            "j_popcorn" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
+            // (spare_trousers/runner/square/obelisk migrated to JOKER_MANIFEST reducers.)
+            // (j_cry_clockwork migrated to JOKER_MANIFEST HandScored reducer — totalHandsPlayed % 3 == 0.)
+            // (j_cry_keychange migrated to JOKER_MANIFEST HandScored reducer — handPlays[type] == 1.)
+            // (j_cry_duplicare migrated to JOKER_MANIFEST HandScored reducer — x += playedCount.)
+            // (j_cry_jimball   migrated to JOKER_MANIFEST HandScored reducer — handPlays map comparison.)
+            // (j_cry_happyhouse migrated to JOKER_MANIFEST BeforeHand reducer — chips++, n=1 at >114.)
         }
         // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
         // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).

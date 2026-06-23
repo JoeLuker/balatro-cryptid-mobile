@@ -634,3 +634,127 @@ class BlacklistJokerMainTest {
         assertEquals(Effect.Nullify, result)
     }
 }
+class HappyhouseReducerTest {
+    private val spec = JOKER_MANIFEST.getValue("j_cry_happyhouse")
+    private val reduce = spec.reduce!!
+    private fun ctx() = GameEvent.BeforeHand(Sctx().apply { scoringName = HandType.PAIR })
+
+    @Test fun incrementsCheckPerHand() {
+        val s0 = FJokerState()
+        val s1 = reduce(s0, ctx())
+        assertEquals(1.0, s1.chips, 0.0)
+        assertEquals(0, s1.n)  // gate not open yet
+    }
+
+    @Test fun gateOpensWhenCheckExceeds114() {
+        // chips = 114.0 (not yet > 114)
+        val s = reduce(FJokerState(chips = 114.0), ctx())
+        assertEquals(115.0, s.chips, 0.0)
+        assertEquals(1, s.n)  // > 114 → gate opens
+    }
+
+    @Test fun gateStaysOpenAtExactly114() {
+        // at 113 chips: +1 → 114, still < trigger → gate stays closed
+        val s = reduce(FJokerState(chips = 113.0), ctx())
+        assertEquals(114.0, s.chips, 0.0)
+        assertEquals(0, s.n)
+    }
+
+    @Test fun jokerMainFiresEMult4WhenGateOpen() {
+        assertEquals(Effect.EMult(4.0), spec.jokerMain!!(FJokerState(n = 1), Sctx()))
+        assertEquals(Effect.None,       spec.jokerMain!!(FJokerState(n = 0), Sctx()))
+    }
+}
+
+class ClockworkReducerTest {
+    private val reduce = JOKER_MANIFEST.getValue("j_cry_clockwork").reduce!!
+
+    @Test fun accumulates025OnEvery3rdHand() {
+        val s0 = FJokerState()
+        // hands 1 and 2 — no fire
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 1))
+        val s2 = reduce(s1, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 2))
+        assertEquals(1.0, s2.x, 0.001)  // unchanged
+        // hand 3 — fires
+        val s3 = reduce(s2, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 3))
+        assertEquals(1.25, s3.x, 0.001)
+        // hands 4–5 — no fire
+        val s4 = reduce(s3, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 4))
+        val s5 = reduce(s4, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 5))
+        assertEquals(1.25, s5.x, 0.001)
+        // hand 6 — fires again
+        val s6 = reduce(s5, GameEvent.HandScored(HandType.PAIR, totalHandsPlayed = 6))
+        assertEquals(1.50, s6.x, 0.001)
+    }
+}
+
+class KeychangeReducerTest {
+    private val spec = JOKER_MANIFEST.getValue("j_cry_keychange")
+    private val reduce = spec.reduce!!
+
+    @Test fun accumulates025OnFirstPlayOfEachType() {
+        val s0 = FJokerState()
+        // First Pair this round: handPlays[PAIR]=1 → +0.25
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.PAIR, handPlays = mapOf(HandType.PAIR to 1)))
+        assertEquals(1.25, s1.x, 0.001)
+        // Second Pair: handPlays[PAIR]=2 → no gain
+        val s2 = reduce(s1, GameEvent.HandScored(HandType.PAIR, handPlays = mapOf(HandType.PAIR to 2)))
+        assertEquals(1.25, s2.x, 0.001)
+        // First Flush this round: +0.25
+        val s3 = reduce(s2, GameEvent.HandScored(HandType.FLUSH, handPlays = mapOf(HandType.PAIR to 2, HandType.FLUSH to 1)))
+        assertEquals(1.50, s3.x, 0.001)
+    }
+
+    @Test fun resetsTo1AtRoundEnd() {
+        val s = FJokerState(x = 2.5)
+        assertEquals(1.0, reduce(s, GameEvent.RoundEnd(0)).x, 0.001)
+    }
+}
+
+class DuplicareReducerTest {
+    private val reduce = JOKER_MANIFEST.getValue("j_cry_duplicare").reduce!!
+
+    @Test fun addsPlayedCountToX() {
+        val s0 = FJokerState()
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.FLUSH, playedCount = 5))
+        assertEquals(6.0, s1.x, 0.0)  // 1.0 + 5
+        val s2 = reduce(s1, GameEvent.HandScored(HandType.PAIR, playedCount = 2))
+        assertEquals(8.0, s2.x, 0.0)  // 6.0 + 2
+    }
+}
+
+class JimballReducerTest {
+    private val spec = JOKER_MANIFEST.getValue("j_cry_jimball")
+    private val reduce = spec.reduce!!
+
+    @Test fun accumulates015WhenStrictlyMostPlayed() {
+        val s0 = FJokerState()
+        // Only type played: Pair×1 — no competition, strictly most played
+        val s1 = reduce(s0, GameEvent.HandScored(HandType.PAIR, handPlays = mapOf(HandType.PAIR to 1)))
+        assertEquals(1.15, s1.x, 0.001)
+    }
+
+    @Test fun resetsWhenTied() {
+        val s = FJokerState(x = 1.45)
+        // Pair×2, Flush×2 — tied → reset
+        val sAfter = reduce(s, GameEvent.HandScored(HandType.PAIR,
+            handPlays = mapOf(HandType.PAIR to 2, HandType.FLUSH to 2)))
+        assertEquals(1.0, sAfter.x, 0.001)
+    }
+
+    @Test fun resetsWhenBeaten() {
+        val s = FJokerState(x = 1.30)
+        // Pair×1, Flush×2 — Flush has beaten Pair → reset
+        val sAfter = reduce(s, GameEvent.HandScored(HandType.PAIR,
+            handPlays = mapOf(HandType.PAIR to 1, HandType.FLUSH to 2)))
+        assertEquals(1.0, sAfter.x, 0.001)
+    }
+
+    @Test fun ignoresNoneAndCryNone() {
+        val s = FJokerState(x = 1.15)
+        val sNone = reduce(s, GameEvent.HandScored(HandType.NONE, handPlays = mapOf(HandType.NONE to 1)))
+        assertEquals(1.15, sNone.x, 0.001)  // unchanged
+        val sCryNone = reduce(s, GameEvent.HandScored(HandType.CRY_NONE, handPlays = mapOf(HandType.CRY_NONE to 1)))
+        assertEquals(1.15, sCryNone.x, 0.001)  // unchanged
+    }
+}
