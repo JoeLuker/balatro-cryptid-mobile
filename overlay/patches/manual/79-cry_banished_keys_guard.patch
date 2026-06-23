@@ -1,0 +1,21 @@
+diff --git a/Mods/Cryptid/lib/overrides.lua b/Mods/Cryptid/lib/overrides.lua
+index 0e1e56e..ba38051 100644
+--- a/Mods/Cryptid/lib/overrides.lua
++++ b/Mods/Cryptid/lib/overrides.lua
+@@ -9,7 +9,7 @@ local getpackref = get_pack
+ function get_pack(_key, _type)
+ 	local temp_banned = copy_table(G.GAME.banned_keys)
+ 	--Add banished keys (via DELETE) to banned_keys so they don't appear in shop
+-	for k, v in pairs(G.GAME.cry_banished_keys) do
++	for k, v in pairs(G.GAME.cry_banished_keys or {}) do
+ 		G.GAME.banned_keys[k] = v
+ 	end
+ 	local abc = getpackref(_key, _type)
+@@ -229,6 +229,7 @@ function Game:start_run(args)
+ 	if not G.GAME.defeated_blinds then
+ 		G.GAME.defeated_blinds = {}
+ 	end
++	G.GAME.cry_banished_keys = G.GAME.cry_banished_keys or {}
+ 	G.consumeables.config.highlighted_limit = 1e100
+ 	G.jokers.config.highlighted_limit = 1e100
+ end
