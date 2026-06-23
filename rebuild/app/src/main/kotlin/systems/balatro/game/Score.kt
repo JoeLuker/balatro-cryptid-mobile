@@ -218,8 +218,11 @@ object Score {
             "j_cry_iterum"            -> return Fx().apply { xMult = 2.0 }               // X2 Mult per scored played card (also retriggers in repetition block)
             // (j_cry_lightupthenight migrated to JOKER_MANIFEST.)
             "j_cry_lightupthenight"   -> { val r = ctx.rankOf(oc); if (r == 2 || r == 7) return Fx().apply { xMult = 1.5 } }  // X1.5 per scored 2/7 (get_id; Maximized maps pips→10)
+            // (j_cry_krustytheclown migrated to JOKER_MANIFEST — batch 12 perCard hook.)
             "j_cry_krustytheclown"    -> j.x += 0.02   // scaling: +0.02 Xmult per scored card, applied at joker_main
+            // (j_cry_wee_fib migrated to JOKER_MANIFEST — batch 12 perCard hook.)
             "j_cry_wee_fib"           -> { val r = ctx.rankOf(oc); if (r == 14 || r == 2 || r == 3 || r == 5 || r == 8) j.mult += 3.0 }  // +3 Mult/scored Fibonacci (get_id; Maximized maps pips→10)
+            // (j_cry_antennastoheaven migrated to JOKER_MANIFEST — batch 12 perCard hook.)
             "j_cry_antennastoheaven"  -> { val r = ctx.rankOf(oc); if (r == 4 || r == 7) j.xc += 0.1 }   // scaling: +0.1 Xchips per scored 4/7 (get_id; Maximized maps pips→10)
             // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
             // (j_cry_caramel migrated to JOKER_MANIFEST.)
@@ -230,6 +233,7 @@ object Score {
             "j_cry_spectrogram"       -> if (oc.enhancement == Enhancement.ECHO) j.n += 1
             // facile: count every scored-card pass (including retrigger repetitions) in j.n (= check2).
             // joker_main fires Emult=3 only when j.n <= 10 (exotic.lua:1002-1013), then resets to 0.
+            // (j_cry_facile migrated to JOKER_MANIFEST — batch 12 perCard hook.)
             "j_cry_facile"            -> j.n += 1
             // Edition reactors: fire per scored playing card carrying that edition (misc_joker.lua:3635,3726,3817).
             // Separate from the other_joker path which fires per Foil/Holo/Poly joker on the board.
@@ -387,6 +391,7 @@ object Score {
             // facile: Emult=3 only when scored-card passes this hand <=10 (exotic.lua:1005-1013).
             // j.n is incremented once per individual pass (incl. retrigger reps) in the individual block above.
             // Reset j.n to 0 here regardless of whether Emult fires (mirrors check2=0 in the Lua).
+            // (j_cry_facile jokerMain+reset migrated to JOKER_MANIFEST batch 12.)
             "j_cry_facile" -> { val fires = j.n <= 10; j.n = 0; if (fires) return Fx().apply { eMult = 3.0 } }
             // exponentia: scales Emult (j.x, base 1.0) +Emult_mod(0.03) each time any xmult effect fires during scoring;
             //             joker_main reads j.x and applies mult^j.x when above 1 (no-op while x==1.0 / never scaled)

@@ -102,6 +102,8 @@ typealias ScoreHook = (self: FJokerState, ctx: Sctx) -> Effect
 typealias CardHook = (self: FJokerState, ctx: Sctx, card: PlayingCard) -> Effect   // individual / held: the card is passed, never null
 typealias OtherJokerHook = (self: FJokerState, ctx: Sctx, other: FJoker) -> Effect
 typealias Reducer = (state: FJokerState, event: GameEvent) -> FJokerState
+/** Per-card state mutation (two-phase jokers: accumulate during individual pass, read in jokerMain). */
+typealias PerCardHook = (state: FJokerState, ctx: Sctx, card: PlayingCard) -> FJokerState
 
 /** One joker's complete behaviour, co-located. Every hook optional — a joker fills only what it uses. */
 data class JokerSpec(
@@ -112,6 +114,7 @@ data class JokerSpec(
     val otherJoker: OtherJokerHook? = null,   // context.other_joker
     val retrigger: ScoreHook? = null,         // context.retrigger_joker_check
     val reduce: Reducer? = null,              // pure state evolution on game events
+    val perCard: PerCardHook? = null,         // in-scoring accumulation: called during individual pass, mutates j.state via restore(); receives ctx for rankOf etc.
 )
 
 /** Dispatch a migrated joker through its spec for the CURRENT scoring context (mirrors calcJoker's flags). */
@@ -130,6 +133,11 @@ internal fun dispatchManifest(spec: JokerSpec, j: FJoker, ctx: Sctx): Fx? {
         ctx.otherJoker != null                   -> spec.otherJoker?.invoke(self, ctx, ctx.otherJoker!!) ?: Effect.None
         ctx.jokerMain                            -> spec.jokerMain?.invoke(self, ctx) ?: Effect.None
         else                                     -> Effect.None
+    }
+    // Two-phase accumulation: perCard hook runs during the individual pass and updates live FJoker state
+    // so the jokerMain pass can read the accumulated value from j.snapshot().
+    if ((ctx.individual && ctx.cardarea == "play" || ctx.repetition) && ctx.otherCard != null) {
+        spec.perCard?.let { j.restore(it(self, ctx, ctx.otherCard!!)) }
     }
     return if (effect == Effect.None) null else effect.intoFx(individual)
 }
@@ -585,7 +593,39 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         },
     ),
 
-    // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
+    // ── batch 12: two-phase jokers (perCard accumulates state; jokerMain reads it) ─────────────────────
+    // perCard runs during the individual pass (ctx.individual=true), updates live FJoker state via restore().
+    // jokerMain fires after all per-card scoring and reads the accumulated state from j.snapshot().
+
+    // cry_krustytheclown: j.x += 0.02 per scored played card; jokerMain X(j.x) Mult (starts at 1.0, guard fires once grown).
+    "j_cry_krustytheclown" to JokerSpec(
+        perCard   = { s, _, _ -> s.copy(x = s.x + 0.02) },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+    // cry_antennastoheaven: j.xc += 0.1 per scored 4 or 7 (get_id; Maximized-aware via ctx.rankOf).
+    // jokerMain X(j.xc) Chips when xc > 1.0.
+    "j_cry_antennastoheaven" to JokerSpec(
+        perCard   = { s, ctx, c -> val r = ctx.rankOf(c); if (r == 4 || r == 7) s.copy(xc = s.xc + 0.1) else s },
+        jokerMain = { s, _ -> if (s.xc > 1.0) Effect.XChips(s.xc) else Effect.None },
+    ),
+    // cry_wee_fib: j.mult += 3 per scored Fibonacci card (A,2,3,5,8; Maximized-aware via ctx.rankOf).
+    // jokerMain +Mult = j.mult when > 0.
+    "j_cry_wee_fib"        to JokerSpec(
+        perCard   = { s, ctx, c ->
+            val r = ctx.rankOf(c)
+            if (r == 14 || r == 2 || r == 3 || r == 5 || r == 8) s.copy(mult = s.mult + 3.0) else s
+        },
+        jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None },
+    ),
+    // cry_facile: count every scored-card pass (incl. retrigger reps) in j.n (= check2 in Lua).
+    // jokerMain: EMult=3 only when j.n <= 10 (exotic.lua:1002-1013). HandScored reducer resets j.n to 0.
+    "j_cry_facile"         to JokerSpec(
+        perCard   = { s, _, _ -> s.copy(n = s.n + 1) },
+        jokerMain = { s, _ -> if (s.n <= 10) Effect.EMult(3.0) else Effect.None },
+        reduce    = { s, e -> if (e is GameEvent.HandScored) s.copy(n = 0) else s },
+    ),
+
+        // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
     // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
     "j_steel_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(1.0 + 0.2 * s.n) else Effect.None }),
     // stone: +25 Chips per Stone-enhanced card in the deck (before-pass sets j.n = stoneCount).
