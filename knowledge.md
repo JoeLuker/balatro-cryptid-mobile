@@ -820,3 +820,7 @@ Vanilla renders the sell button as `card_focus_button(type='sell')` attached to 
 ### HUD parity rendering
 RunScreen.kt and HudSpec.kt render the HUD from extracted vanilla `create_UIBox_*` trees via the uiref oracle pipeline; parity is verified by layout extraction rather than hand-built composables.
 <!-- session:2026-06-23-6b7b0353 | commit:8f6af1949c0d1cbfe535faad4de6b19337417f15 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt,tools/uiref/extract.lua,tools/uiref/extract.sh | area:rebuild | date:2026-06-23 -->
+
+### Overlay patch series structure
+Manual patches live in `overlay/patches/manual/NN-name.patch` and are registered by listing in `overlay/patches/series`; removing a patch requires deleting both the `.patch` file and its line in `series`.
+<!-- session:2026-06-23-39bea5df | commit:354651a60976458508e283d279e36e7284f4260d | files:overlay/patches/series,overlay/patches/manual/ | area:overlay | date:2026-06-23 -->
