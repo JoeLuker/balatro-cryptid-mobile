@@ -147,6 +147,11 @@ object Oracle {
         // joker_main: Joker +4m → mult=5; retrigger: Chad votes rj===board.first()→2 reps; Joker fires 2 more: mult=13.
         //   Chad: null; retrigger: rj=Chad≠leftmost → 0. Score: floor(7×13)=91.
         Case("HighCard S_2 + joker(leftmost),chad(n=2) — chad retriggers leftmost 2x → 91", PlayingCard.hand("S_2"), 91.0, j(FJoker("j_joker", rarity = 1), FJoker("j_cry_chad", n = 2, rarity = 3))),
+        // chad cap: immutable.max_retriggers=25 (misc_joker.lua:1554,1570). n=26 → min(26,25)=25 retriggers.
+        //   HighCard S_2: chips=5+2=7, mult=1. j_joker +4→mult=5; chad: min(26,25)=25 reps → j_joker fires 25 more.
+        //   mult=5+4×25=105. Score=floor(7×105)=735.
+        //   Without cap (n=26 raw): mult=5+4×26=109 → floor(7×109)=763 (wrong).
+        Case("HighCard S_2 + joker(leftmost),chad(n=26) — capped at 25 → 735", PlayingCard.hand("S_2"), 735.0, j(FJoker("j_joker", rarity = 1), FJoker("j_cry_chad", n = 26, rarity = 3))),
         // Loopy(n=1): retrigger all OTHER board jokers once. Board [Joker1, Joker2, Loopy(n=1)].
         // joker_main: Joker1 +4→mult=5; Loopy votes j=Loopy≠rj=Joker1,n=1→1 rep; Joker1 re-fires→mult=9.
         //   Joker2 +4→mult=13; Loopy votes j≠rj=Joker2→1 rep; Joker2 re-fires→mult=17.
@@ -179,6 +184,14 @@ object Oracle {
         Case("Pair aces + boredom(n=1,roll-wins)+joker — boredom retriggers joker → 320", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_boredom", n = 1), FJoker("j_joker"))),
         // boredom(j.n=0, roll lost): no retrigger — j_joker fires once only → floor(32×6)=192.
         Case("Pair aces + boredom(n=0,roll-loses)+joker — no retrigger → 192", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cry_boredom", n = 0), FJoker("j_joker"))),
+        // boredom card-retrigger hook (epic.lua:883-893 — context.repetition + cardarea==G.play).
+        // Board [boredom(n=1)] only — no other joker, so joker-retrigger fires nothing (self-excluded).
+        // Pair aces: base chips=10, mult=2. Each Ace: reps = 1 + boredom(individual,n=1) = 2.
+        //   S_A fires 2x: chips=10+11+11=32. H_A fires 2x: chips=32+11+11=54. Score=floor(54×2)=108.
+        Case("Pair aces + boredom(n=1) alone — card retrigger → 108", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_boredom", n = 1))),
+        // boredom(n=0) alone: no card retrigger — standard Pair of Aces score.
+        //   chips=10+11+11=32, mult=2 → floor(32×2)=64.
+        Case("Pair aces + boredom(n=0) alone — no card retrigger → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_boredom", n = 0))),
         // busdriver: +mult or -mult each joker_main, pseudorandom (misc_joker.lua:7653).
         // Run loop pre-resolves: j.mult=50 (success) or j.mult=-50 (fail, default odds=4).
         // Success: chips=32, mult=2+50=52 → floor(32×52)=1664.
@@ -271,6 +284,10 @@ object Oracle {
         // --- batch-19: m.lua scoring jokers: foodm/mstack/biggestm/longboi ---
         Case("Pair of aces + foodm @mult=40 (perishable +40 Mult)", PlayingCard.hand("S_A", "H_A"), 1344.0, j(FJoker("j_cry_foodm", mult = 40.0))),
         Case("Pair of aces + mstack @n=1 (retrigger 1/card)", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_cry_mstack", n = 1))),
+        // mstack cap: immutable.max_retriggers=40 (m.lua:339,367). n=41 → min(41,40)=40 retriggers → 41 fires/card.
+        //   S_A: chips=10+11×41=461. H_A: chips=461+11×41=912. Score=floor(912×2)=1824.
+        //   Without cap (n=41 raw): 42 fires/card → chips=10+11×42+11×42=934 → 1868 (wrong).
+        Case("Pair of aces + mstack @n=41 — capped at 40 → 1824", PlayingCard.hand("S_A", "H_A"), 1824.0, j(FJoker("j_cry_mstack", n = 41))),
         Case("Pair of aces + biggestm @x=7,n=1 (x7 when active)", PlayingCard.hand("S_A", "H_A"), 448.0, j(FJoker("j_cry_biggestm", x = 7.0, n = 1))),
         // biggestm before-pass activation (parity audit batch-13): n=0 on Pair hand → before-pass sets n=1 → fires X7.
         // Pair aces: chips=32, mult=2; xMultMod=7 → mult=14; floor(32×14)=448.

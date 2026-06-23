@@ -209,7 +209,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
     "j_square" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 4) s.copy(chips = s.chips + 4.0) else s },
+        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 5) s.copy(chips = s.chips + 4.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
 

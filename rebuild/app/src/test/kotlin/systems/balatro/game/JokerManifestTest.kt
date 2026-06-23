@@ -75,11 +75,13 @@ class JokerManifestTest {
         assertEquals(Effect.XMult(1.5), campfire.jokerMain!!(c, ctx(HandType.PAIR)))
         assertEquals(Effect.None, campfire.jokerMain!!(FJokerState(), ctx(HandType.PAIR)))   // x == 1 -> no Xmult yet
 
-        // eternalflame: +0.1 Xmult only when the sold joker's sell value >= 2.
+        // eternalflame: +0.1 Xmult per ANY joker sold in non-modest gameset (misc_joker.lua:1357:
+        // `sell_cost >= 2 OR gameset != 'modest'`; the OR fires unconditionally in all supported gamesets).
+        // The old Kotlin code gated on `>= 2`, silently dropping cost-1/3 joker sells (refund=1 < 2).
         val flame = spec("j_cry_eternalflame")
-        var f = flame.reduce!!(FJokerState(), GameEvent.Sold("j_x", 2))   // >= 2 -> +0.1
-        f = flame.reduce!!(f, GameEvent.Sold("j_y", 1))                   // < 2  -> no-op
-        assertEquals(1.1, f.x, 1e-9)
+        var f = flame.reduce!!(FJokerState(), GameEvent.Sold("j_x", 2))   // -> +0.1
+        f = flame.reduce!!(f, GameEvent.Sold("j_y", 1))                   // also fires: +0.1 (was no-op before fix)
+        assertEquals(1.2, f.x, 1e-9)
 
         // ramen: starts x2 (manifest initialState), -0.01 per discarded card, floored at 1.
         val ramen = spec("j_ramen")
