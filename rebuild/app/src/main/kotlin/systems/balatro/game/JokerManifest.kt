@@ -129,6 +129,9 @@ data class JokerSpec(
     val retrigger: ScoreHook? = null,         // context.retrigger_joker_check
     val reduce: Reducer? = null,              // pure state evolution on game events
     val perCard: PerCardHook? = null,         // in-scoring accumulation: called during individual pass, mutates j.state via restore(); receives ctx for rankOf etc.
+    /** Chips permanently added to a scored played card each time this joker sees it (Hiker: +5).
+     *  Score.kt fires the onPermaBonusGained callback so RunScreen can persist the bonus to Deck. */
+    val grantsPermaBonusPerCard: Int = 0,
 )
 
 /** Dispatch a migrated joker through its spec for the CURRENT scoring context (mirrors calcJoker's flags). */
@@ -744,6 +747,18 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── batch 6d: chips-accumulator jokerMain (j.chips set by run-loop events, jokerMain reads the total) ──
     // castle: +j.chips (+=3 per flush-suit card discarded in a flush discard; run-loop sets it).
     "j_castle"        to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
+
+    // j_hiker: permanently adds +extra(5) Chips to each scored played card (card.lua:3606-3608,
+    // context.individual cardarea==G.play). The bonus sticks to the card across hands via
+    // PlayingCard.permaBonus (added to chipBonus() in Score.kt so next-hand plays include it).
+    // Timing: Lua increments perma_bonus AFTER eval_card runs for that card (joker hooks fire
+    // after card eval), so the current hand uses the OLD permaBonus value and the +5 appears
+    // from the NEXT hand. The permaBonus is already in chipBonus(c) via the existing Deck entry;
+    // individual returns None (no additional chips this hand). Score.kt fires onPermaBonusGained
+    // callback to update Deck.all for future hands. blueprint_compat=true.
+    "j_hiker" to JokerSpec(
+        grantsPermaBonusPerCard = 5,
+    ),
     // cry_cursor: +j.chips (+=8 per card purchased; run-loop sets it via onCardBought()).
     "j_cry_cursor"    to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
     // cry_crustulum: +j.chips (+=4 per reroll in the shop; run-loop sets it via reroll()).

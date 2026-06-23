@@ -758,3 +758,47 @@ class JimballReducerTest {
         assertEquals(1.15, sCryNone.x, 0.001)  // unchanged
     }
 }
+class HikerTest {
+    @Test fun permaBonusFlowsThroughChipBonus() {
+        // A card with permaBonus=10 contributes 10 more chips than the same card without.
+        // Pair base: chips=10, mult=2. S_A chipBonus=11+10=21, H_A chipBonus=11+0=11.
+        // Total: chips=10+21+11=42, mult=2 → score=84.
+        val hand = listOf(PlayingCard(Suit.S, 14, permaBonus = 10), PlayingCard(Suit.H, 14))
+        val r = Score.score(hand, emptyList())
+        assertEquals(84.0, r.score, 0.5)
+    }
+
+    @Test fun permaBonusOnBonusEnhancedCard() {
+        // BONUS enhancement: chipBonus = chips + 30 + permaBonus.
+        // A♠ with Bonus enhancement and permaBonus=5: chipBonus = 11 + 30 + 5 = 46.
+        // High Card (chips=5, mult=1): score = floor((5 + 46) * 1) = 51.
+        val hand = listOf(PlayingCard(Suit.S, 14, enhancement = Enhancement.BONUS, permaBonus = 5))
+        val r = Score.score(hand, emptyList())
+        assertEquals(51.0, r.score, 0.5)
+    }
+
+    @Test fun hikerGrantsPermaBonusPerCardSpec() {
+        val spec = JOKER_MANIFEST.getValue("j_hiker")
+        assertEquals(5, spec.grantsPermaBonusPerCard)
+    }
+
+    @Test fun deckAddPermaBonusUpdatesCard() {
+        val deck = Deck(42L)
+        val original = deck.composition().first { it.suit == Suit.S && it.rank == 14 }
+        assertEquals(0, original.permaBonus)
+        deck.addPermaBonus(original, 5)
+        val updated = deck.composition().first { it.suit == Suit.S && it.rank == 14 }
+        assertEquals(5, updated.permaBonus)
+    }
+
+    @Test fun deckAddPermaBonusAccumulates() {
+        val deck = Deck(99L)
+        val card = deck.composition().first { it.suit == Suit.H && it.rank == 7 }
+        deck.addPermaBonus(card, 5)
+        // After first add: permaBonus=5. Need to re-fetch from composition for the updated instance.
+        val card2 = deck.composition().first { it.suit == Suit.H && it.rank == 7 }
+        deck.addPermaBonus(card2, 5)
+        val final = deck.composition().first { it.suit == Suit.H && it.rank == 7 }
+        assertEquals(10, final.permaBonus)
+    }
+}

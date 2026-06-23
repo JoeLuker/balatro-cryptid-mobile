@@ -626,8 +626,8 @@ internal class RunState {
                 //   ability.set=='Planet'). Was incorrectly firing on planet purchase — fixed here.
                 for (o in owned) if (o.fj.key == "j_constellation") o.fj.x += 0.1
                 // j_hiker: +5 Chips permanently per scored played card (card.lua:3606-3608 context.individual).
-                //   Requires per-card persistent chip bonus tracking (PlayingCard.perma_bonus in Lua).
-                //   UNIMPLEMENTED: PlayingCard is immutable in this engine; no per-card bonus map exists.
+                //   Implemented: permaBonus field on PlayingCard; Score.kt onPermaBonusGained callback
+                //   persists the +5 to Deck.all after each scored card (card.lua:3606-3608).
                 //   Removing from wrong site (planet purchase) — correct site is the individual card-scoring pass.
                 Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display)
             }
@@ -1007,7 +1007,13 @@ internal class RunState {
         }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
-                            totalHandsPlayed = totalHandsPlayed, trace = trace)
+                            totalHandsPlayed = totalHandsPlayed, trace = trace,
+                            // j_hiker: persist the +5 permaBonus to Deck.all after each scored card.
+                            // The scored card in `scoringHand` has the OLD permaBonus (Lua timing:
+                            // joker individual hooks fire after eval_card, so the +5 takes effect
+                            // from the next hand). We match by value — indexOf finds the first
+                            // matching instance in Deck.all (safe for standard 52-card deck).
+                            onPermaBonusGained = { card, amount -> deck.addPermaBonus(card, amount) })
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -1456,7 +1462,7 @@ internal class RunState {
             JokerSnap(o.offer.key, o.offer.name, o.offer.desc, o.offer.cost, o.offer.edition.name,
                 o.fj.edition, o.fj.mult, o.fj.x, o.fj.chips, o.fj.n, o.fj.rarity, o.fj.xc)
         },
-        deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name) },
+        deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
@@ -1489,7 +1495,7 @@ internal class RunState {
                 Offer(j.key, j.name, j.desc, j.cost, edition = Edition.valueOf(j.edition)),
                 FJoker(j.key, j.mult, j.fjEdition, j.x, j.chips, j.n, j.rarity, j.xc)))
         }
-        deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal)) })
+        deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase

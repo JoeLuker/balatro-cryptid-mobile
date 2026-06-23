@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
  * and is verifiable off-device. Kotlin's own JSON format, not LÖVE's STR_PACK byte format.
  */
 @Serializable
-data class CardSnap(val suit: String, val rank: Int, val enh: String, val seal: String)
+data class CardSnap(val suit: String, val rank: Int, val enh: String, val seal: String, val permaBonus: Int = 0)
 
 @Serializable
 data class ConsumableSnap(val kind: String, val name: String, val enh: String = "", val seal: String = "", val planet: String = "")

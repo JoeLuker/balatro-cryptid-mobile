@@ -481,6 +481,14 @@ object Oracle {
         Case("Pair of aces + square (chips=12)", PlayingCard.hand("S_A", "H_A"), 88.0, j(FJoker("j_square", chips = 12.0))),
         // Castle: +3 Chips per suited card discarded (j.chips); chips=9 (3 discards) → chips=32+9=41, mult=2 → 82.
         Case("Pair of aces + castle (chips=9)", PlayingCard.hand("S_A", "H_A"), 82.0, j(FJoker("j_castle", chips = 9.0))),
+        // Hiker: permaBonus=10 on S_A (2 prior hiker triggers × +5). S_A chipBonus=11+10=21, H_A chipBonus=11.
+        //   Pair base: chips=10+21+11=42, mult=2 → 84. H_A unchanged (permaBonus=0). No joker on board.
+        Case("Pair S_A(perma=10)+H_A — permaBonus in chipBonus",
+            listOf(PlayingCard(Suit.S, 14, permaBonus = 10), PlayingCard(Suit.H, 14)), 84.0),
+        // Hiker with joker on board: joker fires individual (no immediate chips — uses old permaBonus=0).
+        //   The +5 takes effect from the NEXT hand via the onPermaBonusGained callback (not wired in Oracle).
+        //   Score this hand: chips=10+11+11=32, mult=2 → 64 (identical to no-hiker baseline).
+        Case("Pair of aces + hiker (permaBonus=0, first hand)", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_hiker"))),
         // Wee Joker: +8 Chips per 4-card Straight played (j.chips); chips=16 (2 plays) → chips=32+16=48, mult=2 → 96.
         Case("Pair of aces + wee (chips=16)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_wee", chips = 16.0))),
         // --- vanilla suit-individual jokers ---

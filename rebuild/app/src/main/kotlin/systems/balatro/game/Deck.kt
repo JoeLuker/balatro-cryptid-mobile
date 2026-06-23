@@ -92,6 +92,19 @@ class Deck(seed: Long) {
         val c = all.removeAt(all.indices.random(rng)); reshuffle(); return c
     }
 
+    /** Permanently add a permaBonus chip increment to a specific card — j_hiker effect.
+     *  Matches by value identity (suit+rank+enhancement+seal+permaBonus), updates both `all`
+     *  and `drawPile` if the card is still there. Returns true iff a card was found.
+     *  The card passed in carries the OLD permaBonus (pre-increment); after this call the
+     *  deck instance has the incremented value which future hands will pick up via draw(). */
+    fun addPermaBonus(card: PlayingCard, amount: Int): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        val updated = all[i].copy(permaBonus = all[i].permaBonus + amount)
+        all[i] = updated
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, updated) }
+        return true
+    }
+
     /** Permanently destroy a specific card from the deck — e.g. a played Glass card that shattered
      *  (Card:shatter removes it from G.playing_cards). Matches by value, dropping the first equal
      *  instance from the persistent deck and the draw pile if it's still there. Returns true iff one

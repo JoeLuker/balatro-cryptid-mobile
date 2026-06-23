@@ -101,8 +101,9 @@ object Score {
     // --- card scoring helpers (Card:get_chip_*), the played-card's own contribution -------------
     private fun chipBonus(c: PlayingCard): Double = when (c.enhancement) {   // get_chip_bonus
         Enhancement.STONE -> 50.0
-        Enhancement.BONUS -> c.chips + 30.0
-        else -> c.chips.toDouble()
+        // card.lua:908: bonus_chips = ability.bonus + (ability.perma_bonus or 0)
+        Enhancement.BONUS -> c.chips + 30.0 + c.permaBonus
+        else -> c.chips.toDouble() + c.permaBonus
     }
     private fun chipMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.MULT) 4.0 else 0.0
     private fun chipXMult(c: PlayingCard): Double = if (c.enhancement == Enhancement.GLASS) 2.0 else 0.0
@@ -444,6 +445,10 @@ object Score {
         handTypePlays: Map<HandType, Int> = emptyMap(),  // PRIOR run-total plays per hand type (NOT incl. this hand); supernova reads scoringName's count +1
         totalHandsPlayed: Int = 0,          // G.GAME.hands_played (all types, cumulative) — loyalty_card needs this in jokerMain
         trace: MutableList<ScoreStep>? = null,
+        /** Callback for j_hiker: fired once per scored card per hiker on board. Caller (RunScreen)
+         *  persists the bonus to Deck.all. Fires AFTER the card's own chipBonus() (Lua timing:
+         *  joker individual hooks run after eval_card, so this hand uses the old permaBonus). */
+        onPermaBonusGained: ((card: PlayingCard, amount: Int) -> Unit)? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
         val rankOf: (PlayingCard) -> Int =
@@ -528,6 +533,10 @@ object Score {
                 for (j in jokers) {
                     ctx.individual = true; ctx.otherCard = card
                     calcJoker(j, ctx)?.let { effects.add(it) }
+                    // j_hiker: increment permaBonus on the scored card (after eval_card, matching Lua
+                    // timing). The callback persists the mutation to Deck.all in RunScreen.
+                    val bonus = JOKER_MANIFEST[j.key]?.grantsPermaBonusPerCard ?: 0
+                    if (bonus > 0 && onPermaBonusGained != null) onPermaBonusGained(card, bonus)
                     ctx.individual = false
                 }
                 for (fx in effects) apply(fx)
