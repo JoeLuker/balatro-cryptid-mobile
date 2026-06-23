@@ -205,9 +205,8 @@ object Score {
             // (j_cry_antennastoheaven migrated to JOKER_MANIFEST — batch 12 perCard hook.)
             // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
             // (j_cry_caramel migrated to JOKER_MANIFEST.)
-            // spectrogram accumulator: j.n counts Echo-enhanced scored cards this hand.
-            // Migrated to manifest perCard hook (batch 12); accumulation now in dispatchManifest's perCard path.
-            // Legacy entry removed; Score.kt preamble still resets j.n = 0 before each hand.
+            // spectrogram: j.n is set once per hand in the before-pass above (mirrors epic.lua:2047-2053).
+            // No per-card accumulation — see JokerManifest.kt spectrogram comment for the retrigger-safety rationale.
             // facile: count every scored-card pass (including retrigger repetitions) in j.n (= check2).
             // joker_main fires Emult=3 only when j.n <= 10 (exotic.lua:1002-1013), then resets to 0.
             // (j_cry_facile migrated to JOKER_MANIFEST — batch 12 perCard hook.)
@@ -485,10 +484,12 @@ object Score {
         }
 
         // BEFORE pass resets + per-hand scalars that must not carry over between hands.
-        // j_cry_spectrogram: reset Echo-card count to 0 each hand (epic.lua:2047-2053 resets echonum=0
-        //   in the before pass before counting scoring_hand; the engine accumulates in the per-card pass
-        //   so the reset must happen here, before the individual pass runs).
-        for (j in jokers) if (j.key == "j_cry_spectrogram") j.n = 0
+        // j_cry_spectrogram: count Echo-enhanced cards from scoringHand exactly once per hand, matching
+        //   epic.lua:2047-2053 (context.before loops scoring_hand once, sets echonum, before any scoring).
+        //   Must NOT be accumulated via perCard — the perCard hook runs inside repeat(reps), so a retriggered
+        //   Echo card would be counted once per retrigger instance, inflating j.n (bug: extra joker retriggers).
+        for (j in jokers) if (j.key == "j_cry_spectrogram")
+            j.n = scoringHand.count { it.enhancement == Enhancement.ECHO }
         // j_cry_primus gains +0.17 Emult if ANY card in the played hand is a prime rank
         // (exotic.lua:603-619: loops full_hand, sets check=true on any 2/3/5/7/Ace, scales when check).
         // Uses get_id() in Lua — rankOf applies Maximized remapping so primes can never match when Maximized is on board.
