@@ -444,6 +444,72 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_membershipcardtwo: j.chips = pre-computed bonus (epic.lua); fires when non-zero
     "j_cry_membershipcardtwo" to JokerSpec(initialState = FJokerState(chips = 38598.0), jokerMain = { s, _ -> if (s.chips != 0.0) Effect.Chips(s.chips) else Effect.None }),
 
+    // ── batch 9: remaining jokerMain accumulator-readers (j.x > 1.0 group) + ctx-read jokers ─────────────
+    // ── 9a: j.x > 1.0 → XMult (the big Xmult group; RunScreen grows j.x per event) ───────────────────────
+    // j_ramen: X(j.x) Mult; starts x=2.0, -0.01 per discarded card; self-destructs at x≤1.0
+    "j_ramen"              to JokerSpec(initialState = FJokerState(x = 2.0), jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // j_campfire: X(j.x) Mult; starts x=1.0, +0.25 per joker sold; self-destructs at round end? (resets to 1.0)
+    "j_campfire"           to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // j_obelisk: X(j.x) Mult; x grows when the played hand type isn't the current top-played hand
+    "j_obelisk"            to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_paved_joker: X(j.x) Mult; x grows when any perishable joker expires
+    "j_cry_paved_joker"    to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_membershipcard: X(j.x) Mult; j.x = 0.1 * CRYPTID_MEMBER_COUNT (3859.8) — static at acquisition
+    "j_cry_membershipcard" to JokerSpec(initialState = FJokerState(x = 3859.8), jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_dropshot: X(j.x) Mult; x grows per before-pass by non-scoring hand cards of a random suit
+    "j_cry_dropshot"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_chili_pepper: X(j.x) Mult; x grows end-of-round; self-destructs when perishable countdown hits 0
+    "j_cry_chili_pepper"   to JokerSpec(initialState = FJokerState(n = 8), jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_mondrian: X(j.x) Mult; x grows end-of-round when no discard was used that round
+    "j_cry_mondrian"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_fading_joker: X(j.x) Mult; x grows when this perishable joker expires (before the debuff takes effect)
+    "j_cry_fading_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_keychange: X(j.x) Mult; x grows when a hand type is played for the first time this round; resets end-of-round
+    "j_cry_keychange"      to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_verisimile: X(j.x) Mult; x grows per pseudorandom_result event
+    "j_cry_verisimile"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_duplicare: X(j.x) Mult; x grows per played card (post_trigger / pendingSel.size per before-pass)
+    "j_cry_duplicare"      to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_clockwork: 4 effects (see Score.kt L269); this entry covers effect 1: X(j.x) Mult at joker_main
+    // (Effects 2/3: held Steel-card Xmult stays legacy for now; Effect 4 in held block stays legacy)
+    "j_cry_clockwork"      to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+
+    // ── 9b: ctx-read jokerMain (no j.field dependency) ──────────────────────────────────────────────────
+    // j_flower_pot: X3 when ALL four suits appear in the scoring hand (bypass_debuff path counts debuffed cards' suits)
+    "j_flower_pot"     to JokerSpec(jokerMain = { _, ctx ->
+        if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s, ctx.smeared) } }) Effect.XMult(3.0) else Effect.None
+    }),
+    // j_seeing_double: X2 when at least one Club AND at least one non-Club non-Stone non-debuffed card score
+    "j_seeing_double"  to JokerSpec(jokerMain = { _, ctx ->
+        val nd = ctx.scoringHand.filter { it.suit != ctx.debuffSuit }
+        val club  = nd.any { it.isSuit(Suit.C, ctx.smeared) }
+        val other = nd.any { it.enhancement != Enhancement.STONE && !it.isSuit(Suit.C, ctx.smeared) }
+        if (club && other) Effect.XMult(2.0) else Effect.None
+    }),
+    // cry_thalia: XMult = C(n,2) where n = distinct rarities among board jokers (n=1→X0 no-op; n=2→X1; n=3→X3; n=4→X6; n=5→X10)
+    "j_cry_thalia"     to JokerSpec(jokerMain = { _, ctx ->
+        val n = ctx.board.map { it.rarity }.filter { it > 0 }.toSet().size
+        val bonus = n * (n - 1) / 2
+        if (bonus >= 1) Effect.XMult(bonus.toDouble()) else Effect.None
+    }),
+    // cry_blacklist: NOT migrated — seed is randomly chosen at acquisition ((2..14).random() in initialFJoker).
+    // The static JokerSpec.initialState can't represent this; stays legacy until dynamic-seed support is added.
+
+    // ── 9c: individual-hook ctx-reads (no j.field mutation) ─────────────────────────────────────────────
+    // j_photograph: X2 Mult per first face card scored (debuff-aware; excludes suit-debuffed + face-debuffed)
+    "j_photograph"     to JokerSpec(individual = { _, ctx, c ->
+        val faceOk = (c.isFace || ctx.pareidolia) && c.suit != ctx.debuffSuit && !(ctx.debuffFace && (c.isFace || ctx.pareidolia))
+        val firstFace = ctx.scoringHand.firstOrNull {
+            (it.isFace || ctx.pareidolia) && it.suit != ctx.debuffSuit && !(ctx.debuffFace && (it.isFace || ctx.pareidolia))
+        }
+        if (faceOk && firstFace === c) Effect.XMult(2.0) else Effect.None
+    }),
+    // cry_caramel: X(j.x) Mult per scored played card (j.x=1.75 default; self-destructs when x drops to 1 each end-of-round)
+    "j_cry_caramel"    to JokerSpec(
+        initialState = FJokerState(x = 1.75, n = 11),   // x=1.75, n=11 (end-of-round countdown)
+        individual = { s, _, _ -> if (s.x >= 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+
     // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
     // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
     "j_steel_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(1.0 + 0.2 * s.n) else Effect.None }),

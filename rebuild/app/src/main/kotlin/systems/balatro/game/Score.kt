@@ -200,6 +200,7 @@ object Score {
             // X2 on the FIRST face. is_face returns nil for debuffed cards (suit-debuff or face-debuff)
             // before the Pareidolia check, so debuffed cards never count as the first face.
             // Exclude both suit-debuffed AND face-debuffed cards from the oc test and firstOrNull scan.
+            // (j_photograph migrated to JOKER_MANIFEST.)
             "j_photograph"       -> {
                 val faceOk = (oc.isFace || ctx.pareidolia) && oc.suit != ctx.debuffSuit && !(ctx.debuffFace && (oc.isFace || ctx.pareidolia))
                 val firstFace = ctx.scoringHand.firstOrNull {
@@ -216,6 +217,7 @@ object Score {
             "j_cry_wee_fib"           -> { val r = ctx.rankOf(oc); if (r == 14 || r == 2 || r == 3 || r == 5 || r == 8) j.mult += 3.0 }  // +3 Mult/scored Fibonacci (get_id; Maximized maps pips→10)
             "j_cry_antennastoheaven"  -> { val r = ctx.rankOf(oc); if (r == 4 || r == 7) j.xc += 0.1 }   // scaling: +0.1 Xchips per scored 4/7 (get_id; Maximized maps pips→10)
             // caramel: X1.75 Mult per scored played card (j.x=1.75 default; decreases per round, self-destructs)
+            // (j_cry_caramel migrated to JOKER_MANIFEST.)
             "j_cry_caramel"           -> if (j.x >= 1.0) return Fx().apply { xMult = j.x }
             // spectrogram accumulator: count Echo-enhanced cards scored this hand. j.n increments by 1
             // per Echo card in the per-card individual pass; fires as retrigger_joker_check (rightmost
@@ -277,6 +279,7 @@ object Score {
             "j_half"      -> if (ctx.fullHand.size <= 3) return Fx().apply { multMod = 20.0 }       // +20 Mult if <=3 cards
             // (j_stuntman migrated to JOKER_MANIFEST.)
             "j_stuntman"  -> return Fx().apply { chipMod = 250.0 }                                  // +250 Chips
+            // (j_seeing_double migrated to JOKER_MANIFEST.)
             "j_seeing_double" -> {                                                                  // X2 if a Club + a non-Club score
                 // seeing_double_check (utils.lua:2474) tallies via is_suit WITHOUT bypass_debuff, so a
                 // debuffed card returns nil and is not counted on either side — exclude debuffed cards.
@@ -287,6 +290,7 @@ object Score {
             }
             // Flower Pot calls is_suit('<suit>', true) with bypass_debuff=true (card.lua:4358), so it COUNTS
             // debuffed cards' suits — the all-scoring-cards scan (incl. debuffed) is correct; do NOT exclude them.
+            // (j_flower_pot migrated to JOKER_MANIFEST.)
             "j_flower_pot" -> if (Suit.values().all { s -> ctx.scoringHand.any { it.isSuit(s, ctx.smeared) } })  // X3 if all 4 suits score
                 return Fx().apply { xMultMod = 3.0 }
             // --- vanilla "+chips if played hand contains <type>" family (game.lua j_sly..j_crafty;
@@ -310,6 +314,10 @@ object Score {
             //   RunScreen removes it before the next score() call, so score engine never sees mult<=0.
             // poor_joker: j.mult += mult_mod(4) each time this joker pays rent (rental context, non-scoring)
             // foodm: j.mult=40 by default (decreases per round, self-destructs; replenished by selling jolly jokers)
+            // (j_ramen/j_campfire/j_obelisk/j_cry_paved_joker/j_cry_membershipcard/j_cry_dropshot/j_cry_chili_pepper/
+            //  j_cry_mondrian/j_cry_fading_joker/j_cry_keychange/j_cry_verisimile/j_cry_duplicare/j_cry_clockwork migrated
+            //  to JOKER_MANIFEST — batch 9a. Remaining: j_obelisk/j_hologram/j_ramen/j_campfire/j_loyalty_card/j_throwback/
+            //  j_cry_krustytheclown/j_cry_eternalflame/j_cry_whip stay in-group for legacy compat.)
             "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_krustytheclown", "j_cry_eternalflame", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
@@ -487,6 +495,7 @@ object Score {
             // thalia: Xmult = C(n,2) * xmgain (xmgain=1) where n = count of DISTINCT rarities among all board jokers
             // (including Thalia itself, rarity=4 Legendary). ctx.board now carries FJoker.rarity so this is faithful.
             // n=1→bonus=0 (no-op); n=2→bonus=1 (X1, identity); n=3→bonus=3 (X3); n=4→bonus=6 (X6); n=5→bonus=10 (X10).
+            // (j_cry_thalia migrated to JOKER_MANIFEST.)
             "j_cry_thalia" -> {
                 val n = ctx.board.map { it.rarity }.filter { it > 0 }.toSet().size
                 val bonus = n * (n - 1) / 2
