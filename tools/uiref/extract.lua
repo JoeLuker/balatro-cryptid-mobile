@@ -57,8 +57,8 @@ function adjust_alpha(c, a)   return { __colorop="alpha",   base=c, amt=a } end
 function CardArea(x, y, w, h, config) return { __cardarea=true, T={x=x,y=y,w=w,h=h}, w=w, h=h, config=config or {} } end
 function AnimatedSprite(...) return { __sprite="animated", define_draw_steps=function() end } end
 function Sprite(...)         return { __sprite="sprite",   define_draw_steps=function() end } end
-function UIBox(args)         return { __uibox=true } end   -- e.g. G.SHOP_SIGN — a separate floating box, not in the returned tree
-function Event(args)         return { __event=true } end
+function UIBox(args)         return { __uibox=true, def=args and args.definition, alignment={offset={x=0,y=0}} } end   -- capture def (card.children.price/buy_button)
+function Event(args)         return { __event=true, func=args and args.func } end
 
 -- GAME fields the shop reads
 GAME.shop = tag("G.GAME.shop", { joker_max=2 })
@@ -74,7 +74,8 @@ G = {
   ROOM = { T = { x=1.44, y=0.69, w=20, h=11.5 } },
   CARD_W = 2.04878, CARD_H = 2.75122,
   ANIMATION_ATLAS = setmetatable({}, { __index=function() return {} end }),
-  E_MANAGER = { add_event = function() end },
+  -- run deferred events immediately (pcall-guarded) so create_shop_card_ui builds card.children.* now
+  E_MANAGER = { add_event = function(_, e) if e and e.func then local ok,err = pcall(e.func); if not ok then print("EVENT ERR: "..tostring(err)) end end end },
   HUD = { get_UIE_by_ID = function() return {} end },
 }
 
@@ -180,3 +181,28 @@ G.shop_jokers.__name   = "shop_jokers"
 G.shop_vouchers.__name = "shop_vouchers"
 G.shop_booster.__name  = "shop_booster"
 dump(shopdef, "shop_tree.json")
+
+-- OFFER CARD UI: run the REAL create_shop_card_ui per card-set, capturing the price tag + the
+-- buy/redeem/open button it attaches to each card (card.children.price / .buy_button / .buy_and_use_button).
+-- The price DynaText binds ref_table=card → tag the stub card "card" so it serializes to a ref the
+-- Kotlin binds to each offer's cost. (E_MANAGER.add_event runs the deferred build func immediately.)
+local function offerCardUI(set, consumeable)
+  local card = { ability = { set = set, consumeable = consumeable }, cost = 5, children = {}, opening = false }
+  pathName[card] = "card"
+  create_shop_card_ui(card, set, nil)
+  return card.children
+end
+local sets = { joker = offerCardUI('Joker', false), voucher = offerCardUI('Voucher', false),
+               booster = offerCardUI('Booster', false), consumable = offerCardUI('Tarot', true) }
+local parts = {}
+for _, name in ipairs({ "joker", "voucher", "booster", "consumable" }) do
+  local ch = sets[name]; local entry = {}
+  if ch.price and ch.price.def then entry[#entry+1] = '"price":'..encnode(ch.price.def) end
+  if ch.buy_button and ch.buy_button.def then entry[#entry+1] = '"button":'..encnode(ch.buy_button.def) end
+  if ch.buy_and_use_button and ch.buy_and_use_button.def then entry[#entry+1] = '"buy_and_use":'..encnode(ch.buy_and_use_button.def) end
+  parts[#parts+1] = '"'..name..'":{'..table.concat(entry,",")..'}'
+end
+local cardjson = "{"..table.concat(parts,",").."}"
+local ocp = (arg[0]:gsub("extract%.lua$","")) .. "shop_card_ui.json"
+local ocf = io.open(ocp, "w"); ocf:write(cardjson); ocf:close()
+print("wrote "..ocp.." ("..#cardjson.." bytes)")
