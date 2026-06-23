@@ -190,6 +190,9 @@ object Oracle {
         Case("TwoPair 2s/As + zooble (2 distinct ranks -> +2 Mult)", PlayingCard.hand("S_2", "H_2", "S_A", "H_A"), 184.0, j(FJoker("j_cry_zooble"))),
         Case("Pair + cursor @16 chips (read branch)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_cursor", chips = 16.0))),
         Case("Pair + eternalflame @x1.3 (read branch)", PlayingCard.hand("S_A", "H_A"), 83.0, j(FJoker("j_cry_eternalflame", x = 1.3))),
+        // eternalflame reducer: x=1.1 is the state after one cost-2 joker sell (refund=1, which the old
+        // `>= 2` gate would have silently dropped). Pair aces: chips=32, mult=2×1.1=2.2 → floor(70.4)=70.
+        Case("Pair + eternalflame @x1.1 (one cost-1-refund sell fires in non-modest gameset)", PlayingCard.hand("S_A", "H_A"), 70.0, j(FJoker("j_cry_eternalflame", x = 1.1))),
         Case("HighCard 7,2 diff suits + whip (+0.5 Xmult)", PlayingCard.hand("S_2", "H_7"), 18.0, j(FJoker("j_cry_whip"))),
         // whip + Smeared: 2 and 7 of the SAME printed suit (both Hearts) count as different suits under
         // Smeared (red H↔D collide) → whip fires +0.5 → x1.5. Without the smear fix it scores 12 (no trigger).
@@ -476,7 +479,7 @@ object Oracle {
         Case("Pair of aces + throwback (x=1.5)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_throwback", x = 1.5))),
         // Runner: +Chips per Straight in run (j.chips); chips=30 → chips=32+30=62, mult=2 → 124.
         Case("Pair of aces + runner (chips=30)", PlayingCard.hand("S_A", "H_A"), 124.0, j(FJoker("j_runner", chips = 30.0))),
-        // Square Joker: +4 Chips per 5-card hand (j.chips); chips=12 (3 plays) → chips=32+12=44, mult=2 → 88.
+        // Square Joker: +4 Chips per 4-card hand (j.chips); chips=12 (3 plays) → chips=32+12=44, mult=2 → 88.
         Case("Pair of aces + square (chips=12)", PlayingCard.hand("S_A", "H_A"), 88.0, j(FJoker("j_square", chips = 12.0))),
         // Castle: +3 Chips per suited card discarded (j.chips); chips=9 (3 discards) → chips=32+9=41, mult=2 → 82.
         Case("Pair of aces + castle (chips=9)", PlayingCard.hand("S_A", "H_A"), 82.0, j(FJoker("j_castle", chips = 9.0))),

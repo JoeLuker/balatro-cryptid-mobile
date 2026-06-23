@@ -96,7 +96,7 @@ sealed interface GameEvent {
     data class HandScored(val handType: HandType, val playedCount: Int = 0) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
-    /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost), for the eternalflame >= 2 gate. */
+    /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost). Carried for context; eternalflame no longer gates on it. */
     data class Sold(val soldKey: String, val sellValue: Int) : GameEvent
 }
 
@@ -209,7 +209,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
     "j_square" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 5) s.copy(chips = s.chips + 4.0) else s },
+        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 4) s.copy(chips = s.chips + 4.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
 
@@ -221,9 +221,9 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // fibonacci: +8 Mult per scored A, 2, 3, 5, 8 (Fibonacci ranks; get_id, Maximized maps pips→10)
     "j_fibonacci"     to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 3, 5, 8, 14)) Effect.Mult(8.0) else Effect.None }),
     // scary_face: +30 Chips per scored face card (includes Pareidolia)
-    "j_scary_face"    to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Chips(30.0) else Effect.None }),
+    "j_scary_face"    to JokerSpec(individual = { _, ctx, c -> if (c.isFace(ctx.pareidolia)) Effect.Chips(30.0) else Effect.None }),
     // smiley: +5 Mult per scored face card (includes Pareidolia)
-    "j_smiley"        to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Mult(5.0) else Effect.None }),
+    "j_smiley"        to JokerSpec(individual = { _, ctx, c -> if (c.isFace(ctx.pareidolia)) Effect.Mult(5.0) else Effect.None }),
     // triboulet: X2 Mult per scored King or Queen (game.lua)
     "j_triboulet"     to JokerSpec(individual = { _, _, c -> if (c.id == 12 || c.id == 13) Effect.XMult(2.0) else Effect.None }),
     // walkie_talkie: +10 Chips, +4 Mult per scored 10 or 4 (game.lua)
@@ -233,7 +233,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // hack: retrigger each scored 2, 3, 4, or 5 (game.lua)
     "j_hack"          to JokerSpec(individual = { _, _, c -> if (c.id in 2..5) Effect.Retrigger(1) else Effect.None }),
     // sock_and_buskin: retrigger each scored face card (game.lua)
-    "j_sock_and_buskin" to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Retrigger(1) else Effect.None }),
+    "j_sock_and_buskin" to JokerSpec(individual = { _, ctx, c -> if (c.isFace(ctx.pareidolia)) Effect.Retrigger(1) else Effect.None }),
     // dusk: retrigger every scored card on the last hand of the round (game.lua)
     "j_dusk"          to JokerSpec(individual = { _, ctx, _ -> if (ctx.handsLeft == 0) Effect.Retrigger(1) else Effect.None }),
 
@@ -289,7 +289,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
 
     // ── batch 5a: individual-path retrigger jokers ───────────────────────────────────────────────────
     // cry_mask: +3 retriggers per scored face card (Cryptid spooky.lua config.extra.retriggers=3)
-    "j_cry_mask"        to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Retrigger(3) else Effect.None }),
+    "j_cry_mask"        to JokerSpec(individual = { _, ctx, c -> if (c.isFace(ctx.pareidolia)) Effect.Retrigger(3) else Effect.None }),
     // cry_sock_and_sock: retrigger each played Abstract-enhanced card once (Cryptid misc_joker.lua)
     "j_cry_sock_and_sock" to JokerSpec(individual = { _, _, c -> if (c.enhancement == Enhancement.ABSTRACT) Effect.Retrigger(1) else Effect.None }),
 
@@ -357,7 +357,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_nosound: +3 retriggers per scored 7 (get_id)
     "j_cry_nosound"   to JokerSpec(individual = { _, ctx, c -> if (ctx.rankOf(c) == 7) Effect.Retrigger(3) else Effect.None }),
     // cry_exposed: +2 retriggers per scored non-face card
-    "j_cry_exposed"   to JokerSpec(individual = { _, ctx, c -> if (!(c.isFace || ctx.pareidolia)) Effect.Retrigger(2) else Effect.None }),
+    "j_cry_exposed"   to JokerSpec(individual = { _, ctx, c -> if (!(c.isFace(ctx.pareidolia))) Effect.Retrigger(2) else Effect.None }),
     // cry_lightupthenight: X1.5 per scored 2 or 7 (individual; get_id)
     "j_cry_lightupthenight" to JokerSpec(individual = { _, ctx, c ->
         val r = ctx.rankOf(c); if (r == 2 || r == 7) Effect.XMult(1.5) else Effect.None
@@ -520,9 +520,9 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── 9c: individual-hook ctx-reads (no j.field mutation) ─────────────────────────────────────────────
     // j_photograph: X2 Mult per first face card scored (debuff-aware; excludes suit-debuffed + face-debuffed)
     "j_photograph"     to JokerSpec(individual = { _, ctx, c ->
-        val faceOk = (c.isFace || ctx.pareidolia) && c.suit != ctx.debuffSuit && !(ctx.debuffFace && (c.isFace || ctx.pareidolia))
+        val faceOk = c.isFace(ctx.pareidolia) && c.suit != ctx.debuffSuit && !(ctx.debuffFace && c.isFace(ctx.pareidolia))
         val firstFace = ctx.scoringHand.firstOrNull {
-            (it.isFace || ctx.pareidolia) && it.suit != ctx.debuffSuit && !(ctx.debuffFace && (it.isFace || ctx.pareidolia))
+            (it.isFace(ctx.pareidolia)) && it.suit != ctx.debuffSuit && !(ctx.debuffFace && (it.isFace(ctx.pareidolia)))
         }
         if (faceOk && firstFace === c) Effect.XMult(2.0) else Effect.None
     }),
@@ -534,10 +534,11 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
 
     // ── batch 10: remaining "other" jokers + two-phase (before-pass sets field, jokerMain reads) ────────
     // ── 10a: individual retrigger reads ────────────────────────────────────────────────────────────────────
-    // cry_mstack: +j.n retriggers per scored played card; j.n=1 default, grows per jolly-type sold
+    // cry_mstack: +j.n retriggers per scored played card; j.n=1 default, grows per jolly-type sold.
+    // immutable.max_retriggers=40: Lua caps at math.min(retriggers, 40) before returning (m.lua:367).
     "j_cry_mstack"     to JokerSpec(
         initialState = FJokerState(n = 1),
-        individual = { s, ctx, _ -> if (ctx.cardarea == "play") Effect.Retrigger(s.n) else Effect.None },
+        individual = { s, ctx, _ -> if (ctx.cardarea == "play") Effect.Retrigger(minOf(s.n, 40)) else Effect.None },
     ),
 
     // ── 10b: jokerMain XMult from before-pass-set j.n + static j.x ─────────────────────────────────────
@@ -560,11 +561,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── 11a: retrigger-joker-check (ctx.jokerRetriggerCheck=true) — vote to retrigger ctx.retriggeredJoker ─
     // cry_chad: retrigger the LEFTMOST board joker j.n(=2) times — but NOT chad itself (j !== rj).
     // ctx.board.firstOrNull() is the leftmost joker; cry_chad must not be the leftmost to fire (self-exclusion).
+    // immutable.max_retriggers=25: Lua caps at math.min(25, retriggers) before returning (misc_joker.lua:1570).
     "j_cry_chad"       to JokerSpec(
         initialState = FJokerState(n = 2),
         retrigger = { s, ctx ->
             ctx.retriggeredJoker?.let { rj ->
-                if (ctx.selfJoker !== rj && rj === ctx.board.firstOrNull() && s.n > 0) Effect.Retrigger(s.n) else Effect.None
+                if (ctx.selfJoker !== rj && rj === ctx.board.firstOrNull() && s.n > 0) Effect.Retrigger(minOf(s.n, 25)) else Effect.None
             } ?: Effect.None
         },
     ),
@@ -586,11 +588,15 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
             } ?: Effect.None
         },
     ),
-    // cry_boredom: pseudorandom 1-retrigger of any other joker (1-in-2 odds; pre-resolved by run loop).
-    // Run loop sets j.n=1 on success, j.n=0 on fail (reset each hand). Self-excluded.
-    "j_cry_boredom"    to JokerSpec(retrigger = { s, ctx ->
-        if (ctx.selfJoker !== ctx.retriggeredJoker && s.n > 0) Effect.Retrigger(1) else Effect.None
-    }),
+    // cry_boredom: pseudorandom 1-retrigger of any other joker OR any scored played card (epic.lua:866-893).
+    // Two hooks share the same pseudoseed "cry_boredom_joker" / 1-in-odds (default 2) probability:
+    //   (1) retrigger_joker_check: retrigger any other board joker once (j !== rj self-exclusion).
+    //   (2) context.repetition + cardarea==G.play: retrigger each scored played card once.
+    // Both pre-resolved by run loop: j.n=1 (roll won) or j.n=0 (roll lost); same seed → same outcome.
+    "j_cry_boredom"    to JokerSpec(
+        retrigger  = { s, ctx -> if (ctx.selfJoker !== ctx.retriggeredJoker && s.n > 0) Effect.Retrigger(1) else Effect.None },
+        individual = { s, ctx, _ -> if (ctx.cardarea == "play" && s.n > 0) Effect.Retrigger(1) else Effect.None },
+    ),
 
     // ── 11b: other-joker with self-exclusion (ctx.selfJoker !== other) ──────────────────────────────────
     // cry_circus: XMult based on other joker's rarity; excludes self (oj !== j guard via ctx.selfJoker).
@@ -674,9 +680,13 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_crustulum: +j.chips (+=4 per reroll in the shop; run-loop sets it via reroll()).
     "j_cry_crustulum" to JokerSpec(jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) }),
 
-    // ── Sold-event accumulator: eternalflame scales Xmult per any joker sold with sell_cost >= 2 ──
+    // ── Sold-event accumulator: eternalflame +0.1 Xmult per ANY joker sold (standard/non-modest gameset).
+    // Lua (misc_joker.lua:1357): `sell_cost >= 2 OR gameset != 'modest'`. The OR short-circuits in
+    // every currently supported gameset (there is no 'modest' support in the Kotlin rebuild yet),
+    // so the gate is unconditional. Dropping the >= 2 check fixes a bug where cost-1/3 joker sells
+    // (refund = maxOf(1, cost/2) = 1) were silently skipped.
     "j_cry_eternalflame" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.Sold && e.sellValue >= 2) s.copy(x = s.x + 0.1) else s },
+        reduce = { s, e -> if (e is GameEvent.Sold) s.copy(x = s.x + 0.1) else s },
         jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 )

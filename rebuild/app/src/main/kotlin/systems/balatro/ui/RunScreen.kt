@@ -823,7 +823,7 @@ internal class RunState {
             // THE_HOUSE: entire first hand is face-down; refill() passes an empty set so nothing flips.
             Boss.THE_HOUSE -> newIndices
             // THE_MARK: all face cards (J/Q/K) that are newly drawn go face-down.
-            Boss.THE_MARK  -> newIndices.filter { hand.getOrNull(it)?.isFace == true }.toSet()
+            Boss.THE_MARK  -> newIndices.filter { hand.getOrNull(it)?.isFace() == true }.toSet()
             // THE_WHEEL: 1 in 7 newly drawn cards face-down. Balatro rolls a 1-in-7 per card
             // (pseudorandom per card index). We derive deterministically from the card's identity
             // (hash of suit+rank+blindIndex) so the same card in the same round always agrees.
@@ -1276,9 +1276,9 @@ internal class RunState {
         money += refund
         // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
         val soldKey = o.fj.key
-        val sellCost = refund   // maxOf(1, cost/2) — used for sell_cost >= 2 gates below
+        val sellCost = refund   // maxOf(1, cost/2) — carried in Sold event for context
         // MANIFEST: migrated jokers react to the sale via their reducer on the Sold event
-        // (campfire +0.25 Xmult per sale; eternalflame +0.1 when the sold joker's sell_cost >= 2).
+        // (campfire +0.25 Xmult per sale; eternalflame +0.1 per any sale in non-modest gameset).
         for (rem in owned) JOKER_MANIFEST[rem.fj.key]?.reduce?.let { rem.fj.restore(it(rem.fj.snapshot(), GameEvent.Sold(soldKey, sellCost))) }
         for (rem in owned) when (rem.fj.key) {
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).

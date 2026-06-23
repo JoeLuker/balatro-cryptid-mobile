@@ -520,7 +520,6 @@ object Score {
         // final_scoring_hand (state_events.lua:743): a played card scores if it's in the evaluated hand,
         // always-scores (stone), or Splash is on the board — j_splash makes EVERY played card score.
         val splash = jokers.any { it.key == "j_splash" }
-        val pareidolia = jokers.any { it.key == "j_pareidolia" }   // every card is a face (Card:is_face patch)
         val scoringHand = played.filter { splash || it in handCards || it.enhancement == Enhancement.STONE }
 
         // hand base, raised by planet level (lvl 1 = unchanged), then halved by Flint (base only).
@@ -590,7 +589,7 @@ object Score {
         // per scoring card: card's own scoring + each joker's individual reaction
         for (card in scoringHand) {
             if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue       // suit-debuffed
-            if (debuff is Debuff.DebuffFace && (card.isFace || pareidolia)) continue      // THE_PLANT: face-debuffed (Pareidolia makes all cards faces)
+            if (debuff is Debuff.DebuffFace && (card.isFace(pareidolia))) continue      // THE_PLANT: face-debuffed (Pareidolia makes all cards faces)
             if (debuff is Debuff.DebuffCards && card in debuff.cards) continue                 // THE_PILLAR: previously played this Ante
             if (debuff is Debuff.DebuffAllCards) continue                                          // VERDANT_LEAF: all played cards are debuffed
             ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = card
