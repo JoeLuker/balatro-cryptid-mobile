@@ -64,6 +64,7 @@ class Sctx {
     var blueprintDepth = 0                  // copy-chain depth (context.blueprint); bounded by board size to stop cycles
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
     var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
+    var selfJoker: FJoker? = null           // set by dispatchManifest to j before invoking any hook — enables identity guard (j !== rj / j !== oj)
     /** j_cry_maximized patches get_id: pips→10, faces→13. Used by every rank-literal comparison in
      *  calcJoker (individual/repetition/joker_main) to match Lua's context.other_card:get_id() calls. */
     var rankOf: (PlayingCard) -> Int = { it.id }
@@ -89,7 +90,7 @@ object Score {
 
     /** Cryptid "M" pool (m.lua jokers with pools.M). j_cry_mprime counts an M-pool joker as Jolly-equivalent
      *  (m.lua:1538: is_jolly() OR pools.M) — NOT just j_jolly/jollysus/cry_m. (bonk uses is_jolly() only.) */
-    private val CRY_M_POOL = setOf(
+    internal val CRY_M_POOL = setOf(
         "j_cry_bubblem", "j_cry_foodm", "j_cry_mstack", "j_cry_mneon", "j_cry_notebook", "j_cry_bonk",
         "j_cry_loopy", "j_cry_scrabble", "j_cry_sacrifice", "j_cry_doodlem", "j_cry_virgo", "j_cry_smallestm",
         "j_cry_biggestm", "j_cry_macabre", "j_cry_megg", "j_cry_longboi",
@@ -160,13 +161,16 @@ object Score {
             when (j.key) {
                 // chad: retrigger the LEFTMOST board joker j.n times (config.extra.retriggers=2).
                 // Lua: context.other_card ~= self — chad does NOT retrigger itself (j !== rj guard).
+                // (j_cry_chad migrated to JOKER_MANIFEST — batch 11a.)
                 "j_cry_chad" -> if (j !== rj && rj === ctx.board.firstOrNull() && j.n > 0) return Fx().apply { repetitions = j.n }
                 // loopy: retrigger all OTHER board jokers min(j.n, 40) times (j.n = Jolly Jokers sold; default 0).
+                // (j_cry_loopy migrated to JOKER_MANIFEST — batch 11a.)
                 "j_cry_loopy" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = minOf(j.n, 40) }
                 // spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored;
                 //   accumulated during the per-card pass when m_cry_echo enhancement is present — no-op until
                 //   m_cry_echo is modelled in the Enhancement enum).
                 // Lua guard: context.other_card ~= self — spectrogram must NOT retrigger itself.
+                // (j_cry_spectrogram migrated to JOKER_MANIFEST — batch 11a.)
                 "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && rj !== j && j.n > 0) return Fx().apply { repetitions = j.n }
                 // flip_side: retrigger any joker with the double-sided edition once.
                 // (j_cry_flip_side migrated to JOKER_MANIFEST.)
@@ -174,6 +178,7 @@ object Score {
                 // boredom: 1-in-odds (default 2) pseudorandom retrigger of any other joker (epic.lua:868).
                 // Pseudorandom — pseudoseed "cry_boredom_joker" is fixed per game state, so the run loop
                 // pre-resolves: j.n=1 if roll succeeded (retrigger), j.n=0 if failed. Fires for any oj.
+                // (j_cry_boredom migrated to JOKER_MANIFEST — batch 11a.)
                 "j_cry_boredom" -> if (j !== rj && j.n > 0) return Fx().apply { repetitions = 1 }
             }
             return null
@@ -557,6 +562,7 @@ object Score {
             // circus: Xmult based on other joker's rarity (Rare=3→X2, cry_epic=5→X3, Legendary=4→X4, cry_exotic=6→X20).
             // Base values from config.extra circus_rarities (scalable at runtime; engine uses base config).
             // Rarity int convention: 1=Common,2=Uncommon,3=Rare,4=Legendary,5=cry_epic(Epic),6=cry_exotic(Exotic).
+            // (j_cry_circus migrated to JOKER_MANIFEST — batch 11b.)
             "j_cry_circus" -> {
                 if (oj !== j) {
                     val xm = when (oj.rarity) { 3 -> 2.0; 5 -> 3.0; 4 -> 4.0; 6 -> 20.0; else -> 1.0 }
@@ -574,6 +580,7 @@ object Score {
             // mprime: Emult^j.x (default 1.05) per Jolly-type or M-pool joker (m.lua:1534).
             // is_jolly() = key j_jolly or j_cry_jollysus, or edition e_cry_m.
             // M-pool jokers without those traits are unmodelled (FJoker has no pool field).
+            // (j_cry_mprime migrated to JOKER_MANIFEST — batch 11b.)
             "j_cry_mprime" -> {
                 val isJolly = oj.key == "j_jolly" || oj.key == "j_cry_jollysus" || oj.edition == "cry_m" || oj.key in CRY_M_POOL
                 if (isJolly && j.x > 1.0) return Fx().apply { eMult = j.x }

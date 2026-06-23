@@ -117,6 +117,7 @@ data class JokerSpec(
 /** Dispatch a migrated joker through its spec for the CURRENT scoring context (mirrors calcJoker's flags). */
 internal fun dispatchManifest(spec: JokerSpec, j: FJoker, ctx: Sctx): Fx? {
     val self = j.snapshot()
+    ctx.selfJoker = j   // expose live self identity for hooks that need j !== rj / j !== oj guards
     val individual = (ctx.individual && ctx.cardarea == "play") || ctx.held
     val effect: Effect = when {
         ctx.jokerRetriggerCheck                  -> spec.retrigger?.invoke(self, ctx) ?: Effect.None
@@ -533,6 +534,56 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     ),
     // cry_pirate_dagger: XChip = j.xc (+0.25 * sell_cost of joker to the right at setting_blind, that joker destroyed)
     "j_cry_pirate_dagger" to JokerSpec(jokerMain = { s, _ -> if (s.xc > 1.0) Effect.XChips(s.xc) else Effect.None }),
+
+    // ── batch 11: identity-guarded hooks (use ctx.selfJoker for j !== rj / j !== oj checks) ─────────────
+    // ── 11a: retrigger-joker-check (ctx.jokerRetriggerCheck=true) — vote to retrigger ctx.retriggeredJoker ─
+    // cry_chad: retrigger the LEFTMOST board joker j.n(=2) times — but NOT chad itself (j !== rj).
+    // ctx.board.firstOrNull() is the leftmost joker; cry_chad must not be the leftmost to fire (self-exclusion).
+    "j_cry_chad"       to JokerSpec(
+        initialState = FJokerState(n = 2),
+        retrigger = { s, ctx ->
+            ctx.retriggeredJoker?.let { rj ->
+                if (ctx.selfJoker !== rj && rj === ctx.board.firstOrNull() && s.n > 0) Effect.Retrigger(s.n) else Effect.None
+            } ?: Effect.None
+        },
+    ),
+    // cry_loopy: retrigger ALL other board jokers min(j.n, 40) times (j.n = Jolly Jokers sold, starts 0).
+    // j.n grows via RunScreen sell events; no-op until first Jolly sold.
+    "j_cry_loopy"      to JokerSpec(retrigger = { s, ctx ->
+        if (ctx.selfJoker !== ctx.retriggeredJoker && s.n > 0) Effect.Retrigger(minOf(s.n, 40)) else Effect.None
+    }),
+    // cry_spectrogram: retrigger the RIGHTMOST board joker j.n times (j.n = Echo-enhanced cards scored this hand).
+    // j.n is accumulated during the individual pass in Score.kt then reset at end of hand. Fires only for
+    // the last joker (ctx.board.lastOrNull()), excluding itself.
+    "j_cry_spectrogram" to JokerSpec(retrigger = { s, ctx ->
+        ctx.retriggeredJoker?.let { rj ->
+            if (rj === ctx.board.lastOrNull() && ctx.selfJoker !== rj && s.n > 0) Effect.Retrigger(s.n) else Effect.None
+        } ?: Effect.None
+    }),
+    // cry_boredom: pseudorandom 1-retrigger of any other joker (1-in-2 odds; pre-resolved by run loop).
+    // Run loop sets j.n=1 on success, j.n=0 on fail (reset each hand). Self-excluded.
+    "j_cry_boredom"    to JokerSpec(retrigger = { s, ctx ->
+        if (ctx.selfJoker !== ctx.retriggeredJoker && s.n > 0) Effect.Retrigger(1) else Effect.None
+    }),
+
+    // ── 11b: other-joker with self-exclusion (ctx.selfJoker !== other) ──────────────────────────────────
+    // cry_circus: XMult based on other joker's rarity; excludes self (oj !== j guard via ctx.selfJoker).
+    // Rarity: 1=Common, 2=Uncommon, 3=Rare, 4=Legendary, 5=cry_epic, 6=cry_exotic.
+    "j_cry_circus"     to JokerSpec(otherJoker = { _, ctx, other ->
+        if (ctx.selfJoker !== other) {
+            val xm = when (other.rarity) { 3 -> 2.0; 5 -> 3.0; 4 -> 4.0; 6 -> 20.0; else -> 1.0 }
+            if (xm > 1.0) Effect.XMult(xm) else Effect.None
+        } else Effect.None
+    }),
+    // cry_mprime: Emult^j.x (base 1.05) per Jolly-type or M-pool joker (m.lua:1534; is_jolly()).
+    // j.x seeded 1.05; grows via run events. No self-exclusion needed (mprime is not in isJolly or CRY_M_POOL).
+    "j_cry_mprime"     to JokerSpec(
+        initialState = FJokerState(x = 1.05),
+        otherJoker = { s, _, other ->
+            val isJolly = other.isJolly() || other.key in Score.CRY_M_POOL
+            if (isJolly && s.x > 1.0) Effect.EMult(s.x) else Effect.None
+        },
+    ),
 
     // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
     // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
