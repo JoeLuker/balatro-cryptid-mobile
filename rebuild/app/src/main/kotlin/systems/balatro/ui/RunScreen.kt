@@ -543,8 +543,6 @@ internal class RunState {
     var bellForcedIdx: Int? = null
     /** Cumulative hands played this run (used by j_cry_clockwork: fires every 3rd hand). */
     var totalHandsPlayed by mutableStateOf(0); private set
-    /** Hand types played this round (j_cry_keychange: +0.25 Xmult per new type first seen; resets on startRound). */
-    private val roundHandTypes = mutableSetOf<HandType>()
     /** Discards used this round (mondrian: +0.25 Xmult when 0 used at end_of_round). Reset in startRound(). */
     private var roundDiscardsUsed = 0
     /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
@@ -853,7 +851,6 @@ internal class RunState {
         if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
         // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
         crimsonHeartDisabled = null; bellForcedIdx = null
-        roundHandTypes.clear()    // j_cry_keychange resets each round
         roundDiscardsUsed = 0   // mondrian: track discards used this round
         // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
         // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
@@ -1034,7 +1031,6 @@ internal class RunState {
     fun scoreBank(): Boolean {
         val r = pending ?: return false
         // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
-        val isNewTypeThisRound = r.handType !in roundHandTypes && r.handType != HandType.NONE
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
         totalChipsScored += r.score
@@ -1042,10 +1038,11 @@ internal class RunState {
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
         // ── per-hand joker accumulator hooks (the run loop owns state; score engine reads it) ──────
         totalHandsPlayed += 1
-        roundHandTypes.add(r.handType)
-        // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer
-        // (green_joker +1 Mult, spare_trousers +2 on Two Pair/Full House, runner +15 on Straight, square +4 on 5 cards).
-        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size))) }
+        // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer.
+        // handPlays snapshot is post-increment (_handPlayed updated by recordHandPlayed above).
+        // keychange uses handPlays[type] <= 2 (≡ Lua's pre-increment played_this_round < 2).
+        val handPlaysSnapshot = _handPlayed.toMap()
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot))) }
         for (o in owned) when (o.fj.key) {
             // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
@@ -1053,10 +1050,8 @@ internal class RunState {
             // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
             // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
             "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2
-            // j_cry_clockwork: +0.25 Xmult every 3rd hand played (config.extra clock=3; totalHandsPlayed counts all hands).
-            "j_cry_clockwork"  -> if (totalHandsPlayed % 3 == 0) o.fj.x += 0.25
-            // j_cry_keychange: +0.25 Xmult each time a new hand type is played (first time this round); resets on startRound.
-            "j_cry_keychange"  -> if (isNewTypeThisRound) o.fj.x += 0.25
+            // j_cry_clockwork: migrated to JOKER_MANIFEST reducer (per-card c2 counter in j.n).
+            // j_cry_keychange: migrated to JOKER_MANIFEST reducer (handPlays[type] <= 2; RoundEnd reset).
             // j_cry_duplicare: +1 Xmult per played card this hand (config.extra xmult_mod=1; fires in the "before" context).
             "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
             // j_cry_jimball: +0.15 Xmult while THIS hand type is the strict most-played (no other type has
@@ -1161,6 +1156,8 @@ internal class RunState {
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
         // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
+        // Dispatch RoundEnd to MANIFEST reducers first (keychange resets x→1.0 on this event).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd)) }
         // chili_pepper: +0.5 Xmult per end_of_round; self-destruct when rounds_remaining hits 0
         // (misc_joker.lua:1119-1177). j.x = Xmult accumulator; j.n = rounds_remaining (default 8).
         // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).

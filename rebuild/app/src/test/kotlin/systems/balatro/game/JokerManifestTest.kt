@@ -219,6 +219,55 @@ class SelfJokerIdentityGuardTest {
         val ctx2 = Sctx().apply { retriggeredJoker = loopy; selfJoker = loopy; jokerRetriggerCheck = true }
         assertEquals(null, dispatchManifest(spec, loopy, ctx2))
     }
+
+    // ── Retrigger cap correctness (misc_joker.lua:1570, m.lua:367) ————————————————————————————
+
+    /** cry_chad: immutable.max_retriggers=25 caps return (misc_joker.lua:1554,1570). */
+    @Test fun chadRetriggerCountCappedAt25() {
+        val spec = JOKER_MANIFEST.getValue("j_cry_chad")
+        val chad = FJoker("j_cry_chad"); chad.n = 26
+        val other = FJoker("j_joker")
+        // n=26 should return min(26,25)=25 repetitions
+        val ctx = Sctx().apply { board = listOf(other, chad); retriggeredJoker = other; selfJoker = chad; jokerRetriggerCheck = true }
+        assertEquals(25, dispatchManifest(spec, chad, ctx)?.repetitions ?: 0)
+        // n=24 should pass through uncapped
+        chad.n = 24
+        val ctx2 = Sctx().apply { board = listOf(other, chad); retriggeredJoker = other; selfJoker = chad; jokerRetriggerCheck = true }
+        assertEquals(24, dispatchManifest(spec, chad, ctx2)?.repetitions ?: 0)
+    }
+
+    /** cry_mstack: immutable.max_retriggers=40 caps return (m.lua:339,367). */
+    @Test fun mstackRetriggerCountCappedAt40() {
+        val spec = JOKER_MANIFEST.getValue("j_cry_mstack")
+        val mstack = FJoker("j_cry_mstack"); mstack.n = 41
+        val card = PlayingCard(Suit.S, 14)  // Ace of Spades
+        // n=41 should return min(41,40)=40 repetitions
+        val ctx = Sctx().apply { cardarea = "play"; repetition = true; otherCard = card }
+        assertEquals(40, dispatchManifest(spec, mstack, ctx)?.repetitions ?: 0)
+        // n=40 should also return 40 (exactly at cap)
+        mstack.n = 40
+        assertEquals(40, dispatchManifest(spec, mstack, ctx)?.repetitions ?: 0)
+        // n=1 should pass through uncapped
+        mstack.n = 1
+        assertEquals(1, dispatchManifest(spec, mstack, ctx)?.repetitions ?: 0)
+    }
+
+    /** cry_boredom: individual hook (epic.lua:883-893) retriggers scored played cards when n=1. */
+    @Test fun boredomCardRetriggerHookPresent() {
+        val spec = JOKER_MANIFEST.getValue("j_cry_boredom")
+        val boredom = FJoker("j_cry_boredom"); boredom.n = 1
+        val card = PlayingCard(Suit.S, 14)
+        // n=1, repetition=true, cardarea="play" → should return Retrigger(1)
+        val ctx = Sctx().apply { cardarea = "play"; repetition = true; otherCard = card }
+        assertEquals(1, dispatchManifest(spec, boredom, ctx)?.repetitions ?: 0)
+        // n=0 → no retrigger
+        boredom.n = 0
+        assertEquals(null, dispatchManifest(spec, boredom, ctx))
+        // cardarea="hand" → no retrigger even when n=1
+        boredom.n = 1
+        val ctxHand = Sctx().apply { cardarea = "hand"; repetition = true; otherCard = card }
+        assertEquals(null, dispatchManifest(spec, boredom, ctxHand))
+    }
 }
 
 /** Verify perCard accumulation + two-phase jokerMain reads. */

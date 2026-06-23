@@ -92,12 +92,16 @@ internal fun Effect.intoFx(individual: Boolean): Fx {
 sealed interface GameEvent {
     /** Before-pass, once per hand, with the scoring context (scoringName / pokerHands known). */
     data class BeforeHand(val ctx: Sctx) : GameEvent
-    /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.). */
-    data class HandScored(val handType: HandType, val playedCount: Int = 0) : GameEvent
+    /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.).
+     *  [handPlays] = per-type play counts AFTER recording this hand (post-increment, matching context.after timing).
+     *  Keychange uses handPlays[type] <= 2 (≡ Lua's pre-increment played_this_round < 2). */
+    data class HandScored(val handType: HandType, val playedCount: Int = 0, val handPlays: Map<HandType, Int> = emptyMap()) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
     /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost). Carried for context; eternalflame no longer gates on it. */
     data class Sold(val soldKey: String, val sellValue: Int) : GameEvent
+    /** End of round (cashOut). Keychange reducer resets x → 1.0 on this event. */
+    object RoundEnd : GameEvent
 }
 
 typealias ScoreHook = (self: FJokerState, ctx: Sctx) -> Effect
@@ -209,7 +213,7 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
     "j_square" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 5) s.copy(chips = s.chips + 4.0) else s },
+        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 4) s.copy(chips = s.chips + 4.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
 
@@ -486,15 +490,41 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_mondrian"       to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_fading_joker: X(j.x) Mult; x grows when this perishable joker expires (before the debuff takes effect)
     "j_cry_fading_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
-    // cry_keychange: X(j.x) Mult; x grows when a hand type is played for the first time this round; resets end-of-round
-    "j_cry_keychange"      to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_keychange: X(j.x) Mult; +0.25 on the 1st AND 2nd play of each hand type per round
+    // (misc_joker.lua:10546-10558, context.before, played_this_round < 2 — fires before the increment,
+    // so the counter is 0 or 1; post-increment equivalent: handPlays[type] <= 2). Resets x→1 at round end.
+    // jokerMain fires unconditionally (Lua has no guard; XMult(1.0) is a safe no-op in the engine).
+    "j_cry_keychange" to JokerSpec(
+        reduce = { s, e -> when (e) {
+            is GameEvent.HandScored ->
+                if (e.handType != HandType.NONE && (e.handPlays[e.handType] ?: 0) <= 2)
+                    s.copy(x = s.x + 0.25)
+                else s
+            is GameEvent.RoundEnd   -> s.copy(x = 1.0)
+            else                    -> s
+        }},
+        jokerMain = { s, _ -> Effect.XMult(s.x) },
+    ),
     // cry_verisimile: X(j.x) Mult; x grows per pseudorandom_result event
     "j_cry_verisimile"     to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
     // cry_duplicare: X(j.x) Mult; x grows per played card (post_trigger / pendingSel.size per before-pass)
     "j_cry_duplicare"      to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
-    // cry_clockwork: 4 effects (see Score.kt L269); this entry covers effect 1: X(j.x) Mult at joker_main
-    // (Effects 2/3: held Steel-card Xmult stays legacy for now; Effect 4 in held block stays legacy)
-    "j_cry_clockwork"      to JokerSpec(jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None }),
+    // cry_clockwork: 4 effects (epic.lua:2198-2216); this entry covers effect 2 (xmult accumulator).
+    // Lua: immutable counter c2 starts at 0, cycles 0→1→2→0 via clamp(c, l2=3): c+1>=l→0 else c+1;
+    // fires xmult+=0.25 when c2 lands on 0 (i.e. every 3rd hand from acquisition, not from run start).
+    // We store c2 in j.n (default 0). Each HandScored: newC2 = if (n+1 >= 3) 0 else n+1; fire when 0.
+    // Using globalising totalHandsPlayed % 3 was WRONG: mid-run acquisition shifts the trigger cadence.
+    // (Effects 1/3/4: held Steel-card retrigger / steel-enhancement side-effects stay legacy for now.)
+    "j_cry_clockwork" to JokerSpec(
+        initialState = FJokerState(n = 0),
+        reduce = { s, e ->
+            if (e is GameEvent.HandScored) {
+                val newC2 = if (s.n + 1 >= 3) 0 else s.n + 1
+                s.copy(n = newC2, x = if (newC2 == 0) s.x + 0.25 else s.x)
+            } else s
+        },
+        jokerMain = { s, _ -> Effect.XMult(s.x) },
+    ),
 
     // ── 9b: ctx-read jokerMain (no j.field dependency) ──────────────────────────────────────────────────
     // j_flower_pot: X3 when ALL four suits appear in the scoring hand (bypass_debuff path counts debuffed cards' suits)
