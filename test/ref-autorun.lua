@@ -36,7 +36,10 @@ love.update = function(dt, ...)
     -- 1) at the menu -> start a run on a fixed seed
     if phase == 'boot' and G and G.STAGE == G.STAGES.MAIN_MENU and G.STATE == G.STATES.MENU then
         mark('MENU')
-        pcall(function() if G.SETTINGS then G.SETTINGS.tutorial_complete = true end end)  -- skip the first-run tutorial overlay
+        -- skip the tutorial; reduced_motion zeroes the idle card sway (cardarea.lua:454/460:
+        -- the 0.02*sin / 0.03*sin terms) so the captured frame is the STATIC base layout that the
+        -- rebuild's frozen repro renders — otherwise we'd diff a static frame vs a live animation.
+        pcall(function() if G.SETTINGS then G.SETTINGS.tutorial_complete = true; G.SETTINGS.reduced_motion = true end end)
         -- conf.lua sets t.window.width/height = 0 → LÖVE uses the desktop size, so the 3840x2160 Xvfb
         -- screen already gives a 3840x2160 window (the pixel gate needs that exact size). No mid-run
         -- setMode — resizing after boot glitches the menu logo over the board.
@@ -62,14 +65,24 @@ love.update = function(dt, ...)
     if phase == 'selecting' and G and G.STATE == G.STATES.SELECTING_HAND and G.hand and #G.hand.cards > 0 then
         mark('SELECTING_HAND')
         pcall(function() if G.hand.unhighlight_all then G.hand:unhighlight_all() end end)  -- clean resting row (no popped card)
-        if elapsed - at('SELECTING_HAND') >= 3.0 then
-            -- start_run from MENU (vs the Play button) leaves the main-menu BALATRO logo (G.SPLASH_LOGO)
-            -- overlaying the board. By now its dissolve-in ease is long done, so :remove() is safe here
-            -- (removing it at start_run crashed ease_value on the still-active ease).
+        if elapsed - at('SELECTING_HAND') >= 8.0 then  -- software GL ~10fps: deal animation needs ~6-7s to fully settle
+            -- start_run from MENU (vs the Play button) may leave leftover main-menu elements.
+            -- Remove them so the frame matches a normal mid-run state (no menu chrome).
+            -- NOTE: do NOT remove G.SPLASH_BACK — that is the animated green felt background
+            -- shader and removing it leaves the board area black, corrupting the reference.
+            -- NOTE: G.title_top is the CardArea holding the menu Ace of Spades materialize card.
+            -- It persists into the run and must be hidden before capture.
             pcall(function()
                 if G.SPLASH_FRONT then G.SPLASH_FRONT:remove(); G.SPLASH_FRONT = nil end
-                if G.SPLASH_BACK then G.SPLASH_BACK:remove(); G.SPLASH_BACK = nil end
                 if G.SPLASH_LOGO then G.SPLASH_LOGO:remove(); G.SPLASH_LOGO = nil end
+                if G.MAIN_MENU_UI then G.MAIN_MENU_UI:remove(); G.MAIN_MENU_UI = nil end
+                if G.PROFILE_BUTTON then G.PROFILE_BUTTON:remove(); G.PROFILE_BUTTON = nil end
+                -- title_top holds the Ace of Spades menu-animation card; hide it
+                if G.title_top then
+                    for _, c in ipairs(G.title_top.cards) do
+                        if c.states then c.states.visible = false end
+                    end
+                end
             end)
             -- dump Balatro's room→screen transform so the capture window can be sized to WIDTH-FILL
             -- (match the rebuild's repro framing) instead of fit-to-contain letterboxing.
@@ -85,8 +98,13 @@ love.update = function(dt, ...)
                     tostring(G.GAME.blind and G.GAME.blind.chips), tostring(G.GAME.current_round.hands_left),
                     tostring(G.GAME.current_round.discards_left)))
                 for i, c in ipairs(G.hand.cards) do
-                    print(string.format('REF: hand[%d] id=%s suit=%s value=%s', i, tostring(c.base.id), tostring(c.base.suit), tostring(c.base.value)))
+                    print(string.format('REF: hand[%d] id=%s suit=%s value=%s VTx=%.4f VTy=%.4f Tr=%.4f VTr=%.4f Tw=%.4f Th=%.4f',
+                        i, tostring(c.base.id), tostring(c.base.suit), tostring(c.base.value),
+                        c.VT.x, c.VT.y, c.T.r, c.VT.r, c.T.w, c.T.h))
                 end
+                print(string.format('REF: hand_area T x=%.4f y=%.4f w=%.4f h=%.4f', G.hand.T.x, G.hand.T.y, G.hand.T.w, G.hand.T.h))
+                print(string.format('REF: play_cards=%d deck_cards=%d discard_cards=%d hand_cards=%d',
+                    #G.play.cards, #G.deck.cards, #G.discard.cards, #G.hand.cards))
             end)
             love.graphics.captureScreenshot(function(img)
                 local ok = pcall(function() img:encode('png', 'ref.png') end)

@@ -34,6 +34,31 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/game"
 ( cd "$WORK/game" && unzip -q "$LOVE_FILE" )
 
+# Force the LÖVE window to open at exactly 3840x2160. Two issues to fix:
+# 1. Balatro's conf.lua uses width=0/height=0 which LÖVE on Xvfb opens at a smaller default
+#    (~1606x942 equivalent), so we override conf.lua to request 3840x2160 explicitly.
+# 2. Balatro's apply_window_changes(_initial=true) calls love.window.updateMode but guards the
+#    subsequent love.resize call with `if _initial ~= true`, so TILESCALE never updates from its
+#    default 3.65 to the 3840x2160-appropriate ~8.37. We patch apply_window_changes after loading
+#    button_callbacks.lua to always call love.resize, which triggers the TILESCALE recalculation
+#    and expands the render area from ~2000px to ~3683px wide — matching the rebuild's screencap.
+cat > "$WORK/game/conf.lua" <<'CONF'
+function love.conf(t)
+    t.window.width  = 3840
+    t.window.height = 2160
+    t.window.visible = true
+    t.window.resizable = false
+    t.console = false
+end
+CONF
+
+# Patch apply_window_changes in button_callbacks.lua: remove the `if _initial ~= true` guard so
+# love.resize fires during the Game:init() startup call. G = Game() runs at globals.lua load time
+# (before main.lua completes), so any end-of-main.lua injection is too late. Patching the source
+# file directly is the only reliable hook.
+sed -i 's/if _initial ~= true then/if true then/' "$WORK/game/functions/button_callbacks.lua"
+echo "[ref] patched apply_window_changes: love.resize will fire on initial startup call"
+
 {
     cat "$WORK/game/main.lua"
     echo ""
