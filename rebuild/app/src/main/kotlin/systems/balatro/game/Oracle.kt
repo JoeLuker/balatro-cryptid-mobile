@@ -541,6 +541,10 @@ object Oracle {
         // Pair aces: chips=32, mult=2. j_jolly (PAIR) → +8 mult → mult=10. mprime sees j_jolly (isJolly) → eMult=1.05.
         // finalMult = 10^1.05 = 11.2202… → score = floor(32 × 11.2202) = 359.
         Case("Pair of aces + cry_mprime + j_jolly (Emult^1.05 via other_joker)", PlayingCard.hand("S_A", "H_A"), 359.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_jolly"))),
+        // mprime counts an M-pool joker (foodm) as Jolly-equivalent (m.lua:1538 is_jolly() OR pools.M), so its
+        // Emult^1.05 fires. foodm(+40 Mult) → mult 42, then mprime ^1.05 → 42^1.05; chips 32 → floor(32*42^1.05).
+        // Without the M-pool fix mprime wouldn't recognize foodm → stays 1344 (= the foodm-alone case above).
+        Case("Pair + cry_mprime + foodm@40 (M-pool → Emult^1.05) → 1620", PlayingCard.hand("S_A", "H_A"), 1620.0, j(FJoker("j_cry_mprime", x = 1.05), FJoker("j_cry_foodm", mult = 40.0))),
         // cry_bonk: +chips per board joker via other_joker pass (m.lua:695). j.chips per non-Jolly, j.chips*j.xc per Jolly.
         // The before-pass scales chips +1 (bonus) on a Pair (m.lua:669-678), so this Pair hand uses chips 6→7.
         // Board [bonk(6→7,xc=3), j_joker]: j_joker→+4 mult. bonk sees j_joker (non-Jolly)→+7; sees itself→+7.
