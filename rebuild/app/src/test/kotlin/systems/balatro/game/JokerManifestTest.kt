@@ -80,6 +80,47 @@ class JokerManifestTest {
     }
 }
 
+/** dispatchManifest routes ctx.repetition=true through the individual hook so retrigger jokers
+ *  contribute fx.repetitions in the pre-score repetition-collection pass. This was broken before the fix:
+ *  manifested jokers with individual retrigger hooks silently returned null during the collection pass. */
+class RepetitionRoutingTest {
+    private fun fj(key: String) = FJoker(key)
+
+    @Test fun hackRetriggersViaRepetitionPass() {
+        val j = fj("j_hack")
+        val spec = JOKER_MANIFEST.getValue("j_hack")
+        val face2 = PlayingCard(Suit.S, 2)
+        val face9 = PlayingCard(Suit.S, 9)
+        // Repetition-collection pass: ctx.repetition=true
+        val ctx = Sctx().apply { repetition = true; otherCard = face2 }
+        val fx = dispatchManifest(spec, j, ctx)
+        assertEquals(1, fx?.repetitions ?: 0)   // 2 is in 2..5 → retrigger
+        val ctx9 = Sctx().apply { repetition = true; otherCard = face9 }
+        assertEquals(null, dispatchManifest(spec, j, ctx9))  // 9 not in 2..5 → no retrigger
+    }
+
+    @Test fun sockAndBuskinRetriggersViaRepetitionPass() {
+        val j = fj("j_sock_and_buskin")
+        val spec = JOKER_MANIFEST.getValue("j_sock_and_buskin")
+        val king = PlayingCard(Suit.H, 13)  // face
+        val two  = PlayingCard(Suit.H, 2)   // not face
+        val ctxFace = Sctx().apply { repetition = true; otherCard = king }
+        assertEquals(1, dispatchManifest(spec, j, ctxFace)?.repetitions ?: 0)
+        val ctxNonFace = Sctx().apply { repetition = true; otherCard = two }
+        assertEquals(null, dispatchManifest(spec, j, ctxNonFace))
+    }
+
+    @Test fun duskRetriggersOnLastHandViaRepetitionPass() {
+        val j = fj("j_dusk")
+        val spec = JOKER_MANIFEST.getValue("j_dusk")
+        val card = PlayingCard(Suit.S, 7)
+        val ctxLast = Sctx().apply { repetition = true; handsLeft = 0; otherCard = card }
+        assertEquals(1, dispatchManifest(spec, j, ctxLast)?.repetitions ?: 0)
+        val ctxNotLast = Sctx().apply { repetition = true; handsLeft = 2; otherCard = card }
+        assertEquals(null, dispatchManifest(spec, j, ctxNotLast))
+    }
+}
+
 /** The Effect -> Fx boundary is the one place the algebra meets the engine; test it exhaustively. */
 class EffectTest {
     @Test fun jokerMainMapsToModFields() {

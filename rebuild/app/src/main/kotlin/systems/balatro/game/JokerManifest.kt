@@ -120,6 +120,10 @@ internal fun dispatchManifest(spec: JokerSpec, j: FJoker, ctx: Sctx): Fx? {
     val individual = (ctx.individual && ctx.cardarea == "play") || ctx.held
     val effect: Effect = when {
         ctx.jokerRetriggerCheck                  -> spec.retrigger?.invoke(self, ctx) ?: Effect.None
+        // Repetition-collection pass (ctx.repetition=true): same condition logic as individual —
+        // route through the individual hook so retrigger jokers contribute fx.repetitions here.
+        // Scoring side-effects (chips/mult) in the Fx are ignored by the collector (only .repetitions is read).
+        ctx.repetition && ctx.otherCard != null  -> spec.individual?.invoke(self, ctx, ctx.otherCard!!) ?: Effect.None
         ctx.individual && ctx.cardarea == "play" && ctx.otherCard != null -> spec.individual?.invoke(self, ctx, ctx.otherCard!!) ?: Effect.None
         ctx.held && ctx.otherCard != null        -> spec.held?.invoke(self, ctx, ctx.otherCard!!) ?: Effect.None
         ctx.otherJoker != null                   -> spec.otherJoker?.invoke(self, ctx, ctx.otherJoker!!) ?: Effect.None
