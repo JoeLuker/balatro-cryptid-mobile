@@ -35,3 +35,4 @@ Thumbs.db
 # (314M, its own git repo). All re-fetchable — see tools/uiref for the committed toolchain.
 /tools/lovely/
 /tools/lovely-src/
+result-apk
