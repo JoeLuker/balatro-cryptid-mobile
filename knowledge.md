@@ -804,3 +804,19 @@ The Android build applies a quilt-style ordered patch series (`overlay/patches/s
 ### Sticky-fingers exclusion is pre-existing
 Per prior memory ([[lovely-regen-build]]), the sticky-fingers exclusion warning surfaces during lovely/dump regen and is a known pre-existing condition — relevant context for why `j_cry_sock_and_sock` may silently no-op rather than error.
 <!-- session:2026-06-23-8e4f7836 | commit:74a8b9d7a044192973d6ebda6c70a17470e08fd8 | files:.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh | area:.claude | date:2026-06-23 -->
+
+### Hand-built UI → vanilla source mapping
+A workflow mapped each rebuild composable to its extractable vanilla `create_UIBox_*` / `G.UIDEF` source, with the exact stubs needed to extract each template. Key mappings: `ShopCard` → `create_shop_card_ui` (UI_definitions.vanilla.lua:802-880); shop sell strip → `G.UIDEF.use_and_sell_buttons` + `card_focus_button` (239-297, 382-441); `BlindSelectScreen` → `create_UIBox_blind_select` + `create_UIBox_blind_choice` (1417-1459, 1485-1610).
+<!-- session:2026-06-23-85bb2ba5 | commit:02802afef8be05af20f6bb6b6144f2c2564dade7 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,tools/uiref/UI_definitions.vanilla.lua,tools/uiref/extract.lua | area:tools | date:2026-06-23 -->
+
+### SHOP_SIGN is a floating UIBox
+The animated "Improve your run!" shop sign is NOT part of the shop ROOT tree — it's a separate floating UIBox (align=cm, offset y=-15→0 slide-in) anchored to `G.HUD`'s `row_blind` element. Purely decorative, no RunState binding, and currently absent from the rebuild.
+<!-- session:2026-06-23-85bb2ba5 | commit:02802afef8be05af20f6bb6b6144f2c2564dade7 | files:tools/uiref/UI_definitions.vanilla.lua | area:tools | date:2026-06-23 -->
+
+### Sell button is per-card, not a global Row
+Vanilla renders the sell button as `card_focus_button(type='sell')` attached to each joker card's `focused_ui` UIBox at align=cl, offset.x=-(card_width-0.17-card.T.w/2) — not as the rebuild's current raw Row of BButtons. Faithful replacement is a per-joker CardArea overlay bound to `RunState.sell(owned[i])`.
+<!-- session:2026-06-23-85bb2ba5 | commit:02802afef8be05af20f6bb6b6144f2c2564dade7 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-23 -->
+
+### HUD parity rendering
+RunScreen.kt and HudSpec.kt render the HUD from extracted vanilla `create_UIBox_*` trees via the uiref oracle pipeline; parity is verified by layout extraction rather than hand-built composables.
+<!-- session:2026-06-23-6b7b0353 | commit:8f6af1949c0d1cbfe535faad4de6b19337417f15 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt,tools/uiref/extract.lua,tools/uiref/extract.sh | area:rebuild | date:2026-06-23 -->
