@@ -280,13 +280,7 @@ object Score {
             "j_clever"  -> if (HandType.TWO_PAIR in ctx.pokerHands)        return Fx().apply { chipMod = 80.0 }
             "j_devious" -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { chipMod = 100.0 }
             "j_crafty"  -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { chipMod = 80.0 }
-            // --- vanilla "+Mult if played hand contains <type>" family (game.lua j_jolly..j_droll;
-            //     config {t_mult,type}). Same containment branch (card.lua:4203, mult_mod = t_mult). ---
-            "j_jolly"   -> if (HandType.PAIR in ctx.pokerHands)            return Fx().apply { multMod = 8.0 }
-            "j_zany"    -> if (HandType.THREE_OF_A_KIND in ctx.pokerHands) return Fx().apply { multMod = 12.0 }
-            "j_mad"     -> if (HandType.TWO_PAIR in ctx.pokerHands)        return Fx().apply { multMod = 10.0 }
-            "j_crazy"   -> if (HandType.STRAIGHT in ctx.pokerHands)        return Fx().apply { multMod = 12.0 }
-            "j_droll"   -> if (HandType.FLUSH in ctx.pokerHands)           return Fx().apply { multMod = 10.0 }
+            // (vanilla "+Mult if hand contains <type>" family j_jolly..j_droll migrated to JOKER_MANIFEST.)
             // --- scaling / state joker_main (the run loop sets the accumulators; zero-defaults no-op) ---
             // (j_green_joker migrated to JOKER_MANIFEST.)
             "j_spare_trousers", "j_swashbuckler", "j_red_card", "j_popcorn",
