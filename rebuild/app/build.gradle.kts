@@ -23,6 +23,10 @@ android {
     sourceSets["main"].java.srcDir("src/main/kotlin")
     sourceSets["test"].java.srcDir("src/test/kotlin")
     buildTypes { getByName("debug") { isMinifyEnabled = false } }
+    // Let JVM unit tests drive RunState directly: the only Android touch in the game logic is
+    // android.util.Log (via Telemetry, a side-channel) — returning defaults makes it a no-op so the
+    // run loop (buy/sell/scoreBank/play) is unit-testable off-device. Game logic is pure Kotlin.
+    testOptions { unitTests { isReturnDefaultValues = true } }
 }
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
