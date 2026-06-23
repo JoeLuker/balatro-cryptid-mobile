@@ -327,6 +327,64 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry_waluigi: X2.5 Mult per board joker including itself (Cryptid misc_joker.lua — no self-exclusion in vanilla).
     "j_cry_waluigi"     to JokerSpec(otherJoker = { _, _, _ -> Effect.XMult(2.5) }),
 
+    // ── batch 7a: joker_main flat (no state, no accumulator) ─────────────────────────────────────────
+    // j_joker: +4 Mult unconditionally (game.lua)
+    "j_joker"         to JokerSpec(jokerMain = { _, _ -> Effect.Mult(4.0) }),
+    // j_stuntman: +250 Chips unconditionally (game.lua config.extra.chip=250)
+    "j_stuntman"      to JokerSpec(jokerMain = { _, _ -> Effect.Chips(250.0) }),
+
+    // ── batch 7b: individual + repetition hybrid (fires per scored card: scoring effect + retrigger) ──
+    // cry_iterum: X2 Mult AND +1 retrigger per scored played card (spooky.lua — the "iterum" (again) joker).
+    // Both effects go through the individual hook; the repetition routing in dispatchManifest ensures the
+    // Retrigger(1) contribution is collected during ctx.repetition=true.
+    "j_cry_iterum"    to JokerSpec(individual = { _, _, _ -> Effect.All(listOf(Effect.XMult(2.0), Effect.Retrigger(1))) }),
+    // cry_weegaming: +2 retriggers per scored 2 (get_id; Maximized maps pips→10)
+    "j_cry_weegaming" to JokerSpec(individual = { _, ctx, c -> if (ctx.rankOf(c) == 2) Effect.Retrigger(2) else Effect.None }),
+    // cry_nosound: +3 retriggers per scored 7 (get_id)
+    "j_cry_nosound"   to JokerSpec(individual = { _, ctx, c -> if (ctx.rankOf(c) == 7) Effect.Retrigger(3) else Effect.None }),
+    // cry_exposed: +2 retriggers per scored non-face card
+    "j_cry_exposed"   to JokerSpec(individual = { _, ctx, c -> if (!(c.isFace || ctx.pareidolia)) Effect.Retrigger(2) else Effect.None }),
+    // cry_lightupthenight: X1.5 per scored 2 or 7 (individual; get_id)
+    "j_cry_lightupthenight" to JokerSpec(individual = { _, ctx, c ->
+        val r = ctx.rankOf(c); if (r == 2 || r == 7) Effect.XMult(1.5) else Effect.None
+    }),
+
+    // ── batch 7c: joker_main ctx-reads — plain ctx fields, no j.field ────────────────────────────────
+    // cry_triplet_rhythm: X3 when scoring hand has exactly 3 cards ranked 3 (get_id; Maximized→10)
+    "j_cry_triplet_rhythm" to JokerSpec(jokerMain = { _, ctx ->
+        if (ctx.scoringHand.count { ctx.rankOf(it) == 3 } == 3) Effect.XMult(3.0) else Effect.None
+    }),
+    // cry_jtron: Emult = 1 + count(j_joker on board); no-op when none present
+    "j_cry_jtron"     to JokerSpec(jokerMain = { _, ctx ->
+        val n = ctx.boardKeys.count { it == "j_joker" }; if (n > 0) Effect.EMult(1.0 + n) else Effect.None
+    }),
+    // cry_filler: X≈1 when High Card is in the played hand (meme joker; xMultMod = 1.00000000000003)
+    "j_cry_filler"    to JokerSpec(jokerMain = { _, ctx -> if (HandType.HIGH_CARD in ctx.pokerHands) Effect.XMult(1.00000000000003) else Effect.None }),
+    // cry_nice: +420 Chips when the played hand contains a 6 AND a 9 (any suits; get_id)
+    "j_cry_nice"      to JokerSpec(jokerMain = { _, ctx ->
+        if (ctx.fullHand.any { ctx.rankOf(it) == 6 } && ctx.fullHand.any { ctx.rankOf(it) == 9 }) Effect.Chips(420.0) else Effect.None
+    }),
+    // cry_circulus_pistoris: Echip^PI × Emult^PI when exactly 3 hands remain (exotic.lua:886)
+    "j_cry_circulus_pistoris" to JokerSpec(jokerMain = { _, ctx ->
+        if (ctx.handsLeft == 3) Effect.All(listOf(Effect.EChips(Math.PI), Effect.EMult(Math.PI))) else Effect.None
+    }),
+
+    // ── batch 7d: Cryptid custom hand-type jokers (exact scoringName, not containment) ───────────────
+    "j_cry_wtf"             to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) Effect.XMult(10.0)     else Effect.None }),
+    "j_cry_clash"           to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     Effect.XMult(12.0)     else Effect.None }),
+    "j_cry_the"             to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_NONE)        Effect.XMult(2.0)      else Effect.None }),
+    "j_cry_annihalation"    to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   Effect.EMult(5.2)      else Effect.None }),
+    "j_cry_words_cant_even" to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   Effect.XMult(52000000.0) else Effect.None }),
+    "j_cry_bonkers"         to JokerSpec(jokerMain = { _, ctx -> if (HandType.CRY_BULWARK in ctx.pokerHands)      Effect.Mult(20.0)      else Effect.None }),
+    "j_cry_fuckedup"        to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) Effect.Mult(37.0)      else Effect.None }),
+    "j_cry_foolhardy"       to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     Effect.Mult(42.0)      else Effect.None }),
+    "j_cry_undefined"       to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_NONE)        Effect.Mult(5.0)       else Effect.None }),
+    "j_cry_adroit"          to JokerSpec(jokerMain = { _, ctx -> if (HandType.CRY_BULWARK in ctx.pokerHands)      Effect.Chips(170.0)    else Effect.None }),
+    "j_cry_penetrating"     to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_CLUSTERFUCK) Effect.Chips(270.0)    else Effect.None }),
+    "j_cry_treacherous"     to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_ULTPAIR)     Effect.Chips(300.0)    else Effect.None }),
+    "j_cry_nebulous"        to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_NONE)        Effect.Chips(30.0)     else Effect.None }),
+    "j_cry_many_lost_minds" to JokerSpec(jokerMain = { _, ctx -> if (ctx.scoringName == HandType.CRY_WHOLEDECK)   Effect.Chips(8.0658175e67) else Effect.None }),
+
     // ── batch 6a: board-state counters refreshed by RunScreen before-pass (j.n = live count) ─────────
     // steel_joker: X(1 + 0.2×steelCount) Mult; j.n = count of Steel-enhanced cards in the deck (before-pass).
     "j_steel_joker"   to JokerSpec(jokerMain = { s, _ -> if (s.n > 0) Effect.XMult(1.0 + 0.2 * s.n) else Effect.None }),
