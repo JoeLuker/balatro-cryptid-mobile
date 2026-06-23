@@ -374,9 +374,14 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float,
         O -> {
             val obj = (n.ui as Ob).obj
             when (obj) {
+                // Wrap the Image in Box(at) — same as the DynaText case below. A lone Image carrying the
+                // absoluteOffset+requiredSize directly does NOT place inside RenderUIBoxNatural's fixed-size
+                // Box (it renders nothing); wrapping in a positioned Box and filling it fixes the sprite.
                 is Sprite -> if (n.w > 0 && n.h > 0)
-                    Image(obj.bmp, null, at.requiredSize((n.w * u).dp, (n.h * u).dp),
-                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    Box(at) {
+                        Image(obj.bmp, null, Modifier.requiredSize((n.w * u).dp, (n.h * u).dp),
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    }
                 is DynaText -> Box(at) { RenderDynaText(obj) }
                 // CardArea slot: hand the engine-computed rect (units) to the caller, which fills it
                 // with live cards/offers from RunState (the frame is the ported tree; contents bind).
