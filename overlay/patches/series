@@ -74,3 +74,4 @@ manual/74-cry_libscan_diag.patch
 manual/75-cry_igo_diag.patch
 manual/76-gamespeed_options.patch
 manual/77-sticky_fingers_dep.patch
+manual/80-save_cycle_tree.patch
