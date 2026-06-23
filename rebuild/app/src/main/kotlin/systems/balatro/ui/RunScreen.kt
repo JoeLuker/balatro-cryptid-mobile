@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -2585,16 +2586,56 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
  * Each row shows a description on the left and the gold $ payout on the right.
  */
 @Composable
+/**
+ * Port of create_UIBox_round_evaluation (UI_definitions.lua:1612). The extracted round_eval_tree.json
+ * provides the frame skeleton (three id-tagged empty R nodes); [RoundEvalSpec] converts those R nodes
+ * to CardAreaSlot O-nodes so [RenderUIBoxNatural]'s cardAreaContent callback fills each slot:
+ *   base_round_eval  — BLIND + HANDS rows (earned during the round)
+ *   bonus_round_eval — GOLD + INTEREST rows (bonus payout lines)
+ *   eval_bottom      — Cash Out button
+ */
 private fun RoundEvalScreen(s: RunState) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(300.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Cash Out button — G.C.ORANGE (#FDA200), label "Cash Out: $TOTAL".
-                BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
-                Spacer(Modifier.height(2.dp))
-                s.evalRows.forEach { EvalRowView(it) }
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val evalRoot = remember(ctx) { RoundEvalSpec.load(ctx) }
+    if (evalRoot == null) {
+        // Fallback: hand-built panel if asset missing.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Panel(Modifier.width(300.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
+                    Spacer(Modifier.height(2.dp))
+                    s.evalRows.forEach { EvalRowView(it) }
+                }
             }
         }
+        return
+    }
+    val baseRows  = s.evalRows.filter { it.kind == EvalKind.BLIND || it.kind == EvalKind.HANDS }
+    val bonusRows = s.evalRows.filter { it.kind == EvalKind.GOLD  || it.kind == EvalKind.INTEREST }
+    val tree = remember(evalRoot) { RoundEvalSpec.build(evalRoot) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+            val slotMod = Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp)
+            when (name) {
+                "base_round_eval"  -> Box(slotMod) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
+                           verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
+                        baseRows.forEach { EvalRowView(it) }
+                    }
+                }
+                "bonus_round_eval" -> Box(slotMod) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
+                           verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
+                        bonusRows.forEach { EvalRowView(it) }
+                    }
+                }
+                "eval_bottom"      -> Box(slotMod, contentAlignment = Alignment.Center) {
+                    BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = (0.2f * u).dp)) { s.cashOut() }
+                }
+            }
+        })
     }
 }
 
@@ -2852,86 +2893,130 @@ private fun packItemView(item: PackItem): Triple<String, String, Color> = when (
     is PackItem.SpectralItem -> Triple(item.s.display, item.s.desc, Balatro.Mult)
 }
 
-/** Booster pack opening (Phase.PACK_OPEN): tap to pick `choose` of the revealed items, or Skip. */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Port of create_UIBox_arcana/spectral/standard/buffoon/celestial_pack.
+ * The frame tree (pack_*_tree.json) is rendered by [PackSpec]; the CardArea slot ("pack_cards")
+ * is filled by [PackItemsContent] which lays out items from RunState.openPack.items.
+ *
+ * [PackSpec] pre-loads all five pack JSON trees once per PackOpenScreen composition.
+ * [PackBind] wires pack_choices (pick count) and the skip_booster button to live state.
+ */
 @Composable
 private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap>) {
     val p = s.openPack ?: return
-    Box(Modifier.fillMaxSize().padding(8.dp)) {
-        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            BTxt(p.name, Balatro.White, 18.sp)
-            BTxt(if (p.picksLeft > 0) "Pick ${p.picksLeft}" else "Done", Balatro.Gold, 13.sp)
-            Spacer(Modifier.height(8.dp))
-            FlowRow(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                p.items.forEachIndexed { i, item ->
-                    val taken = i in p.picked
-                    val (name, desc, accent) = packItemView(item)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
-                        Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
-                            when (item) {
-                                is PackItem.Card -> CardFace(item.card, cells[item.card], cardBase, Modifier.fillMaxSize()) {}
-                                is PackItem.Joker -> {
-                                    val art = jokerCells[item.o.key]
-                                    if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                                    else { cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }; BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp)) }
-                                }
-                                else -> {
-                                    cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                                    BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
-                                }
-                            }
-                        }
-                        BTxt(desc, accent, 8.sp, Modifier.padding(top = 1.dp))
-                        Spacer(Modifier.height(3.dp))
-                        val canPick = !taken && p.picksLeft > 0
-                        Box(
-                            Modifier.clip(RoundedCornerShape(6.dp)).background(if (canPick) Balatro.Gold else Balatro.Grey)
-                                .clickable(enabled = canPick) { s.pickPackItem(i) }.padding(horizontal = 10.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { BTxt(if (taken) "Taken" else "Select", Balatro.White, 11.sp) }
-                    }
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val spec = remember(ctx) { PackSpec.load(ctx) }
+    val kind = when (p.kind) {
+        "Arcana"   -> PackSpec.Kind.ARCANA
+        "Spectral" -> PackSpec.Kind.SPECTRAL
+        "Standard" -> PackSpec.Kind.STANDARD
+        "Buffoon"  -> PackSpec.Kind.BUFFOON
+        else       -> PackSpec.Kind.CELESTIAL   // "Celestial"
+    }
+    val tree = remember(kind, p.picksLeft) {
+        spec.forPack(kind, PackBind(p.picksLeft) { s.skipPack() })
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd).padding(8.dp))
+        if (tree != null) {
+            RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+                if (name == "pack_cards") {
+                    PackItemsContent(p, x, y, w, h, u, jokerCells, cardBase, cells, s)
                 }
+            })
+        } else {
+            // Fallback if JSON missing: plain column layout.
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BTxt(p.name, Balatro.White, 18.sp)
+                BTxt(if (p.picksLeft > 0) "Pick ${p.picksLeft}" else "Done", Balatro.Gold, 13.sp)
+                Spacer(Modifier.height(8.dp))
+                BButton("Skip", Balatro.Mult) { s.skipPack() }
             }
-            Spacer(Modifier.height(10.dp))
-            BButton("Skip", Balatro.Mult) { s.skipPack() }
         }
     }
 }
 
 /**
- * Port of create_UIBox_blind_select (UI_definitions.lua:1417).
- * Shows three blind-choice columns (Small, Big, Boss) in a horizontal row;
- * tapping a blind calls s.selectBlind() to start the round.
+ * Fills the pack_cards CardAreaSlot with the revealed items. Each item is sized to CARD_W × CARD_H
+ * Balatro units and spaced evenly across the slot width. Items outside the slot are clipped.
+ * Tap to pick (if picks remain and not already taken); highlight taken items with grey overlay.
+ */
+@Composable
+private fun PackItemsContent(p: OpenPack, x: Float, y: Float, w: Float, h: Float, u: Float,
+                             jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?,
+                             cells: Map<PlayingCard, ImageBitmap>, s: RunState) {
+    val n = p.items.size
+    if (n == 0) return
+    val cardW = w / n                   // Balatro units per item (CARD_W ≈ 2.049, spaced to fill slot)
+    val cardH = h                       // slot height = CARD_H
+    Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp).clip(RectangleShape)) {
+        p.items.forEachIndexed { i, item ->
+            val taken    = i in p.picked
+            val canPick  = !taken && p.picksLeft > 0
+            val (name, desc, accent) = packItemView(item)
+            val iX = i * cardW
+            Box(
+                Modifier
+                    .absoluteOffset((iX * u).dp, 0.dp)
+                    .size((cardW * u).dp, (cardH * u).dp)
+                    .clickable(enabled = canPick) { s.pickPackItem(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                when (item) {
+                    is PackItem.Card ->
+                        CardFace(item.card, cells[item.card], cardBase, Modifier.fillMaxSize()) {}
+                    is PackItem.Joker -> {
+                        val art = jokerCells[item.o.key]
+                        if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        else {
+                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                            BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                        }
+                    }
+                    else -> {
+                        cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                        BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                    }
+                }
+                // Taken overlay
+                if (taken) Box(Modifier.fillMaxSize().background(Balatro.Panel.copy(alpha = 0.55f)))
+                // Item label under card
+                BTxt(desc, accent, 7.sp, Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Port of create_UIBox_blind_select (UI_definitions.lua:1417) + create_UIBox_blind_choice
+ * (line 1485). Each slot's card tree is extracted JSON: blind_small/big/boss_tree.json.
+ * [BlindSpec] pre-loads all three; [BlindBind] wires per-slot state at build time.
  *
- * Deferred: G.blind_prompt_box DynaText prompt ("ph_choose_blind_1/2"), blind_tag extras,
- * AnimatedSprite for each blind (B placeholder holds the 1.4u×1.4u footprint),
- * disabled state, run_info view, reroll-boss voucher button.
+ * Outer composition: Column with Row of three BlindSpec-built trees, skip button, earned tags.
+ * (The outer Row itself is not a ported UIBox — create_UIBox_blind_select's outer R padding=0.5
+ * is reproduced via Compose-level Arrangement.spacedBy. Inner card trees are fully ported.)
  */
 @Composable
 private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
-    // Load all three blind sprites in one atlas pass — including the UPCOMING boss (s.boss is null
-    // during select, so use s.upcomingBoss or the boss slot shows a blank/placeholder). Re-fires per ante.
+    // Load all three blind sprites in one atlas pass — including the UPCOMING boss.
+    // Re-fires per ante (blindIndex changes each blind pick).
     val u = LocalUIScale.current
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
         Triple(null, null, null), s.blindIndex
     ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) } }
+
+    // Pre-load JSON trees once (cached by HudSpec.root); no recompose cost after first render.
+    val spec = remember(ctx) { BlindSpec.load(ctx) }
+
+    val currentSlot = s.blindIndex % 3
 
     Column(
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        BTxt("Choose Blind", Balatro.White, 20.sp)
-        Spacer(Modifier.height(12.dp))
-        // R(align="cm", padding=0.5) containing up to 3 O(UIBox{blind_choice}) nodes
-        // Rendered as a horizontal row since each blind card is a C column node.
-        val currentSlot = s.blindIndex % 3
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -2941,9 +3026,22 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                 val blindBmp: ImageBitmap? = when (slotIdx) {
                     0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
                 }
+                val enabled = slotIdx == currentSlot
+                val bossColour = if (slotIdx == 2) bossColourOf(s.upcomingBoss) else null
+
+                val tree: UI? = spec.forSlot(
+                    slotIdx    = slotIdx,
+                    enabled    = enabled,
+                    bossColour = bossColour,
+                    blindBmp   = blindBmp,
+                    stakeBmp   = stakeBmp,
+                    chipTarget = fmtR(s.targetForSlot(slotIdx)),
+                    reward     = s.rewardForSlot(slotIdx),
+                    selectAction = if (enabled) { { s.selectBlind() } } else null,
+                    skipAction   = if (slotIdx != 2) { { s.skipBlind() } } else null,
+                )
                 Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
-                    RenderUIBoxNatural(blindChoiceCard(s, slotIdx, blindBmp = blindBmp, stakeBmp = stakeBmp,
-                        enabled = (slotIdx == currentSlot)) { s.selectBlind() }, u)
+                    if (tree != null) RenderUIBoxNatural(tree, u)
                 }
             }
         }
@@ -2962,100 +3060,42 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
 }
 
 /**
- * Port of create_UIBox_blind_choice (UI_definitions.lua:1485) for one blind slot.
- * slotIdx: 0=Small, 1=Big, 2=Boss. onSelect called when the "Select" button is tapped.
- *
- * Structure (simplified — faithfully follows source tree shape):
- *   R(align="tm", minh=10, r=0.1, padding=0.05)        ← outer card
- *     R(align="cm", colour=darkPanel, r=0.1)
- *       R(align="cm", padding=0.2)
- *         R[select button](align="cm", colour=ORANGE, minh=0.6, minw=2.7, r=0.1, shadow, onClick)
- *           T(blindState label, scale=0.45, TEXT_LIGHT)
- *         R[blind_name](align="cm", padding=0.07)
- *           R(align="cm", r=0.1, outline_colour=blindCol, colour=darken(blindCol), minw=2.9, emboss=0.1)
- *             O(DynaT(blindName, WHITE, scale=0.45, maxw=2.8))
- *         R[blind_desc](align="cm", padding=0.05)
- *           R(align="cm", minh=1.5)   ← blind animation placeholder (B)
- *           R(align="cm", minh=0.7, minw=2.9)  ← description lines
- *             R(maxw=2.8) T(desc line 1, scale=0.32, WHITE)
- *         R[score_target](align="cm", r=0.1, colour=BLACK, minw=3.1, emboss=0.05)
- *           R(maxw=3) T("Score at least", scale=0.3, WHITE)
- *           R(minh=0.6) B(stake_placeholder) B(0.1) T(amount, scale=0.9*sc, RED)
- *           R T("Reward: ", WHITE) T("$$$+", MONEY, scale=0.35)
- *
- * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
+ * Boss colour from G.P_BLINDS[boss.key].boss_colour (game.lua).
+ * Each boss blind has a unique tint registered in extract.lua as "boss:bl_*" in colourName.
+ * The hex values here match the blindcolour() calls in extract.lua's G.P_BLINDS table.
  */
-private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, stakeBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
-    val light = Balatro.White
-    // mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5) = mix(#374244, #4f6367, 0.5) = #435256
-    // Source: UI_definitions.lua:1761 `colour = mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5)`
-    val darkPanel = Color(0xFF435256)
-    // get_blind_main_colour: misc_functions.lua:396-407
-    // Small: mix_colours(G.C.BLUE, G.C.BLACK, 0.6)   = mix(#009DFF, #374244, 0.6) = #21668F
-    // Big:   mix_colours(G.C.ORANGE, G.C.BLACK, 0.6) = mix(#FDA200, #374244, 0.6) = #866829
-    // Boss:  G.P_BLINDS[boss].boss_colour (per-boss; Mult is a safe non-committed fallback)
-    val blindCol = when (slotIdx) { 0 -> Color(0xFF21668F); 1 -> Color(0xFF866829); else -> Balatro.Mult }
-    // darken(blindCol, 0.3) = blindCol * 0.7 per channel
-    // Small: #21668F * 0.7 = #174764
-    // Big:   #866829 * 0.7 = #5E491D
-    val blindColDark = when (slotIdx) {
-        0 -> Color(0xFF174764); 1 -> Color(0xFF5E491D); else -> Color(0xFFB24139)
-    }
-    val blindName = s.nameForSlot(slotIdx)
-    val blindDesc = s.descForSlot(slotIdx)
-    val amount = s.targetForSlot(slotIdx)
-    val reward = s.rewardForSlot(slotIdx)
-    val dollarStr = "$".repeat(reward) + "+"
-    // G.C.UI.BACKGROUND_INACTIVE = HEX("666666FF") = #666666 (globals.lua:417)
-    // Enabled colour = G.C.ORANGE = #FDA200 (not FILTER/IMPORTANT = #FF9A00)
-    val btnColour = if (enabled) Balatro.OrangeTrue else Color(0xFF666666)
-
-    // Source: outer R has r=0.1; inner R has outline=1, outline_colour=G.C.L_BLACK (PanelLight).
-    return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
-        R(Cfg(align = "cm", colour = darkPanel, r = 0.1f,
-              outline = 1f, outlineColour = Balatro.PanelLight),
-            R(Cfg(align = "cm", padding = 0.2f),
-                // ── select button (Orange if current slot, Grey for Upcoming) ──
-                R(Cfg(align = "cm", colour = btnColour, minh = 0.6f, minw = 2.7f,
-                      padding = 0.07f, r = 0.1f, emboss = if (enabled) 0.05f else 0f,
-                      onClick = if (enabled) onSelect else null),
-                    T(Cfg(scale = 0.45f, textColour = light, shadow = enabled),
-                      if (enabled) "Select" else "Upcoming")),
-                // ── blind name band (outline=1, outline_colour=blindCol in source) ──
-                R(Cfg(align = "cm", padding = 0.07f),
-                    R(Cfg(align = "cm", r = 0.1f, colour = blindColDark,
-                          minw = 2.9f, emboss = 0.1f, padding = 0.07f,
-                          outline = 1f, outlineColour = blindCol),
-                        O(Cfg(), DynaT(seg({ blindName }, light, scale = 0.45f), shadow = true)))),
-                // ── blind art + description ──
-                R(Cfg(align = "cm", padding = 0.05f),
-                    R(Cfg(align = "cm"),
-                        // Blind sprite (frame-0 from BlindChips.png, 1.4u×1.4u).
-                        // B spacer preserves layout while atlas loads or when boss sprite is missing.
-                        R(Cfg(align = "cm", minh = 1.5f),
-                            if (blindBmp != null) O(Cfg(minw = 1.4f, minh = 1.4f), Spr(blindBmp, 1.4f, 1.4f))
-                            else B(Cfg(minw = 1.4f, minh = 1.4f, colour = blindCol))),
-                        if (blindDesc.isNotEmpty())
-                            R(Cfg(align = "cm", minh = 0.7f, padding = 0.05f, minw = 2.9f),
-                                R(Cfg(align = "cm", maxw = 2.8f),
-                                    T(Cfg(scale = 0.32f, textColour = light, shadow = true), blindDesc)))
-                        else
-                            B(Cfg(minw = 0.1f, minh = 0.1f)))),
-                // ── score target panel ──
-                R(Cfg(align = "cm", r = 0.1f, padding = 0.05f, minw = 3.1f,
-                      colour = Balatro.Panel, emboss = 0.05f),
-                    R(Cfg(align = "cm", maxw = 3f),
-                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
-                    R(Cfg(align = "cm", minh = 0.6f),
-                        // stake sprite (White Chip from chips.png; B spacer while loading)
-                        if (stakeBmp != null) O(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
-                        else B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
-                        B(Cfg(minw = 0.1f, minh = 0.1f)),
-                        T(Cfg(scale = 0.9f, textColour = Balatro.Mult, shadow = true), fmtR(amount))),
-                    R(Cfg(align = "cm"),
-                        T(Cfg(scale = 0.35f, textColour = light, shadow = true), "Reward: "),
-                        T(Cfg(scale = 0.35f, textColour = Balatro.Money, shadow = true), dollarStr))))))
+private fun bossColourOf(boss: Boss?): Color = when (boss) {
+    Boss.THE_OX        -> Color(0xFFB95B08)
+    Boss.THE_CLUB      -> Color(0xFF235955)
+    Boss.THE_FLINT     -> Color(0xFF6E3B3F)
+    Boss.THE_MARK      -> Color(0xFF594F6A)
+    Boss.THE_FISH      -> Color(0xFF1E5F69)
+    Boss.THE_PSYCHIC   -> Color(0xFF5F2565)
+    Boss.THE_GOAD      -> Color(0xFF5F5330)
+    Boss.THE_WATER     -> Color(0xFF2D5E57)
+    Boss.THE_EYE       -> Color(0xFF5A4A2B)
+    Boss.THE_MOUTH     -> Color(0xFF5F2027)
+    Boss.THE_WINDOW    -> Color(0xFF4A3A5F)
+    Boss.THE_PLANT     -> Color(0xFF34592E)
+    Boss.THE_NEEDLE    -> Color(0xFF2B3E5F)
+    Boss.THE_HEAD      -> Color(0xFF5F3530)
+    Boss.THE_TOOTH     -> Color(0xFF5F5530)
+    Boss.THE_WALL      -> Color(0xFF3B3B3B)
+    Boss.THE_WHEEL     -> Color(0xFF3B4B5F)
+    Boss.THE_HOUSE     -> Color(0xFF4B3A5F)
+    Boss.THE_HOOK      -> Color(0xFF5F2B45)
+    Boss.THE_ARM       -> Color(0xFF3B5F4F)
+    Boss.THE_PILLAR    -> Color(0xFF5F4B3A)
+    Boss.THE_SERPENT   -> Color(0xFF3B5F3B)
+    Boss.THE_MANACLE   -> Color(0xFF5F3A3A)
+    Boss.VERDANT_LEAF  -> Color(0xFF2F5F2F)
+    Boss.VIOLET_VESSEL -> Color(0xFF4B2F5F)
+    Boss.AMBER_ACORN   -> Color(0xFF5F4B1F)
+    Boss.CRIMSON_HEART -> Color(0xFF5F1F1F)
+    Boss.CERULEAN_BELL -> Color(0xFF1F4F5F)
+    null               -> Color(0xFF5F3A2B)
 }
+
 
 /**
  * Port of G.UIDEF.run_info() (UI_definitions.lua:3129): a tabbed overlay showing poker hands,
