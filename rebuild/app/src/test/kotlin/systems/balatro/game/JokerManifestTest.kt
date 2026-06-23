@@ -66,6 +66,28 @@ class JokerManifestTest {
         assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
     }
 
+    @Test fun soldEventAccumulators() {
+        // campfire: +0.25 Xmult per any joker sold (sell value irrelevant); joker_main reads the total once x > 1.
+        val campfire = spec("j_campfire")
+        var c = campfire.reduce!!(FJokerState(), GameEvent.Sold("j_jolly", 3))
+        c = campfire.reduce!!(c, GameEvent.Sold("j_blueprint", 1))
+        assertEquals(1.5, c.x, 1e-9)
+        assertEquals(Effect.XMult(1.5), campfire.jokerMain!!(c, ctx(HandType.PAIR)))
+        assertEquals(Effect.None, campfire.jokerMain!!(FJokerState(), ctx(HandType.PAIR)))   // x == 1 -> no Xmult yet
+
+        // eternalflame: +0.1 Xmult only when the sold joker's sell value >= 2.
+        val flame = spec("j_cry_eternalflame")
+        var f = flame.reduce!!(FJokerState(), GameEvent.Sold("j_x", 2))   // >= 2 -> +0.1
+        f = flame.reduce!!(f, GameEvent.Sold("j_y", 1))                   // < 2  -> no-op
+        assertEquals(1.1, f.x, 1e-9)
+
+        // ramen: starts x2 (manifest initialState), -0.01 per discarded card, floored at 1.
+        val ramen = spec("j_ramen")
+        assertEquals(2.0, ramen.initialState.x, 0.0)
+        val discarded = listOf(PlayingCard(Suit.S, 2), PlayingCard(Suit.H, 3), PlayingCard(Suit.D, 4))
+        assertEquals(1.97, ramen.reduce!!(ramen.initialState, GameEvent.Discarded(discarded)).x, 1e-9)
+    }
+
     @Test fun greenJokerAccumulatesAndFloorsAtZero() {
         val green = spec("j_green_joker")
         var st = FJokerState()

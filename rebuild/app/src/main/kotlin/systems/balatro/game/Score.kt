@@ -282,7 +282,8 @@ object Score {
             //  j_cry_krustytheclown/j_cry_eternalflame/j_cry_whip stay in-group for legacy compat.)
             // j_cry_krustytheclown migrated to JOKER_MANIFEST (batch 12 perCard); removed from accumulator group.
             // j_cry_dropshot/mondrian/fading_joker/keychange/verisimile/duplicare/clockwork/paved_joker/membershipcard migrated to JOKER_MANIFEST (batch 9a).
-            "j_obelisk", "j_hologram", "j_ramen", "j_campfire", "j_loyalty_card", "j_throwback", "j_cry_eternalflame", "j_cry_whip",
+            // j_ramen/j_campfire/j_cry_eternalflame migrated to JOKER_MANIFEST (Sold/Discarded-event accumulators).
+            "j_obelisk", "j_hologram", "j_loyalty_card", "j_throwback", "j_cry_whip",
             "j_cry_dropshot", "j_cry_chili_pepper", "j_cry_mondrian", "j_cry_fading_joker", "j_cry_keychange",
             "j_cry_verisimile", "j_cry_duplicare", "j_cry_clockwork",
             "j_cry_paved_joker", "j_cry_membershipcard" ->
