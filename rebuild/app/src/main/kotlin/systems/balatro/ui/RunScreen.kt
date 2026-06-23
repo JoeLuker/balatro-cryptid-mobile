@@ -1056,9 +1056,15 @@ internal class RunState {
             "j_cry_duplicare"  -> o.fj.x += pendingSel.size.toDouble()
             // j_cry_jimball: +0.15 Xmult while THIS hand type is the strict most-played (no other type has
             // been played as often); resets x→1 if another type ties or beats it (misc_joker.lua:1623-1656).
-            // _handPlayed already includes this hand (recordHandPlayed ran above), matching the Lua timing.
+            // Lua fires in context.before (pre-increment); _handPlayed is post-increment (recordHandPlayed
+            // already ran), so we use (playMoreThan - 1) to match Lua's play_more_than (see below).
             "j_cry_jimball"    -> if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) {
-                val playMoreThan = handPlayed(r.handType)
+                // Lua fires in context.before, reading G.GAME.hands[scoring_name].played BEFORE the
+                // current hand increments it (misc_joker.lua:1626). handPlayed() returns the post-
+                // increment count (recordHandPlayed ran above), so subtract 1 to get the pre-increment
+                // equivalent. Any other hand type with >= (playMoreThan-1) plays triggers a reset —
+                // including when playMoreThan==1 (first play), where 0 >= 0 resets for every other hand.
+                val playMoreThan = handPlayed(r.handType) - 1
                 val beaten = _handPlayed.any { (h, n) -> h != r.handType && n >= playMoreThan }
                 if (beaten) { if (o.fj.x > 1.0) o.fj.x = 1.0 } else o.fj.x += 0.15
             }
@@ -1280,13 +1286,15 @@ internal class RunState {
         for (rem in owned) when (rem.fj.key) {
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
             "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
-            // j_cry_m: +13 Xmult per Jolly Joker sold.
-            "j_cry_m"          -> if (soldKey == "j_jolly") rem.fj.x += 13.0
+            // j_cry_m: +13 Xmult per Jolly sold — epic.lua:745 uses is_jolly() (j_jolly key OR
+            // j_cry_jollysus key OR cry_m edition), not just j_jolly (lib/misc.lua:302).
+            "j_cry_m"          -> if (o.fj.isJolly()) rem.fj.x += 13.0
             // j_cry_loopy: +1 retrigger count per Jolly Joker sold.
             "j_cry_loopy"      -> if (soldKey == "j_jolly") rem.fj.n += 1
-            // j_cry_mstack: retriggers +1 per sell_req (3) Jolly Joker sells (m.lua selling_card hook).
+            // j_cry_mstack: retriggers +1 per sell_req (3) Jolly sells — m.lua:376 uses is_jolly()
+            // (j_jolly key OR j_cry_jollysus key OR cry_m edition), not just j_jolly (lib/misc.lua:302).
             // fj.chips repurposed as the sell-progress counter (0–2); never read as chips for this key.
-            "j_cry_mstack"     -> if (soldKey == "j_jolly") {
+            "j_cry_mstack"     -> if (o.fj.isJolly()) {
                 if (rem.fj.chips + 1 >= 3) { rem.fj.n += 1; rem.fj.chips = 0.0 } else rem.fj.chips += 1.0
             }
         }
