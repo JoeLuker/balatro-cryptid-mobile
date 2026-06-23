@@ -562,6 +562,9 @@ internal class RunState {
     /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
      *  Default Spades matches Cryptid's G.GAME.current_round.cry_dropshot_card = { suit = "Spades" }. */
     private var dropShotSuit: Suit = Suit.S
+    /** Random rank chosen for j_mail each round (reset_mail_rank pattern — common_events.lua:2715-2731,
+     *  pseudoseed('mail'..ante)). Rebuild seeds by blindIndex; default Ace=14 matches Lua default. */
+    private var mailRank: Int = 14
     /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
      *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
      *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
@@ -617,7 +620,17 @@ internal class RunState {
                 val card = if (c.t.seal != Seal.NONE) deck.sealRandom(c.t.seal) else deck.enhanceRandom(c.t.enhancement)
                 Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name, "card" to (card?.key ?: "none"))
             }
-            is Consumable.PlanetC -> { handLevels.levelUp(c.planet.hand); Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display) }
+            is Consumable.PlanetC -> {
+                handLevels.levelUp(c.planet.hand)
+                // j_constellation: +0.1 Xmult per planet consumable USED (card.lua:3286 context.consumeable,
+                //   ability.set=='Planet'). Was incorrectly firing on planet purchase — fixed here.
+                for (o in owned) if (o.fj.key == "j_constellation") o.fj.x += 0.1
+                // j_hiker: +5 Chips permanently per scored played card (card.lua:3606-3608 context.individual).
+                //   Requires per-card persistent chip bonus tracking (PlayingCard.perma_bonus in Lua).
+                //   UNIMPLEMENTED: PlayingCard is immutable in this engine; no per-card bonus map exists.
+                //   Removing from wrong site (planet purchase) — correct site is the individual card-scoring pass.
+                Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display)
+            }
             is Consumable.SpectralC -> { applySpectral(c.s); Telemetry.event("RUN_USE_SPECTRAL", "spectral" to c.s.name) }
         }
         consumables.removeAt(i)
@@ -870,6 +883,7 @@ internal class RunState {
         // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
         // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
         dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
+        mailRank = (2..14).random(Random(blindIndex * 1000000007L + 13))  // reset_mail_rank: pseudoseed('mail'..ante)
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
         maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
@@ -1244,8 +1258,13 @@ internal class RunState {
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.Discarded(discardedCards))) }
         for (o in owned) when (o.fj.key) {
             // (j_ramen depletion migrated to its JOKER_MANIFEST reducer on the Discarded event.)
-            // j_mail: +2 Mult per Jack discarded (config.extra mult=2, rank=11).
-            "j_mail"        -> if (jackCount > 0) o.fj.mult += 2.0 * jackCount
+            // j_mail: +$5 per discarded card matching this round's random rank (game.lua:471 config.extra=5;
+            //   common_events.lua:2715-2731 reset_mail_rank). Fires in context.discard per matching card.
+            //   Bug fix: was "+2 Mult per Jack" — correct effect is money, amount is 5, rank is random.
+            "j_mail" -> {
+                val mailCount = discardedCards.count { it.id == mailRank }
+                if (mailCount > 0) money += 5 * mailCount
+            }
             // j_castle: +3 Chips per suit in a FLUSH discard (config.extra chips=3; only counts matching suit cards).
             // Faithful: fires in context.discard for flush hands; we approximate as "all cards same suit".
             "j_castle"      -> if (flushSuit != null) o.fj.chips += 3.0 * discardedCards.count { it.suit == flushSuit }
@@ -1313,13 +1332,7 @@ internal class RunState {
         onCardBought()
         consumables.add(Consumable.PlanetC(po.planet))    // HELD until used (was: insta-level-up)
         shopPlanets = shopPlanets.filterNot { it === po }
-        // ── per-planet-buy joker accumulator hooks ────────────────────────────────────────────
-        for (o in owned) when (o.fj.key) {
-            // j_constellation: +0.1 Xmult per planet bought (config.extra xmult=0.1).
-            "j_constellation" -> o.fj.x += 0.1
-            // j_hiker: +5 Chips per planet bought (config.extra chips=5).
-            "j_hiker"         -> o.fj.chips += 5.0
-        }
+        // (j_constellation / j_hiker: trigger is planet USE, not purchase — hooks moved to useConsumable.)
         Telemetry.event("RUN_BUY_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
 
