@@ -1027,17 +1027,13 @@ internal class RunState {
         // ── per-hand joker accumulator hooks (the run loop owns state; score engine reads it) ──────
         totalHandsPlayed += 1
         roundHandTypes.add(r.handType)
-        // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer (e.g. green_joker +1 Mult).
-        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType))) }
+        // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer
+        // (green_joker +1 Mult, spare_trousers +2 on Two Pair/Full House, runner +15 on Straight, square +4 on 5 cards).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size))) }
         for (o in owned) when (o.fj.key) {
             // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
             "j_popcorn"        -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
-            // j_spare_trousers: +2 Mult each time Two Pair or Full House played.
-            "j_spare_trousers" -> if (r.handType == HandType.TWO_PAIR || r.handType == HandType.FULL_HOUSE) o.fj.mult += 2.0
-            // j_runner: +15 Chips each Straight (or Straight Flush) played.
-            "j_runner"         -> if (r.handType == HandType.STRAIGHT || r.handType == HandType.STRAIGHT_FLUSH) o.fj.chips += 15.0
-            // j_square: +4 Chips each time exactly 5 cards were played.
-            "j_square"         -> if (pendingSel.size == 5) o.fj.chips += 4.0
+            // (spare_trousers / runner / square migrated to JOKER_MANIFEST reducers.)
             // j_obelisk: +0.2 Xmult per hand NOT of the most-played type (Balatro: "not the most played hand in this run").
             // Uses prevMostPlayed (before this hand increments the count) so the threshold is consistent.
             "j_obelisk"        -> if (prevMostPlayed != null && r.handType != prevMostPlayed) o.fj.x += 0.2

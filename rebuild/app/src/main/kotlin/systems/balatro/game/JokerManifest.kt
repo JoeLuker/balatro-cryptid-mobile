@@ -92,8 +92,8 @@ internal fun Effect.intoFx(individual: Boolean): Fx {
 sealed interface GameEvent {
     /** Before-pass, once per hand, with the scoring context (scoringName / pokerHands known). */
     data class BeforeHand(val ctx: Sctx) : GameEvent
-    /** A hand was scored and banked (run loop). */
-    data class HandScored(val handType: HandType) : GameEvent
+    /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.). */
+    data class HandScored(val handType: HandType, val playedCount: Int = 0) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
 }
@@ -180,4 +180,18 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_even_steven"      to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 4, 6, 8, 10)) Effect.Mult(4.0) else Effect.None }),
     "j_odd_todd"         to JokerSpec(individual = { _, _, c -> if (c.id == 14 || c.id in setOf(3, 5, 7, 9)) Effect.Chips(31.0) else Effect.None }),
     "j_scholar"          to JokerSpec(individual = { _, _, c -> if (c.id == 14) Effect.All(listOf(Effect.Chips(20.0), Effect.Mult(4.0))) else Effect.None }),
+
+    // ── batch 3: per-hand scaling accumulators (reducer accrues on HandScored; joker_main reads the total) ──
+    "j_spare_trousers" to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.HandScored && (e.handType == HandType.TWO_PAIR || e.handType == HandType.FULL_HOUSE)) s.copy(mult = s.mult + 2.0) else s },
+        jokerMain = { s, _ -> Effect.multOrNone(s.mult) },
+    ),
+    "j_runner" to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.HandScored && (e.handType == HandType.STRAIGHT || e.handType == HandType.STRAIGHT_FLUSH)) s.copy(chips = s.chips + 15.0) else s },
+        jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
+    ),
+    "j_square" to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 5) s.copy(chips = s.chips + 4.0) else s },
+        jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
+    ),
 )
