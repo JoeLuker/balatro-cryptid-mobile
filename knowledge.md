@@ -745,3 +745,62 @@ The rebuild's UI is an independent Kotlin/Compose reimplementation; the parity t
 ### Rasterization fidelity vs. layout error are different failure classes
 Small per-element outline/edge residuals and gamma/brightness differences are rasterization-level (expected, low-priority); dramatically wrong card angles and whole-button placement are layout/algorithm errors. A naive full-frame pixel diff conflates the two — measuring a per-region displacement field separates "everything slightly fuzzy" from "this region is in the wrong place."
 <!-- session:2026-06-22-01df4f48 | commit:31e3cc39825fa6ca231f9267ba7b6c183c459130 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-22 -->
+
+### FJoker initial-state convention
+A joker's acquisition state is seeded in `buy()` via per-key when-blocks setting `fjN`/`fjXInit`/`fjMult` (and `fjChips`/`fjXc` for chip/xmult-carrying jokers like bonk). The engine never reads stale acquisition values for roll-based jokers — the before-hand run loop pre-resolves pseudorandom rolls and overwrites `j.n`/`j.x`/`j.mult` before scoring reads them.
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-22 -->
+
+### Roll-based jokers are pre-resolved in the run loop, not at score time
+busdriver (j.mult ±50), googol_play (j.x=1e100 on 1-in-8), and boredom (j.n=1/0 retrigger flag) all have their pseudorandom outcome computed in RunScreen.kt's before-hand loop; Score.kt only reads the pre-resolved value. Acquisition `initN` mirrors `config.extra.odds` so the fallback odds are correct (e.g. busdriver initN=4, googol_play relies on `if (n>0) n else 8`).
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-22 -->
+
+### Jolly-identity reactions
+bonk and mprime treat a board joker as "Jolly" if its key is `j_jolly`, `j_cry_jollysus`, or its edition is `cry_m`. bonk gives 18 chips (6×3) per Jolly vs 6 per non-Jolly; this is read from `j.chips`/`j.xc`, so those must be seeded at buy() or the joker contributes 0.
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-22 -->
+
+### blacklist (cry_cursed) acquisition
+cost 0, no clean rarity-int mapping (mapped to Common). buy() rolls `fjN = (2..14).random()` overriding the config default of 14 (Ace). Self-destruct hook (RunScreen.kt) removes the joker when `!deck.hasRank(...)` — which is why glass-shatter deck destruction matters for it to fire.
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-22 -->
+
+### Atlas gap renders placeholders
+several cry jokers reference atlases not in the rebuild's loaded set (atlasone/atlastwo/atlasthree/atlasexotic/Jokers) — `atlasspooky` (blacklist), `atlasepic` (boredom, googol_play). These render as name placeholders until those atlases are wired into the art pipeline.
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/ui/JokerArt.kt | area:rebuild | date:2026-06-22 -->
+
+### Glass shatter must destroy from deck
+shatter was visual-only (`startDissolve(card, shatter=true)`); permanent destruction requires removing the instance from `Deck.all` via the new `removeCard(card)`, which then correctly updates deck-size-scaling jokers (Blue Joker +2 chips/remaining card), stone/steel tallies, and gates blacklist's self-destruct.
+<!-- session:2026-06-22-aab57457 | commit:da97e5fd98e3fc5b17ccdb6df3c5d0a4b4de1fda | files:rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-22 -->
+
+### Android mod discovery resolves via love.filesystem PhysFS union, save-dir-first
+On LÖVE Android, `nativefs` is a wrapper that routes every dir/read op straight to `love.filesystem` (`setWorkingDirectory` is a no-op stub). SMODS discovers mods by scanning the virtual path `"Mods"`, which love mounts as a UNION of the writable save dir AND `game.love` — with the save dir taking precedence. A stale `files/save/Mods/` (from the last `build.sh deploy` push, Talisman-era with DebugPlus) therefore shadows the embedded `Amulet/Cryptid/...` in the archive, so SMODS loads the wrong/old set. The hardcoded mod list in `patch_main_lua.py` section 3 is ONLY for the dump's Talisman/Amulet detection, never for `SMODS.loadMods`.
+<!-- session:2026-06-22-dadaeb8f | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:scripts/patch_main_lua.py,patches/android-nativefs.lua,build/game/Mods/Steamodded/src/preflight/core.lua | area:scripts | date:2026-06-22 -->
+
+### No runtime extraction existed
+Nothing copied `game.love`'s embedded `Mods/` into `files/save/Mods/` at runtime; only `build.sh deploy()`/`prepare_transfer` (`adb push` → `run-as cp -r ... files/save/`) populated it, and `adb install -r` replaces `game.love` but never touches `files/save/Mods/`, so it goes stale.
+<!-- session:2026-06-22-dadaeb8f | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:scripts/build.sh,scripts/patch_main_lua.py | area:scripts | date:2026-06-22 -->
+
+### `SMODS.Mods` on device showed `{Steamodded, Talisman, Lovely, Balatro}`
+"Talisman" (not "Amulet") in the on-device `cry_diag.txt` was the smoking gun confirming the stale save-dir shadow — the build embeds Amulet, not Talisman.
+<!-- session:2026-06-22-dadaeb8f | commit:cd308a105262e779d12ff11b95d01f62060d376d | files:.claude/worktrees/relaxed-elbakyan-1c44d4/nix/stage-mods.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/patch_main_lua.py,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/patch_main_lua.py,.claude/worktrees/relaxed-elbakyan-1c44d4/nix/balatro-cryptid.nix,.claude/worktrees/relaxed-elbakyan-1c44d4/nix/sources.json | area:.claude | date:2026-06-22 -->
+
+### Manifest perCard hooks must fire ONLY in the individual SCORING pass (ctx.individual && cardarea=='play'), NOT the repetition-COLLECTION pass (ctx.repetition). The two-pass scoring loop in Score.kt: (1) repetition pass visits each scored card ONCE to tally retrigger counts; (2) individual pass then scores each card 1+reps times. dispatchManifest originally fired perCard in BOTH, double-counting every non-retriggered card and silently over-scoring all batch-12 two-phase jokers (wee_fib +12 not +6, krustytheclown x1.16 not x1.08, antennastoheaven xc1.4 not 1.2, spectrogram n=4 not 2). Fixed in #44 (268->272 oracle). The individual pass already loops per-rep, so retriggered cards still accumulate correctly. Also: GameEvent model now has BeforeHand/HandScored(handType,playedCount)/Discarded/Sold(soldKey,sellValue); reducers should use 'if (e is X)' or 'when(e){...; else->s}' (NOT exhaustive when over GameEvent) so a new event variant doesn't ripple a compile break across all reducers. Manifest migration ~90% done (170+ jokers, batches 1-12 + Sold-event batch).
+<!-- session:2026-06-23-6b7b0353 | commit:8f6af1949c0d1cbfe535faad4de6b19337417f15 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,tools/uiref/extract.sh,rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt | area:rebuild | date:2026-06-23 -->
+
+### Played-card edition scoring gap
+The engine never applied a scored playing card's own edition. `Score.evalCard` read only `c.enhancement` for the "play" cardarea; `c.edition` was read only on the joker path. Faithful behavior (vendor `common_events.lua:802-807` → `calculate_edition` → `game_object.lua` Holo/Foil/Poly) applies Foil +50 chips, Holo +10 mult, Poly ×1.5 per scored card, guarded to `G.play` only (held cards contribute nothing). Fix mirrors the joker-edition values already hardcoded in Score.kt.
+<!-- session:2026-06-22-002ecc85 | commit:e935dc9a61aa0f39da2f52366f64b95175c45920 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-22 -->
+
+### Oracle edition coverage was joker-only
+`Oracle.kt` edition tests exercised only `FJoker(edition=...)`, never a `PlayingCard` carrying an edition — which is why the played-card edition drop was silent and untested. `PlayingCard` does carry `edition: String` (Cards.kt:20), so the data was present and ignored.
+<!-- session:2026-06-22-002ecc85 | commit:e935dc9a61aa0f39da2f52366f64b95175c45920 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-22 -->
+
+### Manifest as single source of truth
+Joker metadata was scattered across registries; the migration centralizes it in `JokerManifest.kt` so both `Score.kt` and `RunScreen.kt` read from one declarative table (Unix/functional "one source, many consumers" framing the user explicitly asked for).
+<!-- session:2026-06-22-002ecc85 | commit:e935dc9a61aa0f39da2f52366f64b95175c45920 | files:rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt | area:rebuild | date:2026-06-22 -->
+
+### Patched-build architecture
+The Android build applies a quilt-style ordered patch series (`overlay/patches/series`) over vanilla source, plus manual patches under `overlay/patches/manual/`, driven by `scripts/build.sh` and `scripts/patch_main_lua.py`. Telemetry lives in `patches/android-telemetry.lua`.
+<!-- session:2026-06-23-8e4f7836 | commit:74a8b9d7a044192973d6ebda6c70a17470e08fd8 | files:scripts/build.sh,overlay/patches/series,patches/android-telemetry.lua | area:scripts | date:2026-06-23 -->
+
+### Sticky-fingers exclusion is pre-existing
+Per prior memory ([[lovely-regen-build]]), the sticky-fingers exclusion warning surfaces during lovely/dump regen and is a known pre-existing condition — relevant context for why `j_cry_sock_and_sock` may silently no-op rather than error.
+<!-- session:2026-06-23-8e4f7836 | commit:74a8b9d7a044192973d6ebda6c70a17470e08fd8 | files:.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh,.claude/worktrees/relaxed-elbakyan-1c44d4/scripts/build.sh | area:.claude | date:2026-06-23 -->
