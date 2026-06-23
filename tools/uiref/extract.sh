@@ -9,3 +9,8 @@ ROOT="$(cd "$DIR/../.." && pwd)"
 unzip -o -j "$ROOT/src/Balatro.love" functions/UI_definitions.lua -d "$DIR" >/dev/null
 mv -f "$DIR/UI_definitions.lua" "$DIR/UI_definitions.vanilla.lua"   # derived, gitignored
 lua "$DIR/extract.lua"
+# Stage every extracted tree into the app assets the Kotlin interpreter loads from.
+ASSETS="$ROOT/rebuild/app/src/main/assets/ui"
+mkdir -p "$ASSETS"
+for j in hud_tree shop_tree; do cp -f "$DIR/$j.json" "$ASSETS/$j.json"; done
+echo "staged trees -> $ASSETS"
