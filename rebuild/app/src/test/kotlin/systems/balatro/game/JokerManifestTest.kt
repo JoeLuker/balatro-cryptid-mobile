@@ -61,9 +61,9 @@ class JokerManifestTest {
         val rs = runner.reduce!!(FJokerState(), GameEvent.HandScored(HandType.STRAIGHT, 5))
         assertEquals(Effect.Chips(15.0), runner.jokerMain!!(rs, ctx(HandType.PAIR)))
 
-        val square = spec("j_square")  // accrues only on a 5-card hand (uses playedCount)
-        assertEquals(4.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 5)).chips, 0.0)
-        assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
+        val square = spec("j_square")  // accrues only on a 4-card hand (card.lua:3979: #context.full_hand == 4)
+        assertEquals(4.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
+        assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 5)).chips, 0.0)
     }
 
     @Test fun soldEventAccumulators() {

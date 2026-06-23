@@ -242,7 +242,9 @@ object Oracle {
         Case("Pair of aces + spaceglobe @xc=1.4 (2 type-match hands)", PlayingCard.hand("S_A", "H_A"), 89.0, j(FJoker("j_cry_spaceglobe", xc = 1.4))),
         Case("Pair of aces + fading_joker @x=2.0 (perishable expired)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_fading_joker", x = 2.0))),
         Case("Pair of aces + poor_joker @mult=8 (2 rent payments)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_cry_poor_joker", mult = 8.0))),
-        Case("Pair of aces + keychange @x=1.5 (2 new hand types)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_keychange", x = 1.5))),
+        // keychange jokerMain: pre-accumulated x=1.5 → Xmult×1.5 → mult=3 → floor(32×3)=96.
+        // (Reducer accumulation tested in runReducer; this case only pins the jokerMain read path.)
+        Case("Pair of aces + keychange @x=1.5 (jokerMain read path)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_keychange", x = 1.5))),
         // Spooky-Code scalers: cut (+0.5 Xmult/Code destroyed) and python (+0.15 Xmult/Code used).
         // Both use the same if (j.x > 1.0) → xMultMod pattern; test branch with x=1.5.
         // Pair aces: chips=32, mult=2; Xmult=1.5 → mult=3; floor(32×3)=96.
@@ -300,7 +302,9 @@ object Oracle {
         Case("Pair of aces + longboi @x=2.0 (Xmult from monstermult)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_longboi", x = 2.0))),
         // --- batch-18: individual Xmult + joker_main Xmult/Emult accumulators ---
         Case("Pair of aces + caramel @x=1.75 (X1.75/card, 2 aces)", PlayingCard.hand("S_A", "H_A"), 196.0, j(FJoker("j_cry_caramel", x = 1.75))),
-        Case("Pair of aces + clockwork @x=1.5 (accumulated Xmult)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_clockwork", x = 1.5))),
+        // clockwork jokerMain: pre-accumulated x=1.5 → Xmult×1.5 → mult=3 → floor(32×3)=96.
+        // (Reducer accumulation tested in runReducer; this case only pins the jokerMain read path.)
+        Case("Pair of aces + clockwork @x=1.5 (jokerMain read path)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_cry_clockwork", x = 1.5))),
         Case("Pair of aces + starfruit @x=2.0 (Emult^2, default)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_cry_starfruit", x = 2.0))),
         // starfruit depleted to x=1.2 (4 rerolls: 2.0 − 4×0.2 = 1.2): Emult=1.2 → mult=2^1.2≈2.2974 → floor(32×2.2974)=73.
         Case("Pair of aces + starfruit @x=1.2 (4 rerolls, partial depletion) → 73",

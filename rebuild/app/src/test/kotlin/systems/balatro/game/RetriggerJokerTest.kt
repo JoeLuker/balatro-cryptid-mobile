@@ -217,4 +217,48 @@ class RetriggerJokerTest {
         val result = Score.score(pairAces, listOf(FJoker("j_splash"), FJoker("j_cry_sock_and_sock")))
         assertEquals(64.0, result.score, 0.0)
     }
+
+    // -------------------------------------------------------------------------
+    // cry_boredom card-retrigger (epic.lua:883-893): context.repetition + cardarea==G.play.
+    // Board [boredom(n=1)] only: no other joker, so joker-retrigger fires nothing (self-excluded).
+    // Pair aces: base chips=10, mult=2. Each Ace: reps=1+1=2 (boredom individual hook).
+    //   S_A fires 2×: chips=10+11+11=32. H_A fires 2×: chips=32+11+11=54. score=floor(54×2)=108.
+    // Without the individual hook (pre-fix) no card retrigger fires → score=64.
+    // -------------------------------------------------------------------------
+    @Test fun boredom_retriggers_scored_cards_when_n_is_1() {
+        val boredom = FJoker("j_cry_boredom"); boredom.n = 1
+        val result = Score.score(pairAces, listOf(boredom))
+        assertEquals(108.0, result.score, 0.0)
+    }
+
+    @Test fun boredom_does_not_retrigger_cards_when_n_is_0() {
+        val boredom = FJoker("j_cry_boredom"); boredom.n = 0
+        val result = Score.score(pairAces, listOf(boredom))
+        assertEquals(64.0, result.score, 0.0)
+    }
+
+    // -------------------------------------------------------------------------
+    // cry_mstack cap: immutable.max_retriggers=40 (m.lua:339,367). n=41 → min(41,40)=40 retriggers.
+    // Pair aces: 41 fires/card → S_A chips=10+11×41=461, H_A chips=461+11×41=912. score=floor(912×2)=1824.
+    // Without cap (pre-fix, n=41 raw): 42 fires/card → chips=10+11×42+11×42=934 → score=1868.
+    // -------------------------------------------------------------------------
+    @Test fun mstack_retrigger_capped_at_40() {
+        val mstack = FJoker("j_cry_mstack"); mstack.n = 41
+        val result = Score.score(pairAces, listOf(mstack))
+        assertEquals(1824.0, result.score, 0.0)
+    }
+
+    // -------------------------------------------------------------------------
+    // cry_chad cap: immutable.max_retriggers=25 (misc_joker.lua:1554,1570). n=26 → min(26,25)=25.
+    // Board [joker(leftmost), chad(n=26)]. HighCard S_2: chips=5+2=7, mult=1.
+    //   j_joker +4→mult=5; chad: min(26,25)=25 reps → j_joker fires 25 more: mult=5+100=105.
+    //   score=floor(7×105)=735.
+    // Without cap (pre-fix, n=26 raw): mult=5+104=109 → floor(7×109)=763.
+    // -------------------------------------------------------------------------
+    @Test fun chad_retrigger_capped_at_25() {
+        val joker = FJoker("j_joker", rarity = 1)
+        val chad = FJoker("j_cry_chad"); chad.n = 26
+        val result = Score.score(PlayingCard.hand("S_2"), listOf(joker, chad))
+        assertEquals(735.0, result.score, 0.0)
+    }
 }
