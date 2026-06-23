@@ -136,9 +136,12 @@ internal fun dispatchManifest(spec: JokerSpec, j: FJoker, ctx: Sctx): Fx? {
         ctx.jokerMain                            -> spec.jokerMain?.invoke(self, ctx) ?: Effect.None
         else                                     -> Effect.None
     }
-    // Two-phase accumulation: perCard hook runs during the individual pass and updates live FJoker state
-    // so the jokerMain pass can read the accumulated value from j.snapshot().
-    if ((ctx.individual && ctx.cardarea == "play" || ctx.repetition) && ctx.otherCard != null) {
+    // Two-phase accumulation: perCard hook runs during the individual SCORING pass (which itself loops
+    // 1+reps times, so retriggered cards accumulate once per scoring instance) and updates live FJoker
+    // state so the jokerMain pass can read the accumulated value from j.snapshot(). It must NOT also fire
+    // during the repetition-COLLECTION pass (ctx.repetition) — that pass only tallies retrigger counts and
+    // visits each card once, so firing there double-counts every non-retriggered card.
+    if (ctx.individual && ctx.cardarea == "play" && ctx.otherCard != null) {
         spec.perCard?.let { j.restore(it(self, ctx, ctx.otherCard!!)) }
     }
     return if (effect == Effect.None) null else effect.intoFx(individual)
