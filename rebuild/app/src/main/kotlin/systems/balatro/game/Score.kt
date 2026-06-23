@@ -169,6 +169,7 @@ object Score {
                 // Lua guard: context.other_card ~= self — spectrogram must NOT retrigger itself.
                 "j_cry_spectrogram" -> if (rj === ctx.board.lastOrNull() && rj !== j && j.n > 0) return Fx().apply { repetitions = j.n }
                 // flip_side: retrigger any joker with the double-sided edition once.
+                // (j_cry_flip_side migrated to JOKER_MANIFEST.)
                 "j_cry_flip_side" -> if (rj.edition == "cry_double_sided") return Fx().apply { repetitions = 1 }
                 // boredom: 1-in-odds (default 2) pseudorandom retrigger of any other joker (epic.lua:868).
                 // Pseudorandom — pseudoseed "cry_boredom_joker" is fixed per game state, so the run loop
@@ -224,6 +225,7 @@ object Score {
             // Edition reactors: fire per scored playing card carrying that edition (misc_joker.lua:3635,3726,3817).
             // Separate from the other_joker path which fires per Foil/Holo/Poly joker on the board.
             // meteor held-chips are dead in Lua too (dev comment: "this doesn't exist yet"); held omitted.
+            // (j_cry_meteor/exoplanet/stardust/universe migrated to JOKER_MANIFEST — batch 5c edition reactors.)
             "j_cry_meteor"            -> if (oc.edition == "Foil") return Fx().apply { chips = 75.0 }
             "j_cry_exoplanet"         -> if (oc.edition == "Holo") return Fx().apply { mult = 15.0 }
             "j_cry_stardust"          -> if (oc.edition == "Poly") return Fx().apply { xMult = 2.0 }
@@ -237,6 +239,7 @@ object Score {
             "j_cry_weegaming" -> if (ctx.rankOf(oc) == 2) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored 2 (get_id; Maximized maps pips→10)
             "j_cry_nosound"   -> if (ctx.rankOf(oc) == 7) return Fx().apply { repetitions = 3 }   // +3 retriggers per scored 7 (get_id; Maximized maps pips→10)
             "j_cry_exposed"   -> if (!(oc.isFace || ctx.pareidolia)) return Fx().apply { repetitions = 2 }   // +2 retriggers per scored non-face
+            // (j_cry_mask migrated to JOKER_MANIFEST.)
             "j_cry_mask"      -> if (oc.isFace || ctx.pareidolia) return Fx().apply { repetitions = 3 }    // +3 retriggers per scored face
             "j_cry_mstack"    -> if (ctx.cardarea == "play") return Fx().apply { repetitions = j.n }  // +j.n retriggers per scored played card (j.n=retriggers, default 1; earned by selling jolly jokers)
             // vanilla retrigger jokers (card.lua:3895): Sock and Buskin retriggers each face once;
@@ -250,6 +253,7 @@ object Score {
             "j_dusk"            -> if (ctx.handsLeft == 0) return Fx().apply { repetitions = 1 }
             // (j_hack migrated to JOKER_MANIFEST.)
             "j_hack"            -> if (oc.id in 2..5) return Fx().apply { repetitions = 1 }
+            // (j_cry_sock_and_sock migrated to JOKER_MANIFEST.)
             // sock_and_sock: retrigger each played Abstract card once (config.extra.retriggers=1; max 40).
             "j_cry_sock_and_sock" -> if (oc.enhancement == Enhancement.ABSTRACT) return Fx().apply { repetitions = 1 }
             // clockwork Effect 1 (epic.lua:2227): retrigger each Steel-enhanced held card once when c1==0.
@@ -470,12 +474,16 @@ object Score {
         }
         // HELD-IN-HAND: jokers reacting to each card held (context.cardarea == G.hand)
         if (ctx.held && oc != null) when (j.key) {
+            // (j_baron migrated to JOKER_MANIFEST.)
             "j_baron"          -> if (oc.id == 13) return Fx().apply { xMult = 1.5 }           // King held: X1.5
+            // (j_shoot_the_moon migrated to JOKER_MANIFEST.)
             "j_shoot_the_moon" -> if (oc.id == 12) return Fx().apply { mult = 13.0 }           // Queen held: +13 Mult
+            // (j_raised_fist migrated to JOKER_MANIFEST.)
             "j_raised_fist"    -> {                                                            // +2x nominal of LOWEST held card
                 val low = ctx.heldHand.filter { it.enhancement != Enhancement.STONE }.minByOrNull { it.nominal }
                 if (low != null && oc == low) return Fx().apply { mult = 2.0 * low.chips }
             }
+            // (j_cry_exoplanet/stardust/universe held paths migrated to JOKER_MANIFEST.)
             // Edition reactors: fire per held card with that edition (misc_joker.lua:3735,3826).
             // Lua shows a "debuffed" message (no score) for debuffed held cards; the engine has no
             // held-card debuff tracking, so that edge case is not modelled — the fire condition is edition only.
@@ -492,6 +500,7 @@ object Score {
         // OTHER_JOKER: a joker reacting to each board joker (context.other_joker)
         val oj = ctx.otherJoker
         if (oj != null) when (j.key) {
+            // (j_baseball migrated to JOKER_MANIFEST.)
             "j_baseball"     -> if (oj !== j && oj.rarity == 2) return Fx().apply { xMultMod = 1.5 }  // X1.5 / Uncommon joker
             // circus: Xmult based on other joker's rarity (Rare=3→X2, cry_epic=5→X3, Legendary=4→X4, cry_exotic=6→X20).
             // Base values from config.extra circus_rarities (scalable at runtime; engine uses base config).
@@ -502,7 +511,9 @@ object Score {
                     if (xm > 1.0) return Fx().apply { xMultMod = xm }
                 }
             }
+            // (j_cry_waluigi migrated to JOKER_MANIFEST.)
             "j_cry_waluigi"  -> return Fx().apply { xMultMod = 2.5 }                                  // X2.5 once per board joker (incl self)
+            // (j_cry_meteor/exoplanet/stardust/universe other_joker paths migrated to JOKER_MANIFEST.)
             // --- Cryptid edition reactors (joker-on-joker path; card edition paths handled in individual/held blocks) ---
             "j_cry_meteor"    -> if (oj !== j && oj.edition == "Foil") return Fx().apply { chipMod = 75.0 }   // +75 Chips / other Foil joker
             "j_cry_exoplanet" -> if (oj !== j && oj.edition == "Holo") return Fx().apply { multMod = 15.0 }   // +15 Mult / other Holo joker

@@ -268,4 +268,58 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_cry_discreet"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_FIVE in ctx.pokerHands) Effect.Chips(240.0) else Effect.None }),
     "j_cry_swarm"     to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH_FIVE in ctx.pokerHands) Effect.XMult(9.0) else Effect.None }),
     "j_cry_duos"      to JokerSpec(jokerMain = { _, ctx -> if (HandType.TWO_PAIR in ctx.pokerHands || HandType.FULL_HOUSE in ctx.pokerHands) Effect.XMult(2.5) else Effect.None }),
+
+    // ── batch 5a: individual-path retrigger jokers ───────────────────────────────────────────────────
+    // cry_mask: +3 retriggers per scored face card (Cryptid spooky.lua config.extra.retriggers=3)
+    "j_cry_mask"        to JokerSpec(individual = { _, ctx, c -> if (c.isFace || ctx.pareidolia) Effect.Retrigger(3) else Effect.None }),
+    // cry_sock_and_sock: retrigger each played Abstract-enhanced card once (Cryptid misc_joker.lua)
+    "j_cry_sock_and_sock" to JokerSpec(individual = { _, _, c -> if (c.enhancement == Enhancement.ABSTRACT) Effect.Retrigger(1) else Effect.None }),
+
+    // ── batch 5b: held-in-hand jokers ────────────────────────────────────────────────────────────────
+    // baron: X1.5 Mult per King held in hand (game.lua)
+    "j_baron"           to JokerSpec(held = { _, _, c -> if (c.id == 13) Effect.XMult(1.5) else Effect.None }),
+    // shoot_the_moon: +13 Mult per Queen held in hand (game.lua)
+    "j_shoot_the_moon"  to JokerSpec(held = { _, _, c -> if (c.id == 12) Effect.Mult(13.0) else Effect.None }),
+    // raised_fist: +2x the chip value of the LOWEST non-Stone held card (game.lua).
+    // fired once, for the specific lowest card; the hook receives each held card, fires only on the minimum.
+    "j_raised_fist"     to JokerSpec(held = { _, ctx, c ->
+        val low = ctx.heldHand.filter { it.enhancement != Enhancement.STONE }.minByOrNull { it.nominal }
+        if (low != null && c === low) Effect.Mult(2.0 * low.chips) else Effect.None
+    }),
+
+    // ── batch 5c: Cryptid edition reactors (multi-hook: individual + held + otherJoker) ─────────────
+    // Each fires per playing card / held card / board joker carrying the named edition.
+    // meteor: +75 Chips / Foil scored card; +75 Chips / Foil other joker (held-chips dead in Lua).
+    "j_cry_meteor"      to JokerSpec(
+        individual  = { _, _, c -> if (c.edition == "Foil") Effect.Chips(75.0) else Effect.None },
+        otherJoker  = { _, _, oj -> if (oj.edition == "Foil") Effect.Chips(75.0) else Effect.None },
+    ),
+    // exoplanet: +15 Mult / Holo scored card; +15 hMult (Steel-card-style) / Holo held card; +15 Mult / Holo other joker.
+    "j_cry_exoplanet"   to JokerSpec(
+        individual  = { _, _, c -> if (c.edition == "Holo") Effect.Mult(15.0) else Effect.None },
+        held        = { _, _, c -> if (c.edition == "Holo") Effect.HeldMult(15.0) else Effect.None },
+        otherJoker  = { _, _, oj -> if (oj.edition == "Holo") Effect.Mult(15.0) else Effect.None },
+    ),
+    // stardust: X2 Mult / Poly scored card; X2 Mult / Poly held card; X2 Mult / Poly other joker.
+    "j_cry_stardust"    to JokerSpec(
+        individual  = { _, _, c -> if (c.edition == "Poly") Effect.XMult(2.0) else Effect.None },
+        held        = { _, _, c -> if (c.edition == "Poly") Effect.XMult(2.0) else Effect.None },
+        otherJoker  = { _, _, oj -> if (oj.edition == "Poly") Effect.XMult(2.0) else Effect.None },
+    ),
+    // universe: Emult^1.2 / Astral scored card; Emult^1.2 / Astral held card; Emult^1.2 / Astral other joker.
+    "j_cry_universe"    to JokerSpec(
+        individual  = { _, _, c -> if (c.edition == "Astral") Effect.EMult(1.2) else Effect.None },
+        held        = { _, _, c -> if (c.edition == "Astral") Effect.EMult(1.2) else Effect.None },
+        otherJoker  = { _, _, oj -> if (oj.edition == "Astral") Effect.EMult(1.2) else Effect.None },
+    ),
+
+    // ── batch 5d: retrigger-joker-check (retrigger hook) ─────────────────────────────────────────────
+    // cry_flip_side: retrigger any board joker that has the double-sided edition (Cryptid misc_joker.lua).
+    "j_cry_flip_side"   to JokerSpec(retrigger = { _, ctx -> if (ctx.retriggeredJoker?.edition == "cry_double_sided") Effect.Retrigger(1) else Effect.None }),
+
+    // ── batch 5e: other-joker reactors ────────────────────────────────────────────────────────────────
+    // baseball: X1.5 Mult per Uncommon (rarity=2) other board joker; baseball is Legendary so never fires on itself.
+    "j_baseball"        to JokerSpec(otherJoker = { _, _, oj -> if (oj.rarity == 2) Effect.XMult(1.5) else Effect.None }),
+    // cry_waluigi: X2.5 Mult per board joker including itself (Cryptid misc_joker.lua — no self-exclusion in vanilla).
+    "j_cry_waluigi"     to JokerSpec(otherJoker = { _, _, _ -> Effect.XMult(2.5) }),
 )
