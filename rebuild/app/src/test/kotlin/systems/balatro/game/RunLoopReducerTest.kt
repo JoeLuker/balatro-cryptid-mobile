@@ -140,6 +140,21 @@ class RunLoopReducerTest {
         assertEquals("melts to nothing, never negative", 0.0, sim["j_ice_cream"].chips, 0.0)
     }
 
+    @Test fun yorick_gainsXMultEvery23Discards() {
+        val sim = Sim("j_yorick")
+        sim.discard(22); assertEquals("not yet at 23", 1.0, sim["j_yorick"].x, 1e-9)
+        sim.discard(1);  assertEquals("23rd card → +X1", 2.0, sim["j_yorick"].x, 1e-9)
+        sim.discard(46); assertEquals("two more thresholds", 4.0, sim["j_yorick"].x, 1e-9)
+    }
+
+    @Test fun hitTheRoad_scalesPerJackDiscarded_resetsEachRound() {
+        val spec = JOKER_MANIFEST.getValue("j_hit_the_road")
+        var s = spec.reduce!!(FJokerState(x = 1.0), GameEvent.Discarded(listOf(PlayingCard(Suit.S, 11), PlayingCard(Suit.H, 11), PlayingCard(Suit.S, 5))))
+        assertEquals("+X0.5 per Jack (2 Jacks, the 5 ignored)", 2.0, s.x, 1e-9)
+        s = spec.reduce!!(s, GameEvent.RoundEnd(0))
+        assertEquals("resets to X1 at end of round", 1.0, s.x, 1e-9)
+    }
+
     @Test fun hologram_scalesPerCardAdded() {
         val sim = Sim("j_hologram")
         sim.cardAdded(1);  assertEquals(1.25, sim["j_hologram"].x, 1e-9)

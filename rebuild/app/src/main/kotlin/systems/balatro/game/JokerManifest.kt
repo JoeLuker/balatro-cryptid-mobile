@@ -994,4 +994,24 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         val empty = ctx.jokerSlots - ctx.boardKeys.size + ctx.boardKeys.count { it == "j_stencil" }
         if (empty > 1) Effect.XMult(empty.toDouble()) else Effect.None
     }),
+
+    // ── missing vanilla jokers — batch 5: discard-scaling reducers ────────────────────────────────
+    // Yorick: +X1 Mult for every 23 cards discarded (n carries the running remainder).
+    "j_yorick"  to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.Discarded) {
+            var n = s.n + e.cards.size; var x = s.x
+            while (n >= 23) { x += 1.0; n -= 23 }
+            s.copy(n = n, x = x)
+        } else s },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
+    // Hit the Road: +X0.5 Mult per Jack discarded this round; resets to X1 at end of round.
+    "j_hit_the_road"  to JokerSpec(
+        reduce = { s, e -> when (e) {
+            is GameEvent.Discarded -> s.copy(x = s.x + 0.5 * e.cards.count { it.rank == 11 })
+            is GameEvent.RoundEnd  -> s.copy(x = 1.0)
+            else                   -> s
+        } },
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
+    ),
 )

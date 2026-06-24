@@ -761,6 +761,10 @@ object Oracle {
         Case("Pair of aces + erosion @deck=48 (+4/card below 52 = +16 Mult)", PlayingCard.hand("S_A", "H_A"), 576.0, j(FJoker("j_erosion")), deckSize = 48),
         Case("Pair of aces + erosion @deck=52 (full deck → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_erosion")), deckSize = 52),
         Case("Pair of aces + stencil (only joker of 5 slots → X5)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_stencil"))),
+
+        // --- missing vanilla jokers, batch 5: discard-scaling (read path; accrual in RunLoopReducerTest) ---
+        Case("Pair of aces + yorick @x=2", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_yorick", x = 2.0))),
+        Case("Pair of aces + hit_the_road @x=1.5", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_hit_the_road", x = 1.5))),
     )
 
     fun run(): Pair<Int, Int> {

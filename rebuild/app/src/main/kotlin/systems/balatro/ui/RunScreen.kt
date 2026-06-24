@@ -482,6 +482,9 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 4): deck-size / slot scaling ---
     Offer("j_erosion", "Erosion", "+4 Mult per card below 52 in your deck", 6, rarity = 2),
     Offer("j_stencil", "Joker Stencil", "X1 Mult per empty Joker slot (counts itself)", 8, rarity = 2),
+    // --- missing vanilla jokers (batch 5): discard-scaling ---
+    Offer("j_yorick", "Yorick", "+X1 Mult per 23 cards discarded", 20, rarity = 4),
+    Offer("j_hit_the_road", "Hit the Road", "+X0.5 Mult per Jack discarded this round", 8, rarity = 3),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
