@@ -508,6 +508,10 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_grabber", "Grabber", "+1 hand each round", 1),
     VoucherOffer("v_wasteful", "Wasteful", "+1 discard each round", 1),
     VoucherOffer("v_seed_money", "Seed Money", "Raise interest cap to \$10", 50),
+    VoucherOffer("v_crystal_ball", "Crystal Ball", "+1 consumable slot", 1),
+    VoucherOffer("v_overstock_plus", "Overstock Plus", "+1 card slot in the shop", 1),
+    VoucherOffer("v_reroll_glut", "Reroll Glut", "Rerolls cost \$2 less", 2),
+    VoucherOffer("v_money_tree", "Money Tree", "Double interest cap to \$20", 100),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -1450,17 +1454,18 @@ internal class RunState {
         redeemedVouchers.add(v.key)
         shopVoucher = null
         when (v.key) {
-            "v_overstock_norm" -> {                            // change_shop_size: +1 slot, now + future
+            "v_overstock_norm", "v_overstock_plus" -> {        // change_shop_size: +1 slot, now + future
                 shopSlotsBonus += v.extra
                 val have = shopItems.mapNotNull { (it as? ShopItem.Jk)?.offer?.key }.toSet()
                 shopItems = shopItems + CATALOG.filterNot { it.key in have }
                     .shuffled(Random(blindIndex * 31L + shopItems.size)).take(v.extra).map { ShopItem.Jk(it) }
             }
             "v_clearance_sale" -> discountPercent = v.extra    // discount_percent = 25
-            "v_reroll_surplus" -> rerollBase = maxOf(0, rerollBase - v.extra)  // round_resets.reroll_cost -= 2
+            "v_reroll_surplus", "v_reroll_glut" -> rerollBase = maxOf(0, rerollBase - v.extra)  // round_resets.reroll_cost -= 2
             "v_grabber" -> baseHands += v.extra                // round_resets.hands += 1
             "v_wasteful" -> baseDiscards += v.extra            // round_resets.discards += 1
-            "v_seed_money" -> interestCap = v.extra / 5         // interest_cap = 50 → $10 max
+            "v_seed_money", "v_money_tree" -> interestCap = v.extra / 5  // interest_cap: 50→$10, 100→$20
+            "v_crystal_ball" -> consumableSlotsBonus += v.extra  // +1 consumable (Crystal Ball)
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
