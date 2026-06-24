@@ -40,4 +40,19 @@ class TagEffectTest {
         rs.applyTags(TagTrigger.SHOP_START)        // second fire must be a no-op (tag removed)
         assertEquals(10, rs.money)
     }
+
+    @Test fun charmTagQueuesAndOpensAMegaArcanaPack() {
+        val rs = RunState().apply { tags.add(Tag.CHARM) }
+        rs.applyTags(TagTrigger.SHOP_FINAL)        // queues the free pack
+        rs.openPendingPackTag()                    // opened once phase=SHOP is set
+        assertEquals("Arcana", rs.openPack?.kind)
+        assertEquals(5, rs.openPack?.items?.size)  // Mega Arcana: extra = 5
+    }
+
+    @Test fun buffoonTagOpensAFreeBuffoonPack() {
+        val rs = RunState().apply { tags.add(Tag.BUFFOON) }
+        rs.applyTags(TagTrigger.SHOP_FINAL)
+        rs.openPendingPackTag()
+        assertEquals("Buffoon", rs.openPack?.kind)
+    }
 }
