@@ -824,3 +824,15 @@ RunScreen.kt and HudSpec.kt render the HUD from extracted vanilla `create_UIBox_
 ### Overlay patch series structure
 Manual patches live in `overlay/patches/manual/NN-name.patch` and are registered by listing in `overlay/patches/series`; removing a patch requires deleting both the `.patch` file and its line in `series`.
 <!-- session:2026-06-23-39bea5df | commit:354651a60976458508e283d279e36e7284f4260d | files:overlay/patches/series,overlay/patches/manual/ | area:overlay | date:2026-06-23 -->
+
+### Tap-for-details lives in sticky-fingers controller
+The "tap for details, tap again to dismiss" card interaction is implemented in the manual sticky-fingers patch, not a standalone UI patch. Regressions in tap-to-detail behavior should be debugged there.
+<!-- session:2026-06-23-2512108b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:overlay/patches/manual/84-sf_controller.patch | area:overlay | date:2026-06-23 -->
+
+### Build/sign loop
+Changes to overlay patches are validated via a "syntax-check + rebuild + sign" background command before on-device testing.
+<!-- session:2026-06-23-2512108b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | date:2026-06-23 -->
+
+### Reducer test harness pattern
+The #44/#59 class of bug (latent accumulated-state errors across run-loop events) is catchable by dispatching real GameEvents through the run loop and asserting on accumulated state, rather than auditing each joker by hand. This is test infrastructure, not joker logic, so it does not collide with parallel scoring work on the same branch.
+<!-- session:2026-06-23-b782e2ee | commit:8604be4adb86d57a73345475933ea6de0da0ad25 | files:rebuild/app/src/test/kotlin/systems/balatro/game/RunLoopReducerTest.kt,rebuild/app/src/test/kotlin/systems/balatro/game/ScoreHookTest.kt | area:rebuild | date:2026-06-23 -->

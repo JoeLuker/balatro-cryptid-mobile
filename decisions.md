@@ -197,3 +197,9 @@ Played-card editions were being dropped → fold edition effects into `evalCard`
 ### Manifest migration approach
 Scattered registries vs centralized manifest → centralized `JokerManifest.kt` driven by Unix/functional-programming principles ("do it right, the Jane Street way"), with dedicated `JokerManifestTest.kt` for completeness guarantees.
 <!-- session:2026-06-22-002ecc85 | commit:e935dc9a61aa0f39da2f52366f64b95175c45920 | files:rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt,rebuild/app/src/test/kotlin/systems/balatro/game/JokerManifestTest.kt | area:rebuild | date:2026-06-22 -->
+### Test infrastructure over manual audit
+Manual audit surfaced the #44/#59 bug class but doesn't scale → build a reducer-driving JUnit harness that dispatches real GameEvents and asserts accumulated state (closes the gap automatically and stays clear of the parallel scoring effort on the shared branch).
+<!-- session:2026-06-23-b782e2ee | commit:8604be4adb86d57a73345475933ea6de0da0ad25 | files:rebuild/app/src/test/kotlin/systems/balatro/game/RunLoopReducerTest.kt | area:rebuild | date:2026-06-23 -->
+### Extend hook harness before run-loop harness
+When asked to proceed, user directed "extend the harness first" → prioritized extending ScoreHookTest hook coverage ahead of broadening the run-loop reducer tests.
+<!-- session:2026-06-23-b782e2ee | commit:8604be4adb86d57a73345475933ea6de0da0ad25 | files:rebuild/app/src/test/kotlin/systems/balatro/game/ScoreHookTest.kt | area:rebuild | date:2026-06-23 -->

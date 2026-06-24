@@ -240,3 +240,6 @@ Multiple deploy/diagnostic cycles ("still ficked", "same behavior as always") �
 ### Asked for confirmation on an obviously-wrong result
 Agent asked the user whether a produced result was what they were after → drew a sharp rebuke ("i'm disgusted that you would ask me if that's the result I'm after") → the result evidently did not meet the bar; the user expects self-evaluation against the parity goal before presenting, not confirmation-seeking on visibly substandard output. Followed by further HudSpec.kt/extract.lua edits.
 <!-- session:2026-06-23-85bb2ba5 | commit:02802afef8be05af20f6bb6b6144f2c2564dade7 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/HudSpec.kt,tools/uiref/extract.lua | area:rebuild | date:2026-06-23 -->
+### Tap-details fix incomplete / regressed
+Initial 84-sf_controller.patch edit restored tap-for-details and built cleanly (exit 0), but follow-up testing showed a bad high-speed interaction and then details not showing up at all → root cause not yet found; the fix needs to account for game-speed state in the tap timing/dismiss logic.
+<!-- session:2026-06-23-2512108b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:overlay/patches/manual/84-sf_controller.patch | area:overlay | date:2026-06-23 -->
