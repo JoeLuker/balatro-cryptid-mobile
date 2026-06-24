@@ -2692,6 +2692,11 @@ private fun RoundEvalScreen(s: RunState) {
     val ctx = LocalContext.current
     val u = LocalUIScale.current
     val evalRoot = remember(ctx) { RoundEvalSpec.load(ctx) }
+    // Current blind's chip sprite (blind1 row, add_round_eval_row common_events.lua:962).
+    val blindArt by produceState(Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>(null, null, null), s.blindIndex) {
+        value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.boss) }
+    }
+    val blindChip = when (s.blindIndex % 3) { 0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third }
     if (evalRoot == null) {
         // Fallback: hand-built panel if asset missing.
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -2699,7 +2704,7 @@ private fun RoundEvalScreen(s: RunState) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
                     Spacer(Modifier.height(2.dp))
-                    s.evalRows.forEach { EvalRowView(it) }
+                    s.evalRows.forEach { EvalRowView(it, u) }
                 }
             }
         }
@@ -2715,13 +2720,21 @@ private fun RoundEvalScreen(s: RunState) {
                 "base_round_eval"  -> Box(slotMod) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
                            verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
-                        baseRows.forEach { EvalRowView(it) }
+                        // Dotted divider before the first non-blind reward row (common_events.lua:935).
+                        baseRows.forEachIndexed { i, row ->
+                            if (i == 1) EvalDivider(u)
+                            EvalRowView(row, u, if (row.kind == EvalKind.BLIND) blindChip else null, if (row.kind == EvalKind.BLIND) s.chipText else null)
+                        }
                     }
                 }
                 "bonus_round_eval" -> Box(slotMod) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
                            verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
-                        bonusRows.forEach { EvalRowView(it) }
+                        // If the blind was the only base row, the divider lands atop the bonus rows.
+                        bonusRows.forEachIndexed { i, row ->
+                            if (i == 0 && baseRows.size <= 1) EvalDivider(u)
+                            EvalRowView(row, u)
+                        }
                     }
                 }
                 "eval_bottom"      -> Box(slotMod, contentAlignment = Alignment.Center) {
@@ -2733,9 +2746,20 @@ private fun RoundEvalScreen(s: RunState) {
     }
 }
 
-/** One add_round_eval_row: left = [coloured count] description, right = gold $ payout pips. */
+/** The dotted divider between the blind summary and the reward rows (common_events.lua:935 —
+ *  a DynaText of dots). Clipped to one line so it fills the width without wrapping. */
 @Composable
-private fun EvalRowView(row: EvalRow) {
+private fun EvalDivider(u: Float) {
+    Box(Modifier.fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
+        BTxt(".".repeat(80), Balatro.White, (0.45f * u).sp)
+    }
+}
+
+/** One add_round_eval_row: left = [coloured count] description, right = gold $ payout pips.
+ *  The BLIND row (blind1, common_events.lua:951) instead shows the blind chip + "Score at least" +
+ *  the target chip count. */
+@Composable
+private fun EvalRowView(row: EvalRow, u: Float, blindChip: ImageBitmap? = null, scoreText: String? = null) {
     val accent = when (row.kind) {
         EvalKind.BLIND -> Balatro.Money; EvalKind.HANDS -> Balatro.Chips
         EvalKind.GOLD -> Balatro.Gold; EvalKind.INTEREST -> Balatro.Money
@@ -2745,8 +2769,16 @@ private fun EvalRowView(row: EvalRow) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (row.leadNum != null) { BTxt(row.leadNum, accent, 16.sp); Spacer(Modifier.width(4.dp)) }
-            BTxt(row.label, Balatro.White, 11.sp)
+            if (row.kind == EvalKind.BLIND && blindChip != null) {
+                Image(blindChip, null, Modifier.size((0.8f * u).dp), filterQuality = FilterQuality.None)
+                Spacer(Modifier.width(6.dp))
+                BTxt("Score at least", Balatro.White, 9.sp)
+                Spacer(Modifier.width(4.dp))
+                BTxt(scoreText ?: "", Balatro.Mult, 15.sp)
+            } else {
+                if (row.leadNum != null) { BTxt(row.leadNum, accent, 16.sp); Spacer(Modifier.width(4.dp)) }
+                BTxt(row.label, Balatro.White, 11.sp)
+            }
         }
         Spacer(Modifier.width(8.dp))
         // Balatro renders num_dollars gold "$" pips; collapse to "$N" past 7 to stay on one line.
