@@ -1331,6 +1331,17 @@ internal class RunState {
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
     }
 
+    /** Reorder a joker by swapping it with its [dir] neighbour (dir = -1 left, +1 right). Joker order is
+     *  scored left→right and read by Blueprint (copies right) / Brainstorm (copies leftmost), so this is
+     *  a real mechanic. The engine joker CardArea rebuilds from `owned` each frame, so swapping the list
+     *  is enough — align_cards re-springs the cards and scoring uses the new order. Returns the new index. */
+    fun moveJoker(from: Int, dir: Int): Int {
+        val to = from + dir
+        if (from !in owned.indices || to !in owned.indices) return from
+        val a = owned[from]; owned[from] = owned[to]; owned[to] = a
+        return to
+    }
+
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
         owned.remove(o)
@@ -2262,6 +2273,8 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val foilOn = !s.repro && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
+    // Selected joker (tap to select) → shows the move/sell control bar. Resets on phase change.
+    var selJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
     // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
     // so they land correctly at the device's scale/letterboxing.
     fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
@@ -2443,7 +2456,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         s.owned.forEachIndexed { i, o ->
             val m = host.jokers.cards.getOrNull(i) ?: return@forEachIndexed
             val rDeg = -(m.VT.r * 57.2958).toFloat()
-            Box(off(m.VT.x.toFloat(), m.VT.y.toFloat())) {
+            val raise = if (selJoker == i) 0.4f else 0f   // lift the selected joker
+            Box(off(m.VT.x.toFloat(), m.VT.y.toFloat() - raise)
+                .clickable(enabled = !s.scoring, interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    selJoker = if (selJoker == i) null else i
+                }) {
                 Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                     jokerCells[o.offer.key]?.let {
                         // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
@@ -2483,6 +2500,20 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             BTxt("×", Balatro.Mult, badgeSp, Modifier.background(Balatro.Panel).padding(horizontal = 2.dp))
                         }
                     }
+                }
+            }
+        }
+        // Move/sell control bar for the selected joker — joker order is scored L→R (Blueprint copies
+        // right, Brainstorm copies leftmost), so reordering is a real mechanic. Sits below the joker.
+        selJoker?.let { si ->
+            if (!s.scoring && si in s.owned.indices) {
+                // Centred just below the joker row so it never collides with the left-edge slot count.
+                Row(Modifier.align(Alignment.TopCenter)
+                    .absoluteOffset(y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    JokerCtl("◀", u, enabled = si > 0) { selJoker = s.moveJoker(si, -1) }
+                    JokerCtl("Sell \$${maxOf(1, s.owned[si].offer.cost / 2)}", u, enabled = s.owned.size > 1) { s.sell(s.owned[si]); selJoker = null }
+                    JokerCtl("▶", u, enabled = si < s.owned.size - 1) { selJoker = s.moveJoker(si, 1) }
                 }
             }
         }
@@ -2743,6 +2774,17 @@ private fun RoundEvalScreen(s: RunState) {
                 }
             }
         })
+    }
+}
+
+/** A compact button for the selected-joker control bar (◀ / Sell / ▶). */
+@Composable
+private fun JokerCtl(label: String, u: Float, enabled: Boolean = true, onClick: () -> Unit) {
+    Box(Modifier.clip(RoundedCornerShape(4.dp)).background(if (enabled) Balatro.Mult else Balatro.Grey)
+        .clickable(enabled = enabled) { onClick() }
+        .padding(horizontal = (0.15f * u).dp, vertical = (0.04f * u).dp),
+        contentAlignment = Alignment.Center) {
+        BTxt(label, Balatro.White, (0.3f * u * FONT_RATIO).sp)
     }
 }
 
