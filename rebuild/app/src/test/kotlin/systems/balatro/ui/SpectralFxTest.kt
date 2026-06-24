@@ -40,4 +40,19 @@ class SpectralFxTest {
         use(rs, Spectral.INCANTATION)
         assertEquals(5, rs.hand.size)                 // 2 − 1 + 4
     }
+
+    @Test fun tranceAddsBlueSeal() {
+        val rs = RunState(); use(rs, Spectral.TRANCE)
+        assertEquals(1, rs.snapshot().deck.count { it.seal == "BLUE" })
+    }
+
+    @Test fun mediumAddsPurpleSeal() {
+        val rs = RunState(); use(rs, Spectral.MEDIUM)
+        assertEquals(1, rs.snapshot().deck.count { it.seal == "PURPLE" })
+    }
+
+    @Test fun auraAddsAnEditionThatPersists() {
+        val rs = RunState(); use(rs, Spectral.AURA)
+        assertEquals(1, rs.snapshot().deck.count { it.edition.isNotEmpty() })
+    }
 }
