@@ -769,6 +769,7 @@ object Oracle {
         // --- batch 6: passive jokers have NO scoring effect — must not crash calcJoker or change the score ---
         Case("Pair of aces + juggler (passive → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_juggler"))),
         Case("Pair of aces + golden (economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_golden"))),
+        Case("Pair of aces + marble (spawn → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_marble"))),
     )
 
     fun run(): Pair<Int, Int> {
