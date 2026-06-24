@@ -469,6 +469,8 @@ object Oracle {
         Case("Pair of aces + swashbuckler (mult=8)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_swashbuckler", mult = 8.0))),
         // Red Card: +3 Mult per skip (j.mult); j.mult=6 (2 skips) → chips=32, mult=2+6=8 → 256.
         Case("Pair of aces + red_card (mult=6)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_red_card", mult = 6.0))),
+        // Flash Card: +2 Mult per shop reroll (j.mult accumulates); j.mult=6 → mult=2+6=8 → 32×8 = 256.
+        Case("Pair of aces + flash (mult=6)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_flash", mult = 6.0))),
         // Spare Trousers: +2 Mult per Two Pair / Full House played (j.mult); j.mult=4 → mult=2+4=6 → 192.
         Case("Pair of aces + spare_trousers (mult=4)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_spare_trousers", mult = 4.0))),
         // Obelisk: Xmult scales +0.2 per hand NOT this type (j.x); x=1.4 (2 non-Pair hands) → mult=2*1.4=2.8 → 89.

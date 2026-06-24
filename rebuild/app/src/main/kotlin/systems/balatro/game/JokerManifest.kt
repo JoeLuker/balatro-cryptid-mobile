@@ -480,6 +480,9 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // A static JokerSpec.initialState cannot capture it; stays legacy until a dynamic-seed mechanism is added.
     // j_red_card: j.mult += per pack-open skip (epic.lua) — RunScreen handles event
     "j_red_card"        to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // j_flash (Flash Card): +2 Mult each shop reroll (extra=2, context.reroll_shop — RunScreen.reroll
+    // accrues j.mult); joker_main adds the accumulated mult when > 0 (card.lua:4559).
+    "j_flash"           to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // j_popcorn: starts mult=20 (config), −4 per ROUND (extra=4, context.end_of_round); self-destructs
     // at 0 (card.lua k_eaten_ex — RunScreen's cashOut handles the removal). NOT per-hand (vanilla decays
     // only at end of round).

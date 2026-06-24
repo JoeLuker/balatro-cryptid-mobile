@@ -534,6 +534,8 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 9): more end-of-round economy ---
     Offer("j_to_the_moon", "To the Moon", "Earn an extra $1 of interest for every $5 you have", 5, rarity = 2),
     Offer("j_delayed_grat", "Delayed Gratification", "Earn $2 per discard if no discards are used by end of round", 4),
+    // --- missing vanilla jokers (batch 11): reroll-scaling ---
+    Offer("j_flash", "Flash Card", "This Joker gains +2 Mult per reroll in the shop", 5, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1823,6 +1825,9 @@ internal class RunState {
         // j_cry_crustulum: +4 chips per reroll (config.extra.chip_mod=4, exotic.lua:514).
         // j.chips accumulates; joker_main reads it when > 0.
         for (o in owned) if (o.fj.key == "j_cry_crustulum") o.fj.chips += 4.0
+        // j_flash (Flash Card): +2 Mult per reroll (config.extra=2, card.lua:2966). j.mult accumulates;
+        // joker_main reads it when > 0.
+        for (o in owned) if (o.fj.key == "j_flash") o.fj.mult += 2.0
     }
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */

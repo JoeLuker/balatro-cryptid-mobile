@@ -78,4 +78,15 @@ class RunStateTest {
         rs.enterRoundEval(); rs.cashOut()                       // n → 0 → eaten
         assertTrue("self-destructs when h_size hits 0", rs.owned.none { it.fj.key == "j_turtle_bean" })
     }
+
+    @Test fun flashCardGainsTwoMultPerShopReroll() {
+        // Vanilla j_flash (Flash Card): +2 Mult each time the shop is rerolled (context.reroll_shop).
+        val rs = RunState()
+        rs.buy(offer("j_flash"), free = true)
+        val f = rs.owned.first { it.fj.key == "j_flash" }
+        assertEquals(0.0, f.fj.mult, 0.0)
+        rs.money = 100; rs.phase = Phase.SHOP                   // reroll requires SHOP phase + funds
+        rs.reroll(); rs.reroll(); rs.reroll()
+        assertEquals("+2 Mult per reroll", 6.0, f.fj.mult, 0.0)
+    }
 }
