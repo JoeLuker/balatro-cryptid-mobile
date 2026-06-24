@@ -151,10 +151,17 @@ internal data class PlanetOffer(val planet: Planet, val cost: Int)
 internal sealed class TarotFx {
     abstract val maxTargets: Int
     abstract val label: String
+    /** Targeted tarots (maxTargets>0) aim at chosen hand cards; non-targeted ones apply immediately. */
+    val needsTarget: Boolean get() = maxTargets > 0
     data class Enhance(val e: Enhancement, override val maxTargets: Int) : TarotFx() { override val label get() = e.name.lowercase() }
     data class ConvertSuit(val suit: Suit, override val maxTargets: Int) : TarotFx() { override val label get() = "→ ${suit.name}" }
     data class RankUp(override val maxTargets: Int) : TarotFx() { override val label get() = "+1 rank" }
     data class Destroy(override val maxTargets: Int) : TarotFx() { override val label get() = "destroy" }
+    // Non-targeted (maxTargets = 0): applied immediately on use.
+    object DoubleMoney : TarotFx() { override val maxTargets = 0; override val label = "2x \$" }          // The Hermit (cap +$20)
+    object JokerSellMoney : TarotFx() { override val maxTargets = 0; override val label = "sell \$" }      // Temperance (cap $50)
+    data class CreatePlanets(val n: Int) : TarotFx() { override val maxTargets = 0; override val label get() = "$n planet" }   // High Priestess
+    data class CreateTarots(val n: Int) : TarotFx() { override val maxTargets = 0; override val label get() = "$n tarot" }     // The Emperor
 }
 internal data class TarotOffer(val name: String, val fx: TarotFx, val cost: Int = 3)
 
@@ -632,6 +639,10 @@ private val TAROTS = listOf(
     TarotOffer("The World", TarotFx.ConvertSuit(Suit.S, 3)),  // → Spades
     TarotOffer("Strength", TarotFx.RankUp(2)),                // +1 rank to up to 2
     TarotOffer("The Hanged Man", TarotFx.Destroy(2)),         // destroy up to 2
+    TarotOffer("The Hermit", TarotFx.DoubleMoney),            // double money (max +$20)
+    TarotOffer("Temperance", TarotFx.JokerSellMoney),         // gain total joker sell value (max $50)
+    TarotOffer("The High Priestess", TarotFx.CreatePlanets(2)),  // create 2 Planets
+    TarotOffer("The Emperor", TarotFx.CreateTarots(2)),       // create 2 Tarots
 )
 /** Look a tarot up by display name — save/restore serializes tarots by name (fx isn't serialized). */
 private fun tarotByName(n: String): TarotOffer = TAROTS.find { it.name == n } ?: TAROTS.first()
@@ -730,13 +741,23 @@ internal class RunState {
     var consumableSlotsBonus by mutableStateOf(0)                        // Crystal Ball voucher (follow-on)
     val consumableSlots: Int get() = 2 + consumableSlotsBonus
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
-    /** Use (and consume) the held consumable at [i] — applies its effect, then frees the slot. */
+    /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
+     *  slot, as in vanilla), then apply its effect. */
     fun useConsumable(i: Int) {
-        when (val c = consumables.getOrNull(i) ?: return) {
+        val c = consumables.getOrNull(i) ?: return
+        consumables.removeAt(i)
+        when (c) {
             is Consumable.TarotC -> {
-                // Tarots are normally aimed at chosen hand cards (aimTarot → useTarot). Fallback when used
-                // without a target (e.g. enhancement tarots fall back to a random deck card).
-                (c.t.fx as? TarotFx.Enhance)?.let { deck.enhanceRandom(it.e) }
+                // Non-targeted tarots apply here (money/creation). Targeted ones normally go via
+                // aimTarot→useTarot; if used here without a target, enhance tarots fall back to random.
+                when (val fx = c.t.fx) {
+                    is TarotFx.DoubleMoney -> money += minOf(money, 20)
+                    is TarotFx.JokerSellMoney -> money += minOf(50, owned.sumOf { maxOf(1, it.offer.cost / 2) })
+                    is TarotFx.CreatePlanets -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(Planet.values().random())) }
+                    is TarotFx.CreateTarots -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.TarotC(TAROTS.random())) }
+                    is TarotFx.Enhance -> deck.enhanceRandom(fx.e)
+                    else -> {}
+                }
                 Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name)
             }
             is Consumable.PlanetC -> {
@@ -752,7 +773,6 @@ internal class RunState {
             }
             is Consumable.SpectralC -> { applySpectral(c.s); Telemetry.event("RUN_USE_SPECTRAL", "spectral" to c.s.name) }
         }
-        consumables.removeAt(i)
     }
 
     /** Apply a spectral card's effect to the run (Spectral consumable use). */
@@ -1661,6 +1681,7 @@ internal class RunState {
                 is TarotFx.ConvertSuit -> { deck.setSuitCard(c, fx.suit); c.copy(suit = fx.suit) }
                 is TarotFx.RankUp -> { deck.rankUpCard(c); c.copy(rank = if (c.rank >= 14) 2 else c.rank + 1) }
                 is TarotFx.Destroy -> { deck.destroyCard(c); null }   // dropped from hand
+                else -> c   // non-targeted fx (money/creation) never reach the aim path
             }
         }
         consumables.removeAll { it is Consumable.TarotC && it.t === t }
@@ -2718,7 +2739,8 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             .background(if (isAiming) Balatro.Purple.copy(alpha = 0.7f) else Balatro.Panel)
                             .border(1.dp, if (isAiming) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
                             .clickable(enabled = s.phase == Phase.ROUND && !s.scoring) {
-                                if (c is Consumable.TarotC) s.aimTarot(c.t) else s.useConsumable(i)
+                                // Targeted tarots enter aim mode; non-targeted tarots & other consumables apply now.
+                                if (c is Consumable.TarotC && c.t.fx.needsTarget) s.aimTarot(c.t) else s.useConsumable(i)
                             },
                             contentAlignment = Alignment.Center) {
                             cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
