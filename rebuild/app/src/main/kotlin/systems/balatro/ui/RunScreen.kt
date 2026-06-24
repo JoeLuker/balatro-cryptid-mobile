@@ -523,6 +523,7 @@ private val CATALOG = listOf(
     Offer("j_drunkard", "Drunkard", "+1 discard each round", 4),
     Offer("j_troubadour", "Troubadour", "+2 hand size, -1 hand each round", 6, rarity = 2),
     Offer("j_merry_andy", "Merry Andy", "+1 discard, -1 hand size", 7, rarity = 2),
+    Offer("j_turtle_bean", "Turtle Bean", "+5 hand size, reduces by 1 each round", 6, rarity = 2),
     Offer("j_burglar", "Burglar", "+3 hands, no discards this round", 6, rarity = 2),
     // --- missing vanilla jokers (batch 7): end-of-round economy (calculate_dollar_bonus) ---
     Offer("j_golden", "Golden Joker", "Earn $4 at end of round", 6),
@@ -1043,7 +1044,8 @@ internal class RunState {
         // ── passive joker hand-size modifiers (board scan; add_to_deck h_size, applied before the deal) ──
         handSize += owned.count { it.offer.key == "j_juggler" } +          // Juggler: +1 hand size
                     2 * owned.count { it.offer.key == "j_troubadour" } -    // Troubadour: +2 hand size
-                    owned.count { it.offer.key == "j_merry_andy" }          // Merry Andy: -1 hand size
+                    owned.count { it.offer.key == "j_merry_andy" } +        // Merry Andy: -1 hand size
+                    owned.filter { it.offer.key == "j_turtle_bean" }.sumOf { it.fj.n }   // Turtle Bean: +h_size (5, −1/round)
         handSize = maxOf(1, handSize)
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(handSize); selected = emptySet(); faceDown = emptySet()
@@ -1382,13 +1384,17 @@ internal class RunState {
         // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1;
         // popcorn reduce: mult −4, floored at 0).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
-        // j_popcorn: after the −4/round reduce above, self-destructs once its mult floors at 0 (card.lua
-        // k_eaten_ex). Kept separate from perishableExpired below — this is an "eaten" self-destruct, not
-        // a perishable-sticker expiry, so fading_joker must NOT be notified.
-        val eaten = owned.filter { it.fj.key == "j_popcorn" && it.fj.mult <= 0.0 }
+        // Eaten self-destructs (card.lua k_eaten_ex) AFTER their RoundEnd reduce above: j_popcorn once
+        // its mult floors at 0, j_turtle_bean once its h_size counter (n) hits 0. Kept separate from
+        // perishableExpired below — these are "eaten", not perishable-sticker expiries, so fading_joker
+        // must NOT be notified.
+        val eaten = owned.filter {
+            (it.fj.key == "j_popcorn" && it.fj.mult <= 0.0) ||
+            (it.fj.key == "j_turtle_bean" && it.fj.n <= 0)
+        }
         if (eaten.isNotEmpty()) {
             owned.removeAll(eaten)
-            Telemetry.event("END_OF_ROUND_DESTROY", "n" to eaten.size, "reason" to "popcorn")
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to eaten.size, "reason" to "eaten")
         }
         // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
         // Trigger: when chili_pepper's rounds_remaining reaches 0 (after RoundEnd reduce), notify fading/paved.

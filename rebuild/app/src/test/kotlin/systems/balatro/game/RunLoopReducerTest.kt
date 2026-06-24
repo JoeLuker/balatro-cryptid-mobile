@@ -151,6 +151,17 @@ class RunLoopReducerTest {
         assertEquals("floors at 0, never negative", 0.0, sim["j_popcorn"].mult, 0.0)
     }
 
+    @Test fun turtleBean_handSizeCounterDecaysPerRound() {
+        val sim = Sim("j_turtle_bean")                   // seeded n=5 (h_size) from initialState
+        assertEquals(5, sim["j_turtle_bean"].n)
+        sim.hand(HandType.PAIR)                          // hands played must NOT shrink it
+        assertEquals("decays per ROUND, not per hand", 5, sim["j_turtle_bean"].n)
+        sim.roundEnd()
+        assertEquals("-1 per round (h_mod=1)", 4, sim["j_turtle_bean"].n)
+        repeat(4) { sim.roundEnd() }                     // 3, 2, 1, 0 → RunScreen prunes at <=0
+        assertEquals("reaches 0 (eaten threshold)", 0, sim["j_turtle_bean"].n)
+    }
+
     @Test fun yorick_gainsXMultEvery23Discards() {
         val sim = Sim("j_yorick")
         sim.discard(22); assertEquals("not yet at 23", 1.0, sim["j_yorick"].x, 1e-9)

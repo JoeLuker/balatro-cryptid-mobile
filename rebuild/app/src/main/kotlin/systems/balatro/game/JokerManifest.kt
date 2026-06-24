@@ -488,6 +488,13 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(mult = maxOf(0.0, s.mult - 4.0)) else s },
         jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None },
     ),
+    // j_turtle_bean: +5 hand size (n = h_size, config), −1 per ROUND (h_mod=1, context.end_of_round);
+    // self-destructs (k_eaten_ex) when h_size would hit 0. No scoring output — RunScreen's startRound
+    // reads n for the hand-size bonus and cashOut prunes it at n<=0 (card.lua:3515).
+    "j_turtle_bean"     to JokerSpec(
+        initialState = FJokerState(n = 5),
+        reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = s.n - 1) else s },
+    ),
     // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
     "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)

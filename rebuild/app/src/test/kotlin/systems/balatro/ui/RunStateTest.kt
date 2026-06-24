@@ -62,4 +62,20 @@ class RunStateTest {
         rs.enterRoundEval(); rs.cashOut()                       // round 5 → 0 → eaten
         assertTrue("self-destructs at 0 mult, end of round", rs.owned.none { it.fj.key == "j_popcorn" })
     }
+
+    @Test fun turtleBeanAddsFiveHandSizeThenSelfDestructsAtZero() {
+        // Vanilla j_turtle_bean: +5 hand size (h_size=5), −1 per round (h_mod=1); self-destructs at 0.
+        val rs = RunState()
+        val baseHand = rs.handSize                              // hand size before Turtle Bean
+        rs.buy(offer("j_turtle_bean"), free = true)
+        val t = rs.owned.first { it.fj.key == "j_turtle_bean" }
+        assertEquals(5, t.fj.n)                                 // initialState h_size=5
+        rs.phase = Phase.BLIND_SELECT; rs.selectBlind()         // re-run startRound with Turtle Bean owned
+        assertEquals("+5 hand size", baseHand + 5, rs.handSize)
+        repeat(4) { rs.enterRoundEval(); rs.cashOut() }         // n: 5→4→3→2→1
+        assertEquals(1, t.fj.n)
+        assertTrue("alive at n=1", rs.owned.any { it.fj.key == "j_turtle_bean" })
+        rs.enterRoundEval(); rs.cashOut()                       // n → 0 → eaten
+        assertTrue("self-destructs when h_size hits 0", rs.owned.none { it.fj.key == "j_turtle_bean" })
+    }
 }
