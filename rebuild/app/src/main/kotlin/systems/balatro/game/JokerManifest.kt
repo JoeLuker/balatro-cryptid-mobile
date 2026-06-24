@@ -975,4 +975,11 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_blackboard"   to JokerSpec(jokerMain = { _, ctx ->
         if (ctx.heldHand.all { it.isSuit(Suit.S, ctx.smeared) || it.isSuit(Suit.C, ctx.smeared) }) Effect.XMult(3.0) else Effect.None
     }),
+
+    // ── missing vanilla jokers — batch 2: the "X Mult if hand contains <type>" family ──────────────
+    "j_duo"    to JokerSpec(jokerMain = { _, ctx -> if (HandType.PAIR in ctx.pokerHands) Effect.XMult(2.0) else Effect.None }),
+    "j_trio"   to JokerSpec(jokerMain = { _, ctx -> if (HandType.THREE_OF_A_KIND in ctx.pokerHands) Effect.XMult(3.0) else Effect.None }),
+    "j_family" to JokerSpec(jokerMain = { _, ctx -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) Effect.XMult(4.0) else Effect.None }),
+    "j_order"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.STRAIGHT in ctx.pokerHands) Effect.XMult(3.0) else Effect.None }),
+    "j_tribe"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH in ctx.pokerHands) Effect.XMult(2.0) else Effect.None }),
 )
