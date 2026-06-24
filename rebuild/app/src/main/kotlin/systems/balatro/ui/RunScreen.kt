@@ -497,6 +497,9 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 7): end-of-round economy (calculate_dollar_bonus) ---
     Offer("j_golden", "Golden Joker", "Earn $4 at end of round", 6),
     Offer("j_cloud_9", "Cloud 9", "Earn $1 for each 9 in your deck at end of round", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 8): blind-select spawns ---
+    Offer("j_marble", "Marble Joker", "Adds a Stone card to your deck each Blind", 6, rarity = 2),
+    Offer("j_cartomancer", "Cartomancer", "Creates a Tarot when Blind is selected (if room)", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -961,6 +964,13 @@ internal class RunState {
                         owned.count { it.offer.key == "j_merry_andy" }               // Merry Andy: +1 discard
         if (owned.any { it.offer.key == "j_burglar" }) { handsLeft += 3; discardsLeft = 0 }  // Burglar: +3 hands, no discards
         handsLeft = maxOf(1, handsLeft); discardsLeft = maxOf(0, discardsLeft)
+        // ── spawn jokers (context.setting_blind): create cards/consumables when the Blind is selected ──
+        repeat(owned.count { it.offer.key == "j_marble" }) {                          // Marble: +1 Stone card each blind
+            deck.add(PlayingCard(Suit.S, 2, Enhancement.STONE))
+        }
+        if (owned.any { it.offer.key == "j_cartomancer" } && hasConsumableRoom()) {    // Cartomancer: create a Tarot (if room)
+            consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 7919L + 11)).first()))
+        }
         lastResult = null; lastSteps = emptyList()
         eyeUsedHands.clear(); mouthLockedHand = null    // THE_EYE / THE_MOUTH per-round state
         if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
