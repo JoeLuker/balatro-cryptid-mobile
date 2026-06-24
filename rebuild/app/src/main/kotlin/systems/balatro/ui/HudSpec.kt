@@ -904,8 +904,9 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
         var minh = cfgJ.optDouble("minh", 0.0).toFloat()
         // The extracted slots are empty (0 height — their reward rows are added dynamically at runtime,
         // not captured in the static tree). Give the content slots room so the overlaid rows render
-        // instead of collapsing to a zero-height strip (~0.7u per reward row + the cash-out button).
-        if (minh <= 0f) minh = when (id) { "eval_bottom" -> 1.1f; else -> 1.5f }
+        // instead of collapsing to a zero-height strip. base holds the blind1 chip row (~1.1u) + the
+        // dotted divider + the hands row, so it needs more height than the text-only bonus slot.
+        if (minh <= 0f) minh = when (id) { "eval_bottom" -> 1.1f; "base_round_eval" -> 2.0f; else -> 1.5f }
         val align = cfgJ.optString("align", "cm")
         val slotCfg = Cfg(align = align, minw = minw, minh = minh)
         return Ob(slotCfg, CardAreaSlot(id, minw, minh))
