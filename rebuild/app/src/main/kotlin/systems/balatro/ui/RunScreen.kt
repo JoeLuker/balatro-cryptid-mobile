@@ -1729,7 +1729,9 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         if (startScreen != null) return@LaunchedEffect          // deep-link harnesses don't autosave
         when (s.phase) {
             Phase.SHOP, Phase.BLIND_SELECT -> { val json = s.snapshot().encode(); withContext(Dispatchers.IO) { SaveIo.write(saveFile, json) } }
-            Phase.OVER -> withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }
+            // A finished run (lost OR won) clears the save so the next launch starts fresh instead of
+            // resuming the pre-finish shop. (Endless Mode re-enters play and re-saves at the next shop.)
+            Phase.OVER, Phase.WIN -> withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }
             else -> {}
         }
     }
