@@ -91,6 +91,45 @@ class ScoreHookTest {
         assertEquals(Effect.XMult(2.0), onJoker("j_cry_circus", FJoker("x", rarity = 3)))  // Rare
         assertEquals(Effect.XMult(4.0), onJoker("j_cry_circus", FJoker("x", rarity = 4)))  // Legendary
         assertEquals(Effect.None, onJoker("j_cry_circus", FJoker("x", rarity = 1)))        // Common
+        assertEquals(Effect.XMult(2.5), onJoker("j_cry_waluigi", FJoker("x")))             // every joker, no rarity gate
+    }
+
+    // ── multi-hook Cryptid edition reactors (one joker fires across individual + held + otherJoker) ─
+    @Test fun editionReactorsAcrossAllHooks() {
+        fun edited(ed: String) = PlayingCard(Suit.S, 10, edition = ed)
+        val plain = card(Suit.S, 10)
+
+        // meteor: +75 Chips per Foil scored card / Foil board joker (no held hook).
+        assertEquals(Effect.Chips(75.0), ind("j_cry_meteor", edited("Foil")))
+        assertEquals(Effect.None, ind("j_cry_meteor", plain))
+        assertEquals(Effect.Chips(75.0), onJoker("j_cry_meteor", FJoker("x", edition = "Foil")))
+        assertEquals(Effect.None, onJoker("j_cry_meteor", FJoker("x", edition = "Holo")))   // wrong edition
+
+        // exoplanet: Holo → +15 Mult (scored / other), +15 HeldMult (held).
+        assertEquals(Effect.Mult(15.0), ind("j_cry_exoplanet", edited("Holo")))
+        assertEquals(Effect.HeldMult(15.0), heldHook("j_cry_exoplanet", edited("Holo")))
+        assertEquals(Effect.Mult(15.0), onJoker("j_cry_exoplanet", FJoker("x", edition = "Holo")))
+        assertEquals(Effect.None, ind("j_cry_exoplanet", edited("Foil")))
+
+        // stardust: Poly → X2 Mult on all three hooks.
+        assertEquals(Effect.XMult(2.0), ind("j_cry_stardust", edited("Poly")))
+        assertEquals(Effect.XMult(2.0), heldHook("j_cry_stardust", edited("Poly")))
+        assertEquals(Effect.XMult(2.0), onJoker("j_cry_stardust", FJoker("x", edition = "Poly")))
+
+        // universe: Astral → Emult^1.2 on all three hooks.
+        assertEquals(Effect.EMult(1.2), ind("j_cry_universe", edited("Astral")))
+        assertEquals(Effect.EMult(1.2), heldHook("j_cry_universe", edited("Astral")))
+        assertEquals(Effect.EMult(1.2), onJoker("j_cry_universe", FJoker("x", edition = "Astral")))
+        assertEquals(Effect.None, heldHook("j_cry_universe", plain))
+    }
+
+    // ── more single-hook reactors (held / individual) ─────────────────────────────────────────────
+    @Test fun raisedFist_doublesLowestHeldCard() {
+        // held = 2× the lowest non-stone held card's chips, fired on that card.
+        val low = card(Suit.S, 3); val high = card(Suit.S, 9)
+        val ctx = Sctx().apply { heldHand = listOf(low, high) }
+        assertEquals(Effect.Mult(6.0), JOKER_MANIFEST["j_raised_fist"]!!.held!!(FJokerState(), ctx, low))  // 2 * 3 chips
+        assertEquals(Effect.None, JOKER_MANIFEST["j_raised_fist"]!!.held!!(FJokerState(), ctx, high))
     }
 
     // ── dispatchManifest routing: the #44 class (caught directly, not via score arithmetic) ───────
