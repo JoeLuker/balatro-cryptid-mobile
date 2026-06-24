@@ -2914,40 +2914,41 @@ private fun ShopOfferCard(
 ) {
     val bind = CardBind(cost, canBuy, onAction)
     val trees = spec?.forSet(set, bind)
-    // Size the card in engine units (CARD_W × CARD_H × u), like the play-area cards — not a fixed dp
-    // that only matches at one resolution (port the algorithm, not the measurement).
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width((PF.CARD_W * u).dp)) {
-        if (trees != null) {
-            // price tag — create_shop_card_ui price tree: darken(BLACK,0.2) chip + DynaText "$cost" MONEY
-            RenderUIBoxNatural(trees.first, u)
-        } else {
-            // fallback: plain hand-built price badge
-            Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
-                BTxt("\$$cost", Balatro.Money, 13.sp)
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-        // card art — no UIBox equivalent; hand-built (live Sprite objects in vanilla)
-        Box(Modifier.size((PF.CARD_W * u).dp, (PF.CARD_H * u).dp), contentAlignment = Alignment.Center) {
+    // The card is the CARD_W × CARD_H sprite (engine units × u). Vanilla create_shop_card_ui attaches
+    // the price tag and buy button as separate bonded UIBoxes (Moveable:align_to_major), NOT stacked
+    // above/below — so they overlay the card's top/bottom. Port those attach offsets:
+    //   price: align "tm", offset y=1.5  → top = (1.5 − priceH) units below the card top, x-centred
+    //   buy:   align "bm", offset y=-0.3 → top = (CARD_H − 0.3) units (straddles the bottom edge)
+    val priceH = trees?.let { measureUnits(it.first).second } ?: 0f
+    Box(Modifier.size((PF.CARD_W * u).dp, (PF.CARD_H * u).dp)) {
+        // card art (base layer) — no UIBox equivalent; live Sprite objects in vanilla
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (art != null) {
                 Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
             } else {
                 base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                // Identity label only as a fallback when there's no card sprite (planets/tarots/vouchers/
-                // boosters have no art yet). Vanilla shows the sprite alone; the desc line below was a
-                // non-vanilla addition that bled red text over the art — removed.
+                // identity label only as a fallback when there's no card sprite
                 BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
             }
         }
-        Spacer(Modifier.height(3.dp))
         if (trees != null) {
-            // buy/redeem/open button — create_shop_card_ui button tree: GOLD/GREEN/GREY rounded rect
-            RenderUIBoxNatural(trees.second, u)
+            // price tag — create_shop_card_ui t1: darken(BLACK,0.2) chip + DynaText "$cost" MONEY
+            Box(Modifier.align(Alignment.TopCenter).absoluteOffset(y = ((1.5f - priceH) * u).dp)) {
+                RenderUIBoxNatural(trees.first, u)
+            }
+            // buy/redeem/open — create_shop_card_ui t2: GOLD/GREEN button straddling the card bottom
+            Box(Modifier.align(Alignment.TopCenter).absoluteOffset(y = ((PF.CARD_H - 0.3f) * u).dp)) {
+                RenderUIBoxNatural(trees.second, u)
+            }
         } else {
-            // fallback: plain hand-built buy button
-            Box(
-                Modifier.clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
-                    .clickable(enabled = canBuy) { onAction() }.padding(horizontal = 12.dp, vertical = 4.dp),
+            // fallback (spec asset missing): plain price badge top, buy button below
+            Box(Modifier.align(Alignment.TopCenter).clip(RoundedCornerShape(4.dp))
+                .background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
+                BTxt("\$$cost", Balatro.Money, 13.sp)
+            }
+            Box(Modifier.align(Alignment.BottomCenter).absoluteOffset(y = (0.6f * u).dp)
+                .clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
+                .clickable(enabled = canBuy) { onAction() }.padding(horizontal = 12.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center,
             ) { BTxt("Buy", Balatro.White, 12.sp) }
         }
