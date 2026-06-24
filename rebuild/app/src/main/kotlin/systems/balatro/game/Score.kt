@@ -65,6 +65,7 @@ class Sctx {
     var jokerRetriggerCheck = false          // true during the retrigger sub-loop (mirrors context.retrigger_joker_check)
     var totalHandsPlayed: Int = 0            // G.GAME.hands_played (all hand types, cumulative) — loyalty_card jokerMain
     var handsPlayedAtCreate: Int = 0         // self.ability.hands_played_at_create — set per-joker in Score.kt calcJoker
+    var money: Int = 0                       // G.GAME.dollars — Bull (+2 Chips/$1), Bootstraps (+2 Mult/$5)
     var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
     var selfJoker: FJoker? = null           // set by dispatchManifest to j before invoking any hook — enables identity guard (j !== rj / j !== oj)
     /** j_cry_maximized patches get_id: pips→10, faces→13. Used by every rank-literal comparison in
@@ -443,6 +444,7 @@ object Score {
         debuffedJokerKey: String? = null,   // CRIMSON_HEART: key of the disabled joker for this hand
         handTypePlays: Map<HandType, Int> = emptyMap(),  // PRIOR run-total plays per hand type (NOT incl. this hand); supernova reads scoringName's count +1
         totalHandsPlayed: Int = 0,          // G.GAME.hands_played (all types, cumulative) — loyalty_card needs this in jokerMain
+        money: Int = 0,                     // G.GAME.dollars — Bull / Bootstraps read it in joker_main
         trace: MutableList<ScoreStep>? = null,
         /** Callback for j_hiker: fired once per scored card per hiker on board. Caller (RunScreen)
          *  persists the bonus to Deck.all. Fires AFTER the card's own chipBonus() (Lua timing:
@@ -474,7 +476,7 @@ object Score {
             this.scoringPlays = (handTypePlays[handType] ?: 0) + 1   // +1: this hand counts as a play (vanilla increments hand.played before the joker pass)
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
-            this.totalHandsPlayed = totalHandsPlayed
+            this.totalHandsPlayed = totalHandsPlayed; this.money = money
             this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
             this.debuffFace = debuff is Debuff.DebuffFace
             this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards

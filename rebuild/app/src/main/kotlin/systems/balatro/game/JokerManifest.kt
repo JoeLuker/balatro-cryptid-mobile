@@ -982,4 +982,8 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_family" to JokerSpec(jokerMain = { _, ctx -> if (HandType.FOUR_OF_A_KIND in ctx.pokerHands) Effect.XMult(4.0) else Effect.None }),
     "j_order"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.STRAIGHT in ctx.pokerHands) Effect.XMult(3.0) else Effect.None }),
     "j_tribe"  to JokerSpec(jokerMain = { _, ctx -> if (HandType.FLUSH in ctx.pokerHands) Effect.XMult(2.0) else Effect.None }),
+
+    // ── missing vanilla jokers — batch 3: money-scaling (read ctx.money = G.GAME.dollars) ─────────
+    "j_bull"        to JokerSpec(jokerMain = { _, ctx -> Effect.chipsOrNone(2.0 * ctx.money) }),         // +2 Chips per $1
+    "j_bootstraps"  to JokerSpec(jokerMain = { _, ctx -> Effect.multOrNone(2.0 * (ctx.money / 5)) }),    // +2 Mult per $5
 )
