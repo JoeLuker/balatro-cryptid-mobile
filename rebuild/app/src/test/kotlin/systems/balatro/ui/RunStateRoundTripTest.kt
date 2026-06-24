@@ -1,6 +1,7 @@
 package systems.balatro.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import systems.balatro.content.Edition
 import systems.balatro.game.FJoker
@@ -67,5 +68,26 @@ class RunStateRoundTripTest {
         assertEquals(orig.edition, got.edition)
         assertEquals(orig.rarity, got.rarity)
         assertEquals("the Offer edition (cosmetic) survives too", Edition.FOIL, gotOwned.offer.edition)
+    }
+
+    /** A save taken mid-shop must resume the EXACT post-roll stock (jokers/planets/tarots, the voucher,
+     *  the boosters) and the per-shop reroll state — not a fresh re-roll that re-offers bought cards. */
+    @Test fun midShopRoundTripPreservesShopStock() {
+        val a = RunState().apply { money = 30 }
+        a.toShopForPreview()            // roll the real shop stock (items + voucher + boosters), phase = SHOP
+        a.freeRerollThisShop = true
+        a.couponThisShop = true
+        a.reroll()                      // bump rerollIncrease and re-roll the live stock once
+        val snap1 = a.snapshot()
+        // we genuinely captured a populated mid-shop state, not an empty default
+        assertEquals("SHOP", snap1.phase)
+        assertTrue("shop stock populated", snap1.shopItems.isNotEmpty())
+
+        val b = RunState()
+        b.restore(RunSnapshot.decode(snap1.encode()))
+        val snap2 = b.snapshot()
+        assertEquals(snap1.deck.groupingBy { it }.eachCount(), snap2.deck.groupingBy { it }.eachCount())
+        // shopItems / shopVoucher / shopBoosters / rerollIncrease / free-reroll / coupon / phase all survive.
+        assertEquals(snap1.copy(deck = emptyList()), snap2.copy(deck = emptyList()))
     }
 }
