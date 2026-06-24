@@ -17,6 +17,7 @@ object Oracle {
         val debuffedJokerKey: String? = null,
         val handTypePlays: Map<HandType, Int> = emptyMap(),   // prior run-total plays per hand type (supernova)
         val totalHandsPlayed: Int = 0,              // G.GAME.hands_played — loyalty_card jokerMain
+        val money: Int = 0,                         // G.GAME.dollars — Bull / Bootstraps
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -748,12 +749,17 @@ object Oracle {
         Case("Straight 5-9 + order (X3 if Straight)", PlayingCard.hand("S_5", "H_6", "D_7", "C_8", "S_9"), 780.0, j(FJoker("j_order"))),
         Case("Flush + tribe (X2 if Flush)", PlayingCard.hand("S_2", "S_5", "S_7", "S_9", "S_J"), 544.0, j(FJoker("j_tribe"))),
         Case("Pair of aces + tribe (no Flush → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_tribe"))),
+
+        // --- missing vanilla jokers, batch 3: money-scaling (Case.money = G.GAME.dollars) ---
+        Case("Pair of aces + bull @\$10 (+2 Chips/\$1 = +20)", PlayingCard.hand("S_A", "H_A"), 104.0, j(FJoker("j_bull")), money = 10),
+        Case("Pair of aces + bull @\$0 (no money → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_bull")), money = 0),
+        Case("Pair of aces + bootstraps @\$20 (+2 Mult/\$5 = +8)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_bootstraps")), money = 20),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")
