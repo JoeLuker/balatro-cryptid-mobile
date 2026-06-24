@@ -204,8 +204,6 @@ patch_mods_dir() {
     # talisman/configinit.lua), rewrote the scoring coroutine + overlay
     # (observe live before re-patching), and replaced the table OmegaNum
     # whose churn NF_BIG_CACHE existed to avoid (cdata now).
-    # apply_talisman_dim_fix "$mods_dir/Talisman/talisman.lua"
-    # apply_talisman_config_persist "$mods_dir/Talisman/talisman.lua"
     apply_shader_eof_newlines "$(dirname "$mods_dir")"
     apply_blur_shader_reorder "$mods_dir/Cryptid/assets/shaders/blur.fs"
     apply_glitch_shader_fix   "$mods_dir/Cryptid/assets/shaders/glitched.fs"
@@ -214,9 +212,6 @@ patch_mods_dir() {
     apply_cryptid_dead_copy_fix   "$mods_dir/Cryptid/lib/calculate.lua"
     apply_cryptid_flip_side_cache "$mods_dir/Cryptid/lib/calculate.lua" "$mods_dir/Cryptid/lib/overrides.lua"
     apply_cryptid_events_guard    "$mods_dir/Cryptid/lib/calculate.lua"
-    # apply_talisman_gc_dead_block  "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
-    # apply_talisman_calc_counter   "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
-    # apply_nf_big_cache            "$mods_dir/Talisman/talisman.lua"   # TALISMAN-ERA
     apply_amulet_config_hardening "$(dirname "$mods_dir")/talisman/configinit.lua"
     apply_amulet_calc_delay       "$(dirname "$mods_dir")/talisman/coroutine.lua"
     apply_amulet_overlay_fit      "$(dirname "$mods_dir")/talisman/coroutine.lua"
@@ -431,33 +426,7 @@ build_apk() {
     fi
 
     # Create lovely.lua config
-    cat > "$game_dir/lovely.lua" << EOF
-return {
-  repo = "https://github.com/ethangreen-dev/lovely-injector",
-  version = "0.9.0",
-  mod_dir = "Mods",
-  remove_var = function() return false end,
-  set_var = function() end,
-  reload_patches = function() return true end,
-  apply_patches = function(name, content)
-    if type(content) ~= 'string' then return content end
-    if name ~= 'GLSL_ES_PATCHES.fs' then return content end
-    local s = content
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
-    s = s:gsub('([%s({])int([%s([])', '%1 float%2')
-    s = s:gsub('(__%w+__%s*[<>]%s*%d+)%.', '%1')
-    s = s:gsub('([%d.]e%-?%d+)%.', '%1')
-    s = s:gsub('%[(%d+)%.%]', '[%1]')
-    s = s:gsub('%[([^%[%]]*[^%d.][^%[%]]*)%]', '[int(%1)]')
-    s = s:gsub('(%d+%.%d+)f([^%w])', '%1%2')
-    s = s:gsub('(extern%s+)(number)', '%1highp %2')
-    s = s:gsub('(uniform%s+)(number)', '%1highp %2')
-    s = s:gsub('mediump(%s+)', 'highp%1')
-    return s
-  end,
-}
-EOF
+    cp "$PATCHES_DIR/lovely-stub.lua" "$game_dir/lovely.lua"
 
     # Apply patches to game files
     log_info "Applying patches..."
@@ -491,7 +460,6 @@ EOF
     apply_card_to_big_elim "$game_dir/card.lua"
     apply_scoring_loop_cache "$game_dir/functions/state_events.lua"
     apply_ctx_table_hoist "$game_dir/functions/state_events.lua"
-    # apply_hand_update_text_dedup "$game_dir/functions/button_callbacks.lua"
     # ^ TALISMAN-ERA: Amulet's rewritten hand_*_UI_set functions ship the
     #   text-change guard built in (and Talisman.juice_elm replaced the
     #   to_big juice mess) — the dedup is upstreamed. Kept for rollback.
@@ -500,14 +468,12 @@ EOF
     apply_card_eval_config_elide "$game_dir/functions/common_events.lua"
     apply_empty_pool_guard "$game_dir/functions/common_events.lua"
     apply_get_x_same_lean "$game_dir/functions/misc_functions.lua"
-    # apply_ces_sign_fast "$game_dir/functions/common_events.lua"
     # ^ TALISMAN-ERA: Talisman's lovely patches wrapped the card_eval sign
     #   checks in to_big(); Amulet's cdata Big compares natively against
     #   numbers, so the dump carries the vanilla `mod < 0` form already —
     #   nothing left to elide. Kept for rollback.
     apply_dynatext_glyph_cache "$game_dir/engine/text.lua"
     apply_letter_table_reuse   "$game_dir/engine/text.lua"
-    # apply_nf_big_cache         "$game_dir/main.lua"
     # ^ TALISMAN-ERA: number_format no longer lives in main.lua (Amulet keeps
     #   it in its numfmt lovely patches + break_inf module), and the cache
     #   existed to dodge table-OmegaNum churn that cdata eliminates. Bench
@@ -1361,54 +1327,6 @@ PYBLUR
     fi
 }
 
-# Talisman runs hand-scoring in a coroutine and opens a dimmed "Abort" overlay
-# while it runs — but it opens the dim the instant scoring starts, so a fast hand
-# (instant scoring, any chip scale) flashes the dim on for ~1 frame: the dark
-# flicker on every hand. Gate the dim on elapsed scoring time so it only appears
-# for genuinely-long scoring (>0.3s, where Abort is actually useful). The scoring
-# coroutine still resumes every update regardless, so scoring is unaffected.
-#
-# Target: Mods/Talisman/talisman.lua — the single live harness now that
-# patch_main_lua.py step 10 removes main.lua's baked duplicate of it. Applied to
-# BOTH the game.love-embedded copy and the phone-transfer copy: the loader
-# enumerates mods from the embedded archive (verified: stale save-dir mods don't
-# load), but LÖVE save-dir reads can shadow same-path files, so we patch both
-# shipped copies rather than bet on the read path.
-apply_talisman_dim_fix() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "talisman.lua not found at $f, skipping Talisman dim fix"
-        return 0
-    fi
-    if grep -q "G.SCORING_START" "$f"; then
-        log_info "Talisman dim fix already applied ($f)"
-        return 0
-    fi
-    sed -i 's|G.SCORING_COROUTINE = coroutine.create(oldplay)|G.SCORING_COROUTINE = coroutine.create(oldplay)\n      G.SCORING_START = love.timer.getTime() -- TALISMAN_DIM_GATE|' "$f"
-    # 1.0s, not 0.3: the gate measures WALL-CLOCK scoring time, so at low frame
-    # rates (big Cryptid decks) every hand crosses a 0.3s threshold and the
-    # overlay legitimately flashes for the last frame or two of scoring. One
-    # second matches the original intent: appear only when Abort is useful.
-    sed -i 's|              if not G.OVERLAY_MENU then|              if not G.OVERLAY_MENU and love.timer.getTime() - (G.SCORING_START or love.timer.getTime()) > 1.0 then -- TALISMAN_DIM_GATE|' "$f"
-    if grep -q "G.SCORING_START or love.timer.getTime()) > 1.0" "$f"; then
-        log_success "Talisman scoring-dim fix applied (no dim flicker on fast hands): $f"
-    else
-        log_warn "Talisman dim fix did not fully apply — check $f"
-    fi
-    # TAL_CALC_TRACE: the user reports the Calculating/Abort overlay NEVER
-    # appears, even on multi-second scorings where it should. The decisive
-    # facts (does the coroutine stay alive across frames? is G.OVERLAY_MENU
-    # blocking the gate?) are only observable live — one event per completed
-    # scoring carries them all.
-    sed -i 's|              G.SCORING_TEXT = nil|              G.SCORING_FRAMES = (G.SCORING_FRAMES or 0) + 1 -- TAL_CALC_TRACE\n              G.SCORING_TEXT = nil|' "$f"
-    sed -i 's|              G.GAME.LAST_CALCS = totalCalcs|              if ATLOG then ATLOG("TAL_CALC_DONE", {calcs = totalCalcs, frames = G.SCORING_FRAMES or 0, elapsed = string.format("%.2f", love.timer.getTime() - (G.SCORING_START or love.timer.getTime())), ovl = G.OVERLAY_MENU and 1 or 0}) end G.SCORING_FRAMES = 0 -- TAL_CALC_TRACE\n              G.GAME.LAST_CALCS = totalCalcs|' "$f"
-    sed -i 's|                  G.scoring_text = {localize("talisman_string_D"), "", "", ""}|                  if ATLOG then ATLOG("TAL_CALC_OVERLAY", {at = string.format("%.2f", love.timer.getTime() - (G.SCORING_START or 0))}) end -- TAL_CALC_TRACE\n                  G.scoring_text = {localize("talisman_string_D"), "", "", ""}|' "$f"
-    if [[ $(grep -c "TAL_CALC_TRACE" "$f") -ge 3 ]]; then
-        log_success "Talisman calc-screen trace applied"
-    else
-        log_warn "Talisman calc-screen trace did not fully apply — check $f"
-    fi
-}
 
 # The lovely patch for cursor_down.uptime (sticky-fingers controller.toml) injected
 # the assignment *after* the L_cursor_queue flush line, i.e. outside L_cursor_press.
@@ -1761,62 +1679,7 @@ PYEOF
     fi
 }
 
-# Delete the dead collectgarbage("count") > 1GB guard in Talisman's love.update
-# scoring loop. The threshold (1024*1024 KB = 1 GB) is never reachable on mobile.
-# The block is dead code that also contradicts nuGC: nuGC calls
-# collectgarbage("stop") after its budget, and this block would immediately restart
-# a full collection if the threshold were ever hit. Remove both lines.
-apply_talisman_gc_dead_block() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "talisman.lua not found, skipping GC dead block removal"
-        return 0
-    fi
-    if grep -q "TAL_GC_DEAD_REMOVED" "$f"; then
-        log_info "Talisman GC dead block already removed"
-        return 0
-    fi
-    sed -i '/^        if collectgarbage("count") > 1024\*1024 then$/,/^        end$/{/^        if collectgarbage("count") > 1024\*1024 then$/d; /^          collectgarbage("collect")$/d; s/^        end$/        -- TAL_GC_DEAD_REMOVED/}' "$f"
-    if grep -q "TAL_GC_DEAD_REMOVED" "$f"; then
-        log_success "Talisman GC dead block removed (unreachable 1 GB threshold + contradicts nuGC)"
-    else
-        log_warn "Talisman GC dead block removal did not match — check talisman.lua love.update"
-    fi
-}
 
-# Replace per-frame pairs(CARD_CALC_COUNTS) re-sum with an incremental counter
-# (G.CURRENT_TOTAL_CALCS) maintained at the two insertion sites in the
-# calculate_joker wrapper. Also replace number_format(G.CURRENT_CALC_TIME) in
-# the overlay text with string.format("%.1f", ...) — the elapsed time is always
-# a small float and does not need OmegaNum formatting.
-apply_talisman_calc_counter() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "talisman.lua not found, skipping calc counter patch"
-        return 0
-    fi
-    if grep -q "TAL_CALC_COUNTER" "$f"; then
-        log_info "Talisman calc counter already applied"
-        return 0
-    fi
-    # Reset counter alongside CARD_CALC_COUNTS at scoring start.
-    sed -i 's|      G\.CARD_CALC_COUNTS = {} -- keys = cards, values = table containing numbers|      G.CARD_CALC_COUNTS = {} -- keys = cards, values = table containing numbers\n      G.CURRENT_TOTAL_CALCS = 0 -- TAL_CALC_COUNTER: incremental, avoids per-frame pairs() re-sum|' "$f"
-    # Increment counter at the primary insertion site (new entry path).
-    sed -i 's|      G\.CARD_CALC_COUNTS\[self\] = {1, 1}|      G.CARD_CALC_COUNTS[self] = {1, 1}\n      G.CURRENT_TOTAL_CALCS = (G.CURRENT_TOTAL_CALCS or 0) + 1|' "$f"
-    # Increment counter at the existing-entry path.
-    sed -i 's|      G\.CARD_CALC_COUNTS\[self\]\[1\] = G\.CARD_CALC_COUNTS\[self\]\[1\] + 1|      G.CARD_CALC_COUNTS[self][1] = G.CARD_CALC_COUNTS[self][1] + 1\n      G.CURRENT_TOTAL_CALCS = (G.CURRENT_TOTAL_CALCS or 0) + 1|' "$f"
-    # Replace per-frame re-sum loop in overlay block with the counter.
-    sed -i '/^                    local totalCalcs = 0$/,/^                    end$/{s/^                    local totalCalcs = 0$/                    local totalCalcs = G.CURRENT_TOTAL_CALCS or 0 -- TAL_CALC_COUNTER/; /^                    for i, v in pairs(G\.CARD_CALC_COUNTS) do$/d; /^                      totalCalcs = totalCalcs + v\[1\]$/d; /^                    end$/d}' "$f"
-    # Replace per-frame re-sum loop at coroutine-end (different indentation).
-    sed -i '/^              local totalCalcs = 0$/,/^              end$/{s/^              local totalCalcs = 0$/              local totalCalcs = G.CURRENT_TOTAL_CALCS or 0 -- TAL_CALC_COUNTER/; /^              for i, v in pairs(G\.CARD_CALC_COUNTS) do$/d; /^                totalCalcs = totalCalcs + v\[1\]$/d; /^              end$/d}' "$f"
-    # Replace number_format(G.CURRENT_CALC_TIME) with plain string.format — bypasses to_big/OmegaNum.
-    sed -i 's|tostring(number_format(G\.CURRENT_CALC_TIME))|string.format("%.1f", G.CURRENT_CALC_TIME or 0)|g' "$f"
-    if grep -q "TAL_CALC_COUNTER" "$f"; then
-        log_success "Talisman calc counter applied (incremental counter + string.format time display)"
-    else
-        log_warn "Talisman calc counter did not apply — check talisman.lua"
-    fi
-}
 
 # Hot-path fix 5+8: cache get_card_areas('jokers') per scoring pass and hoist
 # other_key computation outside the inner joker loop in evaluate_play_main.
@@ -2588,80 +2451,6 @@ apply_android_video_settings_fix() {
     log_success "Video settings hidden on Android"
 }
 
-# Fix SMODS path discovery for Android
-# On Android, NFS.getDirectoryItems doesn't work properly with APK assets
-# We hardcode the path since we know where Steamodded is embedded
-apply_android_smods_path_fix() {
-    local main_file="$1"
-
-    if [[ ! -f "$main_file" ]]; then
-        log_warn "main.lua not found, skipping SMODS path fix"
-        return
-    fi
-
-    # Check if already patched
-    if grep -q "Android SMODS path fix" "$main_file"; then
-        log_info "SMODS path already patched for Android"
-        return
-    fi
-
-    log_info "Patching main.lua for Android SMODS path..."
-
-    # Add Android package.preload and path fix BEFORE the SMODS = {} line
-    # Use package.preload to map SMODS.version and SMODS.release to Steamodded root
-    # The requires use 'SMODS.version' but files are at Mods/Steamodded/version.lua
-    sed -i "/^SMODS = {}/i\\
--- Android SMODS path fix: preload SMODS modules and add Mods directories to require path\\
-if love.system.getOS() == 'Android' then\\
-    -- Preload SMODS.version and SMODS.release to map to Steamodded root files\\
-    package.preload['SMODS.version'] = function() return love.filesystem.load('Mods/Steamodded/version.lua')() end\\
-    package.preload['SMODS.release'] = function() return love.filesystem.load('Mods/Steamodded/release.lua')() end\\
-    -- Add paths for mod requires including Steamodded libs (json, nativefs, https)\\
-    -- LÖVE uses love.filesystem require path, not Lua package.path\\
-    local love_paths = 'Mods/Steamodded/libs/?.lua;Mods/Steamodded/libs/?/init.lua;Mods/Steamodded/?.lua;Mods/Steamodded/?/init.lua;Mods/?.lua;Mods/?/init.lua'\\
-    love.filesystem.setRequirePath(love.filesystem.getRequirePath() .. ';' .. love_paths)\\
-end\\
-" "$main_file"
-
-    # Replace the find_self call with Android-aware version
-    sed -i "s|SMODS.path = find_self(SMODS.MODS_DIR, 'core.lua', '--- STEAMODDED CORE')|-- Android SMODS.path hardcode since NFS doesn't work with APK assets\\
-if love.system.getOS() == 'Android' then\\
-    SMODS.path = 'Mods/Steamodded/'\\
-else\\
-    SMODS.path = find_self(SMODS.MODS_DIR, 'core.lua', '--- STEAMODDED CORE')\\
-end|" "$main_file"
-
-    # Also fix Talisman path discovery - on Android, hardcode everything
-    sed -i "s|local info = nativefs.getDirectoryItemsInfo(lovely.mod_dir)|-- Android Talisman path fix\\
-local info\\
-if love.system.getOS() == 'Android' then\\
-    info = {}\\
-    for _, name in ipairs({'Cryptid', 'Steamodded', 'Talisman', 'lovely', 'sticky-fingers'}) do\\
-        table.insert(info, {name = name, type = 'directory'})\\
-    end\\
-else\\
-    info = nativefs.getDirectoryItemsInfo(lovely.mod_dir)\\
-end|" "$main_file"
-
-    # Fix Talisman's nativefs.getInfo for directory check - on Android, always return true for Talisman
-    sed -i 's|nativefs.getInfo(lovely.mod_dir .. "/" .. v.name .. "/talisman.lua")|( love.system.getOS() == "Android" and v.name == "Talisman" or nativefs.getInfo(lovely.mod_dir .. "/" .. v.name .. "/talisman.lua") )|g' "$main_file"
-
-    # Fix "if not nativefs.getInfo(talisman_path)" - skip check on Android
-    sed -i 's|if not nativefs.getInfo(talisman_path) then|if love.system.getOS() ~= "Android" and not nativefs.getInfo(talisman_path) then|' "$main_file"
-
-    # Fix specific nativefs.read call for config
-    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|local config_read_result = (love.system.getOS() == "Android") and love.filesystem.read(talisman_path.."/config.lua") or nativefs.read(talisman_path.."/config.lua")|' "$main_file"
-
-    # Skip nativefs.write on Android - config saving won't work but loading does
-    sed -i 's/nativefs\.write(talisman_path \.\. "\/config\.lua", STR_PACK(Talisman\.config_file))/pcall(function() if love.system.getOS() ~= "Android" then nativefs.write(talisman_path .. "\/config.lua", STR_PACK(Talisman.config_file)) end end)/g' "$main_file"
-
-    # Fix nativefs.load calls for Big number library
-    sed -i 's|Big, err = nativefs.load(talisman_path.."/big-num/"..Talisman.config_file.break_infinity..".lua")|Big, err = (love.system.getOS() == "Android") and love.filesystem.load(talisman_path.."/big-num/"..Talisman.config_file.break_infinity..".lua") or nativefs.load(talisman_path.."/big-num/"..Talisman.config_file.break_infinity..".lua")|' "$main_file"
-
-    sed -i 's|Notations = nativefs.load(talisman_path.."/big-num/notations.lua")()|Notations = ((love.system.getOS() == "Android") and love.filesystem.load(talisman_path.."/big-num/notations.lua") or nativefs.load(talisman_path.."/big-num/notations.lua"))()|' "$main_file"
-
-    log_success "SMODS path fix applied for Android"
-}
 
 ensure_keystore() {
     local keystore_dir="$PROJECT_DIR/keys"
@@ -2808,71 +2597,6 @@ watch_logs() {
     adb logcat | grep -E "SDL/APP|LOVE|SMODS|NATIVEFS"
 }
 
-# UI hot-path fix: remove the redundant update_text() call in hand_chip_UI_set and
-# hand_mult_UI_set. Both functions call e.config.object:update_text() explicitly
-# (lines 1940, 1956) and then immediately call G.FUNCS.text_super_juice(e, num),
-# which calls update_text() a SECOND time. The first call is wasted because the
-# scale hasn't been committed to the font layout yet and text_super_juice re-does
-# the work. Removing the two early calls cuts update_text() invocations in half
-# during the per-chip/mult scoring animation (~60-76 Hz * 2 calls = 120-152 saved
-# per second while scoring).
-apply_hand_update_text_dedup() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "button_callbacks.lua not found, skipping hand update_text dedup"
-        return 0
-    fi
-    if grep -q "HAND_UPDATE_TEXT_DEDUP" "$f"; then
-        log_info "Hand update_text dedup already applied"
-        return 0
-    fi
-    python3 - "$f" <<'PYEOF'
-import sys
-path = sys.argv[1]
-text = open(path).read()
-
-# Remove the explicit update_text() call from hand_mult_UI_set (text_super_juice repeats it)
-old_mult = (
-    "    e.config.object.scale = scale_number(G.GAME.current_round.current_hand.mult, 0.9, 1000)\n"
-    "    e.config.object:update_text()\n"
-    "    local num = 0\n"
-)
-new_mult = (
-    "    e.config.object.scale = scale_number(G.GAME.current_round.current_hand.mult, 0.9, 1000)\n"
-    "    -- HAND_UPDATE_TEXT_DEDUP: removed early update_text(); text_super_juice calls it again\n"
-    "    local num = 0\n"
-)
-
-# Remove the explicit update_text() call from hand_chip_UI_set
-old_chip = (
-    "      e.config.object.scale = scale_number(G.GAME.current_round.current_hand.chips, 0.9, 1000)\n"
-    "      e.config.object:update_text()\n"
-    "      local num = 0\n"
-)
-new_chip = (
-    "      e.config.object.scale = scale_number(G.GAME.current_round.current_hand.chips, 0.9, 1000)\n"
-    "      -- HAND_UPDATE_TEXT_DEDUP: removed early update_text(); text_super_juice calls it again\n"
-    "      local num = 0\n"
-)
-
-if old_mult not in text:
-    print("ERROR: hand_mult_UI_set anchor not found", file=sys.stderr)
-    sys.exit(1)
-if old_chip not in text:
-    print("ERROR: hand_chip_UI_set anchor not found", file=sys.stderr)
-    sys.exit(1)
-
-text = text.replace(old_mult, new_mult, 1)
-text = text.replace(old_chip, new_chip, 1)
-open(path, 'w').write(text)
-print("Hand update_text dedup applied")
-PYEOF
-    if grep -q "HAND_UPDATE_TEXT_DEDUP" "$f"; then
-        log_success "Hand update_text dedup applied (removed 2 redundant update_text() calls per scoring tick)"
-    else
-        log_warn "Hand update_text dedup did not apply — check button_callbacks.lua"
-    fi
-}
 
 # UI hot-path fix: add no_recalc = true to the hand_level T-element in SMODS GUI.
 # Without it, UIElement:update_text() fires a full UIBox:recalculate() whenever the
@@ -3179,80 +2903,6 @@ PYEOF
     fi
 }
 
-# Tier-2 item 8 (re-scoped): a GLOBAL to_big fast-path returning plain numbers
-# below a threshold is UNWORKABLE — LÖVE's LuaJIT has no 5.2-compat (verified:
-# mixed number<table comparison errors before the metamethod), and scoring
-# routinely compares small values against huge stored Bigs. The safe shape is
-# site-level: type-aware sign/zero helpers for the per-trigger hot path.
-# 14 sites: 8 in card_eval_status_text (per scoring trigger) + 6 to_big(mod)<0
-# checks in the HUD chip/mult updaters (per scoring tick). Differential-tested
-# against real OmegaNum across the 0 / -0.01 / 1e15 / 1e300 boundaries in both
-# plain and Big forms. Isolated alloc (GC stopped): 16417 -> 1 KB per 30k
-# checks; ~300 KB less garbage per scored hand at 550+ checks/hand.
-apply_ces_sign_fast() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "common_events.lua not found, skipping sign-check fast helpers"
-        return 0
-    fi
-    if grep -q "CES_SIGN_FAST" "$f"; then
-        log_info "sign-check fast helpers already applied"
-        return 0
-    fi
-    python3 - "$f" <<'PYEOF'
-import sys
-path = sys.argv[1]
-text = open(path).read()
-
-helpers = """-- CES_SIGN_FAST: sign/zero checks against constants without the paired
--- to_big() allocations. These run per scoring trigger (card_eval_status_text)
--- and per HUD chip/mult update — together 550+ times per scored hand. amt/mod
--- is a plain Lua number at normal chip scale (lenient_bignum keeps values
--- plain below 1e300): that path allocates nothing. The non-number path keeps
--- the exact to_big coercion semantics but compares against a cached Big
--- constant, halving its allocations. Mixed plain/Big comparison is never
--- attempted (LuaJIT 5.1 semantics reject it).
-local CES_BIG_ZERO, CES_BIG_NEGP
-local function ces_is_neg(x)
-    if type(x) == 'number' then return x < 0 end
-    CES_BIG_ZERO = CES_BIG_ZERO or to_big(0)
-    return to_big(x) < CES_BIG_ZERO
-end
-local function ces_lt_negp(x)
-    if type(x) == 'number' then return x < -0.01 end
-    CES_BIG_NEGP = CES_BIG_NEGP or to_big(-0.01)
-    return to_big(x) < CES_BIG_NEGP
-end
-local function ces_nonzero(x)
-    if type(x) == 'number' then return x ~= 0 end
-    CES_BIG_ZERO = CES_BIG_ZERO or to_big(0)
-    return to_big(x) ~= CES_BIG_ZERO
-end
-
-"""
-
-reps = [
-    ('to_big(mod) < to_big(0)', 'ces_is_neg(mod)', 6),
-    ('to_big(amt)<to_big(0)', 'ces_is_neg(amt)', 5),
-    ('to_big(amt) < to_big(-0.01)', 'ces_lt_negp(amt)', 2),
-    ('to_big(amt) ~= to_big(0)', 'ces_nonzero(amt)', 1),
-]
-for old, new, expected in reps:
-    n = text.count(old)
-    if n != expected:
-        print(f'ERROR: expected {expected} of "{old}", found {n}', file=sys.stderr)
-        sys.exit(1)
-    text = text.replace(old, new)
-
-open(path, 'w').write(helpers + text)
-print('CES_SIGN_FAST applied (14 paired to_big sign checks -> allocation-free helpers)')
-PYEOF
-    if grep -q "CES_SIGN_FAST" "$f"; then
-        log_success "sign-check fast helpers applied (14 hot paired-to_big sites, plain path allocation-free)"
-    else
-        log_warn "sign-check fast helpers did not apply — check common_events.lua"
-    fi
-}
 
 # DynaText creates a love Text GPU object PER GLYPH on every update_text —
 # 300-380/sec during scoring animations, and a chunk of the description-popup
@@ -3310,47 +2960,6 @@ PYEOF
     fi
 }
 
-# Talisman config persistence on Android. talisman.lua reads and writes its
-# settings using love.filesystem (TAL_CONFIG_PERSIST routes through it) with
-# the relative path "Mods/Talisman/config.lua". love.filesystem.write resolves
-# that into the writable save dir (files/save/game/Mods/Talisman/config.lua),
-# and the read checks the save dir before the embedded archive so the written
-# copy naturally shadows defaults on the next boot.
-#
-# Root cause of the reset: love.filesystem.write does NOT auto-create
-# intermediate directories. files/save/game/Mods/Talisman/ only exists inside
-# the read-only game.love archive, never as a real directory in the save dir
-# unless explicitly created. Without createDirectory the write silently returns
-# false (pcall swallows it) and settings reset on every restart.
-# Fix: inject love.filesystem.createDirectory(talisman_path) on Android right
-# before the first read so the directory exists before any write attempt.
-apply_talisman_config_persist() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "talisman.lua not found, skipping config persistence fix"
-        return 0
-    fi
-    if grep -q "TAL_CONFIG_PERSIST" "$f"; then
-        log_info "Talisman config persistence already applied"
-        return 0
-    fi
-    # 1. Ensure the save-dir directory exists before any read/write attempt.
-    #    Inject createDirectory right before the config_read_result line.
-    sed -i 's|local config_read_result = nativefs.read(talisman_path.."/config.lua")|if love.system.getOS() == "Android" then love.filesystem.createDirectory("Mods") love.filesystem.createDirectory(talisman_path) end -- TAL_CONFIG_PERSIST\nlocal config_read_result = (love.system.getOS() == "Android" and love.filesystem.read or nativefs.read)(talisman_path.."/config.lua") -- TAL_CONFIG_PERSIST|' "$f"
-    # 2. Route all write sites through love.filesystem on Android.
-    sed -i 's|nativefs.write(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file))|do local _w = love.system.getOS() == "Android" and love.filesystem.write or nativefs.write; _w(talisman_path .. "/config.lua", STR_PACK(Talisman.config_file)) end -- TAL_CONFIG_PERSIST|g' "$f"
-    # 2b. TAL_BREAKINF_CLAMP (same clamp as the main.lua layer — see
-    #     apply_android_smods_path_fix): a persisted break_infinity="" crash-loops
-    #     boot; this pack requires omeganum.
-    sed -i 's|Talisman.config_file = STR_UNPACK(config_read_result)|do local _ok, _cfg = pcall(STR_UNPACK, config_read_result) if _ok and type(_cfg) == "table" then Talisman.config_file = _cfg end end -- TAL_CFG_SAFE_UNPACK: a truncated config (process killed mid-write) must not crash boot\n    if Talisman.config_file.break_infinity ~= "omeganum" then Talisman.config_file.break_infinity = "omeganum" Talisman.config_file.score_opt_id = 2 end -- TAL_BREAKINF_CLAMP|' "$f"
-    local n
-    n=$(grep -c "TAL_CONFIG_PERSIST" "$f")
-    if [[ "$n" -ge 4 ]]; then
-        log_success "Talisman config persistence applied ($n sites -> love.filesystem on Android)"
-    else
-        log_warn "Talisman config persistence matched only $n/4 sites — check talisman.lua"
-    fi
-}
 
 # Clean build artifacts
 clean() {
@@ -3404,111 +3013,6 @@ main() {
     esac
 }
 
-# NF_BIG_CACHE: Talisman's number_format override calls to_big(num) unconditionally
-# at line 194, which always allocates a fresh OmegaNum table. The .str cache written
-# on that table at line 198 is therefore on a throwaway object and can never be
-# re-read on subsequent calls — every invocation for a Big value fully recomputes
-# the notation format string AND pays the to_big allocation cost.
-#
-# DynaText polls chips/mult via ref_table/ref_value every update_text() call (once
-# per frame for animated HUD displays), so this path fires at 120fps. At
-# GAMESPEED=4 with Cryptid ascension active, chips/mult are persistent Big tables.
-#
-# Fix: branch on type(num) before touching to_big.
-#   - Plain Lua number + small enough for vanilla formatter: return nf() directly
-#     (eliminates the to_big allocation entirely on the dominant path).
-#   - Plain Lua number + needs notation format: allocate Big once, format, no cache
-#     (ephemeral number → ephemeral Big; no point caching since next call gets a
-#     fresh number value anyway).
-#   - Already a Big: cache the format string on the original object using a
-#     notation-keyed field name ('str_'..notation) so different notations don't
-#     collide and no invalidation is needed. Big objects produced by arithmetic are
-#     transient so their cached field is collected with them; persistent Bigs
-#     (current_hand.chips/mult) reuse the cached string on every DynaText poll.
-apply_nf_big_cache() {
-    local f="$1"
-    if [[ ! -f "$f" ]]; then
-        log_warn "talisman.lua not found, skipping NF_BIG_CACHE"
-        return 0
-    fi
-    if grep -q "NF_BIG_CACHE" "$f"; then
-        log_info "NF_BIG_CACHE already applied"
-        return 0
-    fi
-    python3 - "$f" <<'PYEOF'
-import sys
-path = sys.argv[1]
-text = open(path).read()
-
-old = (
-    "  local nf = number_format\n"
-    "  function number_format(num, e_switch_point)\n"
-    "      if is_number(num) then\n"
-    "          num = to_big(num)\n"
-    "          if num.str then return num.str end\n"
-    "          if num:arraySize() > 2 then\n"
-    "            local str = Notations[Talisman.config_file.notation_key or Talisman.default_notation]:format(num, 3)\n"
-    "            num.str = str\n"
-    "            return str\n"
-    "          end\n"
-    "          G.E_SWITCH_POINT = Notations[Talisman.config_file.notation_key or Talisman.default_notation].E_SWITCH_POINT or G.E_SWITCH_POINT or 100000000000\n"
-    "          if ((num or 0) < (to_big(G.E_SWITCH_POINT) or 0)) and not Notations[Talisman.config_file.notation_key or Talisman.default_notation].always_use then\n"
-    "              return nf(num:to_number(), e_switch_point)\n"
-    "          else\n"
-    "            return Notations[Talisman.config_file.notation_key or Talisman.default_notation]:format(num, 3)\n"
-    "          end\n"
-    "      else return nf(num, e_switch_point) end\n"
-    "  end\n"
-)
-
-new = (
-    "  local nf = number_format\n"
-    "  function number_format(num, e_switch_point) -- NF_BIG_CACHE\n"
-    "      if is_number(num) then\n"
-    "          local notation = Talisman.config_file.notation_key or Talisman.default_notation\n"
-    "          local Notation  = Notations[notation]\n"
-    "          if type(num) == 'number' then\n"
-    "              -- Plain Lua number: avoid to_big on the small-value fast path\n"
-    "              G.E_SWITCH_POINT = Notation.E_SWITCH_POINT or G.E_SWITCH_POINT or 100000000000\n"
-    "              if num < G.E_SWITCH_POINT and not Notation.always_use then\n"
-    "                  return nf(num, e_switch_point)\n"
-    "              end\n"
-    "              -- Large plain number: allocate Big once, format, return (no cache —\n"
-    "              -- plain numbers change every frame so a per-object cache never hits)\n"
-    "              return Notation:format(to_big(num), 3)\n"
-    "          end\n"
-    "          -- num is already a Big — cache the formatted string on the object itself\n"
-    "          -- using a notation-keyed field so notation changes don't serve stale strings\n"
-    "          local cache_key = 'str_'..notation\n"
-    "          if num[cache_key] then return num[cache_key] end\n"
-    "          local str\n"
-    "          G.E_SWITCH_POINT = Notation.E_SWITCH_POINT or G.E_SWITCH_POINT or 100000000000\n"
-    "          if num:arraySize() > 2 then\n"
-    "              str = Notation:format(num, 3)\n"
-    "          elseif (num < to_big(G.E_SWITCH_POINT)) and not Notation.always_use then\n"
-    "              return nf(num:to_number(), e_switch_point)\n"
-    "          else\n"
-    "              str = Notation:format(num, 3)\n"
-    "          end\n"
-    "          num[cache_key] = str\n"
-    "          return str\n"
-    "      else return nf(num, e_switch_point) end\n"
-    "  end\n"
-)
-
-if old not in text:
-    print('ERROR: number_format anchor not found in talisman.lua', file=sys.stderr)
-    sys.exit(1)
-
-open(path, 'w').write(text.replace(old, new, 1))
-print('NF_BIG_CACHE applied')
-PYEOF
-    if grep -q "NF_BIG_CACHE" "$f"; then
-        log_success "NF_BIG_CACHE applied (skip to_big for small numbers; cache .str on persistent Bigs)"
-    else
-        log_warn "NF_BIG_CACHE did not apply — check talisman.lua number_format anchor"
-    fi
-}
 
 # LETTER_TABLE_REUSE: DynaText.update_text() rebuilds self.strings[k].letters from
 # scratch on every string change: each character gets a fresh let_tab table plus a
