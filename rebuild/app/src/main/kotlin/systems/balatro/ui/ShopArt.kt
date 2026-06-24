@@ -28,9 +28,11 @@ object ShopArt {
     )
     // Tarot centers (game.lua c_* set="Tarot"), keyed by display name (the rebuild's TAROTS names).
     private val TAROT_POS: Map<String, Pair<Int, Int>> = mapOf(
-        "The Hierophant" to (5 to 0), "The Empress" to (3 to 0), "Justice" to (8 to 0),
-        "The Chariot" to (7 to 0), "The Devil" to (5 to 1), "The Star" to (7 to 1),
-        "The Tower" to (6 to 1), "The Sun" to (9 to 1), "The Moon" to (8 to 1),
+        "The Empress" to (3 to 0), "The Hierophant" to (5 to 0), "The Lovers" to (6 to 0),
+        "The Chariot" to (7 to 0), "Justice" to (8 to 0), "The Devil" to (5 to 1),
+        "The Tower" to (6 to 1), "The Star" to (7 to 1), "The Moon" to (8 to 1),
+        "The Sun" to (9 to 1), "The World" to (1 to 2), "Strength" to (1 to 1),
+        "The Hanged Man" to (2 to 1),
     )
     // Spectral centers (game.lua c_* set="Spectral"), keyed by the rebuild's Spectral enum.
     private val SPECTRAL_POS: Map<Spectral, Pair<Int, Int>> = mapOf(

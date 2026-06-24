@@ -139,7 +139,16 @@ internal sealed class Consumable {
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
-internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
+/** A tarot's effect on up to [maxTargets] selected hand cards (game.lua c_* set="Tarot"). */
+internal sealed class TarotFx {
+    abstract val maxTargets: Int
+    abstract val label: String
+    data class Enhance(val e: Enhancement, override val maxTargets: Int) : TarotFx() { override val label get() = e.name.lowercase() }
+    data class ConvertSuit(val suit: Suit, override val maxTargets: Int) : TarotFx() { override val label get() = "→ ${suit.name}" }
+    data class RankUp(override val maxTargets: Int) : TarotFx() { override val label get() = "+1 rank" }
+    data class Destroy(override val maxTargets: Int) : TarotFx() { override val label get() = "destroy" }
+}
+internal data class TarotOffer(val name: String, val fx: TarotFx, val cost: Int = 3)
 
 /** One filled shop slot. Vanilla's shop is a single mixed CardArea: create_card_for_shop polls a
  *  TYPE per slot by weight (joker_rate/tarot_rate/planet_rate), then draws a card of that type
@@ -597,17 +606,27 @@ private fun rollShopItems(blind: Int, slots: Int): List<ShopItem> {
     return out
 }
 
+// Faithful vanilla tarots (game.lua c_*). Enhancement tarots use the existing enhancements; the
+// suit-conversion (Star/Sun/Moon/World), rank-up (Strength), and destroy (Hanged Man) tarots modify
+// the selected cards. (Magician=Lucky needs a Lucky enhancement + its scoring — engine lane, omitted;
+// seals come from spectrals Talisman/Deja Vu, not from Sun/Moon as the old mapping wrongly had it.)
 private val TAROTS = listOf(
-    TarotOffer("The Hierophant", Enhancement.BONUS, 3),
-    TarotOffer("The Empress", Enhancement.MULT, 3),
-    TarotOffer("Justice", Enhancement.GLASS, 3),
-    TarotOffer("The Chariot", Enhancement.STEEL, 4),      // steel (corrects the earlier mislabel)
-    TarotOffer("The Devil", Enhancement.GOLD, 4),
-    TarotOffer("The Star", Enhancement.WILD, 4),
-    TarotOffer("The Tower", Enhancement.STONE, 4),        // stone: +50 chips, no rank/suit
-    TarotOffer("The Sun", cost = 4, seal = Seal.RED),     // red seal: retrigger
-    TarotOffer("The Moon", cost = 4, seal = Seal.GOLD),   // gold seal: +$3 when played
+    TarotOffer("The Empress", TarotFx.Enhance(Enhancement.MULT, 2)),
+    TarotOffer("The Hierophant", TarotFx.Enhance(Enhancement.BONUS, 2)),
+    TarotOffer("The Lovers", TarotFx.Enhance(Enhancement.WILD, 1)),
+    TarotOffer("The Chariot", TarotFx.Enhance(Enhancement.STEEL, 1)),
+    TarotOffer("Justice", TarotFx.Enhance(Enhancement.GLASS, 1)),
+    TarotOffer("The Devil", TarotFx.Enhance(Enhancement.GOLD, 1)),
+    TarotOffer("The Tower", TarotFx.Enhance(Enhancement.STONE, 1)),
+    TarotOffer("The Star", TarotFx.ConvertSuit(Suit.D, 3)),   // → Diamonds
+    TarotOffer("The Sun", TarotFx.ConvertSuit(Suit.H, 3)),    // → Hearts
+    TarotOffer("The Moon", TarotFx.ConvertSuit(Suit.C, 3)),   // → Clubs
+    TarotOffer("The World", TarotFx.ConvertSuit(Suit.S, 3)),  // → Spades
+    TarotOffer("Strength", TarotFx.RankUp(2)),                // +1 rank to up to 2
+    TarotOffer("The Hanged Man", TarotFx.Destroy(2)),         // destroy up to 2
 )
+/** Look a tarot up by display name — save/restore serializes tarots by name (fx isn't serialized). */
+private fun tarotByName(n: String): TarotOffer = TAROTS.find { it.name == n } ?: TAROTS.first()
 
 /** Compose-observable run state; mutations drive recomposition. Scoring is the faithful Score engine. */
 internal class RunState {
@@ -707,8 +726,10 @@ internal class RunState {
     fun useConsumable(i: Int) {
         when (val c = consumables.getOrNull(i) ?: return) {
             is Consumable.TarotC -> {
-                val card = if (c.t.seal != Seal.NONE) deck.sealRandom(c.t.seal) else deck.enhanceRandom(c.t.enhancement)
-                Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name, "card" to (card?.key ?: "none"))
+                // Tarots are normally aimed at chosen hand cards (aimTarot → useTarot). Fallback when used
+                // without a target (e.g. enhancement tarots fall back to a random deck card).
+                (c.t.fx as? TarotFx.Enhance)?.let { deck.enhanceRandom(it.e) }
+                Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name)
             }
             is Consumable.PlanetC -> {
                 handLevels.levelUp(c.planet.hand)
@@ -1573,29 +1594,26 @@ internal class RunState {
         tarotTarget = emptySet()
     }
 
-    /** Apply the pending tarot to [targets] — the currently selected hand indices.
-     *  Each target card gets the enhancement or seal, then the tarot is consumed. */
+    /** Apply the pending tarot's fx to up to fx.maxTargets selected hand cards (by index), mutate the
+     *  deck to match, rebuild the visible hand (destroyed cards drop out), then consume the tarot. */
     fun useTarot() {
         val t = pendingTarot ?: return
-        if (tarotTarget.isEmpty()) return
-        val targetCards = tarotTarget.mapNotNull { hand.getOrNull(it) }
-        var applied = 0
-        for (card in targetCards) {
-            val ok = if (t.seal != Seal.NONE) deck.sealCard(card, t.seal)
-                     else deck.enhanceCard(card, t.enhancement)
-            if (ok) applied++
+        val idxs = tarotTarget.sorted().take(t.fx.maxTargets).toSet()
+        if (idxs.isEmpty()) return
+        // PlayingCard is immutable; the deck methods update `all`/`drawPile` by value, and we rebuild the
+        // visible hand here so Compose sees the change. Index-based so duplicate card values don't both flip.
+        hand = hand.mapIndexedNotNull { i, c ->
+            if (i !in idxs) return@mapIndexedNotNull c
+            when (val fx = t.fx) {
+                is TarotFx.Enhance -> { deck.enhanceCard(c, fx.e); c.copy(enhancement = fx.e) }
+                is TarotFx.ConvertSuit -> { deck.setSuitCard(c, fx.suit); c.copy(suit = fx.suit) }
+                is TarotFx.RankUp -> { deck.rankUpCard(c); c.copy(rank = if (c.rank >= 14) 2 else c.rank + 1) }
+                is TarotFx.Destroy -> { deck.destroyCard(c); null }   // dropped from hand
+            }
         }
-        // Reflect the changes in the live hand (PlayingCard is immutable; replace the instances).
-        // The Deck methods update `all` and `drawPile`; if the card is CURRENTLY in the hand we
-        // need to rebuild `hand` so Compose sees the new enhancement/seal on the visible card.
-        val newHand = hand.map { c ->
-            val match = targetCards.find { it == c } ?: return@map c
-            if (t.seal != Seal.NONE) c.copy(seal = t.seal) else c.copy(enhancement = t.enhancement)
-        }
-        hand = newHand
         consumables.removeAll { it is Consumable.TarotC && it.t === t }
         pendingTarot = null; tarotTarget = emptySet()
-        Telemetry.event("RUN_USE_TAROT", "tarot" to t.name, "n" to applied)
+        Telemetry.event("RUN_USE_TAROT", "tarot" to t.name, "n" to idxs.size)
     }
 
     fun cancelTarot() { pendingTarot = null; tarotTarget = emptySet() }
@@ -1617,7 +1635,7 @@ internal class RunState {
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
             when (c) {
-                is Consumable.TarotC -> ConsumableSnap("tarot", c.t.name, c.t.enhancement.name, c.t.seal.name)
+                is Consumable.TarotC -> ConsumableSnap("tarot", c.t.name)   // restored by name (fx not serialized)
                 is Consumable.PlanetC -> ConsumableSnap("planet", c.planet.display, planet = c.planet.name)
                 is Consumable.SpectralC -> ConsumableSnap("spectral", c.s.name)
             }
@@ -1627,7 +1645,7 @@ internal class RunState {
             when (item) {
                 is ShopItem.Jk -> ShopItemSnap("joker", joker = OfferSnap(item.offer.key, item.offer.name, item.offer.desc, item.offer.cost, item.offer.edition.name))
                 is ShopItem.Pl -> ShopItemSnap("planet", planet = PlanetSnap(item.po.planet.name, item.po.cost))
-                is ShopItem.Tt -> ShopItemSnap("tarot", tarot = TarotSnap(item.t.name, item.t.enhancement.name, item.t.cost, item.t.seal.name))
+                is ShopItem.Tt -> ShopItemSnap("tarot", tarot = TarotSnap(item.t.name, "", item.t.cost, ""))
             }
         },
         shopVoucher = shopVoucher?.let { VoucherSnap(it.key, it.name, it.desc, it.extra, it.cost) },
@@ -1656,7 +1674,7 @@ internal class RunState {
         consumables.clear()
         s.consumables.forEach { cs ->
             consumables.add(when (cs.kind) {
-                "tarot" -> Consumable.TarotC(TarotOffer(cs.name, Enhancement.valueOf(cs.enh), 0, Seal.valueOf(cs.seal)))
+                "tarot" -> Consumable.TarotC(tarotByName(cs.name))
                 "spectral" -> Consumable.SpectralC(Spectral.valueOf(cs.name))
                 else -> Consumable.PlanetC(Planet.valueOf(cs.planet))
             })
@@ -1666,7 +1684,7 @@ internal class RunState {
             when (snap.kind) {
                 "joker" -> snap.joker?.let { ShopItem.Jk(Offer(it.key, it.name, it.desc, it.cost, edition = Edition.valueOf(it.edition))) }
                 "planet" -> snap.planet?.let { ShopItem.Pl(PlanetOffer(Planet.valueOf(it.planet), it.cost)) }
-                "tarot" -> snap.tarot?.let { ShopItem.Tt(TarotOffer(it.name, Enhancement.valueOf(it.enh), it.cost, Seal.valueOf(it.seal))) }
+                "tarot" -> snap.tarot?.let { ShopItem.Tt(tarotByName(it.name)) }
                 else -> null
             }
         }
@@ -3080,7 +3098,7 @@ private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Flo
                         }
                         is ShopItem.Tt -> {
                             val t = item.t
-                            val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
+                            val fx = t.fx.label
                             ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, t.name, shopArt.tarots[t.name], cardBase,
                                 s.price(t.cost), fx, Balatro.Purple,
                                 s.money >= s.price(t.cost), u) { s.buyTarot(t) }
@@ -3165,7 +3183,7 @@ private fun ShopOfferCard(
 private fun packItemView(item: PackItem): Triple<String, String, Color> = when (item) {
     is PackItem.Tarot -> Triple(
         item.t.name,
-        if (item.t.seal != Seal.NONE) "${item.t.seal.name.lowercase()} seal" else item.t.enhancement.name.lowercase(),
+        item.t.fx.label,
         Balatro.Purple,
     )
     is PackItem.Planet -> Triple(item.p.planet.display, handName(item.p.planet.hand), Balatro.Chips)

@@ -58,7 +58,8 @@ class ConsumableTest {
 
     @Test fun tarotEnhancesADeckCard() {
         val rs = RunState()
-        rs.consumables.add(Consumable.TarotC(TarotOffer("The Empress", Enhancement.MULT, 3)))
+        // useConsumable is the fallback (no aim target) path: enhancement tarots enhance a random card.
+        rs.consumables.add(Consumable.TarotC(TarotOffer("The Empress", TarotFx.Enhance(Enhancement.MULT, 2))))
         rs.useConsumable(0)
         assertEquals("one deck card gains the Mult enhancement", 1, rs.snapshot().deck.count { it.enh == "MULT" })
         assertTrue(rs.consumables.isEmpty())

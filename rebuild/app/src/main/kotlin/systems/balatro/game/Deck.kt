@@ -65,6 +65,29 @@ class Deck(seed: Long) {
         return true
     }
 
+    /** Convert a specific card's suit (Star/Sun/Moon/World tarots). Matches by value. */
+    fun setSuitCard(card: PlayingCard, suit: Suit): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        all[i] = all[i].copy(suit = suit)
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, all[i]) }
+        return true
+    }
+
+    /** Raise a specific card's rank by 1, wrapping Ace(14)→2 (Strength tarot). Matches by value. */
+    fun rankUpCard(card: PlayingCard): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        val nr = if (all[i].rank >= 14) 2 else all[i].rank + 1
+        all[i] = all[i].copy(rank = nr)
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, all[i]) }
+        return true
+    }
+
+    /** Destroy a specific card from the deck (The Hanged Man tarot). Matches by value. */
+    fun destroyCard(card: PlayingCard): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        all.removeAt(i); reshuffle(); return true
+    }
+
     /** Count cards in the FULL persistent deck with a given enhancement (for j_stone, j_steel_joker). */
     fun countEnhancement(e: Enhancement): Int = all.count { it.enhancement == e }
 
