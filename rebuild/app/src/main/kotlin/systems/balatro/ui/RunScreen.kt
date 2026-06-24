@@ -106,6 +106,12 @@ internal enum class Tag(val display: String, val desc: String, val trigger: TagT
     HANDY("Handy Tag", "+\$1 per hand played this run", TagTrigger.EVAL),              // tag_handy
     ECONOMY("Economy Tag", "Doubles money (max +\$40)", TagTrigger.SHOP_START),        // tag_economy
     ORBITAL("Orbital Tag", "Upgrade a random poker hand by 3 levels", TagTrigger.ROUND_START),  // tag_orbital
+    // Pack tags — open a free pack on entering the next shop (queued, opened after phase=SHOP).
+    CHARM("Charm Tag", "Opens a free Mega Arcana Pack", TagTrigger.SHOP_FINAL),        // tag_charm
+    METEOR("Meteor Tag", "Opens a free Mega Celestial Pack", TagTrigger.SHOP_FINAL),   // tag_meteor
+    ETHEREAL("Ethereal Tag", "Opens a free Spectral Pack", TagTrigger.SHOP_FINAL),     // tag_ethereal
+    STANDARD_TAG("Standard Tag", "Opens a free Mega Standard Pack", TagTrigger.SHOP_FINAL),  // tag_standard
+    BUFFOON("Buffoon Tag", "Opens a free Mega Buffoon Pack", TagTrigger.SHOP_FINAL),   // tag_buffoon
 }
 private val TAG_POOL = Tag.values().toList()
 private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
@@ -1332,6 +1338,7 @@ internal class RunState {
             // startRound() re-derives the same deterministic value.
             boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
             phase = Phase.SHOP
+            openPendingPackTag()    // a Charm/Meteor/… tag queued a free pack → open it over the shop
         }
         Telemetry.event("CASH_OUT", "total" to cashOutTotal, "money" to money)
     }
@@ -1494,6 +1501,12 @@ internal class RunState {
         if (money < cost) return
         money -= cost; totalCardsPurchased += 1
         shopBoosters = shopBoosters.filterNot { it === b }
+        openBooster(b)
+    }
+
+    /** Generate a pack's contents and enter PACK_OPEN. Shared by shop purchase ([buyBooster]) and the
+     *  free pack-tags (Charm/Meteor/…). Caller handles cost/removal; this only builds + opens. */
+    private fun openBooster(b: BoosterOffer) {
         packSeed += 1
         val rng = Random(blindIndex * 7253L + packSeed * 131L)
         val items: List<PackItem> = when (b.kind) {
@@ -1508,6 +1521,10 @@ internal class RunState {
         phase = Phase.PACK_OPEN
         Telemetry.event("RUN_PACK_OPEN", "key" to b.key, "kind" to b.kind, "money" to money)
     }
+
+    /** A pack tag (Charm/Meteor/…) queues its free pack here; opened on shop entry, after phase=SHOP. */
+    private var pendingPack: BoosterOffer? = null
+    internal fun openPendingPackTag() { pendingPack?.let { pendingPack = null; openBooster(it) } }
 
     /** Pick item [i] from the open pack — applies its effect (pre-paid), advances picks, closes when done. */
     fun pickPackItem(i: Int) {
@@ -1737,6 +1754,12 @@ internal class RunState {
             Tag.ECONOMY -> money += minOf(money, 40)                     // double money, capped at +$40
             Tag.ORBITAL -> handLevels.levelUp(                          // +3 levels to a random poker hand
                 RUN_INFO_HANDS[Random(blindIndex * 70003L + 11).nextInt(RUN_INFO_HANDS.size)], 3)
+            // Pack tags: queue a free pack; opened on shop entry once phase=SHOP is set.
+            Tag.CHARM     -> pendingPack = BOOSTERS.find { it.key == "p_arcana_mega" }
+            Tag.METEOR    -> pendingPack = BOOSTERS.find { it.key == "p_celestial_mega" }
+            Tag.ETHEREAL  -> pendingPack = BOOSTERS.find { it.key == "p_spectral_normal" }
+            Tag.STANDARD_TAG -> pendingPack = BOOSTERS.find { it.key == "p_standard_mega" }
+            Tag.BUFFOON   -> pendingPack = BOOSTERS.find { it.key == "p_buffoon_mega" }
         }
         tags.removeAll(firing)
     }
