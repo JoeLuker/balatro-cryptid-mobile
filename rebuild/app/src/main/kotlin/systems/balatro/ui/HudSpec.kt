@@ -963,7 +963,7 @@ private fun gameOverStat(id: String, s: RunState): String = when (id) {
     "cards_purchased" -> s.totalCardsPurchased.toString()
     "times_rerolled"  -> s.timesRerolled.toString()
     "hand"            -> s.totalChipsScored.toLong().toString()
-    "poker_hand"      -> s.mostPlayedHand?.first?.name ?: ""
+    "poker_hand"      -> s.mostPlayedHand?.let { handName(it.first) } ?: "None"
     "seed"            -> s.runSeed
     "furthest_ante"   -> s.ante.toString()
     "furthest_round"  -> (s.blindIndex + 1).toString()
@@ -1025,6 +1025,9 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
         "C" -> Co(cfg, kids)
         "B" -> Bx(cfg, kids)
         "T" -> { val t = cfgJ.opt("text"); Tx(cfg, when {
+            // Most-played row: the static " (N)" count beside the hand-name dynatext → live count.
+            childStat == "poker_hand" && t is String && Regex("^ \\(\\d+\\)$").matches(t) ->
+                " (${b.s.mostPlayedHand?.second ?: 0})"
             t is String -> t
             t is Number -> { val d = t.toDouble(); if (d == d.toLong().toDouble()) d.toLong().toString() else t.toString() }  // run-info chips/mult/played are numbers
             t is org.json.JSONObject && t.optString("\$") == "loc" -> t.opt("key")?.toString() ?: ""
