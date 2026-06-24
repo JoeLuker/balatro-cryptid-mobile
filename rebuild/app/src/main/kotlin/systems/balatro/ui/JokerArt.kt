@@ -211,6 +211,10 @@ object JokerArt {
         "j_cry_spy" to Triple("atlasspooky.png", 0, 0),
         "j_cry_universe" to Triple("atlasnotjokers.png", 4, 5),
         "j_cry_keychange" to Triple("placeholders.png", 1, 1),   // Cryptid's own WIP placeholder art
+        // fspinner/wheelhope: brace-matched to their own table's atlas (an earlier nested `key=` had
+        // truncated the scan and mis-flagged them as atlas-less).
+        "j_cry_fspinner" to Triple("atlasone.png", 4, 0),
+        "j_cry_wheelhope" to Triple("atlasthree.png", 1, 1),
     )
 
     /** Crop the cells for `keys`, decoding each distinct atlas only once. */
