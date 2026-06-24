@@ -18,6 +18,8 @@ object Oracle {
         val handTypePlays: Map<HandType, Int> = emptyMap(),   // prior run-total plays per hand type (supernova)
         val totalHandsPlayed: Int = 0,              // G.GAME.hands_played — loyalty_card jokerMain
         val money: Int = 0,                         // G.GAME.dollars — Bull / Bootstraps
+        val deckSize: Int = 52,                     // run deck size — Erosion
+        val jokerSlots: Int = 5,                    // joker slot limit — Joker Stencil
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -754,12 +756,17 @@ object Oracle {
         Case("Pair of aces + bull @\$10 (+2 Chips/\$1 = +20)", PlayingCard.hand("S_A", "H_A"), 104.0, j(FJoker("j_bull")), money = 10),
         Case("Pair of aces + bull @\$0 (no money → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_bull")), money = 0),
         Case("Pair of aces + bootstraps @\$20 (+2 Mult/\$5 = +8)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_bootstraps")), money = 20),
+
+        // --- missing vanilla jokers, batch 4: deck-size / joker-slot scaling ---
+        Case("Pair of aces + erosion @deck=48 (+4/card below 52 = +16 Mult)", PlayingCard.hand("S_A", "H_A"), 576.0, j(FJoker("j_erosion")), deckSize = 48),
+        Case("Pair of aces + erosion @deck=52 (full deck → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_erosion")), deckSize = 52),
+        Case("Pair of aces + stencil (only joker of 5 slots → X5)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_stencil"))),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money, deckSize = c.deckSize, jokerSlots = c.jokerSlots).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")

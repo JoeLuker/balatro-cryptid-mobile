@@ -479,6 +479,9 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 3): money-scaling ---
     Offer("j_bull", "Bull", "+2 Chips per $1 you have", 6, rarity = 2),
     Offer("j_bootstraps", "Bootstraps", "+2 Mult per $5 you have", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 4): deck-size / slot scaling ---
+    Offer("j_erosion", "Erosion", "+4 Mult per card below 52 in your deck", 6, rarity = 2),
+    Offer("j_stencil", "Joker Stencil", "X1 Mult per empty Joker slot (counts itself)", 8, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1062,7 +1065,8 @@ internal class RunState {
         }
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
-                            totalHandsPlayed = totalHandsPlayed, money = money, trace = trace,
+                            totalHandsPlayed = totalHandsPlayed, money = money,
+                            deckSize = deck.composition().size, jokerSlots = maxJokers, trace = trace,
                             // j_hiker: persist the +5 permaBonus to Deck.all after each scored card.
                             // The scored card in `scoringHand` has the OLD permaBonus (Lua timing:
                             // joker individual hooks fire after eval_card, so the +5 takes effect
