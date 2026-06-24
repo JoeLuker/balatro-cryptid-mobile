@@ -194,6 +194,23 @@ object JokerArt {
         "j_cry_crustulum" to Triple("atlasexotic.png", 0, 2),
         "j_cry_facile" to Triple("atlasexotic.png", 6, 2),
         "j_cry_stella_mortis" to Triple("atlasexotic.png", 3, 5),
+        // Batch: jokers on the now-bundled Cryptid atlases (atlasepic/spooky/notjokers/placeholders).
+        // All 142x190 cells; pos from mods/Cryptid/items/*.lua, verified in-bounds.
+        "j_cry_biggestm" to Triple("atlasepic.png", 3, 3),
+        "j_cry_boredom" to Triple("atlasepic.png", 1, 0),
+        "j_cry_caramel" to Triple("atlasepic.png", 0, 1),
+        "j_cry_circus" to Triple("atlasepic.png", 4, 4),
+        "j_cry_googol_play" to Triple("atlasepic.png", 3, 0),
+        "j_cry_jtron" to Triple("atlasepic.png", 2, 5),
+        "j_cry_membershipcardtwo" to Triple("atlasepic.png", 5, 4),
+        "j_cry_spectrogram" to Triple("atlasepic.png", 1, 5),
+        "j_cry_starfruit" to Triple("atlasepic.png", 4, 5),
+        "j_cry_supercell" to Triple("atlasepic.png", 5, 1),
+        "j_cry_sync_catalyst" to Triple("atlasepic.png", 5, 2),
+        "j_cry_blacklist" to Triple("atlasspooky.png", 2, 2),
+        "j_cry_spy" to Triple("atlasspooky.png", 0, 0),
+        "j_cry_universe" to Triple("atlasnotjokers.png", 4, 5),
+        "j_cry_keychange" to Triple("placeholders.png", 1, 1),   // Cryptid's own WIP placeholder art
     )
 
     /** Crop the cells for `keys`, decoding each distinct atlas only once. */
