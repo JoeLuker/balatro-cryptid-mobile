@@ -960,4 +960,19 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
                 Effect.None
         },
     ),
+
+    // ── missing vanilla jokers — batch 1 (flat / per-hand scaling / held-state) ────────────────────
+    // Cavendish: X3 Mult always. Gros Michel: +15 Mult always (1-in-6 end-of-round extinction = lifecycle TODO).
+    "j_cavendish"    to JokerSpec(jokerMain = { _, _ -> Effect.XMult(3.0) }),
+    "j_gros_michel"  to JokerSpec(jokerMain = { _, _ -> Effect.Mult(15.0) }),
+    // Ice Cream: +Chips starting at 100, −5 each hand played (reducer); floors at 0 (self-destruct = lifecycle TODO).
+    "j_ice_cream"    to JokerSpec(
+        initialState = FJokerState(chips = 100.0),
+        reduce = { s, e -> if (e is GameEvent.HandScored) s.copy(chips = maxOf(0.0, s.chips - 5.0)) else s },
+        jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
+    ),
+    // Blackboard: X3 Mult if every card held in hand is a Spade or Club (an empty hand counts — vacuously true).
+    "j_blackboard"   to JokerSpec(jokerMain = { _, ctx ->
+        if (ctx.heldHand.all { it.isSuit(Suit.S, ctx.smeared) || it.isSuit(Suit.C, ctx.smeared) }) Effect.XMult(3.0) else Effect.None
+    }),
 )

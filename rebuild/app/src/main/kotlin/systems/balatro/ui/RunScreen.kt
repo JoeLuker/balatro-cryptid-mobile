@@ -465,6 +465,11 @@ private val CATALOG = listOf(
     // --- vanilla hands/discards-remaining jokers (now wired) ---
     Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6, rarity = 2),
     Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
+    // --- missing vanilla jokers (batch 1) ---
+    Offer("j_cavendish", "Cavendish", "X3 Mult", 4),
+    Offer("j_gros_michel", "Gros Michel", "+15 Mult", 5),
+    Offer("j_ice_cream", "Ice Cream", "+100 Chips, -5 per hand played", 5),
+    Offer("j_blackboard", "Blackboard", "X3 Mult if all held cards are Spades or Clubs", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
