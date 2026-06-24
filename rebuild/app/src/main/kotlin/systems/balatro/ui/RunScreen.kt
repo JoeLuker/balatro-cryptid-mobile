@@ -3268,6 +3268,7 @@ private fun currentHandsTree(s: RunState): UI {
 @Composable
 private fun RunInfoScreen(s: RunState) {
     val u = LocalUIScale.current
+    var tab by remember { mutableStateOf(0) }   // 0 Poker Hands, 1 Blinds, 2 Vouchers (vanilla run_info tabs)
     Column(
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -3278,8 +3279,64 @@ private fun RunInfoScreen(s: RunState) {
             Spacer(Modifier.weight(1f))
             BButton("Back", Balatro.Orange) { s.closeRunInfo() }
         }
-        // Live-built poker-hands table (level/chips/mult/played bound to RunState).
-        RenderUIBoxNatural(currentHandsTree(s), u)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Poker Hands", "Blinds", "Vouchers").forEachIndexed { i, label ->
+                BButton(label, if (tab == i) Balatro.Orange else Balatro.Grey) { tab = i }
+            }
+        }
+        when (tab) {
+            0 -> RenderUIBoxNatural(currentHandsTree(s), u)   // live-built; level/chips/mult/played from RunState
+            1 -> RunInfoBlinds(s, u)
+            else -> RunInfoVouchers(s, u)
+        }
+    }
+}
+
+/** Blinds tab — the current ante's Small/Big/Boss with chip, score requirement, and reward
+ *  (G.UIDEF.current_blinds → create_UIBox_blind_choice, simple variant). */
+@Composable
+private fun RunInfoBlinds(s: RunState, u: Float) {
+    val ctx = LocalContext.current
+    val art by produceState(Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>(null, null, null), s.blindIndex) {
+        value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        (0..2).forEach { slot ->
+            val chip = when (slot) { 0 -> art.first; 1 -> art.second; else -> art.third }
+            Row(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFACB3C0)).padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                chip?.let { Image(it, null, Modifier.size((1.4f * u).dp), filterQuality = FilterQuality.None) }
+                Column {
+                    BTxt(s.nameForSlot(slot), Balatro.Ink, 14.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BTxt("Score at least ", Balatro.Ink, 10.sp)
+                        BTxt(fmtR(s.targetForSlot(slot)), Balatro.Mult, 13.sp)
+                    }
+                    BTxt("Reward: ${"$".repeat(s.rewardForSlot(slot))}", Balatro.Money, 11.sp)
+                    if (slot == 2 && s.descForSlot(2).isNotBlank()) BTxt(s.descForSlot(2), Balatro.Ink, 9.sp)
+                }
+            }
+        }
+    }
+}
+
+/** Vouchers tab — the vouchers redeemed this run (G.UIDEF.used_vouchers). */
+@Composable
+private fun RunInfoVouchers(s: RunState, u: Float) {
+    val ctx = LocalContext.current
+    val shopArt by produceState(ShopArt.Cells.EMPTY) { value = withContext(Dispatchers.Default) { ShopArt.cache(ctx) } }
+    if (s.redeemedVouchers.isEmpty()) { BTxt("No vouchers redeemed yet", Balatro.White, 14.sp); return }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        s.redeemedVouchers.forEach { key ->
+            val v = VOUCHERS.find { it.key == key }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                shopArt.vouchers[key]?.let { Image(it, null, Modifier.size((1.4f * u).dp), filterQuality = FilterQuality.None) }
+                Column {
+                    BTxt(v?.name ?: key, Balatro.White, 13.sp)
+                    if (v != null) BTxt(v.desc, Balatro.White.copy(alpha = 0.8f), 9.sp)
+                }
+            }
+        }
     }
 }
 
