@@ -103,6 +103,9 @@ internal enum class Tag(val display: String, val desc: String, val trigger: TagT
     JUGGLE("Juggle Tag", "+3 hand size next round", TagTrigger.ROUND_START),           // 'round_start_bonus', h_size 3
     D_SIX("D6 Tag", "Rerolls start at \$0 next shop", TagTrigger.SHOP_START),          // 'shop_start'
     COUPON("Coupon Tag", "Next shop cards & packs are free", TagTrigger.SHOP_FINAL),   // 'shop_final_pass'
+    HANDY("Handy Tag", "+\$1 per hand played this run", TagTrigger.EVAL),              // tag_handy
+    ECONOMY("Economy Tag", "Doubles money (max +\$40)", TagTrigger.SHOP_START),        // tag_economy
+    ORBITAL("Orbital Tag", "Upgrade a random poker hand by 3 levels", TagTrigger.ROUND_START),  // tag_orbital
 }
 private val TAG_POOL = Tag.values().toList()
 private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
@@ -1676,13 +1679,17 @@ internal class RunState {
     }
 
     /** Fire (and consume) every earned tag whose trigger matches (Tag:apply_to_run by config.type). */
-    private fun applyTags(trigger: TagTrigger) {
+    internal fun applyTags(trigger: TagTrigger) {
         val firing = tags.filter { it.trigger == trigger }
         for (t in firing) when (t) {
             Tag.INVESTMENT -> money += 25
             Tag.JUGGLE -> handSize += 3
             Tag.D_SIX -> freeRerollThisShop = true
             Tag.COUPON -> couponThisShop = true
+            Tag.HANDY -> money += handsPlayedTotal                       // +$1 per hand played this run
+            Tag.ECONOMY -> money += minOf(money, 40)                     // double money, capped at +$40
+            Tag.ORBITAL -> handLevels.levelUp(                          // +3 levels to a random poker hand
+                RUN_INFO_HANDS[Random(blindIndex * 70003L + 11).nextInt(RUN_INFO_HANDS.size)], 3)
         }
         tags.removeAll(firing)
     }
