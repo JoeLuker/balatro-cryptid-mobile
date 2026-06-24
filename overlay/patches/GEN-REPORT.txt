@@ -1,10 +1,10 @@
-SKIP  sticky_fingers_guard
+SKIP-EXPECTED  sticky_fingers_guard        # manual/60 — nil-guards now live in Mods/sticky-fingers/main.lua
 OK    crt_fix                      -> 01-crt_fix.patch
 OK    android_settings_fix         -> 02-android_settings_fix.patch
 OK    mobile_graphics_defaults     -> 03-mobile_graphics_defaults.patch
 OK    android_video_settings       -> 04-android_video_settings.patch
 OK    android_quit_fix             -> 05-android_quit_fix.patch
-SKIP  drag_reject_feedback
+SKIP-EXPECTED  drag_reject_feedback        # manual/61 — feedback now in Mods/sticky-fingers/main.lua
 OK    settings_debug_tab           -> 06-settings_debug_tab.patch
 OK    debug_overlay                -> 07-debug_overlay.patch
 OK    main_lua                     -> 08-main_lua.patch
@@ -21,10 +21,10 @@ OK    amulet_config_hardening      -> 18-amulet_config_hardening.patch
 OK    amulet_calc_delay            -> 19-amulet_calc_delay.patch
 OK    amulet_overlay_fit           -> 20-amulet_overlay_fit.patch
 OK    smods_disabled_pool_gate     -> 21-smods_disabled_pool_gate.patch
-SKIP  mod_toggle_removed
+SKIP-EXPECTED  mod_toggle_removed          # manual/63 — re-anchored to revised Steamodded ui.lua
 OK    cryptid_to_big_elim          -> 22-cryptid_to_big_elim.patch
 OK    cryptid_demicolon            -> 23-cryptid_demicolon.patch
-SKIP  cryptid_oil_lamp_fix
+SKIP-EXPECTED  cryptid_oil_lamp_fix        # upstream — Cryptid 0.5.16a already declares 'local other_joker'
 OK    cry_vanilla_gameset          -> 24-cry_vanilla_gameset.patch
 OK    cry_blind_choice_guard       -> 25-cry_blind_choice_guard.patch
 OK    cry_forcetrigger_guard       -> 26-cry_forcetrigger_guard.patch
@@ -34,7 +34,7 @@ OK    forced_key_guard             -> 29-forced_key_guard.patch
 OK    disabled_center_skip         -> 30-disabled_center_skip.patch
 OK    tap_description_persist      -> 31-tap_description_persist.patch
 OK    cursor_down_uptime_fix       -> 32-cursor_down_uptime_fix.patch
-SKIP  drag_self_drop_exclude
+SKIP-EXPECTED  drag_self_drop_exclude      # manual/59 — re-anchored to revised controller.lua
 OK    ui_colour_guard              -> 33-ui_colour_guard.patch
 OK    ui_o_detached_guard          -> 34-ui_o_detached_guard.patch
 OK    drag_select                  -> 35-drag_select.patch
