@@ -925,7 +925,8 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
 }
 
 /** End-screen (game-over / win) callbacks bound to the extracted tree's buttons. */
-internal class GameOverBind(val s: RunState, val onRestart: () -> Unit, val onMainMenu: () -> Unit)
+internal class GameOverBind(val s: RunState, val onRestart: () -> Unit, val onMainMenu: () -> Unit,
+                            val chipIcon: ImageBitmap? = null)
 
 /** Renders the REAL create_UIBox_game_over / create_UIBox_win trees (game_over_tree.json /
  *  win_tree.json). Structure + labels + buttons come from the extracted tree; stat values bind to
@@ -990,6 +991,9 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
     val tag0 = node.optString("n")
     if ((tag0 == "C" || tag0 == "R" || tag0 == "B") && !goHasText(node)) {
         val s = node.toString()
+        // Collapse the decorative text-less columns so the dialog centres on its own bounds. The Jimbo
+        // joker is drawn as a separate overlay in EndScreen (in-tree it widens the row and clips the
+        // "Defeated by" value); overlay_menu_infotip is pure backing.
         if ("jimbo_spot" in s || "overlay_menu_infotip" in s) return Bx(Cfg())
     }
     val myId = cfgJ.optString("id")
@@ -1034,6 +1038,10 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
             else -> "" }) }
         "O" -> {
             val o = cfgJ.optJSONObject("object")
+            // chip-score icon: the small ui_assets chip beside "Chips Scored" (round_scores_row,
+            // common_events.lua:61) — the static sprite named "sprite", drawn at 0.3×0.3u.
+            if (o?.optString("\$") == "sprite" && o.optString("name") == "sprite" && b.chipIcon != null)
+                return Ob(cfg, Sprite(b.chipIcon, 0.3f, 0.3f))
             if (o?.optString("\$") == "dynatext") {
                 val segsJ = o.optJSONArray("segs"); val cols = o.optJSONArray("colours")
                 val col = cols?.optString(0)?.let { gameOverColour(it) } ?: Balatro.White

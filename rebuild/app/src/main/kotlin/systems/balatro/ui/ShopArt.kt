@@ -65,6 +65,10 @@ object ShopArt {
         ctx.assets.open("textures/$file").use { BitmapFactory.decodeStream(it) }
     } catch (e: Throwable) { Telemetry.event("ASSET", "err" to e.toString(), "file" to file); null }
 
+    /** Crop one cell from any bundled atlas — for one-off UI glyphs (e.g. the game-over chip icon). */
+    fun cell(ctx: Context, file: String, col: Int, row: Int, cw: Int, ch: Int): ImageBitmap? =
+        decode(ctx, file)?.let { Bitmap.createBitmap(it, col * cw, row * ch, cw, ch).asImageBitmap() }
+
     private fun <K> crop(atlas: Bitmap?, pos: Map<K, Pair<Int, Int>>): Map<K, ImageBitmap> {
         atlas ?: return emptyMap()
         return pos.mapValues { (_, p) -> Bitmap.createBitmap(atlas, p.first * CW, p.second * CH, CW, CH).asImageBitmap() }

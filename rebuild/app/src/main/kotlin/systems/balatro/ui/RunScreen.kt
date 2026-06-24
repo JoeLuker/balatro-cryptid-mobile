@@ -2815,9 +2815,17 @@ private fun EndScreen(s: RunState, win: Boolean, onRestart: () -> Unit, onMainMe
     val ctx = LocalContext.current
     val u = LocalUIScale.current
     val root = remember(ctx, win) { GameOverSpec.load(ctx, win) }
+    // Jimbo (j_joker) sprite for the jimbo_spot beside the dialog.
+    val jimbo by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, listOf("j_joker"))["j_joker"] }
+    }
+    // Chip-score icon (ui_assets cell 0,0 — px=18 → 36×36 @2x) for the "Chips Scored" row.
+    val chipIcon by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { ShopArt.cell(ctx, "ui_assets.png", 0, 0, 36, 36) }
+    }
     BoxWithConstraints(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
         if (root != null) {
-            val tree = remember(root) { GameOverSpec.build(root, GameOverBind(s, onRestart, onMainMenu)) }
+            val tree = remember(root, chipIcon) { GameOverSpec.build(root, GameOverBind(s, onRestart, onMainMenu, chipIcon)) }
             // create_UIBox_game_over / _win is a 100×57.5u overlay backing with the dialog centred in
             // it; render it centred over the full surface (RenderUIBoxAt centres tree in the rect) and
             // clip the oversized backing to the screen — exactly how vanilla layers the overlay menu.
@@ -2828,6 +2836,15 @@ private fun EndScreen(s: RunState, win: Boolean, onRestart: () -> Unit, onMainMe
             val fit = minOf(1f, (sh / u) / 14.5f)
             Box(Modifier.graphicsLayer { scaleX = fit; scaleY = fit }) {
                 RenderUIBoxAt(tree, u, 0f, 0f, sw / u, sh / u)
+            }
+            // Jimbo (j_joker) overlay beside the dialog — drawn as a separate layer (in-tree it widened
+            // the stat row and clipped "Defeated by"). Offset left of centre by ~half the dialog width;
+            // sized G.CARD_W*1.1 × G.CARD_H*1.1 and scaled to match the dialog's fit.
+            jimbo?.let {
+                Image(it, null, Modifier.align(Alignment.Center)
+                    .offset(x = (-6.4f * u * fit).dp)
+                    .size((2.2536f * u * fit).dp, (3.0263f * u * fit).dp),
+                    contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
             }
         } else {
             Panel(Modifier.width(360.dp)) {
