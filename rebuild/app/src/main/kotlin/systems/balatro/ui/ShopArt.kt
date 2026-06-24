@@ -41,6 +41,7 @@ object ShopArt {
         Spectral.WRAITH to (5 to 4),
         Spectral.SIGIL to (6 to 4), Spectral.OUIJA to (7 to 4), Spectral.FAMILIAR to (0 to 4),
         Spectral.GRIM to (1 to 4), Spectral.INCANTATION to (2 to 4),
+        Spectral.TRANCE to (3 to 5), Spectral.MEDIUM to (4 to 5), Spectral.AURA to (4 to 4),
     )
     // Voucher centers (game.lua v_* set="Voucher"), keyed by the rebuild's VOUCHERS keys.
     private val VOUCHER_POS: Map<String, Pair<Int, Int>> = mapOf(

@@ -46,6 +46,15 @@ class Deck(seed: Long) {
         return all[i]
     }
 
+    /** Put an edition ("Foil"/"Holo"/"Poly") on a random un-editioned card (Aura spectral). */
+    fun editionRandom(ed: String): PlayingCard? {
+        val idxs = all.indices.filter { all[it].edition.isEmpty() }
+        if (idxs.isEmpty()) return null
+        val i = idxs.random(rng)
+        all[i] = all[i].copy(edition = ed)
+        return all[i]
+    }
+
     /** Enhance a specific card already in the deck (tarot player-choice path). Matches by value
      *  (suit+rank+enhancement+seal) and replaces the first matching card. If the card isn't found
      *  (e.g. it was already enhanced) nothing changes; returns true iff a card was modified. */

@@ -15,7 +15,7 @@ enum class Suit { S, H, D, C }
 enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$"), WILD("wild"), STONE("+50"), ABSTRACT("^E"), ECHO("~") }
 
 /** A card seal. Red retriggers the card when played; Gold pays $3 when played. (Blue/Purple: later.) */
-enum class Seal(val badge: String) { NONE(""), RED("R"), GOLD("G") }
+enum class Seal(val badge: String) { NONE(""), RED("R"), GOLD("G"), BLUE("B"), PURPLE("P") }
 
 data class PlayingCard(val suit: Suit, val rank: Int, val enhancement: Enhancement = Enhancement.NONE, val seal: Seal = Seal.NONE, val edition: String = "", val permaBonus: Int = 0) {
     /** Chip value: 2-9 = pip, T/J/Q/K = 10, A = 11. */

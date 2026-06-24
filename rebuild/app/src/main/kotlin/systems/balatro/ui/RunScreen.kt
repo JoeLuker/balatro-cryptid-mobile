@@ -131,6 +131,9 @@ internal enum class Spectral(val display: String, val desc: String) {
     FAMILIAR("Familiar", "Destroy 1 card in hand, add 3 random Enhanced face cards"),
     GRIM("Grim", "Destroy 1 card in hand, add 2 random Enhanced Aces"),
     INCANTATION("Incantation", "Destroy 1 card in hand, add 4 random Enhanced numbered cards"),
+    TRANCE("Trance", "Add a Blue Seal to a card (creates a Planet when played)"),
+    MEDIUM("Medium", "Add a Purple Seal to a card (creates a Tarot when discarded)"),
+    AURA("Aura", "Add Foil/Holographic/Polychrome to a card in hand"),
 }
 
 /** A consumable held in the consumable slots (a tarot, planet, or spectral), used when the player
@@ -784,6 +787,9 @@ internal class RunState {
             Spectral.FAMILIAR -> { destroyRandomHandCard(); createEnhancedCards(3, 11..13) }   // 3 Enhanced face cards
             Spectral.GRIM -> { destroyRandomHandCard(); createEnhancedCards(2, 14..14) }        // 2 Enhanced Aces
             Spectral.INCANTATION -> { destroyRandomHandCard(); createEnhancedCards(4, 2..10) }  // 4 Enhanced numbered
+            Spectral.TRANCE -> deck.sealRandom(Seal.BLUE)                                       // Blue seal → Planet on play
+            Spectral.MEDIUM -> deck.sealRandom(Seal.PURPLE)                                     // Purple seal → Tarot on discard
+            Spectral.AURA -> deck.editionRandom(listOf("Foil", "Holo", "Poly").random())       // random edition
         }
     }
 
@@ -1276,6 +1282,11 @@ internal class RunState {
         if (boss == Boss.THE_MOUTH && mouthLockedHand == null) mouthLockedHand = r.handType  // lock first type
         if (boss == Boss.THE_OX && r.handType == mostPlayedHand?.first) money = 0            // zero out money
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
+        // Blue seal: each blue-sealed scored card creates the Planet for the played hand (if room).
+        val bluePlanet = Planet.values().firstOrNull { it.hand == r.handType }
+        if (bluePlanet != null) repeat(pendingSel.count { it.seal == Seal.BLUE }) {
+            if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(bluePlanet))
+        }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
@@ -1419,6 +1430,10 @@ internal class RunState {
         totalCardsDiscarded += selected.size
         // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
         val discardedCards = hand.filterIndexed { i, _ -> i in selected }
+        // Purple seal: each purple-sealed discarded card creates a random Tarot (if room).
+        repeat(discardedCards.count { it.seal == Seal.PURPLE }) {
+            if (hasConsumableRoom()) consumables.add(Consumable.TarotC(TAROTS.random()))
+        }
         val jackCount = discardedCards.count { it.id == 11 }
         // For j_castle: count discarded cards matching the round's random suit (same as dropShotSuit —
         // castle_card.suit and cry_dropshot_card.suit are the same pseudorandom value per round via
@@ -1665,7 +1680,7 @@ internal class RunState {
             JokerSnap(o.offer.key, o.offer.name, o.offer.desc, o.offer.cost, o.offer.edition.name,
                 o.fj.edition, o.fj.mult, o.fj.x, o.fj.chips, o.fj.n, o.fj.rarity, o.fj.xc)
         },
-        deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus) },
+        deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
@@ -1702,7 +1717,7 @@ internal class RunState {
                 Offer(j.key, j.name, j.desc, j.cost, edition = Edition.valueOf(j.edition)),
                 FJoker(j.key, j.mult, j.fjEdition, j.x, j.chips, j.n, j.rarity, j.xc)))
         }
-        deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus) })
+        deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
