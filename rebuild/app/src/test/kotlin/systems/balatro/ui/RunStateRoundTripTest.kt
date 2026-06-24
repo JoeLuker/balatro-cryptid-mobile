@@ -1,0 +1,71 @@
+package systems.balatro.ui
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import systems.balatro.content.Edition
+import systems.balatro.game.FJoker
+import systems.balatro.game.HandType
+import systems.balatro.game.Planet
+import systems.balatro.save.RunSnapshot
+
+/**
+ * Save/load round-trip through the `RunState` ⇄ `RunSnapshot` bridge (`snapshot()` / `restore()`).
+ *
+ * `RunSnapshotTest` already proves the pure model encodes/decodes losslessly. This proves the BRIDGE —
+ * that `snapshot()` captures, and `restore()` re-applies, every live run field. A field added to
+ * `RunState`/`FJoker` but never wired into the bridge (e.g. the once-flagged "does `FJoker.n` survive
+ * reload, or does an assigned rank reset?") is invisible to the model test and surfaces only here.
+ */
+class RunStateRoundTripTest {
+
+    /** A run carrying non-default state across every bridged field. */
+    private fun richRun(): RunState {
+        val rs = RunState()
+        rs.money = 42; rs.blindIndex = 5
+        rs.owned.add(Owned(
+            Offer("j_cry_bonk", "Bonk", "+1 Chip per Pair", 6, rarity = 2, edition = Edition.FOIL),
+            FJoker("j_cry_bonk", mult = 3.0, edition = "cry_m", x = 2.5, chips = 88.0, n = 7, rarity = 2, xc = 4.0)))
+        rs.owned.add(Owned(Offer("j_joker", "Joker", "+4 Mult", 2), FJoker("j_joker")))
+        rs.handLevels.setAll(mapOf(HandType.PAIR to 3, HandType.FLUSH to 2))
+        rs.shopSlotsBonus = 1; rs.discountPercent = 25; rs.interestCap = 10
+        rs.baseHands = 5; rs.baseDiscards = 4; rs.rerollBase = 3
+        rs.redeemedVouchers.addAll(listOf("v_grabber", "v_overstock_norm"))
+        rs.tags.add(Tag.INVESTMENT); rs.tags.add(Tag.JUGGLE)
+        rs.consumables.add(Consumable.PlanetC(Planet.MERCURY))
+        rs.baseHandSize = 9
+        return rs
+    }
+
+    @Test fun bridgeRoundTripIsLossless() {
+        val a = richRun()
+        val snap1 = a.snapshot()
+        val b = RunState()
+        b.restore(RunSnapshot.decode(snap1.encode()))   // through JSON, exactly as on-disk save/load does
+        val snap2 = b.snapshot()
+        // The deck is intentionally re-shuffled on load (Deck.reshuffle), so order is NOT preserved —
+        // only the composition is. Compare it as a multiset.
+        assertEquals("deck composition (multiset) must survive reload",
+            snap1.deck.groupingBy { it }.eachCount(), snap2.deck.groupingBy { it }.eachCount())
+        // Every other bridged field must be byte-identical after save -> load -> save.
+        assertEquals(snap1.copy(deck = emptyList()), snap2.copy(deck = emptyList()))
+    }
+
+    @Test fun fjokerScalingStateSurvivesReload() {
+        val a = richRun()
+        val b = RunState()
+        b.restore(RunSnapshot.decode(a.snapshot().encode()))
+        assertEquals(a.owned.size, b.owned.size)
+        // owned[0] is the starter Joker seeded in RunState.init; find the joker we gave rich state to.
+        val origOwned = a.owned.first { it.fj.key == "j_cry_bonk" }
+        val gotOwned = b.owned.first { it.fj.key == "j_cry_bonk" }
+        val orig = origOwned.fj; val got = gotOwned.fj
+        assertEquals(orig.mult, got.mult, 0.0)
+        assertEquals(orig.x, got.x, 0.0)
+        assertEquals(orig.chips, got.chips, 0.0)
+        assertEquals("FJoker.n (assigned ranks / scaling counters) must survive reload", orig.n, got.n)
+        assertEquals(orig.xc, got.xc, 0.0)
+        assertEquals(orig.edition, got.edition)
+        assertEquals(orig.rarity, got.rarity)
+        assertEquals("the Offer edition (cosmetic) survives too", Edition.FOIL, gotOwned.offer.edition)
+    }
+}
