@@ -82,3 +82,6 @@ manual/84-sf_controller.patch
 manual/85-sf_cardarea.patch
 manual/86-sf_card.patch
 manual/87-sf_ui.patch
+manual/88-tap_desc_persist.patch
+manual/89-gesture-fixes.patch
+manual/90-cryptid_redeo_antefix.patch

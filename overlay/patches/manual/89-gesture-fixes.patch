@@ -1,0 +1,44 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 18bd10c..13a859c 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -344,6 +344,7 @@ function Controller:update(dt)
+     end
+ 
+     if not self.cursor_up.handled then 
++        self.cursor_down.distance = math.max(self.cursor_down.distance or 0, Vector_Dist(self.cursor_down.T, self.cursor_up.T)) -- STICKY_SHELF: fresh release distance, no one-frame drag-to-shelf dead zone
+         self.dragSelectActive.active = false; self.dragSelectActive.mode = nil; self.dragSelectActive.start_card = nil -- DRAG_SELECT_RESET
+         --First, stop dragging
+         if self.dragging.target then
+@@ -400,7 +401,7 @@ function Controller:update(dt)
+         if self.hovering.prev_target and self.hovering.prev_target ~= self.hovering.target then self.hovering.prev_target.states.hover.is = false end
+         self.hovering.target.states.hover.is = true
+         self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')
+-    elseif (self.cursor_hover.target == nil) and self.hovering.target then -- TAP_DESC_PERSIST
++    elseif (self.cursor_hover.target == nil) and self.hovering.target and self.hovering.target ~= self.shown_desc then -- TAP_DESC_PERSIST
+         self.hovering.target.states.hover.is = false
+         self.hovering.target = nil
+     elseif (self.HID.touch or self.HID.touch_env) and self.is_cursor_down
+@@ -467,7 +468,7 @@ function Controller:update(dt)
+         self.released_on.handled = true
+     end
+ 
+-    if (self.HID.touch or self.HID.touch_env) and self.hovering.target
++    if (self.HID.touch or self.HID.touch_env) and self.hovering.target and self.hovering.target ~= self.shown_desc
+         and not (self.is_cursor_down and self.cursor_hover.target == self.hovering.target)
+         and not (self.is_cursor_down and self.dragging.target == self.hovering.target
+                  and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_DRAG_HOVER: stationary hold-drag keeps hover
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index bc79aa3..5df2efa 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -6942,7 +6942,8 @@ function drag_target(args)
+ 
+   G.E_MANAGER:add_event(Event({
+     trigger = 'after',
+-    delay = 0,
++    timer = 'REAL',
++    delay = 0.05,
+     blockable = false,
+     blocking = false,
+     func = function()
