@@ -480,8 +480,14 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // A static JokerSpec.initialState cannot capture it; stays legacy until a dynamic-seed mechanism is added.
     // j_red_card: j.mult += per pack-open skip (epic.lua) — RunScreen handles event
     "j_red_card"        to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
-    // j_popcorn: starts mult=20 (config), −1 per hand before-pass; self-destructs at 0 (RunScreen manages)
-    "j_popcorn"         to JokerSpec(initialState = FJokerState(mult = 20.0), jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
+    // j_popcorn: starts mult=20 (config), −4 per ROUND (extra=4, context.end_of_round); self-destructs
+    // at 0 (card.lua k_eaten_ex — RunScreen's cashOut handles the removal). NOT per-hand (vanilla decays
+    // only at end of round).
+    "j_popcorn"         to JokerSpec(
+        initialState = FJokerState(mult = 20.0),
+        reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(mult = maxOf(0.0, s.mult - 4.0)) else s },
+        jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None },
+    ),
     // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
     "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)

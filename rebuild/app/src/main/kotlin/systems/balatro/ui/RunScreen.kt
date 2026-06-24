@@ -196,7 +196,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int 
     }
     val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
     val fjMult = when (offer.key) {
-        "j_popcorn"      -> 20.0            // +20 Mult, -1 per hand; self-destructs at 0
+        "j_popcorn"      -> 20.0            // +20 Mult, -4 per round (extra=4); self-destructs at 0
         "j_swashbuckler" -> swashSellSum    // sum of current sell values
         else -> 0.0
     }
@@ -1249,22 +1249,14 @@ internal class RunState {
         // handPlays snapshot is post-increment (recordHandPlayed ran above) — matches context.after.
         val handPlaysSnapshot = _handPlayed.toMap()
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot, totalHandsPlayed))) }
-        for (o in owned) when (o.fj.key) {
-            // j_popcorn: +5 Mult base, -1 per hand played; self-destruct when mult hits 0.
-            "j_popcorn" -> o.fj.mult = maxOf(0.0, o.fj.mult - 1.0)
-            // (spare_trousers/runner/square/obelisk migrated to JOKER_MANIFEST reducers.)
-            // (j_cry_clockwork migrated to JOKER_MANIFEST HandScored reducer — totalHandsPlayed % 3 == 0.)
-            // (j_cry_keychange migrated to JOKER_MANIFEST HandScored reducer — handPlays[type] == 1.)
-            // (j_cry_duplicare migrated to JOKER_MANIFEST HandScored reducer — x += playedCount.)
-            // (j_cry_jimball   migrated to JOKER_MANIFEST HandScored reducer — handPlays map comparison.)
-            // (j_cry_happyhouse migrated to JOKER_MANIFEST BeforeHand reducer — chips++, n=1 at >114.)
-        }
+        // (All per-hand accumulators now live in JOKER_MANIFEST HandScored/BeforeHand reducers:
+        //  spare_trousers/runner/square/obelisk, cry_clockwork/keychange/duplicare/jimball/happyhouse.
+        //  j_popcorn is NOT a per-hand accumulator — it decays −4 per ROUND via its RoundEnd reducer.)
         // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
-        // j_popcorn: self-destructs when mult reaches 0 (card.lua: k_eaten_ex, G.jokers:remove_card).
         // j_ramen: self-destructs when x_mult drops to ≤1.0 (card.lua equivalent; default start 2.0).
-        // Both fire AFTER the per-hand loop so the score engine still reads the final value this hand.
+        // Fires AFTER the per-hand loop so the score engine still reads the final value this hand.
+        // (j_popcorn self-destructs at END OF ROUND when its mult floors at 0 — handled in cashOut.)
         val handSelfDestruct = owned.filter { o ->
-            (o.fj.key == "j_popcorn" && o.fj.mult <= 0.0) ||
             (o.fj.key == "j_ramen"   && o.fj.x <= 1.0) ||
             // blacklist: self-destructs once its blacklisted rank is absent from the whole deck
             // (spooky.lua:1044-1063 — gone from play∪hand∪discard∪deck, which partition deck.all).
@@ -1356,8 +1348,17 @@ internal class RunState {
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
         // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
-        // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1).
+        // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1;
+        // popcorn reduce: mult −4, floored at 0).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
+        // j_popcorn: after the −4/round reduce above, self-destructs once its mult floors at 0 (card.lua
+        // k_eaten_ex). Kept separate from perishableExpired below — this is an "eaten" self-destruct, not
+        // a perishable-sticker expiry, so fading_joker must NOT be notified.
+        val eaten = owned.filter { it.fj.key == "j_popcorn" && it.fj.mult <= 0.0 }
+        if (eaten.isNotEmpty()) {
+            owned.removeAll(eaten)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to eaten.size, "reason" to "popcorn")
+        }
         // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
         // Trigger: when chili_pepper's rounds_remaining reaches 0 (after RoundEnd reduce), notify fading/paved.
         val perishableExpired = ArrayList<Owned>()

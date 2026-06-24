@@ -1,6 +1,7 @@
 package systems.balatro.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -44,5 +45,21 @@ class RunStateTest {
         val before = rs.owned.size
         rs.sell(rs.owned.last())                        // sell -> jollysus spawns one (net 0)
         assertEquals(before, rs.owned.size)
+    }
+
+    @Test fun popcornDecaysFourPerRoundThenSelfDestructsAtZero() {
+        // Vanilla j_popcorn: +20 Mult, loses 4 per ROUND (extra=4, context.end_of_round); self-destructs
+        // (eaten) once its mult hits 0. The end-of-round path runs in cashOut() (RoundEnd reduce + removal).
+        val rs = RunState()
+        rs.buy(offer("j_popcorn"), free = true)
+        val p = rs.owned.first { it.fj.key == "j_popcorn" }
+        assertEquals(20.0, p.fj.mult, 0.0)
+        rs.enterRoundEval(); rs.cashOut()                       // round 1 → 16
+        assertEquals(16.0, p.fj.mult, 0.0)
+        repeat(3) { rs.enterRoundEval(); rs.cashOut() }         // rounds 2-4 → 12, 8, 4
+        assertEquals(4.0, p.fj.mult, 0.0)
+        assertTrue("alive at mult 4", rs.owned.any { it.fj.key == "j_popcorn" })
+        rs.enterRoundEval(); rs.cashOut()                       // round 5 → 0 → eaten
+        assertTrue("self-destructs at 0 mult, end of round", rs.owned.none { it.fj.key == "j_popcorn" })
     }
 }
