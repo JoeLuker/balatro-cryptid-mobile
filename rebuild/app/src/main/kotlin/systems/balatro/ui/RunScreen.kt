@@ -3223,11 +3223,51 @@ private fun bossColourOf(boss: Boss?): Color = when (boss) {
  * chips/mult + lifetime play count — is extracted directly. Back returns to the prior phase.
  * Deferred: the blinds/vouchers tabs, and live per-hand level/play binding (the table shows base values).
  */
+/** The 12 poker hands in run-info display order (best → worst), matching create_UIBox_current_hands. */
+private val RUN_INFO_HANDS = listOf(
+    HandType.FLUSH_FIVE, HandType.FLUSH_HOUSE, HandType.FIVE_OF_A_KIND, HandType.STRAIGHT_FLUSH,
+    HandType.FOUR_OF_A_KIND, HandType.FULL_HOUSE, HandType.FLUSH, HandType.STRAIGHT,
+    HandType.THREE_OF_A_KIND, HandType.TWO_PAIR, HandType.PAIR, HandType.HIGH_CARD,
+)
+
+/** Build the poker-hands table as a LIVE UI tree — a port of create_UIBox_current_hand_row
+ *  (UI_definitions.lua:3042) reading G.GAME.hands[handname].{level,chips,mult,played} from RunState,
+ *  instead of the static run_info_tree.json extraction (which froze every hand at level 1 / 0 plays). */
+private fun currentHandsTree(s: RunState): UI {
+    fun row(h: HandType): UI {
+        val lvl = s.handLevels.level(h)
+        val chips = h.baseChips + (lvl - 1) * h.lChips
+        val mult = h.baseMult + (lvl - 1) * h.lMult
+        val played = s.handPlayed(h)
+        // row bg = darken(G.C.JOKER_GREY #bfc7d5, 0.1) → #acb3c0 (UI_definitions.lua:3044).
+        return Ro(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = Color(0xFFACB3C0), emboss = 0.05f), listOf(
+            Co(Cfg(align = "cl", minw = 5f), listOf(
+                Co(Cfg(align = "cm", padding = 0.01f, r = 0.1f, colour = Balatro.handLevelColour(lvl),
+                       minw = 1.5f, outline = 0.8f, outlineColour = Balatro.White), listOf(
+                    Tx(Cfg(scale = 0.5f, textColour = Balatro.Ink), "lvl.$lvl"))),
+                Co(Cfg(align = "cm", minw = 4.5f, maxw = 4.5f), listOf(
+                    Tx(Cfg(scale = 0.45f, textColour = Balatro.White, shadow = true), " ${handName(h)}"))),
+            )),
+            Co(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = Balatro.Panel), listOf(
+                Co(Cfg(align = "cr", padding = 0.01f, r = 0.1f, colour = Balatro.Chips, minw = 1.1f), listOf(
+                    Tx(Cfg(scale = 0.45f, textColour = Balatro.White), "$chips"),
+                    Bx(Cfg(wCfg = 0.08f, hCfg = 0.01f)))),
+                Tx(Cfg(scale = 0.45f, textColour = Balatro.Mult), "X"),
+                Co(Cfg(align = "cl", padding = 0.01f, r = 0.1f, colour = Balatro.Mult, minw = 1.1f), listOf(
+                    Bx(Cfg(wCfg = 0.08f, hCfg = 0.01f)),
+                    Tx(Cfg(scale = 0.45f, textColour = Balatro.White), "$mult"))),
+            )),
+            Co(Cfg(align = "cm"), listOf(Tx(Cfg(scale = 0.45f, textColour = Balatro.White, shadow = true), "  #"))),
+            Co(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = Balatro.PanelLight, minw = 0.9f), listOf(
+                Tx(Cfg(scale = 0.45f, textColour = Balatro.Orange, shadow = true), "$played"))),
+        ))
+    }
+    return Ro(Cfg(align = "cm", padding = 0.04f), RUN_INFO_HANDS.map { row(it) })
+}
+
 @Composable
 private fun RunInfoScreen(s: RunState) {
-    val ctx = LocalContext.current
     val u = LocalUIScale.current
-    val root = remember(ctx) { HudSpec.root(ctx, "run_info_tree.json") }
     Column(
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -3238,10 +3278,8 @@ private fun RunInfoScreen(s: RunState) {
             Spacer(Modifier.weight(1f))
             BButton("Back", Balatro.Orange) { s.closeRunInfo() }
         }
-        if (root != null) {
-            val tree = remember(root) { GameOverSpec.build(root, GameOverBind(s, { s.closeRunInfo() }, { s.closeRunInfo() })) }
-            RenderUIBoxNatural(tree, u)
-        }
+        // Live-built poker-hands table (level/chips/mult/played bound to RunState).
+        RenderUIBoxNatural(currentHandsTree(s), u)
     }
 }
 
