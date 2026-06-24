@@ -72,7 +72,7 @@ internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVE
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
-internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST }
+internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST, JOKER }
 internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val rarity: Int = 1, val edition: Edition = Edition.NONE)
 internal data class Owned(val offer: Offer, val fj: FJoker)
@@ -494,6 +494,9 @@ private val CATALOG = listOf(
     Offer("j_troubadour", "Troubadour", "+2 hand size, -1 hand each round", 6, rarity = 2),
     Offer("j_merry_andy", "Merry Andy", "+1 discard, -1 hand size", 7, rarity = 2),
     Offer("j_burglar", "Burglar", "+3 hands, no discards this round", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 7): end-of-round economy (calculate_dollar_bonus) ---
+    Offer("j_golden", "Golden Joker", "Earn $4 at end of round", 6),
+    Offer("j_cloud_9", "Cloud 9", "Earn $1 for each 9 in your deck at end of round", 7, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1248,6 +1251,11 @@ internal class RunState {
         if (gold > 0) rows += EvalRow(EvalKind.GOLD, gold * 3, "Gold cards held", gold.toString())
         val interest = minOf(money / 5, interestCap)        // Seed Money raises the cap 5 → 10
         if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$$interestCap)")
+        // ── end-of-round joker dollars (context.end_of_round, calculate_dollar_bonus) ──
+        val jokerDollars =
+            owned.count { it.offer.key == "j_golden" } * 4 +                                       // Golden Joker: $4 each round
+            owned.count { it.offer.key == "j_cloud_9" } * deck.composition().count { it.rank == 9 }  // Cloud 9: $1 per 9 in deck
+        if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
     }
@@ -2804,7 +2812,7 @@ private fun RoundEvalScreen(s: RunState) {
         return
     }
     val baseRows  = s.evalRows.filter { it.kind == EvalKind.BLIND || it.kind == EvalKind.HANDS }
-    val bonusRows = s.evalRows.filter { it.kind == EvalKind.GOLD  || it.kind == EvalKind.INTEREST }
+    val bonusRows = s.evalRows.filter { it.kind == EvalKind.GOLD  || it.kind == EvalKind.INTEREST || it.kind == EvalKind.JOKER }
     val tree = remember(evalRoot) { RoundEvalSpec.build(evalRoot) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
@@ -2867,6 +2875,7 @@ private fun EvalRowView(row: EvalRow, u: Float, blindChip: ImageBitmap? = null, 
     val accent = when (row.kind) {
         EvalKind.BLIND -> Balatro.Money; EvalKind.HANDS -> Balatro.Chips
         EvalKind.GOLD -> Balatro.Gold; EvalKind.INTEREST -> Balatro.Money
+        EvalKind.JOKER -> Balatro.Money
     }
     Row(
         Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
