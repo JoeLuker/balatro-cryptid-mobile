@@ -491,11 +491,17 @@ private val BOOSTERS = listOf(
     BoosterOffer("p_arcana_jumbo", "Jumbo Arcana Pack", "Arcana", 6, 5, 1),
     BoosterOffer("p_arcana_mega", "Mega Arcana Pack", "Arcana", 8, 5, 2),
     BoosterOffer("p_celestial_normal", "Celestial Pack", "Celestial", 4, 3, 1),
+    BoosterOffer("p_celestial_jumbo", "Jumbo Celestial Pack", "Celestial", 6, 5, 1),
+    BoosterOffer("p_celestial_mega", "Mega Celestial Pack", "Celestial", 8, 5, 2),
     BoosterOffer("p_buffoon_normal", "Buffoon Pack", "Buffoon", 4, 2, 1),
     BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1),
+    BoosterOffer("p_buffoon_mega", "Mega Buffoon Pack", "Buffoon", 8, 4, 2),
     BoosterOffer("p_standard_normal", "Standard Pack", "Standard", 4, 3, 1),
     BoosterOffer("p_standard_jumbo", "Jumbo Standard Pack", "Standard", 6, 5, 1),
+    BoosterOffer("p_standard_mega", "Mega Standard Pack", "Standard", 8, 5, 2),
     BoosterOffer("p_spectral_normal", "Spectral Pack", "Spectral", 4, 2, 1),
+    BoosterOffer("p_spectral_jumbo", "Jumbo Spectral Pack", "Spectral", 6, 4, 1),
+    BoosterOffer("p_spectral_mega", "Mega Spectral Pack", "Spectral", 8, 4, 2),
 )
 /** Two booster slots per shop (Balatro's shop has 2). */
 private fun rollBoosters(blind: Int): List<BoosterOffer> =
@@ -1443,7 +1449,16 @@ internal class RunState {
     fun pickPackItem(i: Int) {
         val p = openPack ?: return
         if (p.picksLeft <= 0 || i in p.picked) return
-        when (val item = p.items[i]) {
+        val item = p.items[i]
+        // Don't consume the pick if there's no room for the item — vanilla blocks selecting a joker
+        // into a full board or a consumable into full slots. (Standard cards always fit → the deck.)
+        val hasRoom = when (item) {
+            is PackItem.Joker -> owned.size < maxJokers
+            is PackItem.Tarot, is PackItem.Planet, is PackItem.SpectralItem -> hasConsumableRoom()
+            is PackItem.Card -> true
+        }
+        if (!hasRoom) return
+        when (item) {
             is PackItem.Card -> {
                 deck.add(item.card)          // Standard pack → card joins the deck
                 // MANIFEST: fire CardAdded so Hologram (and future card-add jokers) can accumulate.

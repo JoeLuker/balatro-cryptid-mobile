@@ -45,8 +45,10 @@ object ShopArt {
     // Booster centers (game.lua p_* set="Booster", first art variant), keyed by the rebuild's BOOSTERS keys.
     private val BOOSTER_POS: Map<String, Pair<Int, Int>> = mapOf(
         "p_arcana_normal" to (0 to 0), "p_arcana_jumbo" to (0 to 2), "p_arcana_mega" to (2 to 2),
-        "p_celestial_normal" to (0 to 1), "p_buffoon_normal" to (0 to 8), "p_buffoon_jumbo" to (2 to 8),
-        "p_standard_normal" to (0 to 6), "p_standard_jumbo" to (0 to 7), "p_spectral_normal" to (0 to 4),
+        "p_celestial_normal" to (0 to 1), "p_celestial_jumbo" to (0 to 3), "p_celestial_mega" to (2 to 3),
+        "p_buffoon_normal" to (0 to 8), "p_buffoon_jumbo" to (2 to 8), "p_buffoon_mega" to (3 to 8),
+        "p_standard_normal" to (0 to 6), "p_standard_jumbo" to (0 to 7), "p_standard_mega" to (2 to 7),
+        "p_spectral_normal" to (0 to 4), "p_spectral_jumbo" to (2 to 4), "p_spectral_mega" to (3 to 4),
     )
 
     /** The cropped cells, by lookup key. Empty maps if an atlas failed to decode.
