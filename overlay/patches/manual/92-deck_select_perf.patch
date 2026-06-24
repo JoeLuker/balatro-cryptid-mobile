@@ -1,0 +1,49 @@
+diff --git a/Mods/CardSleeves/CardSleeves.lua b/Mods/CardSleeves/CardSleeves.lua
+index 705d42f..8ddc2ac 100644
+--- a/Mods/CardSleeves/CardSleeves.lua
++++ b/Mods/CardSleeves/CardSleeves.lua
+@@ -1077,11 +1077,16 @@ end
+ 
+ local function replace_sleeve_sprite(card, sleeve_center, offset)
+     offset = offset or {x=0, y=0.35}  -- any lower Y offset and sticker starts looking bad
+-    if card.children.back then
+-        card.children.back:remove()
++    -- DECK_SELECT_PERF: re-use the existing Sprite when only the sleeve key changed; rebuild
++    -- only when absent or its atlas is stale.
++    local want_atlas = sleeve_center:is_unlocked() and G.ASSET_ATLAS[sleeve_center.atlas] or G.ASSET_ATLAS["casl_sleeve_atlas"]
++    if card.children.back and card.children.back.atlas == want_atlas then
++        card.children.back:set_sprite_pos(sleeve_center:is_unlocked() and sleeve_center.pos or {x=0, y=3})
++    else
++        if card.children.back then card.children.back:remove() end
++        card.children.back = create_sleeve_sprite(card.T.x + offset.x, card.T.y + offset.y, card.T.w, card.T.h, sleeve_center)
++        card.children.back:set_role{major = card, role_type = 'Minor', draw_major = card, offset = offset}
+     end
+-    card.children.back = create_sleeve_sprite(card.T.x + offset.x, card.T.y + offset.y, card.T.w, card.T.h, sleeve_center)
+-    card.children.back:set_role{major = card, role_type = 'Minor', draw_major = card, offset = offset}
+     if sleeve_center.key ~= "sleeve_casl_none" then
+         card.sticker = get_sleeve_win_sticker(sleeve_center.key)
+         card.sticker_rotation = math.pi
+diff --git a/functions/button_callbacks.lua b/functions/button_callbacks.lua
+index d0fa0e3..02c3f4c 100644
+--- a/functions/button_callbacks.lua
++++ b/functions/button_callbacks.lua
+@@ -747,9 +747,16 @@ G.FUNCS.change_viewed_back = function(args)
+   -- local max_stake = get_deck_win_stake(G.GAME.viewed_back.effect.center.key) or 0
+   -- G.viewed_stake = math.min(G.viewed_stake, max_stake + 1)
+   G.PROFILES[G.SETTINGS.profile].MEMORY.deck = args.to_val
+-  for key, val in pairs(G.sticker_card.area.cards) do
+-  	val.children.back = false
+-  	val:set_ability(val.config.center, true)
++  -- DECK_SELECT_PERF: the old loop ran set_ability on all 52 preview cards (full sprite
++  -- teardown+recreate per card, plus Cryptid/SMODS hooks) every deck cycle. Just re-point
++  -- each card's existing back-Sprite at the new deck atlas position instead.
++  local _back_atlas = G.ASSET_ATLAS[G.GAME.viewed_back.atlas or 'centers']
++  local _back_pos   = G.GAME.viewed_back.pos
++  for _, val in pairs(G.sticker_card.area.cards) do
++    if not val.params.sleeve_card and val.children.back and val.children.back.set_sprite_pos then
++      val.children.back.atlas = _back_atlas
++      val.children.back:set_sprite_pos(_back_pos)
++    end
+   end
+ end
+ 
