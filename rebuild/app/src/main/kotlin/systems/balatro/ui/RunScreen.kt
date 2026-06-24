@@ -485,6 +485,12 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 5): discard-scaling ---
     Offer("j_yorick", "Yorick", "+X1 Mult per 23 cards discarded", 20, rarity = 4),
     Offer("j_hit_the_road", "Hit the Road", "+X0.5 Mult per Jack discarded this round", 8, rarity = 3),
+    // --- missing vanilla jokers (batch 6): passive hand-size / discard modifiers (board scan in startRound) ---
+    Offer("j_juggler", "Juggler", "+1 hand size", 4),
+    Offer("j_drunkard", "Drunkard", "+1 discard each round", 4),
+    Offer("j_troubadour", "Troubadour", "+2 hand size, -1 hand each round", 6, rarity = 2),
+    Offer("j_merry_andy", "Merry Andy", "+1 discard, -1 hand size", 7, rarity = 2),
+    Offer("j_burglar", "Burglar", "+3 hands, no discards this round", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -929,11 +935,22 @@ internal class RunState {
         boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
         handSize = baseHandSize
         applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
+        // ── passive joker hand-size modifiers (board scan; add_to_deck h_size, applied before the deal) ──
+        handSize += owned.count { it.offer.key == "j_juggler" } +          // Juggler: +1 hand size
+                    2 * owned.count { it.offer.key == "j_troubadour" } -    // Troubadour: +2 hand size
+                    owned.count { it.offer.key == "j_merry_andy" }          // Merry Andy: -1 hand size
+        handSize = maxOf(1, handSize)
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
         hand = deck.draw(handSize); selected = emptySet(); faceDown = emptySet()
         roundScore = 0.0
         handsLeft = boss?.hands(baseHands) ?: baseHands          // base (+Grabber); The Needle: 1 hand
         discardsLeft = boss?.discards(baseDiscards) ?: baseDiscards  // base (+Wasteful); The Water: 0 discards
+        // ── passive joker hands/discards modifiers (board scan) ──
+        handsLeft -= owned.count { it.offer.key == "j_troubadour" }                  // Troubadour: -1 hand
+        discardsLeft += owned.count { it.offer.key == "j_drunkard" } +               // Drunkard: +1 discard
+                        owned.count { it.offer.key == "j_merry_andy" }               // Merry Andy: +1 discard
+        if (owned.any { it.offer.key == "j_burglar" }) { handsLeft += 3; discardsLeft = 0 }  // Burglar: +3 hands, no discards
+        handsLeft = maxOf(1, handsLeft); discardsLeft = maxOf(0, discardsLeft)
         lastResult = null; lastSteps = emptyList()
         eyeUsedHands.clear(); mouthLockedHand = null    // THE_EYE / THE_MOUTH per-round state
         if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante

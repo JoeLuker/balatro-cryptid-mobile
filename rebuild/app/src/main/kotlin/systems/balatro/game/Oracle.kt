@@ -765,6 +765,9 @@ object Oracle {
         // --- missing vanilla jokers, batch 5: discard-scaling (read path; accrual in RunLoopReducerTest) ---
         Case("Pair of aces + yorick @x=2", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_yorick", x = 2.0))),
         Case("Pair of aces + hit_the_road @x=1.5", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_hit_the_road", x = 1.5))),
+
+        // --- batch 6: passive jokers have NO scoring effect — must not crash calcJoker or change the score ---
+        Case("Pair of aces + juggler (passive → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_juggler"))),
     )
 
     fun run(): Pair<Int, Int> {
