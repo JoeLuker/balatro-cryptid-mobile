@@ -73,6 +73,14 @@ class Deck(seed: Long) {
         return true
     }
 
+    /** Set a specific card's rank (Ouija spectral converts the whole hand to one rank). Matches by value. */
+    fun setRankCard(card: PlayingCard, rank: Int): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        all[i] = all[i].copy(rank = rank)
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, all[i]) }
+        return true
+    }
+
     /** Raise a specific card's rank by 1, wrapping Ace(14)→2 (Strength tarot). Matches by value. */
     fun rankUpCard(card: PlayingCard): Boolean {
         val i = all.indexOf(card); if (i < 0) return false

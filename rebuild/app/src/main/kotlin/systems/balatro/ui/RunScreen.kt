@@ -126,6 +126,11 @@ internal enum class Spectral(val display: String, val desc: String) {
     TALISMAN("Talisman", "Add a Gold Seal to a card"),
     DEJA_VU("Deja Vu", "Add a Red Seal to a card"),
     WRAITH("Wraith", "Create a random Joker, set money to \$0"),
+    SIGIL("Sigil", "Convert all cards in hand to a single suit"),
+    OUIJA("Ouija", "Convert all cards in hand to a single rank, -1 hand size"),
+    FAMILIAR("Familiar", "Destroy 1 card in hand, add 3 random Enhanced face cards"),
+    GRIM("Grim", "Destroy 1 card in hand, add 2 random Enhanced Aces"),
+    INCANTATION("Incantation", "Destroy 1 card in hand, add 4 random Enhanced numbered cards"),
 }
 
 /** A consumable held in the consumable slots (a tarot, planet, or spectral), used when the player
@@ -763,7 +768,38 @@ internal class RunState {
                 owned.clear(); owned.add(keep)
             }
             Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed))); money = 0 }
+            Spectral.SIGIL -> if (hand.isNotEmpty()) {                       // whole hand → one random suit
+                val suit = Suit.values().random()
+                hand.forEach { deck.setSuitCard(it, suit) }
+                hand = hand.map { it.copy(suit = suit) }
+            }
+            Spectral.OUIJA -> {                                             // whole hand → one random rank, -1 hand size
+                if (hand.isNotEmpty()) {
+                    val rank = (2..14).random()
+                    hand.forEach { deck.setRankCard(it, rank) }
+                    hand = hand.map { it.copy(rank = rank) }
+                }
+                baseHandSize = maxOf(1, baseHandSize - 1)
+            }
+            Spectral.FAMILIAR -> { destroyRandomHandCard(); createEnhancedCards(3, 11..13) }   // 3 Enhanced face cards
+            Spectral.GRIM -> { destroyRandomHandCard(); createEnhancedCards(2, 14..14) }        // 2 Enhanced Aces
+            Spectral.INCANTATION -> { destroyRandomHandCard(); createEnhancedCards(4, 2..10) }  // 4 Enhanced numbered
         }
+    }
+
+    /** Destroy one random card from the current hand (Familiar/Grim/Incantation), if any. */
+    private fun destroyRandomHandCard() {
+        if (hand.isEmpty()) return
+        val c = hand.random(); deck.destroyCard(c); hand = hand - c
+    }
+
+    /** Create [n] cards of a random suit, rank in [ranks], and a random enhancement — added to the deck
+     *  and the current hand (Familiar/Grim/Incantation). */
+    private fun createEnhancedCards(n: Int, ranks: IntRange) {
+        val enh = listOf(Enhancement.BONUS, Enhancement.MULT, Enhancement.WILD, Enhancement.GLASS, Enhancement.STEEL, Enhancement.GOLD)
+        val made = (0 until n).map { PlayingCard(Suit.values().random(), ranks.random(), enh.random()) }
+        made.forEach { deck.add(it) }
+        hand = hand + made
     }
     /** The tag offered for skipping the current (Small/Big) blind. */
     val upcomingTag: Tag get() = tagForBlind(blindIndex)
