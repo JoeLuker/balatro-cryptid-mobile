@@ -32,4 +32,19 @@ class EconomyJokerTest {
         rs.enterRoundEval()
         assertEquals(0, jokerDollars(rs))
     }
+
+    @Test fun toTheMoonPaysExtraInterestPerFiveUncapped() {
+        val rs = RunState()
+        rs.money = 30                        // capped interest row stops at $5; To the Moon adds 30/5 = 6 more, uncapped
+        rs.buy(offer("j_to_the_moon"), free = true)
+        rs.enterRoundEval()
+        assertEquals(6, jokerDollars(rs))
+    }
+
+    @Test fun delayedGratPaysTwoPerDiscardWhenNoneUsed() {
+        val rs = RunState()                  // default round: 3 discards available, none used → $2 × 3 = $6
+        rs.buy(offer("j_delayed_grat"), free = true)
+        rs.enterRoundEval()
+        assertEquals(6, jokerDollars(rs))
+    }
 }

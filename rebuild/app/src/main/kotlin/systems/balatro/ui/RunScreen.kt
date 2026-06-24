@@ -506,6 +506,9 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 8): blind-select spawns ---
     Offer("j_marble", "Marble Joker", "Adds a Stone card to your deck each Blind", 6, rarity = 2),
     Offer("j_cartomancer", "Cartomancer", "Creates a Tarot when Blind is selected (if room)", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 9): more end-of-round economy ---
+    Offer("j_to_the_moon", "To the Moon", "Earn an extra $1 of interest for every $5 you have", 5, rarity = 2),
+    Offer("j_delayed_grat", "Delayed Gratification", "Earn $2 per discard if no discards are used by end of round", 4),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1274,7 +1277,9 @@ internal class RunState {
         // ── end-of-round joker dollars (context.end_of_round, calculate_dollar_bonus) ──
         val jokerDollars =
             owned.count { it.offer.key == "j_golden" } * 4 +                                       // Golden Joker: $4 each round
-            owned.count { it.offer.key == "j_cloud_9" } * deck.composition().count { it.rank == 9 }  // Cloud 9: $1 per 9 in deck
+            owned.count { it.offer.key == "j_cloud_9" } * deck.composition().count { it.rank == 9 } +  // Cloud 9: $1 per 9 in deck
+            owned.count { it.offer.key == "j_to_the_moon" } * (money / 5) +                         // To the Moon: extra $1 interest per $5 (uncapped)
+            (if (roundDiscardsUsed == 0) owned.count { it.offer.key == "j_delayed_grat" } * 2 * discardsLeft else 0)  // Delayed Gratification: $2 per discard, only if none used
         if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
