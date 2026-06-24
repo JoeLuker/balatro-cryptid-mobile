@@ -131,6 +131,15 @@ class RunLoopReducerTest {
         sim.discard(60);  assertEquals("floors at 1.0", 1.0, sim["j_ramen"].x, 1e-9)  // 1.5 - 0.6 → clamp
     }
 
+    @Test fun iceCream_meltsFiveChipsPerHand_floorsAtZero() {
+        val sim = Sim("j_ice_cream")                     // seeded chips=100 from initialState
+        assertEquals(100.0, sim["j_ice_cream"].chips, 0.0)
+        sim.hand(HandType.PAIR)
+        assertEquals(95.0, sim["j_ice_cream"].chips, 0.0)   // -5 per hand played
+        repeat(20) { sim.hand(HandType.HIGH_CARD) }
+        assertEquals("melts to nothing, never negative", 0.0, sim["j_ice_cream"].chips, 0.0)
+    }
+
     @Test fun hologram_scalesPerCardAdded() {
         val sim = Sim("j_hologram")
         sim.cardAdded(1);  assertEquals(1.25, sim["j_hologram"].x, 1e-9)

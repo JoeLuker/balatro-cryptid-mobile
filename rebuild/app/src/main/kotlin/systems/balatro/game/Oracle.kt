@@ -732,6 +732,14 @@ object Oracle {
         Case("Pair A/A + j_joker(disabled) + j_fibonacci → fibonacci still scores → 576",
             PlayingCard.hand("S_A", "H_A"), 576.0, j(FJoker("j_joker"), FJoker("j_fibonacci")),
             debuffedJokerKey = "j_joker"),
+
+        // --- missing vanilla jokers, batch 1 ---
+        Case("Pair of aces + cavendish (X3 Mult)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_cavendish"))),
+        Case("Pair of aces + gros_michel (+15 Mult)", PlayingCard.hand("S_A", "H_A"), 544.0, j(FJoker("j_gros_michel"))),
+        Case("Pair of aces + ice_cream @chips=100 (+100 Chips)", PlayingCard.hand("S_A", "H_A"), 264.0, j(FJoker("j_ice_cream", chips = 100.0))),
+        // Blackboard: an empty hand is vacuously all-black → fires X3; a red card held → no fire.
+        Case("Pair of aces + blackboard, empty hand → X3", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_blackboard"))),
+        Case("Pair of aces + blackboard, red card held → no fire → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_blackboard")), held = PlayingCard.hand("H_5")),
     )
 
     fun run(): Pair<Int, Int> {
