@@ -217,6 +217,10 @@ private fun layout(root: UI): LNode {
     return n
 }
 
+/** The laid-out (w, h) of a UI tree in engine units — for callers that must position a sub-box
+ *  relative to another (e.g. the shop card's price tag / buy button attach offsets). */
+fun measureUnits(root: UI): Pair<Float, Float> = layout(root).let { it.w to it.h }
+
 // ── absolute renderer ───────────────────────────────────────────────────────────────────────────
 /** Emboss lip colour: the fill darkened ~40% (the shaded 3-D edge under a box). */
 private fun embossLip(c: Color) = Color(c.red * 0.6f, c.green * 0.6f, c.blue * 0.6f, c.alpha)
