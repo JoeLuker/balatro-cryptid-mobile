@@ -986,4 +986,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // ── missing vanilla jokers — batch 3: money-scaling (read ctx.money = G.GAME.dollars) ─────────
     "j_bull"        to JokerSpec(jokerMain = { _, ctx -> Effect.chipsOrNone(2.0 * ctx.money) }),         // +2 Chips per $1
     "j_bootstraps"  to JokerSpec(jokerMain = { _, ctx -> Effect.multOrNone(2.0 * (ctx.money / 5)) }),    // +2 Mult per $5
+
+    // ── missing vanilla jokers — batch 4: deck-size / joker-slot scaling ──────────────────────────
+    "j_erosion"  to JokerSpec(jokerMain = { _, ctx -> Effect.multOrNone(4.0 * maxOf(0, 52 - ctx.deckSize)) }),  // +4 Mult per card below 52
+    "j_stencil"  to JokerSpec(jokerMain = { _, ctx ->
+        // X1 Mult per empty Joker slot; Joker Stencil itself counts as an empty slot.
+        val empty = ctx.jokerSlots - ctx.boardKeys.size + ctx.boardKeys.count { it == "j_stencil" }
+        if (empty > 1) Effect.XMult(empty.toDouble()) else Effect.None
+    }),
 )
