@@ -26,4 +26,8 @@ enum class Planet(val display: String, val hand: HandType) {
     EARTH("Earth", HandType.FULL_HOUSE),
     MARS("Mars", HandType.FOUR_OF_A_KIND),
     NEPTUNE("Neptune", HandType.STRAIGHT_FLUSH),
+    // Secret planets for the 5-card hands (game.lua c_planet_x/ceres/eris).
+    PLANET_X("Planet X", HandType.FIVE_OF_A_KIND),
+    CERES("Ceres", HandType.FLUSH_HOUSE),
+    ERIS("Eris", HandType.FLUSH_FIVE),
 }

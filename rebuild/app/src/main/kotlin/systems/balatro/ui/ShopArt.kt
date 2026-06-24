@@ -24,6 +24,7 @@ object ShopArt {
         Planet.MERCURY to (0 to 3), Planet.VENUS to (1 to 3), Planet.EARTH to (2 to 3),
         Planet.MARS to (3 to 3), Planet.JUPITER to (4 to 3), Planet.SATURN to (5 to 3),
         Planet.URANUS to (6 to 3), Planet.NEPTUNE to (7 to 3), Planet.PLUTO to (8 to 3),
+        Planet.PLANET_X to (9 to 2), Planet.CERES to (8 to 2), Planet.ERIS to (3 to 2),
     )
     // Tarot centers (game.lua c_* set="Tarot"), keyed by display name (the rebuild's TAROTS names).
     private val TAROT_POS: Map<String, Pair<Int, Int>> = mapOf(
