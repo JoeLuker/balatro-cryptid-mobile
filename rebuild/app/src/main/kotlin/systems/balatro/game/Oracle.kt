@@ -740,6 +740,14 @@ object Oracle {
         // Blackboard: an empty hand is vacuously all-black → fires X3; a red card held → no fire.
         Case("Pair of aces + blackboard, empty hand → X3", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_blackboard"))),
         Case("Pair of aces + blackboard, red card held → no fire → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_blackboard")), held = PlayingCard.hand("H_5")),
+
+        // --- missing vanilla jokers, batch 2: X Mult if hand contains <type> ---
+        Case("Pair of aces + duo (X2 if Pair)", PlayingCard.hand("S_A", "H_A"), 128.0, j(FJoker("j_duo"))),
+        Case("Three aces + trio (X3 if 3oak)", PlayingCard.hand("S_A", "H_A", "D_A"), 567.0, j(FJoker("j_trio"))),
+        Case("Four aces + family (X4 if 4oak)", PlayingCard.hand("S_A", "H_A", "D_A", "C_A"), 2912.0, j(FJoker("j_family"))),
+        Case("Straight 5-9 + order (X3 if Straight)", PlayingCard.hand("S_5", "H_6", "D_7", "C_8", "S_9"), 780.0, j(FJoker("j_order"))),
+        Case("Flush + tribe (X2 if Flush)", PlayingCard.hand("S_2", "S_5", "S_7", "S_9", "S_J"), 544.0, j(FJoker("j_tribe"))),
+        Case("Pair of aces + tribe (no Flush → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_tribe"))),
     )
 
     fun run(): Pair<Int, Int> {

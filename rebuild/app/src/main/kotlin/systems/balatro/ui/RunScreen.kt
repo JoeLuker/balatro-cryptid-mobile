@@ -470,6 +470,12 @@ private val CATALOG = listOf(
     Offer("j_gros_michel", "Gros Michel", "+15 Mult", 5),
     Offer("j_ice_cream", "Ice Cream", "+100 Chips, -5 per hand played", 5),
     Offer("j_blackboard", "Blackboard", "X3 Mult if all held cards are Spades or Clubs", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 2): X Mult if hand contains <type> ---
+    Offer("j_duo", "The Duo", "X2 Mult if hand contains a Pair", 8, rarity = 2),
+    Offer("j_trio", "The Trio", "X3 Mult if hand contains a Three of a Kind", 8, rarity = 2),
+    Offer("j_family", "The Family", "X4 Mult if hand contains a Four of a Kind", 8, rarity = 2),
+    Offer("j_order", "The Order", "X3 Mult if hand contains a Straight", 8, rarity = 2),
+    Offer("j_tribe", "The Tribe", "X2 Mult if hand contains a Flush", 8, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
