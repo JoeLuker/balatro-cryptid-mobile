@@ -211,6 +211,10 @@ object JokerArt {
         "j_cry_spy" to Triple("atlasspooky.png", 0, 0),
         "j_cry_universe" to Triple("atlasnotjokers.png", 4, 5),
         "j_cry_keychange" to Triple("placeholders.png", 1, 1),   // Cryptid's own WIP placeholder art
+        // Final 3 (190/190). Brace-matched to the JOKER def's own atlas:
+        "j_cry_m" to Triple("atlasepic.png", 3, 1),              // epic.lua (an earlier scan matched a tag named "m")
+        "j_cry_jimball" to Triple("jimball.png", 0, 0),          // its own animated atlas (frame 0)
+        "j_cry_wee_fib" to Triple("Jokers.png", 1, 5),           // no atlas field → SMODS default "Joker"; reuses Fibonacci's cell
         // fspinner/wheelhope: brace-matched to their own table's atlas (an earlier nested `key=` had
         // truncated the scan and mis-flagged them as atlas-less).
         "j_cry_fspinner" to Triple("atlasone.png", 4, 0),
