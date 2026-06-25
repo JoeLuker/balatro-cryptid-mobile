@@ -86,6 +86,7 @@ internal enum class DeckVariant(
     CHECKERED("Checkered Deck", "Start with 26 Spades & 26 Hearts"),
     ERRATIC("Erratic Deck", "Ranks & suits are randomised"),
     MAGIC("Magic Deck", "Start with Crystal Ball voucher + 2 The Fool"),
+    GHOST("Ghost Deck", "Spectral cards appear in the shop; start with a Hex"),
 }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
@@ -195,6 +196,7 @@ internal sealed class ShopItem {
     data class Jk(val offer: Offer) : ShopItem() { override val cost get() = offer.cost }
     data class Pl(val po: PlanetOffer) : ShopItem() { override val cost get() = po.cost }
     data class Tt(val t: TarotOffer) : ShopItem() { override val cost get() = t.cost }
+    data class Sp(val s: Spectral) : ShopItem() { override val cost get() = 4 }   // Ghost deck: spectrals in shop
 }
 
 /** Cryptid's offline fallback for the live Discord member count (lib/https.lua `member_fallback`). The
@@ -634,12 +636,13 @@ private const val PLANET_RATE = 4.0
 /** The unified shop pool (vanilla create_card_for_shop, UI_definitions.lua:742): for each of [slots]
  *  slots, poll a TYPE by weight, then draw a distinct card of that type from its pool. The first
  *  joker still gets the rebuild's edition chance. Deterministic per [blind]. */
-private fun rollShopItems(blind: Int, slots: Int): List<ShopItem> {
+private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0): List<ShopItem> {
     val rng = Random(blind * 7919L + 13)
     val jokers = CATALOG.shuffled(rng).iterator()
     val planets = Planet.values().toList().shuffled(Random(blind * 104729L)).iterator()
     val tarots = TAROTS.shuffled(Random(blind * 1299709L)).iterator()
-    val total = JOKER_RATE + TAROT_RATE + PLANET_RATE
+    val spectrals = Spectral.values().toList().shuffled(Random(blind * 15485863L)).iterator()
+    val total = JOKER_RATE + TAROT_RATE + PLANET_RATE + spectralRate     // spectralRate>0 only on Ghost deck
     val out = ArrayList<ShopItem>(slots)
     var jokerSlotIdx = 0
     fun drawJoker(): ShopItem? {
@@ -657,7 +660,8 @@ private fun rollShopItems(blind: Int, slots: Int): List<ShopItem> {
         val item = when {
             polled < JOKER_RATE -> drawJoker()
             polled < JOKER_RATE + TAROT_RATE && tarots.hasNext() -> ShopItem.Tt(tarots.next())
-            planets.hasNext() -> ShopItem.Pl(PlanetOffer(planets.next(), 3))
+            polled < JOKER_RATE + TAROT_RATE + PLANET_RATE && planets.hasNext() -> ShopItem.Pl(PlanetOffer(planets.next(), 3))
+            polled < total && spectrals.hasNext() -> ShopItem.Sp(spectrals.next())   // Ghost deck spectral band
             else -> drawJoker()                                 // type pool exhausted → fall back to a joker
         }
         if (item != null) out.add(item)
@@ -791,6 +795,7 @@ internal class RunState {
     val consumables = mutableStateListOf<Consumable>()
     var consumableSlotsBonus by mutableStateOf(0)                        // Crystal Ball voucher (follow-on)
     val consumableSlots: Int get() = 2 + consumableSlotsBonus
+    var spectralRate = 0.0                                               // Ghost deck: spectrals appear in the shop pool
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1070,6 +1075,10 @@ internal class RunState {
         if (v == DeckVariant.MAGIC) {                              // Crystal Ball voucher + 2 The Fool
             consumableSlotsBonus += 1
             repeat(2) { consumables.add(Consumable.TarotC(tarotByName("The Fool"))) }
+        }
+        if (v == DeckVariant.GHOST) {                              // spectrals in shop + start with a Hex
+            spectralRate = 2.0
+            consumables.add(Consumable.SpectralC(Spectral.HEX))
         }
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
@@ -1550,7 +1559,7 @@ internal class RunState {
         resetRerollCost()                            // fresh shop → reroll cost back to base
         freeRerollThisShop = false; couponThisShop = false      // per-shop tag effects reset, then re-applied
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
         // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
@@ -1714,6 +1723,18 @@ internal class RunState {
         Telemetry.event("RUN_BUY_TAROT", "tarot" to t.name, "money" to money)
     }
 
+    /** Buy a shop spectral (Ghost deck) — held in a consumable slot until used. */
+    fun buySpectral(sp: Spectral, free: Boolean = false) {
+        if (!hasConsumableRoom()) return
+        val cost = price(4)
+        if (!free && money < cost) return
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
+        onCardBought()
+        consumables.add(Consumable.SpectralC(sp))
+        shopItems = shopItems.filterNot { it is ShopItem.Sp && it.s == sp }
+        Telemetry.event("RUN_BUY_SPECTRAL", "spectral" to sp.name, "money" to money)
+    }
+
     /** Redeem the shop voucher — a run-persistent modifier (Card:apply_to_run, card.lua:2322). */
     fun redeemVoucher(v: VoucherOffer) {
         val cost = price(v.cost)
@@ -1869,7 +1890,7 @@ internal class RunState {
         deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
-        stakeLevel = stakeLevel,
+        stakeLevel = stakeLevel, spectralRate = spectralRate,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1885,6 +1906,7 @@ internal class RunState {
                 is ShopItem.Jk -> ShopItemSnap("joker", joker = OfferSnap(item.offer.key, item.offer.name, item.offer.desc, item.offer.cost, item.offer.edition.name))
                 is ShopItem.Pl -> ShopItemSnap("planet", planet = PlanetSnap(item.po.planet.name, item.po.cost))
                 is ShopItem.Tt -> ShopItemSnap("tarot", tarot = TarotSnap(item.t.name, "", item.t.cost, ""))
+                is ShopItem.Sp -> ShopItemSnap("spectral", spectral = item.s.name)
             }
         },
         shopVoucher = shopVoucher?.let { VoucherSnap(it.key, it.name, it.desc, it.extra, it.cost) },
@@ -1907,7 +1929,7 @@ internal class RunState {
         deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
-        stakeLevel = s.stakeLevel
+        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -1925,6 +1947,7 @@ internal class RunState {
                 "joker" -> snap.joker?.let { ShopItem.Jk(Offer(it.key, it.name, it.desc, it.cost, edition = Edition.valueOf(it.edition))) }
                 "planet" -> snap.planet?.let { ShopItem.Pl(PlanetOffer(Planet.valueOf(it.planet), it.cost)) }
                 "tarot" -> snap.tarot?.let { ShopItem.Tt(tarotByName(it.name)) }
+                "spectral" -> snap.spectral?.let { ShopItem.Sp(Spectral.valueOf(it)) }
                 else -> null
             }
         }
@@ -1943,7 +1966,7 @@ internal class RunState {
         resetRerollCost()
         freeRerollThisShop = false; couponThisShop = false
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
         shopBoosters = rollBoosters(blindIndex)
         phase = Phase.SHOP
@@ -1968,7 +1991,7 @@ internal class RunState {
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         // reroll re-rolls the CARDS only; the voucher slot stays (Balatro keeps the voucher on reroll).
-        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus)
+        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate)
         // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
         // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
         // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
@@ -3400,6 +3423,12 @@ private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Flo
                             ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, t.name, shopArt.tarots[t.name], cardBase,
                                 s.price(t.cost), fx, Balatro.Purple,
                                 s.money >= s.price(t.cost), u) { s.buyTarot(t) }
+                        }
+                        is ShopItem.Sp -> {
+                            val sp = item.s
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, sp.display, shopArt.spectrals[sp], cardBase,
+                                s.price(item.cost), sp.desc, Balatro.Mult,
+                                s.money >= s.price(item.cost), u) { s.buySpectral(sp) }
                         }
                     }
                 }

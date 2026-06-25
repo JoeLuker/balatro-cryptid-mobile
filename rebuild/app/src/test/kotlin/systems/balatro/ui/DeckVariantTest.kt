@@ -1,6 +1,7 @@
 package systems.balatro.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -75,5 +76,20 @@ class DeckVariantTest {
         rs.pickDeck(DeckVariant.MAGIC)
         assertEquals(3, rs.consumableSlots)   // 2 base + 1 Crystal Ball
         assertEquals(2, rs.consumables.count { it is Consumable.TarotC && (it as Consumable.TarotC).t.name == "The Fool" })
+    }
+
+    @Test fun ghostDeckStartsWithHexAndEnablesSpectralShop() {
+        val rs = RunState()
+        rs.pickDeck(DeckVariant.GHOST)
+        assertEquals(1, rs.consumables.count { it is Consumable.SpectralC && (it as Consumable.SpectralC).s == Spectral.HEX })
+        assertEquals(2.0, rs.spectralRate, 0.0)
+    }
+
+    @Test fun buyingAShopSpectralHoldsItInASlot() {
+        val rs = RunState(); rs.pickDeck(DeckVariant.GHOST); rs.money = 100
+        val before = rs.consumables.size
+        rs.buySpectral(Spectral.SIGIL)
+        assertEquals(before + 1, rs.consumables.size)
+        assertTrue(rs.consumables.any { it is Consumable.SpectralC && (it as Consumable.SpectralC).s == Spectral.SIGIL })
     }
 }
