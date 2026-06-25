@@ -87,6 +87,7 @@ internal enum class DeckVariant(
     ERRATIC("Erratic Deck", "Ranks & suits are randomised"),
     MAGIC("Magic Deck", "Start with Crystal Ball voucher + 2 The Fool"),
     GHOST("Ghost Deck", "Spectral cards appear in the shop; start with a Hex"),
+    ZODIAC("Zodiac Deck", "Start with Tarot Merchant, Planet Merchant & Overstock"),
 }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
@@ -1085,6 +1086,10 @@ internal class RunState {
         if (v == DeckVariant.GHOST) {                              // spectrals in shop + start with a Hex
             spectralRate = 2.0
             consumables.add(Consumable.SpectralC(Spectral.HEX))
+        }
+        if (v == DeckVariant.ZODIAC) {                             // Tarot Merchant + Planet Merchant + Overstock
+            tarotRate += 4; planetRate += 4; shopSlotsBonus += 1
+            redeemedVouchers.addAll(listOf("v_tarot_merchant", "v_planet_merchant", "v_overstock_norm"))
         }
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
