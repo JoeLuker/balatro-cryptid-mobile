@@ -3,6 +3,7 @@ package systems.balatro.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import systems.balatro.game.Boss
 import systems.balatro.game.PlayingCard
 import systems.balatro.game.Suit
 
@@ -98,6 +99,7 @@ class RunStateTest {
         rs.consumables.clear()                                  // free the 2 starter consumable slots
         rs.buy(offer("j_vagabond"), free = true)
         rs.money = 4                                            // <= extra(4) → fires
+        rs.phase = Phase.ROUND                                  // init deals a hand then parks at DECK_SELECT
         rs.selected = setOf(0, 1)                               // play two cards from the drawn hand
         rs.play(); rs.scoreBank()
         assertTrue("Tarot created when played at <=\$4", rs.consumables.any { it is Consumable.TarotC })
@@ -109,6 +111,7 @@ class RunStateTest {
         rs.consumables.clear()
         rs.buy(offer("j_vagabond"), free = true)
         rs.money = 5                                            // > extra(4) → does not fire
+        rs.phase = Phase.ROUND
         rs.selected = setOf(0, 1)
         rs.play(); rs.scoreBank()
         assertTrue("no Tarot above \$4", rs.consumables.none { it is Consumable.TarotC })
@@ -143,6 +146,7 @@ class RunStateTest {
         rs.buy(offer("j_trading"), free = true)
         val deckBefore = rs.snapshot().deck.size
         val moneyBefore = rs.money
+        rs.phase = Phase.ROUND
         rs.selected = setOf(0)                                  // discard one real (drawn) deck card, first discard
         rs.discard()
         assertEquals("+\$3 on single first-discard", moneyBefore + 3, rs.money)
@@ -155,6 +159,7 @@ class RunStateTest {
         rs.buy(offer("j_trading"), free = true)
         val deckBefore = rs.snapshot().deck.size
         val moneyBefore = rs.money
+        rs.phase = Phase.ROUND
         rs.selected = setOf(0, 1)                              // two cards → gate blocks it
         rs.discard()
         assertEquals("no \$ on multi-card discard", moneyBefore, rs.money)
@@ -168,6 +173,7 @@ class RunStateTest {
         val r = rs.mailRank
         val other = if (r == 3) 4 else 3
         rs.hand = listOf(PlayingCard(Suit.S, r), PlayingCard(Suit.H, r), PlayingCard(Suit.C, other))
+        rs.phase = Phase.ROUND
         rs.selected = setOf(0, 1, 2)                           // two match the mail rank, one doesn't
         val moneyBefore = rs.money
         rs.discard()
@@ -181,6 +187,7 @@ class RunStateTest {
         rs.money = 0
         rs.hand = listOf(PlayingCard(Suit.S, 2)) + (1..20).map { PlayingCard(Suit.H, 13) }  // play a 2, hold 20 Kings
         rs.handSize = rs.hand.size                              // so refill() doesn't draw a negative count
+        rs.phase = Phase.ROUND
         rs.selected = setOf(0)
         rs.play(); rs.scoreBank()
         assertTrue("≈half of 20 held faces pay \$1 (got ${rs.money})", rs.money in 4..16)
@@ -193,6 +200,7 @@ class RunStateTest {
         rs.money = 0
         rs.hand = listOf(PlayingCard(Suit.S, 2)) + (1..20).map { PlayingCard(Suit.H, 7) }   // held 7s (not face)
         rs.handSize = rs.hand.size                              // so refill() doesn't draw a negative count
+        rs.phase = Phase.ROUND
         rs.selected = setOf(0)
         rs.play(); rs.scoreBank()
         assertEquals("no held face cards → no \$", 0, rs.money)
@@ -214,5 +222,31 @@ class RunStateTest {
         val reloaded = RunState().also { it.restore(rs.snapshot()) }
         val plain2 = reloaded.owned.first { it.fj.key == "j_cavendish" }
         assertEquals("sell bonus persists", baseSell + 2, reloaded.sellValue(plain2))
+    }
+
+    @Test fun bossEffectAppliesWhenLuchadorNotSold() {
+        // Control: THE_TOOTH (−$1 per played card) fires normally — proves the disable shadow is
+        // transparent when bossDisabled is false.
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = Boss.THE_TOOTH            // a boss round
+        rs.money = 50
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("THE_TOOTH active → -\$1 per played card", 48, rs.money)
+    }
+
+    @Test fun luchadorSellDisablesTheBoss() {
+        // Selling Luchador during a boss round disables it — THE_TOOTH no longer drains money.
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = Boss.THE_TOOTH
+        rs.buy(offer("j_luchador"), free = true)
+        rs.sell(rs.owned.first { it.fj.key == "j_luchador" })
+        assertTrue("boss disabled after selling Luchador", rs.bossDisabled)
+        rs.money = 50
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("THE_TOOTH disabled → no per-card money loss", 50, rs.money)
     }
 }

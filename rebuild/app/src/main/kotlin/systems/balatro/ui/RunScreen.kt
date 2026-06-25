@@ -566,6 +566,8 @@ private val CATALOG = listOf(
     Offer("j_reserved_parking", "Reserved Parking", "Each held face card has a 1 in 2 chance to give $1", 6),
     // --- missing vanilla jokers (batch 16): sell-value economy ---
     Offer("j_gift", "Gift Card", "Add $1 of sell value to every Joker at end of round", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 17): sell-to-disable-boss ---
+    Offer("j_luchador", "Luchador", "Sell this card to disable the current Boss Blind", 5, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -685,6 +687,7 @@ internal class RunState {
     var money by mutableStateOf(4)
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
+    var bossDisabled by mutableStateOf(false)            // Luchador: boss effects suppressed for the round (boss kept for display)
     var phase by mutableStateOf(Phase.DECK_SELECT)   // fresh run picks a deck first (resume/deep-link override)
     var deckJokerBonus = 0                            // Black/Painted deck: ± Joker slots (folded into startRound's maxJokers)
     val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
@@ -1096,6 +1099,7 @@ internal class RunState {
 
     private fun startRound() {
         boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
+        bossDisabled = false                  // a fresh boss is active until Luchador disables it
         handSize = baseHandSize
         applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
         // ── passive joker hand-size modifiers (board scan; add_to_deck h_size, applied before the deal) ──
@@ -1176,6 +1180,7 @@ internal class RunState {
      *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
     fun play() {
         if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
+        val boss = if (bossDisabled) null else this.boss   // Luchador: a disabled boss applies no effects this hand
         syncFJokerN()   // update deck-size / stone / steel / abstract / drivers_license counts before scoring
         // ── hand-detection joker hooks (derived early — needed for both boss gates and scoring) ──
         val fjokers = owned.map { it.fj }
@@ -1316,6 +1321,7 @@ internal class RunState {
      *  calculate destroys self-destruct jokers BEFORE the ROUND_EVAL state, on the board.) */
     fun scoreBank(): Boolean {
         val r = pending ?: return false
+        val boss = if (bossDisabled) null else this.boss   // Luchador: a disabled boss applies no effects
         // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
         // (isNewTypeThisRound removed — keychange migrated to JOKER_MANIFEST HandScored reducer using handPlays[type] == 1.)
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
@@ -1516,6 +1522,7 @@ internal class RunState {
 
     fun discard() {
         if (phase != Phase.ROUND || selected.isEmpty() || discardsLeft <= 0) return
+        val boss = if (bossDisabled) null else this.boss   // Luchador: a disabled boss applies no effects
         // THE_HOOK: override selection with 2 random cards from the current hand
         if (boss == Boss.THE_HOOK) {
             val hookIndices = hand.indices.shuffled().take(2).toSet()
@@ -1625,8 +1632,12 @@ internal class RunState {
         val armedJollys = owned.filter { it.fj.key == "j_cry_jollysus" && it.fj.n == 1 } +
             (if (soldKey == "j_cry_jollysus" && o.fj.n == 1) listOf(o) else emptyList())
         armedJollys.forEach { it.fj.n = 0; createRandomJoker() }
-        // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately
-        if (boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
+        // j_luchador: sell to disable the current Boss Blind — its effects stop for the rest of the round
+        // (the boss is kept for display; bossDisabled gates the per-hand effect reads). Done before the
+        // VERDANT_LEAF check so disabling Verdant also cancels its sell-to-defeat trigger.
+        if (soldKey == "j_luchador" && slot == 2 && boss != null) bossDisabled = true
+        // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately (unless disabled)
+        if (!bossDisabled && boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
     }
 
