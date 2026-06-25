@@ -145,6 +145,15 @@ class Deck(seed: Long) {
         return true
     }
 
+    /** Permanently set a card's enhancement (e.g. Midas Mask turning a scored face card to Gold). */
+    fun setEnhancement(card: PlayingCard, enh: Enhancement): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        val updated = all[i].copy(enhancement = enh)
+        all[i] = updated
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, updated) }
+        return true
+    }
+
     /** Permanently destroy a specific card from the deck — e.g. a played Glass card that shattered
      *  (Card:shatter removes it from G.playing_cards). Matches by value, dropping the first equal
      *  instance from the persistent deck and the draw pile if it's still there. Returns true iff one

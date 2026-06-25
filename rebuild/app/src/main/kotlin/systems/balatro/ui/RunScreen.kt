@@ -570,6 +570,8 @@ private val CATALOG = listOf(
     Offer("j_luchador", "Luchador", "Sell this card to disable the current Boss Blind", 5, rarity = 2),
     // --- missing vanilla jokers (batch 18): scoring-time per-suit (Score.kt) ---
     Offer("j_ancient", "Ancient Joker", "Each played card with a chosen suit gives X1.5 Mult (suit changes each round)", 8, rarity = 3),
+    // --- missing vanilla jokers (batch 19): on-play card transform ---
+    Offer("j_midas_mask", "Midas Mask", "All played face cards become Gold cards when scored", 7, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1398,6 +1400,12 @@ internal class RunState {
             pendingHeld.forEachIndexed { i, c ->
                 if (c.isFace && Random(blindIndex * 8123L + totalHandsPlayed * 101L + i * 17L).nextInt(2) == 0) money += 1
             }
+        // j_midas_mask: each scored face card permanently becomes a Gold card (card.lua:4040 — the face
+        // check respects Pareidolia). No scoring effect; the transform persists to the run deck.
+        if (owned.any { it.fj.key == "j_midas_mask" }) {
+            val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
+            for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.GOLD)
+        }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
