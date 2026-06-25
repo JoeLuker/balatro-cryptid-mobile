@@ -20,6 +20,7 @@ object Oracle {
         val money: Int = 0,                         // G.GAME.dollars — Bull / Bootstraps
         val deckSize: Int = 52,                     // run deck size — Erosion
         val jokerSlots: Int = 5,                    // joker slot limit — Joker Stencil
+        val ancientSuit: Suit? = null,              // this round's Ancient Joker suit
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -779,12 +780,15 @@ object Oracle {
         Case("Pair of aces + reserved_parking (held economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_reserved_parking"))),
         Case("Pair of aces + gift (sell-value economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_gift"))),
         Case("Pair of aces + luchador (sell-effect → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_luchador"))),
+        // Ancient: X1.5 per scored card of the round's suit. Two spade aces, suit=Spades → mult 2×1.5×1.5=4.5; 32×4.5=144.
+        Case("Pair of spade aces + ancient (suit=Spades, X1.5 each) → 144", PlayingCard.hand("S_A", "S_A"), 144.0, j(FJoker("j_ancient")), ancientSuit = Suit.S),
+        Case("Pair of heart aces + ancient (suit=Spades → no match) → 64", PlayingCard.hand("H_A", "H_A"), 64.0, j(FJoker("j_ancient")), ancientSuit = Suit.S),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money, deckSize = c.deckSize, jokerSlots = c.jokerSlots).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money, deckSize = c.deckSize, jokerSlots = c.jokerSlots, ancientSuit = c.ancientSuit).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")

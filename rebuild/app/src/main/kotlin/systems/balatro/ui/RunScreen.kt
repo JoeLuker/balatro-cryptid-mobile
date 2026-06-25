@@ -568,6 +568,8 @@ private val CATALOG = listOf(
     Offer("j_gift", "Gift Card", "Add $1 of sell value to every Joker at end of round", 6, rarity = 2),
     // --- missing vanilla jokers (batch 17): sell-to-disable-boss ---
     Offer("j_luchador", "Luchador", "Sell this card to disable the current Boss Blind", 5, rarity = 2),
+    // --- missing vanilla jokers (batch 18): scoring-time per-suit (Score.kt) ---
+    Offer("j_ancient", "Ancient Joker", "Each played card with a chosen suit gives X1.5 Mult (suit changes each round)", 8, rarity = 3),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -728,6 +730,7 @@ internal class RunState {
     /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
      *  Default Spades matches Cryptid's G.GAME.current_round.cry_dropshot_card = { suit = "Spades" }. */
     private var dropShotSuit: Suit = Suit.S
+    var ancientSuit: Suit = Suit.H               // Ancient Joker: this round's suit (reset_ancient_card — never last round's)
     /** Random rank chosen for j_mail each round (reset_mail_rank pattern — common_events.lua:2715-2731,
      *  pseudoseed('mail'..ante)). Rebuild seeds by blindIndex; default Ace=14 matches Lua default. */
     internal var mailRank: Int = 14   // internal (not private) so the discard-economy test can read it
@@ -1147,6 +1150,8 @@ internal class RunState {
         // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
         // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
         dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
+        // Ancient Joker: pick this round's suit, never the same as last round's (reset_ancient_card).
+        ancientSuit = Suit.values().filter { it != ancientSuit }.random(Random(blindIndex * 2147483647L + 19))
         mailRank = (2..14).random(Random(blindIndex * 1000000007L + 13))  // reset_mail_rank: pseudoseed('mail'..ante)
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
         maxJokers = (if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS) + deckJokerBonus
@@ -1273,7 +1278,7 @@ internal class RunState {
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
                             totalHandsPlayed = totalHandsPlayed, money = money,
-                            deckSize = deck.composition().size, jokerSlots = maxJokers, trace = trace,
+                            deckSize = deck.composition().size, jokerSlots = maxJokers, ancientSuit = ancientSuit, trace = trace,
                             // j_hiker: persist the +5 permaBonus to Deck.all after each scored card.
                             // The scored card in `scoringHand` has the OLD permaBonus (Lua timing:
                             // joker individual hooks fire after eval_card, so the +5 takes effect

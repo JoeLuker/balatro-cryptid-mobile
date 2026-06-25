@@ -235,6 +235,11 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_arrowhead"     to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.S, ctx.smeared)) Effect.Chips(50.0) else Effect.None }),
     // onyx_agate: +7 Mult per scored Club (game.lua)
     "j_onyx_agate"    to JokerSpec(individual = { _, ctx, c -> if (c.isSuit(Suit.C, ctx.smeared)) Effect.Mult(7.0) else Effect.None }),
+    // j_ancient: X1.5 Mult per scored card of THIS round's suit (ctx.ancientSuit, picked by the run loop;
+    // changes each round, never the same as last round). card.lua:3849 individual x_mult.
+    "j_ancient"       to JokerSpec(individual = { _, ctx, c ->
+        val s = ctx.ancientSuit; if (s != null && c.isSuit(s, ctx.smeared)) Effect.XMult(1.5) else Effect.None
+    }),
     // fibonacci: +8 Mult per scored A, 2, 3, 5, 8 (Fibonacci ranks; get_id, Maximized maps pips→10)
     "j_fibonacci"     to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 3, 5, 8, 14)) Effect.Mult(8.0) else Effect.None }),
     // scary_face: +30 Chips per scored face card (includes Pareidolia)

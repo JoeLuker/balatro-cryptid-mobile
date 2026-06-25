@@ -249,4 +249,18 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("THE_TOOTH disabled → no per-card money loss", 50, rs.money)
     }
+
+    @Test fun ancientSuitChangesEachRoundNeverRepeating() {
+        // Ancient Joker's suit is re-picked every round and is never the same as last round
+        // (reset_ancient_card). The X1.5 scoring itself is covered exhaustively by the oracle.
+        val rs = RunState()
+        var prev = rs.ancientSuit
+        for (bi in 1..8) {
+            rs.blindIndex = bi
+            rs.phase = Phase.BLIND_SELECT
+            rs.selectBlind()                                   // runs startRound → re-picks ancientSuit
+            assertTrue("round $bi suit (${rs.ancientSuit}) must differ from previous ($prev)", rs.ancientSuit != prev)
+            prev = rs.ancientSuit
+        }
+    }
 }

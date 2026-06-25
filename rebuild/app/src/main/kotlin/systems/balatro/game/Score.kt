@@ -68,6 +68,7 @@ class Sctx {
     var money: Int = 0                       // G.GAME.dollars — Bull (+2 Chips/$1), Bootstraps (+2 Mult/$5)
     var deckSize: Int = 52                   // current cards in the run deck — Erosion (+4 Mult per card below 52)
     var jokerSlots: Int = 5                  // G.jokers.config.card_limit — Joker Stencil (X1 per empty joker slot)
+    var ancientSuit: Suit? = null            // G.GAME.current_round.ancient_card.suit — Ancient Joker (X1.5 per scored card of this suit)
     var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
     var selfJoker: FJoker? = null           // set by dispatchManifest to j before invoking any hook — enables identity guard (j !== rj / j !== oj)
     /** j_cry_maximized patches get_id: pips→10, faces→13. Used by every rank-literal comparison in
@@ -449,6 +450,7 @@ object Score {
         money: Int = 0,                     // G.GAME.dollars — Bull / Bootstraps read it in joker_main
         deckSize: Int = 52,                 // run deck size — Erosion
         jokerSlots: Int = 5,                // joker slot limit — Joker Stencil
+        ancientSuit: Suit? = null,          // this round's Ancient Joker suit (run loop picks it; X1.5 per scored card of it)
         trace: MutableList<ScoreStep>? = null,
         /** Callback for j_hiker: fired once per scored card per hiker on board. Caller (RunScreen)
          *  persists the bonus to Deck.all. Fires AFTER the card's own chipBonus() (Lua timing:
@@ -481,6 +483,7 @@ object Score {
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
             this.totalHandsPlayed = totalHandsPlayed; this.money = money; this.deckSize = deckSize; this.jokerSlots = jokerSlots
+            this.ancientSuit = ancientSuit
             this.debuffSuit = (debuff as? Debuff.DebuffSuit)?.suit
             this.debuffFace = debuff is Debuff.DebuffFace
             this.debuffCards = (debuff as? Debuff.DebuffCards)?.cards
