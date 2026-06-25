@@ -89,11 +89,12 @@ internal enum class DeckVariant(
     GHOST("Ghost Deck", "Spectral cards appear in the shop; start with a Hex"),
     ZODIAC("Zodiac Deck", "Start with Tarot Merchant, Planet Merchant & Overstock"),
     NEBULA("Nebula Deck", "Start with Telescope voucher, −1 consumable slot"),
+    GREEN("Green Deck", "$2/hand + $1/discard at round end; no interest"),
 }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
-internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST, JOKER }
+internal enum class EvalKind { BLIND, HANDS, DISCARDS, GOLD, INTEREST, JOKER }
 internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val rarity: Int = 1, val edition: Edition = Edition.NONE)
 internal data class Owned(val offer: Offer, val fj: FJoker) {
@@ -806,6 +807,7 @@ internal class RunState {
     var tarotRate = TAROT_RATE                                           // Tarot Merchant voucher raises this
     var planetRate = PLANET_RATE                                         // Planet Merchant voucher raises this
     var telescope = false                                                // Telescope voucher / Nebula deck: most-played planet always in shop
+    var greenEconomy = false                                             // Green deck: $/hand+discard at round end, no interest
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1098,6 +1100,7 @@ internal class RunState {
             telescope = true; consumableSlotsBonus -= 1
             redeemedVouchers.add("v_telescope")
         }
+        if (v == DeckVariant.GREEN) greenEconomy = true            // $/hand+discard at round end, no interest
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
         phase = Phase.ROUND
@@ -1498,10 +1501,14 @@ internal class RunState {
     private fun buildCashOut() {
         val rows = ArrayList<EvalRow>()
         rows += EvalRow(EvalKind.BLIND, rewardForSlot(slot), blindName)
-        if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft, "\$1 per remaining hand", handsLeft.toString())
+        // Green deck pays $2 per remaining hand + $1 per remaining discard and earns NO interest;
+        // the standard economy is $1 per remaining hand + interest.
+        if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft * (if (greenEconomy) 2 else 1),
+            "\$${if (greenEconomy) 2 else 1} per remaining hand", handsLeft.toString())
+        if (greenEconomy && discardsLeft > 0) rows += EvalRow(EvalKind.DISCARDS, discardsLeft, "\$1 per remaining discard", discardsLeft.toString())
         val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
         if (gold > 0) rows += EvalRow(EvalKind.GOLD, gold * 3, "Gold cards held", gold.toString())
-        val interest = minOf(money / 5, interestCap)        // Seed Money raises the cap 5 → 10
+        val interest = if (greenEconomy) 0 else minOf(money / 5, interestCap)   // Seed Money raises the cap 5 → 10
         if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$$interestCap)")
         // ── end-of-round joker dollars (context.end_of_round, calculate_dollar_bonus) ──
         val jokerDollars =
@@ -1922,7 +1929,7 @@ internal class RunState {
         deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
-        stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope,
+        stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1961,7 +1968,7 @@ internal class RunState {
         deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
-        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope
+        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -3173,7 +3180,7 @@ private fun RoundEvalScreen(s: RunState) {
         }
         return
     }
-    val baseRows  = s.evalRows.filter { it.kind == EvalKind.BLIND || it.kind == EvalKind.HANDS }
+    val baseRows  = s.evalRows.filter { it.kind == EvalKind.BLIND || it.kind == EvalKind.HANDS || it.kind == EvalKind.DISCARDS }
     val bonusRows = s.evalRows.filter { it.kind == EvalKind.GOLD  || it.kind == EvalKind.INTEREST || it.kind == EvalKind.JOKER }
     val tree = remember(evalRoot) { RoundEvalSpec.build(evalRoot) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -3236,6 +3243,7 @@ private fun EvalDivider(u: Float) {
 private fun EvalRowView(row: EvalRow, u: Float, blindChip: ImageBitmap? = null, scoreText: String? = null) {
     val accent = when (row.kind) {
         EvalKind.BLIND -> Balatro.Money; EvalKind.HANDS -> Balatro.Chips
+        EvalKind.DISCARDS -> Balatro.Mult
         EvalKind.GOLD -> Balatro.Gold; EvalKind.INTEREST -> Balatro.Money
         EvalKind.JOKER -> Balatro.Money
     }

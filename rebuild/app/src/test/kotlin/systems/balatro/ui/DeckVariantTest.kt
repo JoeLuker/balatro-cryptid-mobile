@@ -107,4 +107,12 @@ class DeckVariantTest {
         assertTrue(rs.telescope)
         assertEquals(1, rs.consumableSlots)     // 2 base − 1
     }
+
+    @Test fun greenDeckPaysPerHandAndDiscardWithNoInterest() {
+        val rs = RunState(); rs.pickDeck(DeckVariant.GREEN); rs.money = 100  // would normally yield interest
+        rs.toEvalForPreview()
+        assertTrue(rs.evalRows.none { it.kind == EvalKind.INTEREST })        // Green earns no interest
+        assertTrue(rs.evalRows.any { it.kind == EvalKind.DISCARDS })         // + $1 per remaining discard
+        assertEquals(rs.handsLeft * 2, rs.evalRows.first { it.kind == EvalKind.HANDS }.dollars)  // $2/hand
+    }
 }
