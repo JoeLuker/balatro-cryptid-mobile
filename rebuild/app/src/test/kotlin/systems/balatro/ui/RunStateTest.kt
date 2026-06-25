@@ -111,4 +111,27 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertTrue("no Tarot above \$4", rs.consumables.none { it is Consumable.TarotC })
     }
+
+    @Test fun hallucinationCreatesTarotsOnPackOpenAboutHalfTheTime() {
+        // Vanilla j_hallucination: 1-in-2 chance to create a Tarot whenever a Booster Pack is opened.
+        val rs = RunState()
+        rs.buy(offer("j_hallucination"), free = true)
+        rs.money = 100_000
+        val pack = BoosterOffer("p_arcana", "Arcana Pack", "Arcana", 0, 3, 1)
+        var hits = 0
+        repeat(40) {
+            rs.consumables.clear()                              // always leave room so only the roll gates it
+            rs.buyBooster(pack)
+            if (rs.consumables.any { it is Consumable.TarotC }) hits++
+        }
+        assertTrue("≈1-in-2 over 40 opens (got $hits)", hits in 10..30)   // generous band around 20
+    }
+
+    @Test fun noHallucinationMeansNoPackOpenTarot() {
+        val rs = RunState()
+        rs.money = 100_000
+        val pack = BoosterOffer("p_arcana", "Arcana Pack", "Arcana", 0, 3, 1)
+        repeat(10) { rs.consumables.clear(); rs.buyBooster(pack) }
+        assertTrue("no Joker → no pack-open Tarot", rs.consumables.none { it is Consumable.TarotC })
+    }
 }
