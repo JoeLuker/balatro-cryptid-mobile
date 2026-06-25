@@ -78,6 +78,15 @@ object ShopArt {
     fun cell(ctx: Context, file: String, col: Int, row: Int, cw: Int, ch: Int): ImageBitmap? =
         decode(ctx, file)?.let { Bitmap.createBitmap(it, col * cw, row * ch, cw, ch).asImageBitmap() }
 
+    // Deck-back sprites (game.lua b_* set="Back"), on Enhancers.png (142×190 cells), keyed by variant.
+    private val DECK_BACK_POS: Map<DeckVariant, Pair<Int, Int>> = mapOf(
+        DeckVariant.RED to (0 to 0), DeckVariant.BLUE to (0 to 2), DeckVariant.YELLOW to (1 to 2),
+        DeckVariant.BLACK to (3 to 2), DeckVariant.PAINTED to (4 to 3), DeckVariant.ABANDONED to (3 to 3),
+        DeckVariant.CHECKERED to (1 to 3), DeckVariant.ERRATIC to (2 to 3),
+    )
+    /** Crop every deck-back from Enhancers.png (one decode). Call off the main thread. */
+    internal fun deckBacks(ctx: Context): Map<DeckVariant, ImageBitmap> = crop(decode(ctx, "Enhancers.png"), DECK_BACK_POS)
+
     private fun <K> crop(atlas: Bitmap?, pos: Map<K, Pair<Int, Int>>): Map<K, ImageBitmap> {
         atlas ?: return emptyMap()
         return pos.mapValues { (_, p) -> Bitmap.createBitmap(atlas, p.first * CW, p.second * CH, CW, CH).asImageBitmap() }
