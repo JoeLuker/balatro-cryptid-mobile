@@ -85,6 +85,7 @@ internal enum class DeckVariant(
     ABANDONED("Abandoned Deck", "Start with no face cards (J/Q/K)"),
     CHECKERED("Checkered Deck", "Start with 26 Spades & 26 Hearts"),
     ERRATIC("Erratic Deck", "Ranks & suits are randomised"),
+    MAGIC("Magic Deck", "Start with Crystal Ball voucher + 2 The Fool"),
 }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
@@ -1064,6 +1065,10 @@ internal class RunState {
         baseHandSize += v.handSizeDelta
         deckJokerBonus += v.jokerSlotDelta
         money += v.startMoney
+        if (v == DeckVariant.MAGIC) {                              // Crystal Ball voucher + 2 The Fool
+            consumableSlotsBonus += 1
+            repeat(2) { consumables.add(Consumable.TarotC(tarotByName("The Fool"))) }
+        }
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
         phase = Phase.ROUND

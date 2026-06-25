@@ -69,4 +69,11 @@ class DeckVariantTest {
         val purple = RunState().also { it.pickDeck(DeckVariant.YELLOW, stake = 6); it.blindIndex = 3 }
         assertEquals(1000.0, purple.targetForSlot(0), 0.0) // scaling 3 table, ante 2
     }
+
+    @Test fun magicDeckGrantsCrystalBallAndTwoFools() {
+        val rs = RunState()
+        rs.pickDeck(DeckVariant.MAGIC)
+        assertEquals(3, rs.consumableSlots)   // 2 base + 1 Crystal Ball
+        assertEquals(2, rs.consumables.count { it is Consumable.TarotC && (it as Consumable.TarotC).t.name == "The Fool" })
+    }
 }
