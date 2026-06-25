@@ -90,6 +90,8 @@ cap() {
 }
 
 # ── faithful replay of build.sh patch order ───────────────────────────────
+# SYNC NOTE: the cap order below mirrors scripts/build.sh (patch_mods_dir + build_apk).
+# Adding/removing a patch in build.sh MUST be mirrored here, or it silently ships nothing.
 # NOTE: build_stamp is NOT captured — it is injected deterministically in
 # gameLoveBase (the legacy stamp was date+githash, non-reproducible). The
 # globals.lua here already carries CRYPTID_MOBILE_BUILD.

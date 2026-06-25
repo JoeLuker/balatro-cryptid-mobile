@@ -194,6 +194,9 @@ generate_dumps() {
 # Called by both build_apk (embedded game copy) and prepare_transfer (save-dir
 # shadow copy) so the two trees always stay in sync.  Adding a new Mods patch
 # means adding it here once — not in two places.
+# SYNC NOTE: nix/gen-patches.sh replays this function's apply_* order as 'cap' calls
+# to build the committed series the nix build uses. Patches added/removed here MUST
+# be mirrored in gen-patches.sh's cap list (the two are not mechanically linked).
 patch_mods_dir() {
     local mods_dir="$1"   # absolute path to the Mods/ directory to patch
 
@@ -720,7 +723,12 @@ apply_glitched_b_fix() {
     sed -i 's|\tfloat randnum = mod2|\thighp float randnum = mod2|' "$f"
     sed -i 's|    float cx = uv_scaled_centered.x \* 1.;|    highp float cx = uv_scaled_centered.x * 1.;|' "$f"
     sed -i 's|    float cy = uv_scaled_centered.y \* 1.;|    highp float cy = uv_scaled_centered.y * 1.;|' "$f"
-    sed -i 's|    float mbx;|    highp float mbx;|; s|    float mby;|    highp float mby;|; s|    float offx;|    highp float offx;|; s|    float offy;|    highp float offy;|; s|    float rmasksum = -1.;|    highp float rmasksum = -1.;|; s|    float rectmask = 1.;|    highp float rectmask = 1.;|' "$f"
+    sed -i 's|    float mbx;|    highp float mbx;|' "$f"
+    sed -i 's|    float mby;|    highp float mby;|' "$f"
+    sed -i 's|    float offx;|    highp float offx;|' "$f"
+    sed -i 's|    float offy;|    highp float offy;|' "$f"
+    sed -i 's|    float rmasksum = -1.;|    highp float rmasksum = -1.;|' "$f"
+    sed -i 's|    float rectmask = 1.;|    highp float rectmask = 1.;|' "$f"
     # belt-and-suspenders: fall back to the plain texel if anything still blows up
     sed -i 's|tex.rgb = textp.rgb;|tex.rgb = textp.rgb;\n    if (!all(lessThan(abs(tex.rgb), vec3(1000000.0)))) { tex.rgb = Texel(texture, texture_coords).rgb; } // Mali NaN\/inf guard: glitch math -> black card|' "$f"
     if grep -q "Mali NaN" "$f" && grep -q "highp float randnum" "$f"; then
