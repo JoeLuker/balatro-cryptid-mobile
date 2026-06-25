@@ -597,6 +597,9 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_overstock_plus", "Overstock Plus", "+1 card slot in the shop", 1),
     VoucherOffer("v_reroll_glut", "Reroll Glut", "Rerolls cost \$2 less", 2),
     VoucherOffer("v_money_tree", "Money Tree", "Double interest cap to \$20", 100),
+    VoucherOffer("v_tarot_merchant", "Tarot Merchant", "Tarots appear 2X more often in the shop", 4),
+    VoucherOffer("v_planet_merchant", "Planet Merchant", "Planets appear 2X more often in the shop", 4),
+    VoucherOffer("v_antimatter", "Antimatter", "+1 Joker slot", 1),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -636,13 +639,14 @@ private const val PLANET_RATE = 4.0
 /** The unified shop pool (vanilla create_card_for_shop, UI_definitions.lua:742): for each of [slots]
  *  slots, poll a TYPE by weight, then draw a distinct card of that type from its pool. The first
  *  joker still gets the rebuild's edition chance. Deterministic per [blind]. */
-private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0): List<ShopItem> {
+private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0,
+                          tarotRate: Double = TAROT_RATE, planetRate: Double = PLANET_RATE): List<ShopItem> {
     val rng = Random(blind * 7919L + 13)
     val jokers = CATALOG.shuffled(rng).iterator()
     val planets = Planet.values().toList().shuffled(Random(blind * 104729L)).iterator()
     val tarots = TAROTS.shuffled(Random(blind * 1299709L)).iterator()
     val spectrals = Spectral.values().toList().shuffled(Random(blind * 15485863L)).iterator()
-    val total = JOKER_RATE + TAROT_RATE + PLANET_RATE + spectralRate     // spectralRate>0 only on Ghost deck
+    val total = JOKER_RATE + tarotRate + planetRate + spectralRate       // Merchant vouchers / Ghost deck raise these
     val out = ArrayList<ShopItem>(slots)
     var jokerSlotIdx = 0
     fun drawJoker(): ShopItem? {
@@ -659,8 +663,8 @@ private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0): L
         val polled = rng.nextDouble() * total
         val item = when {
             polled < JOKER_RATE -> drawJoker()
-            polled < JOKER_RATE + TAROT_RATE && tarots.hasNext() -> ShopItem.Tt(tarots.next())
-            polled < JOKER_RATE + TAROT_RATE + PLANET_RATE && planets.hasNext() -> ShopItem.Pl(PlanetOffer(planets.next(), 3))
+            polled < JOKER_RATE + tarotRate && tarots.hasNext() -> ShopItem.Tt(tarots.next())
+            polled < JOKER_RATE + tarotRate + planetRate && planets.hasNext() -> ShopItem.Pl(PlanetOffer(planets.next(), 3))
             polled < total && spectrals.hasNext() -> ShopItem.Sp(spectrals.next())   // Ghost deck spectral band
             else -> drawJoker()                                 // type pool exhausted → fall back to a joker
         }
@@ -796,6 +800,8 @@ internal class RunState {
     var consumableSlotsBonus by mutableStateOf(0)                        // Crystal Ball voucher (follow-on)
     val consumableSlots: Int get() = 2 + consumableSlotsBonus
     var spectralRate = 0.0                                               // Ghost deck: spectrals appear in the shop pool
+    var tarotRate = TAROT_RATE                                           // Tarot Merchant voucher raises this
+    var planetRate = PLANET_RATE                                         // Planet Merchant voucher raises this
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1559,7 +1565,7 @@ internal class RunState {
         resetRerollCost()                            // fresh shop → reroll cost back to base
         freeRerollThisShop = false; couponThisShop = false      // per-shop tag effects reset, then re-applied
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
         // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
@@ -1755,6 +1761,9 @@ internal class RunState {
             "v_wasteful" -> baseDiscards += v.extra            // round_resets.discards += 1
             "v_seed_money", "v_money_tree" -> interestCap = v.extra / 5  // interest_cap: 50→$10, 100→$20
             "v_crystal_ball" -> consumableSlotsBonus += v.extra  // +1 consumable (Crystal Ball)
+            "v_tarot_merchant" -> tarotRate += v.extra           // tarots 2x more common (4 → 8)
+            "v_planet_merchant" -> planetRate += v.extra         // planets 2x more common (4 → 8)
+            "v_antimatter" -> deckJokerBonus += v.extra          // +1 Joker slot (folded into startRound)
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
@@ -1890,7 +1899,7 @@ internal class RunState {
         deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
-        stakeLevel = stakeLevel, spectralRate = spectralRate,
+        stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1929,7 +1938,7 @@ internal class RunState {
         deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
-        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate
+        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -1966,7 +1975,7 @@ internal class RunState {
         resetRerollCost()
         freeRerollThisShop = false; couponThisShop = false
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate)
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
         shopBoosters = rollBoosters(blindIndex)
         phase = Phase.SHOP
@@ -1991,7 +2000,7 @@ internal class RunState {
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         // reroll re-rolls the CARDS only; the voucher slot stays (Balatro keeps the voucher on reroll).
-        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate)
+        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate)
         // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
         // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
         // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
