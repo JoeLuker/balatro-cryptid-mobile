@@ -1160,6 +1160,270 @@ apply_settings_debug_tab() {
     fi
 }
 
+# Wrap every G.UIDEF.settings_tab branch in a SMODS.UIScrollBox so settings
+# panels scroll vertically on a phone.  Each branch's row content (create_toggle /
+# create_option_cycle / create_slider calls) is kept exactly as the prior patches
+# left it; only the wrapper changes.  On Android/iOS (G.F_MOBILE_UI) we use a
+# shorter SCROLL_H (5.5u vs 6.5u) to leave room for the on-screen keyboard and
+# device chrome.  The scrollbar knob is draggable by finger.  A scroll_move
+# callback also handles finger-swipe-on-content (touchmoved routes as mousemoved
+# in this engine, so G.CONTROLLER.is_cursor_down + HID.touch is the right gate).
+# Idempotency marker: "SETTINGS_SCROLLABLE" in the function body.
+apply_settings_scrollable() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "UI_definitions.lua not found, skipping SETTINGS_SCROLLABLE"
+        return 0
+    fi
+    if grep -q 'SETTINGS_SCROLLABLE' "$f"; then
+        log_info "SETTINGS_SCROLLABLE already applied"
+        return 0
+    fi
+    # Require the Debug tab to be present (applied by apply_settings_debug_tab)
+    if ! grep -q "tab == 'Debug'" "$f"; then
+        log_error "SETTINGS_SCROLLABLE: Debug branch not found — apply_settings_debug_tab must run first"
+        exit 1
+    fi
+    python3 - "$f" <<'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+text = open(path).read()
+
+# The helper that wraps an array of row nodes in a vertical scrollbox + sidebar
+# scrollbar.  Inserted once at module level; all tab branches call it.
+# SCROLL_H: 5.5u on mobile (leaves room for bottom chrome), 6.5u on desktop.
+HELPER = '''
+-- SETTINGS_SCROLLABLE: vertical-scroll wrapper used by every settings tab branch.
+local function _settings_make_scrollbox(rows)
+  local SCROLL_H = G.F_MOBILE_UI and 5.5 or 6.5
+  local sb = SMODS.UIScrollBox({
+    content = {
+      definition = {
+        n = G.UIT.ROOT,
+        config = { colour = G.C.CLEAR, align = "cm" },
+        nodes = {
+          {
+            n = G.UIT.C,
+            config = { align = "tm", padding = 0.08 },
+            nodes = rows,
+          },
+        },
+      },
+      config = { align = "cm" },
+    },
+    overflow = {
+      node_config = {
+        maxh = SCROLL_H,
+        colour = G.C.CLEAR,
+      },
+    },
+    sync_mode = "offset",
+    -- Swipe-to-scroll: touch events are remapped to mouse events by the engine,
+    -- so G.CONTROLLER.is_cursor_down + HID.touch is the correct gate.
+    scroll_move = function(self, dt)
+      local ctrl = G.CONTROLLER
+      if ctrl and ctrl.is_cursor_down
+          and ctrl.HID and (ctrl.HID.touch or ctrl.HID.touch_env) then
+        local cy = G.CURSOR.T.y
+        local dy = cy - (self._prev_cy or cy)
+        self._prev_cy = cy
+        -- dy in engine units; finger moving up (negative dy) scrolls content down.
+        local _, max_scroll = self:get_scroll_distance()
+        self.scroll_offset.y = math.max(0,
+            math.min(self.scroll_offset.y - dy, max_scroll))
+        self.scroll_sync_mode = "offset"
+      else
+        self._prev_cy = nil
+      end
+    end,
+  })
+  local content_h = sb.content.UIRoot.T.h  -- canonical: content UIBox root height
+  local need_bar  = content_h > SCROLL_H
+  local bar_node  = need_bar and {
+    n = G.UIT.C,
+    config = { padding = 0.05 },
+    nodes = {
+      SMODS.GUI.scrollbar({
+        w                   = 0.15,
+        h                   = SCROLL_H - 0.1,
+        scroll_collision_obj = sb,
+        knob_h              = SCROLL_H * SCROLL_H / content_h,
+        bg_colour           = { 0, 0, 0, 0.2 },
+      })
+    },
+  } or nil
+  return {
+    n = G.UIT.ROOT,
+    config = { align = "cm", padding = 0.05, colour = G.C.CLEAR },
+    nodes = {
+      {
+        n = G.UIT.R,
+        config = { align = "cm" },
+        nodes = {
+          { n = G.UIT.O, config = { object = sb } },
+          bar_node,
+        },
+      },
+    },
+  }
+end
+'''
+
+# ── locate the function ──────────────────────────────────────────────────────
+FUNC_START = "function G.UIDEF.settings_tab(tab)"
+# G.UIDEF.settings_tab is immediately followed by create_UIBox_test_framework;
+# use that as the boundary sentinel instead of depth-counting Lua blocks, which
+# is fragile across elseif chains (then/elseif would inflate depth incorrectly).
+FUNC_SENTINEL = "\nfunction create_UIBox_test_framework("
+
+start_idx = text.find(FUNC_START)
+if start_idx == -1:
+    print("SETTINGS_SCROLLABLE: G.UIDEF.settings_tab not found", file=sys.stderr)
+    sys.exit(1)
+
+# end_idx points to the start of the sentinel (i.e. the '\n' before 'function
+# create_UIBox_test_framework'), which is right after the bare 'end' that closes
+# G.UIDEF.settings_tab.  The sentinel is unique in this file.
+end_idx = text.find(FUNC_SENTINEL, start_idx)
+if end_idx == -1:
+    print("SETTINGS_SCROLLABLE: boundary sentinel 'create_UIBox_test_framework' not found", file=sys.stderr)
+    sys.exit(1)
+
+# ── extract the six branch bodies ───────────────────────────────────────────
+# Each branch is:  if/elseif tab == 'X' then ... return {...} end-of-branch
+# We replace each `return {n=G.UIT.ROOT,...}` / `return \n{n=G.UIT.ROOT,...}`
+# with `return _settings_make_scrollbox({<rows>})`.  The rows are the nodes={...}
+# array inside the ROOT node.
+#
+# Strategy: replace the whole function body textually using a new hand-written
+# body that calls _settings_make_scrollbox for every branch, preserving the row
+# expressions verbatim.  This is safer than regex on nested Lua tables.
+
+old_func = text[start_idx:end_idx]
+
+# Extract each branch body between the if/elseif/then ... return/end markers.
+# We do this by splitting on the branch keywords and rebuilding.
+# Simpler: we know exactly which branches exist after the prior patches.
+# Reconstruct by finding each return{...} block and wrapping its nodes.
+
+# ── new function body ────────────────────────────────────────────────────────
+# We parse each `return {n=G.UIT.ROOT, config={...}, nodes={<rows>}}` and
+# rewrap it.  Rather than parse Lua, we use a targeted approach:
+# find each `nodes={` after a ROOT return, extract up to the matching `}}`
+# (closing nodes + closing ROOT), then emit _settings_make_scrollbox(rows_str).
+
+def extract_nodes_array(src, start):
+    """Given src[start] pointing just past 'nodes={', return (nodes_str, end_idx)
+    where nodes_str is the raw Lua inside nodes={...} and end_idx points after
+    the closing '}'  of nodes={}  (NOT the outer ROOT closing })."""
+    depth = 1; i = start
+    while i < len(src) and depth > 0:
+        if src[i] == '{': depth += 1
+        elif src[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return src[start:i], i + 1
+        elif src[i:i+2] == '--':
+            nl = src.find('\n', i); i = nl + 1; continue
+        elif src[i] in ('"', "'"):
+            q = src[i]; i += 1
+            while i < len(src) and src[i] != q:
+                if src[i] == '\\': i += 1
+                i += 1
+        i += 1
+    raise ValueError(f"unmatched brace starting at {start}")
+
+def wrap_branch(branch_src):
+    """Replace 'return {n=G.UIT.ROOT, ..., nodes={<rows>}}' with
+    'return _settings_make_scrollbox({<rows>})'.
+    Handles both 'return {...}' and 'return\n    {...}' forms."""
+    # Find the root-level return {...} — may be `return \n    {` or `return {`
+    m = re.search(r'return\s*\{', branch_src)
+    if not m:
+        return branch_src  # passthrough (e.g. Video Android stub)
+    brace_start = m.end()  # index just after the opening '{'
+    # find nodes={ inside this return block
+    nodes_kw = branch_src.find('nodes={', brace_start)
+    if nodes_kw == -1:
+        return branch_src
+    nodes_body_start = nodes_kw + len('nodes={')
+    rows_str, after_nodes = extract_nodes_array(branch_src, nodes_body_start)
+    return branch_src[:m.start()] + 'return _settings_make_scrollbox({' + rows_str + '})' + branch_src[after_nodes:].rstrip().rstrip('}')
+
+# ── split old_func into branches and rewrap each ─────────────────────────────
+# Branches in order after apply_settings_debug_tab:
+#   Debug, Game, Video (has an early Android return before the main return),
+#   Audio, Graphics, and the fallthrough return at the very end.
+#
+# The Video branch is special: it has an early `if Android then return ... end`
+# stub (plain nodes, already small) then the real return below.  We only wrap
+# the *real* return (the one with monitor/resolution cycles); the Android stub
+# is two-line text and never needs scrolling.
+#
+# Simplest correct approach: find each `return {n=G.UIT.ROOT` (or `return\n{n=`)
+# and wrap it.  Skip the Android stub (its config has `padding = 0.1` and no
+# create_option_cycle; the main Video return has `padding = 0.05`).
+
+def wrap_all_returns(func_src):
+    """Walk func_src, find every 'return {n=G.UIT.ROOT,...,nodes={...}}' block
+    that has rows to scroll (i.e., the nodes contain at least one create_ call
+    or UIBox_button), and replace with _settings_make_scrollbox."""
+    result = []
+    i = 0
+    while i < len(func_src):
+        m = re.search(r'return\s*\n?\s*\{n=G\.UIT\.ROOT', func_src[i:])
+        if not m:
+            result.append(func_src[i:])
+            break
+        result.append(func_src[i:i+m.start()])
+        chunk_start = i + m.start()
+        # Find the matching close of this entire return {...} expression.
+        brace_open = func_src.index('{', i + m.start())
+        nodes_str, after_outer = extract_nodes_array(func_src, brace_open + 1)
+        full_return = func_src[chunk_start:after_outer]
+        # Decide whether to wrap: skip Android video stub (has text = "Video settings"
+        # and no create_ rows).
+        if 'Video settings not available' in full_return or 'on mobile devices' in full_return:
+            result.append(full_return)
+            i = after_outer
+            continue
+        # Extract rows from nodes={...} at top level of ROOT.
+        rows_kw = full_return.find('nodes={')
+        if rows_kw == -1:
+            result.append(full_return)
+            i = after_outer
+            continue
+        rows_body_start = rows_kw + len('nodes={')
+        rows, after_rows = extract_nodes_array(full_return, rows_body_start)
+        # Emit wrapped form.
+        pre_return = full_return[:full_return.index('return')]
+        result.append(pre_return + 'return _settings_make_scrollbox({' + rows + '})')
+        i = after_outer
+    return ''.join(result)
+
+new_body = wrap_all_returns(old_func)
+
+# ── verify we changed something and the marker is present ────────────────────
+if new_body == old_func:
+    print("SETTINGS_SCROLLABLE: no return blocks were wrapped — check anchors",
+          file=sys.stderr)
+    sys.exit(1)
+
+# ── insert the helper just before the function ───────────────────────────────
+new_text = text[:start_idx] + HELPER + '\n' + new_body + text[end_idx:]
+
+open(path, 'w').write(new_text)
+print("SETTINGS_SCROLLABLE: patched", path)
+PYEOF
+    if grep -q 'SETTINGS_SCROLLABLE' "$f"; then
+        log_success "SETTINGS_SCROLLABLE applied (settings tabs wrapped in UIScrollBox + swipe-scroll)"
+    else
+        log_error "SETTINGS_SCROLLABLE did not apply — check G.UIDEF.settings_tab anchor"
+        exit 1
+    fi
+}
+
 # Enable the game's built-in per-frame perf overlay (the timer_checkpoint
 # breakdown: per-subsystem ms + trend bars + GC) behind a "Debug Overlay" toggle.
 # The base game gates collection on F_ENABLE_PERF_OVERLAY and the draw on debug
