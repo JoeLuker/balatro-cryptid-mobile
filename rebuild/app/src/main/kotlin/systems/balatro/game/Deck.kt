@@ -99,6 +99,14 @@ class Deck(seed: Long) {
         return true
     }
 
+    /** Replace [old]'s deck entry with [new]'s full value (Death tarot: left card becomes the right). */
+    fun replaceCard(old: PlayingCard, new: PlayingCard): Boolean {
+        val i = all.indexOf(old); if (i < 0) return false
+        all[i] = new.copy()
+        val di = drawPile.indexOf(old); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, all[i]) }
+        return true
+    }
+
     /** Destroy a specific card from the deck (The Hanged Man tarot). Matches by value. */
     fun destroyCard(card: PlayingCard): Boolean {
         val i = all.indexOf(card); if (i < 0) return false

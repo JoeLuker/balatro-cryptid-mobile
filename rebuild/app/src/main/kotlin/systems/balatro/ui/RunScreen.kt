@@ -181,6 +181,8 @@ internal sealed class TarotFx {
     object JokerSellMoney : TarotFx() { override val maxTargets = 0; override val label = "sell \$" }      // Temperance (cap $50)
     data class CreatePlanets(val n: Int) : TarotFx() { override val maxTargets = 0; override val label get() = "$n planet" }   // High Priestess
     data class CreateTarots(val n: Int) : TarotFx() { override val maxTargets = 0; override val label get() = "$n tarot" }     // The Emperor
+    object CreateLastUsed : TarotFx() { override val maxTargets = 0; override val label = "copy last" }                        // The Fool
+    object ConvertCopy : TarotFx() { override val maxTargets = 2; override val label = "→ copy" }                             // Death (left → copy of right)
 }
 internal data class TarotOffer(val name: String, val fx: TarotFx, val cost: Int = 3)
 
@@ -682,6 +684,8 @@ private val TAROTS = listOf(
     TarotOffer("Temperance", TarotFx.JokerSellMoney),         // gain total joker sell value (max $50)
     TarotOffer("The High Priestess", TarotFx.CreatePlanets(2)),  // create 2 Planets
     TarotOffer("The Emperor", TarotFx.CreateTarots(2)),       // create 2 Tarots
+    TarotOffer("The Fool", TarotFx.CreateLastUsed),           // copy the last Tarot/Planet used
+    TarotOffer("Death", TarotFx.ConvertCopy),                 // left selected card → copy of the right
 )
 /** Look a tarot up by display name — save/restore serializes tarots by name (fx isn't serialized). */
 private fun tarotByName(n: String): TarotOffer = TAROTS.find { it.name == n } ?: TAROTS.first()
@@ -695,6 +699,7 @@ internal class RunState {
     var phase by mutableStateOf(Phase.DECK_SELECT)   // fresh run picks a deck first (resume/deep-link override)
     var deckJokerBonus = 0                            // Black/Painted deck: ± Joker slots (folded into startRound's maxJokers)
     var stakeLevel by mutableStateOf(1)               // 1 White … 8 Gold (cumulative; chosen on DECK_SELECT)
+    private var lastConsumable: Consumable? = null     // last Tarot(non-Fool)/Planet used — The Fool copies it
     val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
 
     // ── cash-out (ROUND_EVAL) state — the reward breakdown shown after a blind is beaten ──
@@ -798,15 +803,18 @@ internal class RunState {
                     is TarotFx.JokerSellMoney -> money += minOf(50, owned.sumOf { sellValue(it) })
                     is TarotFx.CreatePlanets -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(Planet.values().random())) }
                     is TarotFx.CreateTarots -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.TarotC(TAROTS.random())) }
+                    is TarotFx.CreateLastUsed -> lastConsumable?.let { if (hasConsumableRoom()) consumables.add(it) }   // The Fool
                     is TarotFx.Enhance -> deck.enhanceRandom(fx.e)
                     else -> {}
                 }
+                if (c.t.fx !is TarotFx.CreateLastUsed) lastConsumable = c   // Fool itself is excluded
                 Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name)
             }
             is Consumable.PlanetC -> {
                 handLevels.levelUp(c.planet.hand)
                 // j_constellation: +0.1 Xmult per planet consumable USED (card.lua:3286 context.consumeable,
                 //   ability.set=='Planet'). Was incorrectly firing on planet purchase — fixed here.
+                lastConsumable = c                                          // The Fool can copy the last Planet used
                 for (o in owned) if (o.fj.key == "j_constellation") o.fj.x += 0.1
                 // j_hiker: +5 Chips permanently per scored played card (card.lua:3606-3608 context.individual).
                 //   Implemented: permaBonus field on PlayingCard; Score.kt onPermaBonusGained callback
@@ -1798,7 +1806,21 @@ internal class RunState {
      *  deck to match, rebuild the visible hand (destroyed cards drop out), then consume the tarot. */
     fun useTarot() {
         val t = pendingTarot ?: return
-        val idxs = tarotTarget.sorted().take(t.fx.maxTargets).toSet()
+        val ordered = tarotTarget.sorted().take(t.fx.maxTargets)
+        // Death (ConvertCopy): the left selected card becomes a full copy of the right (cross-target).
+        if (t.fx is TarotFx.ConvertCopy) {
+            if (ordered.size >= 2) {
+                val left = hand.getOrNull(ordered[0]); val right = hand.getOrNull(ordered[1])
+                if (left != null && right != null) {
+                    deck.replaceCard(left, right)
+                    hand = hand.mapIndexed { i, c -> if (i == ordered[0]) right.copy() else c }
+                }
+            }
+            consumables.removeAll { it is Consumable.TarotC && it.t === t }
+            pendingTarot = null; tarotTarget = emptySet()
+            Telemetry.event("RUN_USE_TAROT", "tarot" to t.name); return
+        }
+        val idxs = ordered.toSet()
         if (idxs.isEmpty()) return
         // PlayingCard is immutable; the deck methods update `all`/`drawPile` by value, and we rebuild the
         // visible hand here so Compose sees the change. Index-based so duplicate card values don't both flip.
