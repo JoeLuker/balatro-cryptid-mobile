@@ -574,6 +574,8 @@ private val CATALOG = listOf(
     Offer("j_ancient", "Ancient Joker", "Each played card with a chosen suit gives X1.5 Mult (suit changes each round)", 8, rarity = 3),
     // --- missing vanilla jokers (batch 19): on-play card transform ---
     Offer("j_midas_mask", "Midas Mask", "All played face cards become Gold cards when scored", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 20): scoring-time accumulation (Score.kt) ---
+    Offer("j_vampire", "Vampire", "Gains X0.1 Mult per scored enhanced card, removing the enhancement", 7, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1413,6 +1415,14 @@ internal class RunState {
         if (owned.any { it.fj.key == "j_midas_mask" }) {
             val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
             for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.GOLD)
+        }
+        // j_vampire: persist the X0.1-per-enhanced-card growth (the joker_main applied it to THIS hand by
+        // reading fj.x + this hand's contribution) and strip the consumed enhancements from the deck so
+        // each enhanced card is only ever vampired once (card.lua:4065).
+        for (o in owned) if (o.fj.key == "j_vampire") {
+            val enhanced = r.scoringHand.filter { it.enhancement != Enhancement.NONE }
+            o.fj.x += 0.1 * enhanced.size
+            for (c in enhanced) deck.setEnhancement(c, Enhancement.NONE)
         }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)

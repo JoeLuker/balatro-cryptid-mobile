@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import systems.balatro.game.Boss
+import systems.balatro.game.Enhancement
 import systems.balatro.game.PlayingCard
 import systems.balatro.game.Suit
 
@@ -287,5 +288,30 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         val goldSevens = rs.snapshot().deck.count { it.rank == 7 && it.enh == "GOLD" }
         assertEquals("number cards are not gold-ified", 0, goldSevens)
+    }
+
+    @Test fun vampireGainsXMultPerScoredEnhancedCard() {
+        // Vanilla j_vampire: the joker_main applies this hand's X0.1·n, and the run loop persists the growth.
+        val rs = RunState()
+        rs.buy(offer("j_vampire"), free = true)
+        val v = rs.owned.first { it.fj.key == "j_vampire" }
+        assertEquals(1.0, v.fj.x, 0.0)
+        rs.hand = listOf(PlayingCard(Suit.S, 14, Enhancement.BONUS), PlayingCard(Suit.H, 14, Enhancement.BONUS))  // 2 enhanced aces
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("X0.1 per enhanced scored card (2 → x 1.0+0.2)", 1.2, v.fj.x, 1e-9)
+    }
+
+    @Test fun vampireDoesNotGrowOnPlainCards() {
+        // The enhancement gate: scoring plain cards leaves Vampire's x unchanged.
+        val rs = RunState()
+        rs.buy(offer("j_vampire"), free = true)
+        val v = rs.owned.first { it.fj.key == "j_vampire" }
+        rs.hand = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 14))  // plain aces
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("no enhanced cards → x unchanged", 1.0, v.fj.x, 1e-9)
     }
 }

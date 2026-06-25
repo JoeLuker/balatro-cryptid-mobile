@@ -785,6 +785,11 @@ object Oracle {
         Case("Pair of heart aces + ancient (suit=Spades → no match) → 64", PlayingCard.hand("H_A", "H_A"), 64.0, j(FJoker("j_ancient")), ancientSuit = Suit.S),
         // Midas Mask: gold-ifies scored face cards (RunScreen deck mutation) — no scoring effect. Pair of Kings = 30 chips × 2 = 60.
         Case("Pair of kings + midas_mask (transform → score unchanged) → 60", PlayingCard.hand("S_K", "H_K"), 60.0, j(FJoker("j_midas_mask"))),
+        // Vampire: X0.1 per scored enhanced card on top of the persisted x. Two Bonus aces: chips 10+41+41=92;
+        // x = 1.0 + 0.1·2 = 1.2; mult 2×1.2=2.4 → 92×2.4 = 220.
+        Case("Two Bonus aces + vampire (2 enhanced → X1.2) → 220", listOf(en("S_A", Enhancement.BONUS), en("H_A", Enhancement.BONUS)), 220.0, j(FJoker("j_vampire"))),
+        Case("Plain aces + vampire (no enhanced → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_vampire"))),
+        Case("Plain aces + vampire @x=1.5 (accumulated X1.5) → 96", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_vampire", x = 1.5))),
     )
 
     fun run(): Pair<Int, Int> {
