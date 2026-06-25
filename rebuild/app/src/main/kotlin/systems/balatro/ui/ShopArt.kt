@@ -33,7 +33,7 @@ object ShopArt {
         "The Tower" to (6 to 1), "The Star" to (7 to 1), "The Moon" to (8 to 1),
         "The Sun" to (9 to 1), "The World" to (1 to 2), "Strength" to (1 to 1),
         "The Hanged Man" to (2 to 1), "The High Priestess" to (2 to 0), "The Emperor" to (4 to 0),
-        "The Hermit" to (9 to 0), "Temperance" to (4 to 1),
+        "The Hermit" to (9 to 0), "Temperance" to (4 to 1), "The Fool" to (0 to 0), "Death" to (3 to 1),
     )
     // Spectral centers (game.lua c_* set="Spectral"), keyed by the rebuild's Spectral enum.
     private val SPECTRAL_POS: Map<Spectral, Pair<Int, Int>> = mapOf(

@@ -66,4 +66,26 @@ class TarotFxTest {
         useHeld(rs, TarotOffer("The High Priestess", TarotFx.CreatePlanets(2)))
         assertEquals(2, rs.consumables.count { it is Consumable.PlanetC })
     }
+
+    @Test fun foolCopiesTheLastConsumableUsed() {
+        val rs = RunState()
+        useHeld(rs, TarotOffer("The Empress", TarotFx.Enhance(Enhancement.MULT, 2)))  // last used = Empress
+        useHeld(rs, TarotOffer("The Fool", TarotFx.CreateLastUsed))
+        // The Fool created a copy of the Empress (now held in a slot).
+        assertEquals(1, rs.consumables.count { it is Consumable.TarotC && (it as Consumable.TarotC).t.name == "The Empress" })
+    }
+
+    @Test fun foolFizzlesWhenNothingUsedYet() {
+        val rs = RunState()
+        useHeld(rs, TarotOffer("The Fool", TarotFx.CreateLastUsed))
+        assertEquals(0, rs.consumables.size)   // nothing to copy → no-op
+    }
+
+    @Test fun deathMakesLeftCardACopyOfRight() {
+        val rs = rs(PlayingCard(Suit.S, 3), PlayingCard(Suit.H, 13))   // left=3♠, right=K♥
+        use(rs, TarotOffer("Death", TarotFx.ConvertCopy), 0, 1)
+        assertEquals(Suit.H, rs.hand[0].suit)   // left became a copy of the right
+        assertEquals(13, rs.hand[0].rank)
+        assertEquals(13, rs.hand[1].rank)       // right unchanged
+    }
 }
