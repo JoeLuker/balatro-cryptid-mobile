@@ -3153,6 +3153,11 @@ private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit
  *  commits its modifiers + composition (RunState.pickDeck) and begins the run. */
 @Composable
 private fun DeckSelectScreen(s: RunState) {
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val backs by produceState(emptyMap<DeckVariant, ImageBitmap>()) {
+        value = withContext(Dispatchers.Default) { ShopArt.deckBacks(ctx) }
+    }
     Box(Modifier.fillMaxSize().background(Balatro.Felt), contentAlignment = Alignment.Center) {
         Column(
             Modifier.fillMaxWidth(0.92f).verticalScroll(rememberScrollState()).padding(16.dp),
@@ -3163,9 +3168,14 @@ private fun DeckSelectScreen(s: RunState) {
             DeckVariant.values().forEach { v ->
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel)
-                        .clickable { s.pickDeck(v) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                        .clickable { s.pickDeck(v) }.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    backs[v]?.let {
+                        Image(it, v.display, Modifier.size((0.9f * u).dp, (1.2f * u).dp),
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        Spacer(Modifier.width(12.dp))
+                    }
                     BTxt(v.display, Balatro.White, 14.sp)
                     Spacer(Modifier.weight(1f))
                     BTxt(v.desc, Balatro.Gold, 10.sp)
