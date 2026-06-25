@@ -68,7 +68,24 @@ import java.io.File
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER, WIN, PACK_OPEN }
+internal enum class Phase { DECK_SELECT, ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER, WIN, PACK_OPEN }
+
+/** A run's starting deck — non-joker run modifiers + deck composition (vanilla back_* decks). Chosen on
+ *  the DECK_SELECT screen at run start; effects bake into baseHands/discards/handSize/maxJokers/money. */
+internal enum class DeckVariant(
+    val display: String, val desc: String,
+    val handsDelta: Int = 0, val discardsDelta: Int = 0, val handSizeDelta: Int = 0,
+    val jokerSlotDelta: Int = 0, val startMoney: Int = 0,
+) {
+    RED("Red Deck", "+1 discard each round", discardsDelta = 1),
+    BLUE("Blue Deck", "+1 hand each round", handsDelta = 1),
+    YELLOW("Yellow Deck", "Start with an extra \$10", startMoney = 10),
+    BLACK("Black Deck", "+1 Joker slot, −1 hand each round", jokerSlotDelta = 1, handsDelta = -1),
+    PAINTED("Painted Deck", "+2 hand size, −1 Joker slot", handSizeDelta = 2, jokerSlotDelta = -1),
+    ABANDONED("Abandoned Deck", "Start with no face cards (J/Q/K)"),
+    CHECKERED("Checkered Deck", "Start with 26 Spades & 26 Hearts"),
+    ERRATIC("Erratic Deck", "Ranks & suits are randomised"),
+}
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
@@ -671,7 +688,8 @@ internal class RunState {
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
     var bossDisabled by mutableStateOf(false)            // Luchador: boss effects suppressed for the round (boss kept for display)
-    var phase by mutableStateOf(Phase.ROUND)
+    var phase by mutableStateOf(Phase.DECK_SELECT)   // fresh run picks a deck first (resume/deep-link override)
+    var deckJokerBonus = 0                            // Black/Painted deck: ± Joker slots (folded into startRound's maxJokers)
     val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
 
     // ── cash-out (ROUND_EVAL) state — the reward breakdown shown after a blind is beaten ──
@@ -1009,7 +1027,31 @@ internal class RunState {
     init {
         Telemetry.event("RUN_START")
         buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)   // start with a Joker
-        startRound()
+        startRound()                                                // deals a standard hand; pickDeck re-deals
+        phase = Phase.DECK_SELECT                                   // fresh run picks a deck first (resume/deep-link override in RunBody)
+    }
+
+    /** Commit the chosen starting deck (DECK_SELECT screen) — bake its modifiers, rebuild the deck
+     *  composition, then start the first round. */
+    fun pickDeck(v: DeckVariant) {
+        if (phase != Phase.DECK_SELECT) return
+        baseHands += v.handsDelta
+        baseDiscards += v.discardsDelta
+        baseHandSize += v.handSizeDelta
+        deckJokerBonus += v.jokerSlotDelta
+        money += v.startMoney
+        deck.setComposition(buildDeckComposition(v))
+        startRound()                                               // re-deal from the variant deck + apply slot bonus
+        phase = Phase.ROUND
+        Telemetry.event("RUN_DECK", "deck" to v.name)
+    }
+
+    /** The persistent 52(-ish) card set for a starting deck (vanilla deck composition overrides). */
+    private fun buildDeckComposition(v: DeckVariant): List<PlayingCard> = when (v) {
+        DeckVariant.ABANDONED -> Suit.values().flatMap { su -> ((2..10) + 14).map { PlayingCard(su, it) } }          // no J/Q/K
+        DeckVariant.CHECKERED -> listOf(Suit.S, Suit.H).flatMap { su -> (2..14).flatMap { r -> List(2) { PlayingCard(su, r) } } }  // 26 S + 26 H
+        DeckVariant.ERRATIC -> (0 until 52).map { PlayingCard(Suit.values().random(), (2..14).random()) }            // random ranks/suits
+        else -> Suit.values().flatMap { su -> (2..14).map { PlayingCard(su, it) } }                                  // standard 52
     }
 
     /** Sync the static FJoker.n fields that mirror run-state counts — deck size, stone/steel card
@@ -1096,7 +1138,7 @@ internal class RunState {
         dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
         mailRank = (2..14).random(Random(blindIndex * 1000000007L + 13))  // reset_mail_rank: pseudoseed('mail'..ante)
         // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
-        maxJokers = if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS
+        maxJokers = (if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS) + deckJokerBonus
         if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
         if (boss == Boss.CERULEAN_BELL) bellForcedIdx = hand.indices.random()  // pick forced card after draw
         phase = Phase.ROUND
@@ -2063,6 +2105,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     Box(Modifier.weight(1f).fillMaxHeight()) {                  // non-ROUND phase content
                         when (s.phase) {
                             Phase.ROUND -> {}                                  // rendered full-screen above
+                            Phase.DECK_SELECT -> {}                            // full-screen overlay below
                             Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
                             Phase.SHOP -> ShopPhase(s, jokerCells, shopArt, cardBase)
                             Phase.RUN_INFO -> RunInfoScreen(s)
@@ -2077,6 +2120,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             // HUD + board, not a play-area panel. Render the extracted tree full-screen over everything.
             if (s.phase == Phase.OVER) GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
             if (s.phase == Phase.WIN)  WinScreen(s, onRestart = onRestart, onMainMenu = onClose)
+            if (s.phase == Phase.DECK_SELECT) DeckSelectScreen(s)
         }
         // Minimal close affordance (NOT part of Balatro's HUD) — a small corner overlay so the
         // sidebar itself stays a faithful create_UIBox_HUD with no injected dev chrome.
@@ -3115,6 +3159,32 @@ private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () ->
 @Composable
 private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) =
     EndScreen(s, win = true, onRestart = onRestart, onMainMenu = onMainMenu)
+
+/** Run-start deck picker (Phase.DECK_SELECT) — a full-screen list of the starting decks; tapping one
+ *  commits its modifiers + composition (RunState.pickDeck) and begins the run. */
+@Composable
+private fun DeckSelectScreen(s: RunState) {
+    Box(Modifier.fillMaxSize().background(Balatro.Felt), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.fillMaxWidth(0.92f).verticalScroll(rememberScrollState()).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            BTxt("Choose Your Deck", Balatro.White, 22.sp)
+            Spacer(Modifier.height(6.dp))
+            DeckVariant.values().forEach { v ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel)
+                        .clickable { s.pickDeck(v) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BTxt(v.display, Balatro.White, 14.sp)
+                    Spacer(Modifier.weight(1f))
+                    BTxt(v.desc, Balatro.Gold, 10.sp)
+                }
+            }
+        }
+    }
+}
 
 /**
  * Game-over / win, rendered from the REAL create_UIBox_game_over / create_UIBox_win trees
