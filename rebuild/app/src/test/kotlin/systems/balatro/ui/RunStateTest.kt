@@ -3,6 +3,7 @@ package systems.balatro.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import systems.balatro.game.Boss
 import systems.balatro.game.PlayingCard
 import systems.balatro.game.Suit
 
@@ -214,5 +215,29 @@ class RunStateTest {
         val reloaded = RunState().also { it.restore(rs.snapshot()) }
         val plain2 = reloaded.owned.first { it.fj.key == "j_cavendish" }
         assertEquals("sell bonus persists", baseSell + 2, reloaded.sellValue(plain2))
+    }
+
+    @Test fun bossEffectAppliesWhenLuchadorNotSold() {
+        // Control: THE_TOOTH (−$1 per played card) fires normally — proves the disable shadow is
+        // transparent when bossDisabled is false.
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = Boss.THE_TOOTH            // a boss round
+        rs.money = 50
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("THE_TOOTH active → -\$1 per played card", 48, rs.money)
+    }
+
+    @Test fun luchadorSellDisablesTheBoss() {
+        // Selling Luchador during a boss round disables it — THE_TOOTH no longer drains money.
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = Boss.THE_TOOTH
+        rs.buy(offer("j_luchador"), free = true)
+        rs.sell(rs.owned.first { it.fj.key == "j_luchador" })
+        assertTrue("boss disabled after selling Luchador", rs.bossDisabled)
+        rs.money = 50
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("THE_TOOTH disabled → no per-card money loss", 50, rs.money)
     }
 }
