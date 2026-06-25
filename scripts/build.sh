@@ -1318,16 +1318,14 @@ apply_settings_debug_tab() {
 # These tabs consolidate settings that previously lived in SMODS per-mod config/extra
 # tabs (Cryptid, Amulet/Talisman, CardSleeves, sticky-fingers).
 #
-# Method: Python appends a do..end monkey-patch block to the end of
-# UI_definitions.lua.  The block overrides G.UIDEF.settings_tab to handle the
-# three new tab names and fall through to the original for everything else.
-# NOTE: because the block is appended after the create_UIBox_test_framework
-# sentinel, apply_settings_scrollable will NOT wrap these new branches — they
-# return bare ROOT nodes.  Scrolling for Mods/Cryptid Music/Compat is a
-# follow-up task once the retirement patches are verified on-device.
+# Method: Python injects three elseif branches directly into the body of
+# G.UIDEF.settings_tab, before the function's closing end (located using the
+# create_UIBox_test_framework sentinel — same as apply_settings_scrollable).
+# Injecting inside the function body means apply_settings_scrollable (called
+# immediately after) wraps all branches, including the new ones.
 #
 # Also registers the three tabs in create_UIBox_settings via sed (before Debug).
-# Idempotency marker: 'SETTINGS_MOD_TABS' in the appended block.
+# Idempotency marker: 'SETTINGS_MOD_TABS' injected as a comment into the body.
 apply_settings_mod_tabs() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -1350,91 +1348,108 @@ path = sys.argv[1]
 with open(path, 'r') as fh:
     text = fh.read()
 
-APPEND = r'''
--- SETTINGS_MOD_TABS: new tabs appended by apply_settings_mod_tabs.
--- Mods: Cryptid feature flags + gameset switcher + CardSleeves + DTM.
--- Cryptid Music: 5 music toggles from Cryptid extra_tabs.
--- Compat: Talisman config + compat sub-section.
-do
-  local _orig_st = G.UIDEF.settings_tab
-  G.UIDEF.settings_tab = function(tab)
+# Locate the G.UIDEF.settings_tab function body using the same sentinel as
+# apply_settings_scrollable.  We inject three elseif clauses before the
+# function's closing 'end' so apply_settings_scrollable wraps them too.
+FUNC_START    = "function G.UIDEF.settings_tab(tab)"
+FUNC_SENTINEL = "\nfunction create_UIBox_test_framework("
 
-    if tab == 'Mods' then
-      if not Cryptid_config then
-        return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
-      end
-      local _nodes = {}
-      -- Cryptid feature flags
-      _nodes[#_nodes+1] = create_toggle({label=localize("cry_family"), active_colour=HEX("40c76d"), ref_table=Cryptid_config, ref_value="family_mode", callback=Cryptid.reload_localization})
-      _nodes[#_nodes+1] = create_toggle({label=localize("cry_experimental"), active_colour=HEX("1f8505"), ref_table=Cryptid_config, ref_value="experimental"})
-      _nodes[#_nodes+1] = create_toggle({label=localize("cry_force_tooltips"), active_colour=HEX("22c705"), ref_table=Cryptid_config, ref_value="force_tooltips"})
-      _nodes[#_nodes+1] = create_toggle({label=localize("cry_feat_https module"), active_colour=HEX("b1c78d"), ref_table=Cryptid_config, ref_value="HTTPS"})
-      _nodes[#_nodes+1] = create_toggle({label=localize("cry_feat_menu"), active_colour=HEX("1c5c23"), ref_table=Cryptid_config, ref_value="menu"})
-      -- Content Sets button
-      _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_GREENGRADIENT, button="your_collection_content_sets", label={localize("b_content_sets")}, count=modsCollectionTally(G.P_CENTER_POOLS["Content Set"]), minw=5, minh=1.7, scale=0.6, id="your_collection_jokers"})
-      -- Gameset switcher: label row
-      _nodes[#_nodes+1] = {n=G.UIT.R, config={align="cm", padding=0.05}, nodes={{n=G.UIT.T, config={text=localize("cry_current_gameset_label"), scale=0.4, colour=G.C.UI.TEXT_LIGHT}}}}
-      -- Gameset switcher: 4-button row
-      local _gs_row = {n=G.UIT.R, config={align="cm", padding=0.05}, nodes={}}
-      for _,_gs in ipairs({"modest","mainline","madness","vanilla"}) do
-        _gs_row.nodes[#_gs_row.nodes+1] = UIBox_button({colour=(G.PROFILES[G.SETTINGS.profile].cry_gameset==_gs) and G.C.CRY_SELECTED or G.C.GREY, button="cry_cfg_set_gameset", ref_table={gameset=_gs}, func="cry_cfg_gameset_colour", label={localize("cry_gameset_".._gs)}, minw=2.2, scale=0.35})
-      end
-      _nodes[#_nodes+1] = _gs_row
-      -- Gameset reset button (label reflects current gameset at tab-open time)
-      _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_ALTGREENGRADIENT, button="reset_gameset_config", label={localize("b_reset_gameset_"..(G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"))}, minw=5})
-      -- Update membership cards button
-      _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_JOLLY, button="update_cry_members", label={localize("b_update_membership_cards")}, minw=5})
-      -- CardSleeves settings (guard: mod may not be loaded)
-      if CardSleeves then
-        _nodes[#_nodes+1] = create_option_cycle{label=localize("adjust_deck_alignment"), info=localize("adjust_deck_alignment_desc"), options=localize("adjust_deck_alignment_options"), current_option=type(CardSleeves.config.adjust_deck_alignment)=="number" and CardSleeves.config.adjust_deck_alignment or (CardSleeves.config.adjust_deck_alignment and 1 or 3), colour=CardSleeves.badge_colour, w=4.5, text_scale=0.4, scale=5/6, ref_table=CardSleeves.config, ref_value="adjust_deck_alignment", opt_callback="casl_cycle_options"}
-        _nodes[#_nodes+1] = create_option_cycle{label=localize("sleeve_info_location"), info=localize("sleeve_info_location_desc"), options=localize("sleeve_info_location_options"), current_option=CardSleeves.config.sleeve_info_location, colour=CardSleeves.badge_colour, w=4.5, text_scale=0.4, scale=5/6, ref_table=CardSleeves.config, ref_value="sleeve_info_location", opt_callback="casl_cycle_options"}
-        _nodes[#_nodes+1] = create_toggle{label=localize("allow_any_sleeve_selection"), info=localize("allow_any_sleeve_selection_desc"), active_colour=CardSleeves.badge_colour, ref_table=CardSleeves.config, ref_value="allow_any_sleeve_selection"}
-      end
-      -- sticky-fingers DTM vanilla joker sell toggle (guard: mod may not be loaded)
-      if DTM then
-        _nodes[#_nodes+1] = create_toggle({id="vanilla_joker_sell", label="Vanilla Joker sell target", info={"Use the mobile Joker sell target. Beware of accidental sells!"}, ref_table=DTM.config, ref_value="vanilla_joker_sell", callback=function() DTM:save_config() end})
-      end
-      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes=_nodes}
+start_idx = text.find(FUNC_START)
+if start_idx == -1:
+    print("SETTINGS_MOD_TABS: G.UIDEF.settings_tab not found", file=sys.stderr); sys.exit(1)
 
-    elseif tab == 'Cryptid Music' then
-      if not (Cryptid_config and Cryptid_config.Cryptid) then
-        return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
-      end
-      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={
-        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_jimball"),    ref_table=Cryptid_config.Cryptid, ref_value="jimball_music"}),
-        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_code"),       ref_table=Cryptid_config.Cryptid, ref_value="code_music"}),
-        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_exotic"),     ref_table=Cryptid_config.Cryptid, ref_value="exotic_music"}),
-        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_high_score"), ref_table=Cryptid_config.Cryptid, ref_value="big_music"}),
-        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_alt_bg"),     ref_table=Cryptid_config.Cryptid, ref_value="alt_bg_music"}),
-      }}
+end_idx = text.find(FUNC_SENTINEL, start_idx)
+if end_idx == -1:
+    print("SETTINGS_MOD_TABS: boundary sentinel not found", file=sys.stderr); sys.exit(1)
 
-    elseif tab == 'Compat' then
-      -- Delegates to Talisman.config_sections arrays (same logic as conf.generate_tab).
-      -- conf.array = main Amulet settings; conf.compat.array = compat sub-settings.
-      -- Functions that return nil (e.g. disable_omega when omeganum forced) are skipped.
-      if not (Talisman and Talisman.config_sections) then
-        return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
-      end
-      local _conf = Talisman.config_sections
-      local _nodes = {}
-      for _,fn in ipairs(_conf.array) do
-        local n = fn(); if n then _nodes[#_nodes+1] = n end
-      end
-      for _,fn in ipairs(_conf.compat.array) do
-        local n = fn(); if n then _nodes[#_nodes+1] = n end
-      end
-      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes=_nodes}
+# The function body is text[start_idx:end_idx].  Find the last 'end' in that
+# span — that is the closing end of G.UIDEF.settings_tab.
+body = text[start_idx:end_idx]
+matches = list(re.finditer(r'\bend\b', body))
+if not matches:
+    print("SETTINGS_MOD_TABS: closing end not found in function body", file=sys.stderr); sys.exit(1)
+
+last_end_rel = matches[-1].start()   # position of 'end' within body
+last_end_abs = start_idx + last_end_rel  # absolute position in text
+
+# Inject the three elseif clauses immediately before that closing 'end'.
+# Each branch returns {n=G.UIT.ROOT, ...} so apply_settings_scrollable will
+# recognise and wrap them exactly like the original branches.
+INJECT = """  -- SETTINGS_MOD_TABS: Mods / Cryptid Music / Compat branches injected by apply_settings_mod_tabs
+  elseif tab == 'Mods' then
+    if not Cryptid_config then
+      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
     end
+    local _nodes = {}
+    -- Cryptid feature flags
+    _nodes[#_nodes+1] = create_toggle({label=localize("cry_family"), active_colour=HEX("40c76d"), ref_table=Cryptid_config, ref_value="family_mode", callback=Cryptid.reload_localization})
+    _nodes[#_nodes+1] = create_toggle({label=localize("cry_experimental"), active_colour=HEX("1f8505"), ref_table=Cryptid_config, ref_value="experimental"})
+    _nodes[#_nodes+1] = create_toggle({label=localize("cry_force_tooltips"), active_colour=HEX("22c705"), ref_table=Cryptid_config, ref_value="force_tooltips"})
+    _nodes[#_nodes+1] = create_toggle({label=localize("cry_feat_https module"), active_colour=HEX("b1c78d"), ref_table=Cryptid_config, ref_value="HTTPS"})
+    _nodes[#_nodes+1] = create_toggle({label=localize("cry_feat_menu"), active_colour=HEX("1c5c23"), ref_table=Cryptid_config, ref_value="menu"})
+    -- Content Sets button
+    _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_GREENGRADIENT, button="your_collection_content_sets", label={localize("b_content_sets")}, count=modsCollectionTally(G.P_CENTER_POOLS["Content Set"]), minw=5, minh=1.7, scale=0.6, id="your_collection_jokers"})
+    -- Gameset switcher: label row
+    _nodes[#_nodes+1] = {n=G.UIT.R, config={align="cm", padding=0.05}, nodes={{n=G.UIT.T, config={text=localize("cry_current_gameset_label"), scale=0.4, colour=G.C.UI.TEXT_LIGHT}}}}
+    -- Gameset switcher: 4-button row
+    local _gs_row = {n=G.UIT.R, config={align="cm", padding=0.05}, nodes={}}
+    for _,_gs in ipairs({"modest","mainline","madness","vanilla"}) do
+      _gs_row.nodes[#_gs_row.nodes+1] = UIBox_button({colour=(G.PROFILES[G.SETTINGS.profile].cry_gameset==_gs) and G.C.CRY_SELECTED or G.C.GREY, button="cry_cfg_set_gameset", ref_table={gameset=_gs}, func="cry_cfg_gameset_colour", label={localize("cry_gameset_".._gs)}, minw=2.2, scale=0.35})
+    end
+    _nodes[#_nodes+1] = _gs_row
+    -- Gameset reset button (label reflects current gameset at tab-open time)
+    _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_ALTGREENGRADIENT, button="reset_gameset_config", label={localize("b_reset_gameset_"..(G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"))}, minw=5})
+    -- Update membership cards button
+    _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_JOLLY, button="update_cry_members", label={localize("b_update_membership_cards")}, minw=5})
+    -- CardSleeves settings (guard: mod may not be loaded)
+    if CardSleeves then
+      _nodes[#_nodes+1] = create_option_cycle{label=localize("adjust_deck_alignment"), info=localize("adjust_deck_alignment_desc"), options=localize("adjust_deck_alignment_options"), current_option=type(CardSleeves.config.adjust_deck_alignment)=="number" and CardSleeves.config.adjust_deck_alignment or (CardSleeves.config.adjust_deck_alignment and 1 or 3), colour=CardSleeves.badge_colour, w=4.5, text_scale=0.4, scale=5/6, ref_table=CardSleeves.config, ref_value="adjust_deck_alignment", opt_callback="casl_cycle_options"}
+      _nodes[#_nodes+1] = create_option_cycle{label=localize("sleeve_info_location"), info=localize("sleeve_info_location_desc"), options=localize("sleeve_info_location_options"), current_option=CardSleeves.config.sleeve_info_location, colour=CardSleeves.badge_colour, w=4.5, text_scale=0.4, scale=5/6, ref_table=CardSleeves.config, ref_value="sleeve_info_location", opt_callback="casl_cycle_options"}
+      _nodes[#_nodes+1] = create_toggle{label=localize("allow_any_sleeve_selection"), info=localize("allow_any_sleeve_selection_desc"), active_colour=CardSleeves.badge_colour, ref_table=CardSleeves.config, ref_value="allow_any_sleeve_selection"}
+    end
+    -- sticky-fingers DTM vanilla joker sell toggle (guard: mod may not be loaded)
+    if DTM then
+      _nodes[#_nodes+1] = create_toggle({id="vanilla_joker_sell", label="Vanilla Joker sell target", info={"Use the mobile Joker sell target. Beware of accidental sells!"}, ref_table=DTM.config, ref_value="vanilla_joker_sell", callback=function() DTM:save_config() end})
+    end
+    return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes=_nodes}
 
-    return _orig_st(tab)
-  end
-end
-'''
+  elseif tab == 'Cryptid Music' then
+    if not (Cryptid_config and Cryptid_config.Cryptid) then
+      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
+    end
+    return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={
+      create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_jimball"),    ref_table=Cryptid_config.Cryptid, ref_value="jimball_music"}),
+      create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_code"),       ref_table=Cryptid_config.Cryptid, ref_value="code_music"}),
+      create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_exotic"),     ref_table=Cryptid_config.Cryptid, ref_value="exotic_music"}),
+      create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_high_score"), ref_table=Cryptid_config.Cryptid, ref_value="big_music"}),
+      create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_alt_bg"),     ref_table=Cryptid_config.Cryptid, ref_value="alt_bg_music"}),
+    }}
 
-with open(path, 'a') as fh:
-    fh.write(APPEND)
+  elseif tab == 'Compat' then
+    -- Delegates to Talisman.config_sections arrays (same logic as conf.generate_tab).
+    -- conf.array = main Amulet settings; conf.compat.array = compat sub-settings.
+    -- Functions that return nil (e.g. disable_omega when omeganum forced) are skipped.
+    if not (Talisman and Talisman.config_sections) then
+      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
+    end
+    local _conf = Talisman.config_sections
+    local _nodes = {}
+    for _,fn in ipairs(_conf.array) do
+      local n = fn(); if n then _nodes[#_nodes+1] = n end
+    end
+    for _,fn in ipairs(_conf.compat.array) do
+      local n = fn(); if n then _nodes[#_nodes+1] = n end
+    end
+    return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes=_nodes}
 
-print(f"SETTINGS_MOD_TABS: appended mod-tab branches to {path}")
+"""
+
+new_text = text[:last_end_abs] + INJECT + text[last_end_abs:]
+
+with open(path, 'w') as fh:
+    fh.write(new_text)
+
+print(f"SETTINGS_MOD_TABS: injected Mods/Cryptid Music/Compat branches into G.UIDEF.settings_tab")
 PYEOF
 
     # Register the three new tabs in create_UIBox_settings, immediately before the Debug tab line.
