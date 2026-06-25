@@ -173,4 +173,28 @@ class RunStateTest {
         rs.discard()
         assertEquals("\$5 × 2 matching cards", moneyBefore + 10, rs.money)
     }
+
+    @Test fun reservedParkingPaysAboutHalfPerHeldFaceCard() {
+        // Vanilla j_reserved_parking: each HELD face card has a 1-in-2 chance to give $1.
+        val rs = RunState()
+        rs.buy(offer("j_reserved_parking"), free = true)
+        rs.money = 0
+        rs.hand = listOf(PlayingCard(Suit.S, 2)) + (1..20).map { PlayingCard(Suit.H, 13) }  // play a 2, hold 20 Kings
+        rs.handSize = rs.hand.size                              // so refill() doesn't draw a negative count
+        rs.selected = setOf(0)
+        rs.play(); rs.scoreBank()
+        assertTrue("≈half of 20 held faces pay \$1 (got ${rs.money})", rs.money in 4..16)
+    }
+
+    @Test fun reservedParkingPaysNothingForHeldNumberCards() {
+        // The face-card gate: held number cards (7s) never pay.
+        val rs = RunState()
+        rs.buy(offer("j_reserved_parking"), free = true)
+        rs.money = 0
+        rs.hand = listOf(PlayingCard(Suit.S, 2)) + (1..20).map { PlayingCard(Suit.H, 7) }   // held 7s (not face)
+        rs.handSize = rs.hand.size                              // so refill() doesn't draw a negative count
+        rs.selected = setOf(0)
+        rs.play(); rs.scoreBank()
+        assertEquals("no held face cards → no \$", 0, rs.money)
+    }
 }
