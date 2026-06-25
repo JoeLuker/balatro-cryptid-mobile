@@ -83,7 +83,7 @@ object ShopArt {
         DeckVariant.RED to (0 to 0), DeckVariant.BLUE to (0 to 2), DeckVariant.YELLOW to (1 to 2),
         DeckVariant.BLACK to (3 to 2), DeckVariant.PAINTED to (4 to 3), DeckVariant.ABANDONED to (3 to 3),
         DeckVariant.CHECKERED to (1 to 3), DeckVariant.ERRATIC to (2 to 3), DeckVariant.MAGIC to (0 to 3),
-        DeckVariant.GHOST to (6 to 2), DeckVariant.ZODIAC to (3 to 4),
+        DeckVariant.GHOST to (6 to 2), DeckVariant.ZODIAC to (3 to 4), DeckVariant.NEBULA to (3 to 0),
     )
     /** Crop every deck-back from Enhancers.png (one decode). Call off the main thread. */
     internal fun deckBacks(ctx: Context): Map<DeckVariant, ImageBitmap> = crop(decode(ctx, "Enhancers.png"), DECK_BACK_POS)

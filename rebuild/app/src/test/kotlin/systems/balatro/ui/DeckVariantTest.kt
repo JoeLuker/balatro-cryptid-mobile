@@ -100,4 +100,11 @@ class DeckVariantTest {
         assertEquals(8.0, rs.planetRate, 0.0)   // 4 + Planet Merchant
         assertEquals(1, rs.shopSlotsBonus)      // Overstock
     }
+
+    @Test fun nebulaDeckEnablesTelescopeAndDropsAConsumableSlot() {
+        val rs = RunState()
+        rs.pickDeck(DeckVariant.NEBULA)
+        assertTrue(rs.telescope)
+        assertEquals(1, rs.consumableSlots)     // 2 base − 1
+    }
 }

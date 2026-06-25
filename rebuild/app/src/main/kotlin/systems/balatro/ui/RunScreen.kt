@@ -88,6 +88,7 @@ internal enum class DeckVariant(
     MAGIC("Magic Deck", "Start with Crystal Ball voucher + 2 The Fool"),
     GHOST("Ghost Deck", "Spectral cards appear in the shop; start with a Hex"),
     ZODIAC("Zodiac Deck", "Start with Tarot Merchant, Planet Merchant & Overstock"),
+    NEBULA("Nebula Deck", "Start with Telescope voucher, −1 consumable slot"),
 }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
@@ -601,6 +602,7 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_tarot_merchant", "Tarot Merchant", "Tarots appear 2X more often in the shop", 4),
     VoucherOffer("v_planet_merchant", "Planet Merchant", "Planets appear 2X more often in the shop", 4),
     VoucherOffer("v_antimatter", "Antimatter", "+1 Joker slot", 1),
+    VoucherOffer("v_telescope", "Telescope", "Most-played hand's Planet is always in the shop", 0),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -803,6 +805,7 @@ internal class RunState {
     var spectralRate = 0.0                                               // Ghost deck: spectrals appear in the shop pool
     var tarotRate = TAROT_RATE                                           // Tarot Merchant voucher raises this
     var planetRate = PLANET_RATE                                         // Planet Merchant voucher raises this
+    var telescope = false                                                // Telescope voucher / Nebula deck: most-played planet always in shop
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1090,6 +1093,10 @@ internal class RunState {
         if (v == DeckVariant.ZODIAC) {                             // Tarot Merchant + Planet Merchant + Overstock
             tarotRate += 4; planetRate += 4; shopSlotsBonus += 1
             redeemedVouchers.addAll(listOf("v_tarot_merchant", "v_planet_merchant", "v_overstock_norm"))
+        }
+        if (v == DeckVariant.NEBULA) {                             // Telescope voucher, -1 consumable slot
+            telescope = true; consumableSlotsBonus -= 1
+            redeemedVouchers.add("v_telescope")
         }
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
@@ -1570,7 +1577,7 @@ internal class RunState {
         resetRerollCost()                            // fresh shop → reroll cost back to base
         freeRerollThisShop = false; couponThisShop = false      // per-shop tag effects reset, then re-applied
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate); applyTelescope()
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
         // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
@@ -1734,6 +1741,16 @@ internal class RunState {
         Telemetry.event("RUN_BUY_TAROT", "tarot" to t.name, "money" to money)
     }
 
+    /** Telescope voucher / Nebula deck: guarantee the most-played hand's Planet is offered (swap it into
+     *  the last shop slot if no copy is already present). No-op until a hand has been played. */
+    private fun applyTelescope() {
+        if (!telescope) return
+        val ht = mostPlayedHand?.first ?: return
+        val planet = Planet.values().firstOrNull { it.hand == ht } ?: return
+        if (shopItems.none { it is ShopItem.Pl && it.po.planet == planet } && shopItems.isNotEmpty())
+            shopItems = shopItems.dropLast(1) + ShopItem.Pl(PlanetOffer(planet, 3))
+    }
+
     /** Buy a shop spectral (Ghost deck) — held in a consumable slot until used. */
     fun buySpectral(sp: Spectral, free: Boolean = false) {
         if (!hasConsumableRoom()) return
@@ -1769,6 +1786,7 @@ internal class RunState {
             "v_tarot_merchant" -> tarotRate += v.extra           // tarots 2x more common (4 → 8)
             "v_planet_merchant" -> planetRate += v.extra         // planets 2x more common (4 → 8)
             "v_antimatter" -> deckJokerBonus += v.extra          // +1 Joker slot (folded into startRound)
+            "v_telescope" -> { telescope = true; applyTelescope() }  // most-played planet always in shop
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
@@ -1904,7 +1922,7 @@ internal class RunState {
         deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
-        stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate,
+        stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1943,7 +1961,7 @@ internal class RunState {
         deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
-        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate
+        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -1980,7 +1998,7 @@ internal class RunState {
         resetRerollCost()
         freeRerollThisShop = false; couponThisShop = false
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate); applyTelescope()
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
         shopBoosters = rollBoosters(blindIndex)
         phase = Phase.SHOP
@@ -2005,7 +2023,7 @@ internal class RunState {
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         // reroll re-rolls the CARDS only; the voucher slot stays (Balatro keeps the voucher on reroll).
-        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate)
+        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate); applyTelescope()
         // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
         // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
         // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
