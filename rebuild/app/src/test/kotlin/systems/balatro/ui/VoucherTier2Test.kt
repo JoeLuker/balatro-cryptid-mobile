@@ -36,4 +36,22 @@ class VoucherTier2Test {
         rs.redeemVoucher(voucher("v_money_tree", 100, 100))
         assertEquals(20, rs.interestCap)
     }
+
+    @Test fun tarotMerchantDoublesTarotRate() {
+        val rs = run()
+        rs.redeemVoucher(voucher("v_tarot_merchant", 4))
+        assertEquals(8.0, rs.tarotRate, 0.0)   // 4 base + 4
+    }
+
+    @Test fun planetMerchantDoublesPlanetRate() {
+        val rs = run()
+        rs.redeemVoucher(voucher("v_planet_merchant", 4))
+        assertEquals(8.0, rs.planetRate, 0.0)
+    }
+
+    @Test fun antimatterAddsAJokerSlot() {
+        val rs = run()
+        rs.redeemVoucher(voucher("v_antimatter", 1))
+        assertEquals(1, rs.deckJokerBonus)
+    }
 }
