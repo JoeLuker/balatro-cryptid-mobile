@@ -92,4 +92,12 @@ class DeckVariantTest {
         assertEquals(before + 1, rs.consumables.size)
         assertTrue(rs.consumables.any { it is Consumable.SpectralC && (it as Consumable.SpectralC).s == Spectral.SIGIL })
     }
+
+    @Test fun zodiacDeckGrantsMerchantsAndOverstock() {
+        val rs = RunState()
+        rs.pickDeck(DeckVariant.ZODIAC)
+        assertEquals(8.0, rs.tarotRate, 0.0)    // 4 + Tarot Merchant
+        assertEquals(8.0, rs.planetRate, 0.0)   // 4 + Planet Merchant
+        assertEquals(1, rs.shopSlotsBonus)      // Overstock
+    }
 }
