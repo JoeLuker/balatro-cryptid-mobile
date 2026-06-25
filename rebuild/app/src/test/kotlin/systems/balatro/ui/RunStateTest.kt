@@ -197,4 +197,22 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("no held face cards → no \$", 0, rs.money)
     }
+
+    @Test fun giftCardAddsSellValueEachRoundAndPersistsAcrossSaveLoad() {
+        // Vanilla j_gift (Gift Card): +$1 of sell value to every Joker at end of each round.
+        val rs = RunState()
+        rs.buy(offer("j_gift"), free = true)
+        rs.buy(offer("j_cavendish", cost = 6), free = true)     // base sell value = maxOf(1, 6/2) = 3
+        val plain = rs.owned.last()
+        val baseSell = rs.sellValue(plain)
+        assertEquals(3, baseSell)
+        rs.enterRoundEval(); rs.cashOut()                       // +1 to all jokers' sell value
+        assertEquals("+1 sell value after one round", baseSell + 1, rs.sellValue(plain))
+        rs.enterRoundEval(); rs.cashOut()
+        assertEquals("+2 after two rounds", baseSell + 2, rs.sellValue(plain))
+        // the accumulated sell value survives a save/load round-trip
+        val reloaded = RunState().also { it.restore(rs.snapshot()) }
+        val plain2 = reloaded.owned.first { it.fj.key == "j_cavendish" }
+        assertEquals("sell bonus persists", baseSell + 2, reloaded.sellValue(plain2))
+    }
 }

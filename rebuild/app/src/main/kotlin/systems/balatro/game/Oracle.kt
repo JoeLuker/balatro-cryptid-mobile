@@ -777,6 +777,7 @@ object Oracle {
         Case("Pair of aces + mail (discard economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_mail"))),
         Case("Pair of aces + trading (discard economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_trading"))),
         Case("Pair of aces + reserved_parking (held economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_reserved_parking"))),
+        Case("Pair of aces + gift (sell-value economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_gift"))),
     )
 
     fun run(): Pair<Int, Int> {
