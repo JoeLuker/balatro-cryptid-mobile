@@ -240,6 +240,14 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_ancient"       to JokerSpec(individual = { _, ctx, c ->
         val s = ctx.ancientSuit; if (s != null && c.isSuit(s, ctx.smeared)) Effect.XMult(1.5) else Effect.None
     }),
+    // j_vampire: gains X0.1 Mult per scored ENHANCED card and strips the enhancement (card.lua:4065).
+    // joker_main READS the persisted x plus THIS hand's contribution (pure — Blueprint-safe); RunScreen's
+    // scoreBank persists the growth (fj.x += 0.1·n) and removes the enhancements after scoring.
+    "j_vampire"       to JokerSpec(jokerMain = { fj, ctx ->
+        val n = ctx.scoringHand.count { it.enhancement != Enhancement.NONE }
+        val x = fj.x + 0.1 * n
+        if (x > 1.0) Effect.XMult(x) else Effect.None
+    }),
     // fibonacci: +8 Mult per scored A, 2, 3, 5, 8 (Fibonacci ranks; get_id, Maximized maps pips→10)
     "j_fibonacci"     to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 3, 5, 8, 14)) Effect.Mult(8.0) else Effect.None }),
     // scary_face: +30 Chips per scored face card (includes Pareidolia)
