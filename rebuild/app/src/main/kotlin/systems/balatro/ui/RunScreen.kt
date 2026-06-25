@@ -536,6 +536,8 @@ private val CATALOG = listOf(
     Offer("j_delayed_grat", "Delayed Gratification", "Earn $2 per discard if no discards are used by end of round", 4),
     // --- missing vanilla jokers (batch 11): reroll-scaling ---
     Offer("j_flash", "Flash Card", "This Joker gains +2 Mult per reroll in the shop", 5, rarity = 2),
+    // --- missing vanilla jokers (batch 12): on-play spawn ---
+    Offer("j_vagabond", "Vagabond", "Creates a Tarot card if hand is played with $4 or less", 8, rarity = 3),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1311,6 +1313,10 @@ internal class RunState {
         if (bluePlanet != null) repeat(pendingSel.count { it.seal == Seal.BLUE }) {
             if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(bluePlanet))
         }
+        // j_vagabond: create a Tarot if the hand was played at $4 or less (config.extra=4, card.lua:4329).
+        // Fires after card-level $ effects (gold seals above), matching its joker_main timing; one per Vagabond.
+        for (o in owned) if (o.fj.key == "j_vagabond" && money <= 4 && hasConsumableRoom())
+            consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 6151L + totalHandsPlayed * 31L)).first()))
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()

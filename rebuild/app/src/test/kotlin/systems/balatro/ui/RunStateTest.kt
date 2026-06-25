@@ -89,4 +89,26 @@ class RunStateTest {
         rs.reroll(); rs.reroll(); rs.reroll()
         assertEquals("+2 Mult per reroll", 6.0, f.fj.mult, 0.0)
     }
+
+    @Test fun vagabondCreatesTarotWhenPlayingAtFourOrLess() {
+        // Vanilla j_vagabond: playing a hand while at $4 or less creates a Tarot (if consumable room).
+        val rs = RunState()
+        rs.consumables.clear()                                  // free the 2 starter consumable slots
+        rs.buy(offer("j_vagabond"), free = true)
+        rs.money = 4                                            // <= extra(4) → fires
+        rs.selected = setOf(0, 1)                               // play two cards from the drawn hand
+        rs.play(); rs.scoreBank()
+        assertTrue("Tarot created when played at <=\$4", rs.consumables.any { it is Consumable.TarotC })
+    }
+
+    @Test fun vagabondCreatesNothingWhenPlayingAboveFour() {
+        // The dollar gate: at $5 (> extra), no Tarot is created.
+        val rs = RunState()
+        rs.consumables.clear()
+        rs.buy(offer("j_vagabond"), free = true)
+        rs.money = 5                                            // > extra(4) → does not fire
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertTrue("no Tarot above \$4", rs.consumables.none { it is Consumable.TarotC })
+    }
 }
