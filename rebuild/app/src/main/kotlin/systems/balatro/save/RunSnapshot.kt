@@ -72,6 +72,7 @@ data class RunSnapshot(
     val spectralRate: Double = 0.0,
     val tarotRate: Double = 4.0,
     val planetRate: Double = 4.0,
+    val telescope: Boolean = false,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {
