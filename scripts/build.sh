@@ -444,6 +444,8 @@ build_apk() {
     apply_android_quit_fix "$game_dir/functions/button_callbacks.lua"
     apply_drag_reject_feedback "$game_dir/functions/button_callbacks.lua"
     apply_settings_debug_tab "$game_dir/functions/UI_definitions.lua"
+    apply_settings_mod_tabs   "$game_dir/functions/UI_definitions.lua"
+    apply_settings_scrollable "$game_dir/functions/UI_definitions.lua"
     apply_debug_overlay "$game_dir/game.lua" "$game_dir/functions/misc_functions.lua"
     # Use Python patcher for main.lua (more reliable than sed for complex patches)
     python3 "$SCRIPT_DIR/patch_main_lua.py" "$game_dir/main.lua"
@@ -1156,6 +1158,149 @@ apply_settings_debug_tab() {
         # hard failure: telemetry_home/telemetry_log toggles live here now; if the
         # tab didn't materialise they're unreachable and consent can't be given.
         log_error "SETTINGS_DEBUG_TAB did not apply — check settings_tab / create_UIBox_settings anchors"
+        exit 1
+    fi
+}
+
+# Add three new tabs to the unified Settings screen: Mods, Cryptid Music, Compat.
+# These tabs consolidate settings that previously lived in SMODS per-mod config/extra
+# tabs (Cryptid, Amulet/Talisman, CardSleeves, sticky-fingers).
+#
+# Method: Python appends a do..end monkey-patch block to the end of
+# UI_definitions.lua.  The block overrides G.UIDEF.settings_tab to handle the
+# three new tab names and fall through to the original for everything else.
+# NOTE: because the block is appended after the create_UIBox_test_framework
+# sentinel, apply_settings_scrollable will NOT wrap these new branches — they
+# return bare ROOT nodes.  Scrolling for Mods/Cryptid Music/Compat is a
+# follow-up task once the retirement patches are verified on-device.
+#
+# Also registers the three tabs in create_UIBox_settings via sed (before Debug).
+# Idempotency marker: 'SETTINGS_MOD_TABS' in the appended block.
+apply_settings_mod_tabs() {
+    local f="$1"
+    if [[ ! -f "$f" ]]; then
+        log_warn "UI_definitions.lua not found, skipping SETTINGS_MOD_TABS"
+        return 0
+    fi
+    if grep -q 'SETTINGS_MOD_TABS' "$f"; then
+        log_info "SETTINGS_MOD_TABS already applied"
+        return 0
+    fi
+    # Require the Debug tab branch — must run after apply_settings_debug_tab
+    if ! grep -q "tab == 'Debug'" "$f"; then
+        log_error "SETTINGS_MOD_TABS: Debug branch not found — apply_settings_debug_tab must run first"
+        exit 1
+    fi
+    python3 - "$f" << 'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+with open(path, 'r') as fh:
+    text = fh.read()
+
+APPEND = r'''
+-- SETTINGS_MOD_TABS: new tabs appended by apply_settings_mod_tabs.
+-- Mods: Cryptid feature flags + gameset switcher + CardSleeves + DTM.
+-- Cryptid Music: 5 music toggles from Cryptid extra_tabs.
+-- Compat: Talisman config + compat sub-section.
+do
+  local _orig_st = G.UIDEF.settings_tab
+  G.UIDEF.settings_tab = function(tab)
+
+    if tab == 'Mods' then
+      if not Cryptid_config then
+        return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
+      end
+      local _nodes = {}
+      -- Cryptid feature flags
+      _nodes[#_nodes+1] = create_toggle({label=localize("cry_family"), active_colour=HEX("40c76d"), ref_table=Cryptid_config, ref_value="family_mode", callback=Cryptid.reload_localization})
+      _nodes[#_nodes+1] = create_toggle({label=localize("cry_experimental"), active_colour=HEX("1f8505"), ref_table=Cryptid_config, ref_value="experimental"})
+      _nodes[#_nodes+1] = create_toggle({label=localize("cry_force_tooltips"), active_colour=HEX("22c705"), ref_table=Cryptid_config, ref_value="force_tooltips"})
+      _nodes[#_nodes+1] = create_toggle({label=localize("cry_feat_https module"), active_colour=HEX("b1c78d"), ref_table=Cryptid_config, ref_value="HTTPS"})
+      _nodes[#_nodes+1] = create_toggle({label=localize("cry_feat_menu"), active_colour=HEX("1c5c23"), ref_table=Cryptid_config, ref_value="menu"})
+      -- Content Sets button
+      _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_GREENGRADIENT, button="your_collection_content_sets", label={localize("b_content_sets")}, count=modsCollectionTally(G.P_CENTER_POOLS["Content Set"]), minw=5, minh=1.7, scale=0.6, id="your_collection_jokers"})
+      -- Gameset switcher: label row
+      _nodes[#_nodes+1] = {n=G.UIT.R, config={align="cm", padding=0.05}, nodes={{n=G.UIT.T, config={text=localize("cry_current_gameset_label"), scale=0.4, colour=G.C.UI.TEXT_LIGHT}}}}
+      -- Gameset switcher: 4-button row
+      local _gs_row = {n=G.UIT.R, config={align="cm", padding=0.05}, nodes={}}
+      for _,_gs in ipairs({"modest","mainline","madness","vanilla"}) do
+        _gs_row.nodes[#_gs_row.nodes+1] = UIBox_button({colour=(G.PROFILES[G.SETTINGS.profile].cry_gameset==_gs) and G.C.CRY_SELECTED or G.C.GREY, button="cry_cfg_set_gameset", ref_table={gameset=_gs}, func="cry_cfg_gameset_colour", label={localize("cry_gameset_".._gs)}, minw=2.2, scale=0.35})
+      end
+      _nodes[#_nodes+1] = _gs_row
+      -- Gameset reset button (label reflects current gameset at tab-open time)
+      _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_ALTGREENGRADIENT, button="reset_gameset_config", label={localize("b_reset_gameset_"..(G.PROFILES[G.SETTINGS.profile].cry_gameset or "mainline"))}, minw=5})
+      -- Update membership cards button
+      _nodes[#_nodes+1] = UIBox_button({colour=G.C.CRY_JOLLY, button="update_cry_members", label={localize("b_update_membership_cards")}, minw=5})
+      -- CardSleeves settings (guard: mod may not be loaded)
+      if CardSleeves then
+        _nodes[#_nodes+1] = create_option_cycle{label=localize("adjust_deck_alignment"), info=localize("adjust_deck_alignment_desc"), options=localize("adjust_deck_alignment_options"), current_option=type(CardSleeves.config.adjust_deck_alignment)=="number" and CardSleeves.config.adjust_deck_alignment or (CardSleeves.config.adjust_deck_alignment and 1 or 3), colour=CardSleeves.badge_colour, w=4.5, text_scale=0.4, scale=5/6, ref_table=CardSleeves.config, ref_value="adjust_deck_alignment", opt_callback="casl_cycle_options"}
+        _nodes[#_nodes+1] = create_option_cycle{label=localize("sleeve_info_location"), info=localize("sleeve_info_location_desc"), options=localize("sleeve_info_location_options"), current_option=CardSleeves.config.sleeve_info_location, colour=CardSleeves.badge_colour, w=4.5, text_scale=0.4, scale=5/6, ref_table=CardSleeves.config, ref_value="sleeve_info_location", opt_callback="casl_cycle_options"}
+        _nodes[#_nodes+1] = create_toggle{label=localize("allow_any_sleeve_selection"), info=localize("allow_any_sleeve_selection_desc"), active_colour=CardSleeves.badge_colour, ref_table=CardSleeves.config, ref_value="allow_any_sleeve_selection"}
+      end
+      -- sticky-fingers DTM vanilla joker sell toggle (guard: mod may not be loaded)
+      if DTM then
+        _nodes[#_nodes+1] = create_toggle({id="vanilla_joker_sell", label="Vanilla Joker sell target", info={"Use the mobile Joker sell target. Beware of accidental sells!"}, ref_table=DTM.config, ref_value="vanilla_joker_sell", callback=function() DTM:save_config() end})
+      end
+      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes=_nodes}
+
+    elseif tab == 'Cryptid Music' then
+      if not (Cryptid_config and Cryptid_config.Cryptid) then
+        return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
+      end
+      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={
+        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_jimball"),    ref_table=Cryptid_config.Cryptid, ref_value="jimball_music"}),
+        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_code"),       ref_table=Cryptid_config.Cryptid, ref_value="code_music"}),
+        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_exotic"),     ref_table=Cryptid_config.Cryptid, ref_value="exotic_music"}),
+        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_high_score"), ref_table=Cryptid_config.Cryptid, ref_value="big_music"}),
+        create_toggle({active_colour=G.C.CRY_JOLLY, label=localize("cry_mus_alt_bg"),     ref_table=Cryptid_config.Cryptid, ref_value="alt_bg_music"}),
+      }}
+
+    elseif tab == 'Compat' then
+      -- Delegates to Talisman.config_sections arrays (same logic as conf.generate_tab).
+      -- conf.array = main Amulet settings; conf.compat.array = compat sub-settings.
+      -- Functions that return nil (e.g. disable_omega when omeganum forced) are skipped.
+      if not (Talisman and Talisman.config_sections) then
+        return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes={}}
+      end
+      local _conf = Talisman.config_sections
+      local _nodes = {}
+      for _,fn in ipairs(_conf.array) do
+        local n = fn(); if n then _nodes[#_nodes+1] = n end
+      end
+      for _,fn in ipairs(_conf.compat.array) do
+        local n = fn(); if n then _nodes[#_nodes+1] = n end
+      end
+      return {n=G.UIT.ROOT, config={align="cm", padding=0.05, colour=G.C.CLEAR}, nodes=_nodes}
+    end
+
+    return _orig_st(tab)
+  end
+end
+'''
+
+with open(path, 'a') as fh:
+    fh.write(APPEND)
+
+print(f"SETTINGS_MOD_TABS: appended mod-tab branches to {path}")
+PYEOF
+
+    # Register the three new tabs in create_UIBox_settings, immediately before the Debug tab line.
+    # Anchor: the Debug tab registration line is unique in create_UIBox_settings.
+    local anchor='  tabs[#tabs+1] = { label = "Debug", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = '\'Debug\'' }'
+    if ! grep -qF "$anchor" "$f"; then
+        log_error "SETTINGS_MOD_TABS: Debug tab anchor not found in create_UIBox_settings"
+        exit 1
+    fi
+    sed -i "s|  tabs\[#tabs+1\] = { label = \"Debug\",|  tabs[#tabs+1] = { label = \"Mods\", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Mods' }\n  tabs[#tabs+1] = { label = \"Cryptid Music\", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Cryptid Music' }\n  tabs[#tabs+1] = { label = \"Compat\", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Compat' }\n  tabs[#tabs+1] = { label = \"Debug\",|" "$f"
+    # Verify all three new tabs registered
+    if grep -q "tab_definition_function_args = 'Mods'" "$f" && \
+       grep -q "tab_definition_function_args = 'Cryptid Music'" "$f" && \
+       grep -q "tab_definition_function_args = 'Compat'" "$f" && \
+       grep -q 'SETTINGS_MOD_TABS' "$f"; then
+        log_success "SETTINGS_MOD_TABS applied (Mods / Cryptid Music / Compat tabs added)"
+    else
+        log_error "SETTINGS_MOD_TABS did not apply — check anchors in create_UIBox_settings"
         exit 1
     fi
 }
