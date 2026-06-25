@@ -236,6 +236,158 @@ patch_mods_dir() {
         "$mods_dir/Cryptid/lib/gameset.lua"
     apply_cry_forcetrigger_depth_guard "$mods_dir/Cryptid/lib/forcetrigger.lua"
     apply_hand_level_no_recalc "$mods_dir/Steamodded/src/ui.lua"
+    apply_retire_mod_config_tabs "$mods_dir"
+}
+
+# Nil-assign the SMODS config_tab / extra_tabs registrations for all four mods
+# whose settings have been moved into the unified Settings screen tabs
+# (apply_settings_mod_tabs).  After this patch, the blue gear icon no longer
+# appears on those mod cards in the Mods menu and they sort to the bottom of
+# the grid (SMODS ui.lua:2282-2283).  Mod functionality is unaffected.
+#
+# Order matters: Cryptid first (sed, one line each), then Amulet/CardSleeves/
+# sticky-fingers (Python span replacements for multi-line closures).
+# Idempotency marker: 'RETIRE_MOD_TABS_DONE' comment appended by Python step.
+apply_retire_mod_config_tabs() {
+    local mods_dir="$1"
+
+    # --- 2a. Cryptid: two single-line sed replacements ---
+    local cry="$mods_dir/Cryptid/Cryptid.lua"
+    if [[ ! -f "$cry" ]]; then
+        log_error "RETIRE_MOD_TABS: Cryptid.lua not found"
+        exit 1
+    fi
+    if grep -q 'RETIRE_MOD_TABS' "$cry"; then
+        log_info "RETIRE_MOD_TABS: Cryptid already retired"
+    else
+        if ! grep -q 'SMODS.current_mod.extra_tabs = cryptidTabs' "$cry"; then
+            log_error "RETIRE_MOD_TABS: Cryptid extra_tabs anchor not found"
+            exit 1
+        fi
+        sed -i 's|SMODS\.current_mod\.extra_tabs = cryptidTabs|SMODS.current_mod.extra_tabs = nil  -- RETIRE_MOD_TABS: moved to Settings > Mods tab|' "$cry"
+        sed -i 's|SMODS\.current_mod\.config_tab = cryptidConfigTab|SMODS.current_mod.config_tab = nil  -- RETIRE_MOD_TABS: moved to Settings > Mods tab|' "$cry"
+        if grep -q 'RETIRE_MOD_TABS' "$cry"; then
+            log_success "RETIRE_MOD_TABS: Cryptid config_tab + extra_tabs retired"
+        else
+            log_error "RETIRE_MOD_TABS: Cryptid sed did not apply"
+            exit 1
+        fi
+    fi
+
+    # --- 2b+2c+2d. Amulet, CardSleeves, sticky-fingers: Python span replacements ---
+    local amulet="$mods_dir/Amulet/smods.lua"
+    local sleeves="$mods_dir/CardSleeves/CardSleeves.lua"
+    local sf="$mods_dir/sticky-fingers/main.lua"
+    for f in "$amulet" "$sleeves" "$sf"; do
+        if [[ ! -f "$f" ]]; then
+            log_error "RETIRE_MOD_TABS: required file not found: $f"
+            exit 1
+        fi
+    done
+
+    python3 - "$amulet" "$sleeves" "$sf" << 'PYEOF'
+import sys, re
+
+amulet_path, sleeves_path, sf_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# --- Amulet/smods.lua ---
+with open(amulet_path, 'r') as fh:
+    amulet = fh.read()
+
+if 'RETIRE_MOD_TABS' in amulet:
+    print("RETIRE_MOD_TABS: Amulet already retired")
+else:
+    # config_tab span: 'curmod.config_tab = function()' .. 'end' before 'curmod.description_loc_vars'
+    START1 = 'curmod.config_tab = function()'
+    END1   = 'curmod.description_loc_vars'
+    i1 = amulet.find(START1)
+    i2 = amulet.find(END1, i1)
+    if i1 == -1 or i2 == -1:
+        print("RETIRE_MOD_TABS ERROR: Amulet config_tab span not found", file=sys.stderr); sys.exit(1)
+    # walk back from i2 to find the 'end' line that closes config_tab
+    chunk = amulet[i1:i2]
+    # find last 'end' (on its own line) in chunk
+    end_match = list(re.finditer(r'\bend\b', chunk))
+    if not end_match:
+        print("RETIRE_MOD_TABS ERROR: Amulet config_tab closing end not found", file=sys.stderr); sys.exit(1)
+    span1_end = i1 + end_match[-1].end()
+    amulet = amulet[:i1] + 'curmod.config_tab = nil  -- RETIRE_MOD_TABS: moved to Settings > Compat tab' + amulet[span1_end:]
+
+    # extra_tabs span: 'curmod.extra_tabs = function()' .. 'end' before 'curmod.debug_info'
+    START2 = 'curmod.extra_tabs = function()'
+    END2   = 'curmod.debug_info'
+    i1 = amulet.find(START2)
+    i2 = amulet.find(END2, i1)
+    if i1 == -1 or i2 == -1:
+        print("RETIRE_MOD_TABS ERROR: Amulet extra_tabs span not found", file=sys.stderr); sys.exit(1)
+    chunk = amulet[i1:i2]
+    end_match = list(re.finditer(r'\bend\b', chunk))
+    if not end_match:
+        print("RETIRE_MOD_TABS ERROR: Amulet extra_tabs closing end not found", file=sys.stderr); sys.exit(1)
+    span2_end = i1 + end_match[-1].end()
+    amulet = amulet[:i1] + 'curmod.extra_tabs = nil  -- RETIRE_MOD_TABS: Compat/Credits tabs retired' + amulet[span2_end:]
+
+    with open(amulet_path, 'w') as fh:
+        fh.write(amulet)
+    print("RETIRE_MOD_TABS: Amulet config_tab + extra_tabs retired")
+
+# --- CardSleeves/CardSleeves.lua ---
+with open(sleeves_path, 'r') as fh:
+    sleeves = fh.read()
+
+if 'RETIRE_MOD_TABS' in sleeves:
+    print("RETIRE_MOD_TABS: CardSleeves already retired")
+else:
+    START = 'SMODS.current_mod.config_tab = function()'
+    END   = 'SMODS.current_mod.custom_collection_tabs'  # boundary — must NOT be touched
+    i1 = sleeves.find(START)
+    i2 = sleeves.find(END, i1)
+    if i1 == -1 or i2 == -1:
+        print("RETIRE_MOD_TABS ERROR: CardSleeves config_tab span not found", file=sys.stderr); sys.exit(1)
+    chunk = sleeves[i1:i2]
+    end_match = list(re.finditer(r'\bend\b', chunk))
+    if not end_match:
+        print("RETIRE_MOD_TABS ERROR: CardSleeves config_tab closing end not found", file=sys.stderr); sys.exit(1)
+    span_end = i1 + end_match[-1].end()
+    sleeves = sleeves[:i1] + 'SMODS.current_mod.config_tab = nil  -- RETIRE_MOD_TABS: moved to Settings > Mods tab' + sleeves[span_end:]
+
+    with open(sleeves_path, 'w') as fh:
+        fh.write(sleeves)
+    print("RETIRE_MOD_TABS: CardSleeves config_tab retired")
+
+# --- sticky-fingers/main.lua ---
+with open(sf_path, 'r') as fh:
+    sf = sf_path  # avoid shadowing
+    text = fh.read()
+
+if 'RETIRE_MOD_TABS' in text:
+    print("RETIRE_MOD_TABS: sticky-fingers already retired")
+else:
+    START = 'DTM.config_tab = function()'
+    END   = '-- Guard every sticky_can_*'  # boundary comment, unique in file
+    i1 = text.find(START)
+    i2 = text.find(END, i1)
+    if i1 == -1 or i2 == -1:
+        print("RETIRE_MOD_TABS ERROR: sticky-fingers config_tab span not found", file=sys.stderr); sys.exit(1)
+    chunk = text[i1:i2]
+    end_match = list(re.finditer(r'\bend\b', chunk))
+    if not end_match:
+        print("RETIRE_MOD_TABS ERROR: sticky-fingers config_tab closing end not found", file=sys.stderr); sys.exit(1)
+    span_end = i1 + end_match[-1].end()
+    text = text[:i1] + 'DTM.config_tab = nil  -- RETIRE_MOD_TABS: moved to Settings > Mods tab' + text[span_end:]
+
+    with open(sf_path, 'w') as fh:
+        fh.write(text)
+    print("RETIRE_MOD_TABS: sticky-fingers config_tab retired")
+
+PYEOF
+    # Check Python exit
+    local py_exit=$?
+    if [[ $py_exit -ne 0 ]]; then
+        log_error "RETIRE_MOD_TABS: Python span-replacement failed (exit $py_exit)"
+        exit 1
+    fi
+    log_success "RETIRE_MOD_TABS: all mod config/extra tabs retired"
 }
 
 # Strip assets unused in an en-us Android build.
