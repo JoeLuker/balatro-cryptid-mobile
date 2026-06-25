@@ -67,6 +67,7 @@ data class RunSnapshot(
     val freeRerollThisShop: Boolean = false,
     val couponThisShop: Boolean = false,
     val baseHandSize: Int = 8,
+    val stakeLevel: Int = 1,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {
