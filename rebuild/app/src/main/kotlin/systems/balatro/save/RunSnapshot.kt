@@ -34,10 +34,11 @@ data class JokerSnap(
 /** One slot of the unified shop pool (vanilla's single mixed CardArea). `kind` selects which payload
  *  is populated. An ordered list of these preserves the per-slot poll order across save/load. */
 @Serializable data class ShopItemSnap(
-    val kind: String,                       // "joker" | "planet" | "tarot"
+    val kind: String,                       // "joker" | "planet" | "tarot" | "spectral"
     val joker: OfferSnap? = null,
     val planet: PlanetSnap? = null,
     val tarot: TarotSnap? = null,
+    val spectral: String? = null,           // Spectral enum name (Ghost-deck shop spectrals)
 )
 @Serializable data class VoucherSnap(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int)
 @Serializable data class BoosterSnap(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int)
@@ -68,6 +69,7 @@ data class RunSnapshot(
     val couponThisShop: Boolean = false,
     val baseHandSize: Int = 8,
     val stakeLevel: Int = 1,
+    val spectralRate: Double = 0.0,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {
