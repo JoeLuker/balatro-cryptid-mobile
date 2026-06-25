@@ -783,6 +783,8 @@ object Oracle {
         // Ancient: X1.5 per scored card of the round's suit. Two spade aces, suit=Spades → mult 2×1.5×1.5=4.5; 32×4.5=144.
         Case("Pair of spade aces + ancient (suit=Spades, X1.5 each) → 144", PlayingCard.hand("S_A", "S_A"), 144.0, j(FJoker("j_ancient")), ancientSuit = Suit.S),
         Case("Pair of heart aces + ancient (suit=Spades → no match) → 64", PlayingCard.hand("H_A", "H_A"), 64.0, j(FJoker("j_ancient")), ancientSuit = Suit.S),
+        // Midas Mask: gold-ifies scored face cards (RunScreen deck mutation) — no scoring effect. Pair of Kings = 30 chips × 2 = 60.
+        Case("Pair of kings + midas_mask (transform → score unchanged) → 60", PlayingCard.hand("S_K", "H_K"), 60.0, j(FJoker("j_midas_mask"))),
     )
 
     fun run(): Pair<Int, Int> {

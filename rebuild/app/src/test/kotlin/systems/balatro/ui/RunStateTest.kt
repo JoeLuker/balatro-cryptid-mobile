@@ -263,4 +263,29 @@ class RunStateTest {
             prev = rs.ancientSuit
         }
     }
+
+    @Test fun midasMaskGoldifiesScoredFaceCards() {
+        // Vanilla j_midas_mask: each scored face card permanently becomes a Gold card.
+        val rs = RunState()
+        rs.buy(offer("j_midas_mask"), free = true)
+        // King♥ / King♠ value-match the standard deck's Kings (data-class equals), so the deck mutation lands.
+        rs.hand = listOf(PlayingCard(Suit.H, 13), PlayingCard(Suit.S, 13))
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)                               // play the pair → both Kings score
+        rs.play(); rs.scoreBank()
+        val goldKings = rs.snapshot().deck.count { it.rank == 13 && it.enh == "GOLD" }
+        assertEquals("both scored Kings became Gold in the deck", 2, goldKings)
+    }
+
+    @Test fun midasMaskLeavesNumberCardsUnchanged() {
+        // The face gate: scored number cards (7s) do NOT become Gold.
+        val rs = RunState()
+        rs.buy(offer("j_midas_mask"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        val goldSevens = rs.snapshot().deck.count { it.rank == 7 && it.enh == "GOLD" }
+        assertEquals("number cards are not gold-ified", 0, goldSevens)
+    }
 }
