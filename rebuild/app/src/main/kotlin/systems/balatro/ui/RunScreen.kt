@@ -543,6 +543,8 @@ private val CATALOG = listOf(
     // --- missing vanilla jokers (batch 14): discard economy ---
     Offer("j_mail", "Mail-In Rebate", "Earn $5 for each discarded card of a rank (rank changes each round)", 4),
     Offer("j_trading", "Trading Card", "If first discard of round is a single card, destroy it and earn $3", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 15): held-card economy ---
+    Offer("j_reserved_parking", "Reserved Parking", "Each held face card has a 1 in 2 chance to give $1", 6),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1322,6 +1324,12 @@ internal class RunState {
         // Fires after card-level $ effects (gold seals above), matching its joker_main timing; one per Vagabond.
         for (o in owned) if (o.fj.key == "j_vagabond" && money <= 4 && hasConsumableRoom())
             consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 6151L + totalHandsPlayed * 31L)).first()))
+        // j_reserved_parking: each HELD face card has a 1-in-2 chance (odds=2) to give $1 (dollars), per
+        // joker (card.lua:3894, context.individual on G.hand). Money side-effect — rolled in the run loop.
+        for (o in owned) if (o.fj.key == "j_reserved_parking")
+            pendingHeld.forEachIndexed { i, c ->
+                if (c.isFace && Random(blindIndex * 8123L + totalHandsPlayed * 101L + i * 17L).nextInt(2) == 0) money += 1
+            }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
