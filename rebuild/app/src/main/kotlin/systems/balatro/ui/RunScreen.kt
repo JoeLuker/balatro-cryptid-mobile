@@ -538,6 +538,8 @@ private val CATALOG = listOf(
     Offer("j_flash", "Flash Card", "This Joker gains +2 Mult per reroll in the shop", 5, rarity = 2),
     // --- missing vanilla jokers (batch 12): on-play spawn ---
     Offer("j_vagabond", "Vagabond", "Creates a Tarot card if hand is played with $4 or less", 8, rarity = 3),
+    // --- missing vanilla jokers (batch 13): pack-open spawn ---
+    Offer("j_hallucination", "Hallucination", "1 in 2 chance to create a Tarot card when any Booster Pack is opened", 4),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1630,6 +1632,12 @@ internal class RunState {
             else -> emptyList()
         }
         openPack = OpenPack(b.name, b.kind, items, minOf(b.choose, items.size))
+        // j_hallucination: 1 in 2 chance (config.extra=2) to create a Tarot when a booster is opened
+        // (context.open_booster, card.lua:2886), if consumable room. packSeed varies the roll per open.
+        for (o in owned) if (o.fj.key == "j_hallucination" && hasConsumableRoom()) {
+            if (Random(blindIndex * 5009L + packSeed * 67L + 13L).nextInt(2) == 0)   // 1 in 2
+                consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 9277L + packSeed)).first()))
+        }
         phase = Phase.PACK_OPEN
         Telemetry.event("RUN_PACK_OPEN", "key" to b.key, "kind" to b.kind, "money" to money)
     }
