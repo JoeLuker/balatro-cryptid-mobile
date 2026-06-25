@@ -75,7 +75,9 @@ internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVE
 internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST, JOKER }
 internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val rarity: Int = 1, val edition: Edition = Edition.NONE)
-internal data class Owned(val offer: Offer, val fj: FJoker)
+internal data class Owned(val offer: Offer, val fj: FJoker) {
+    var sellBonus: Int = 0   // Gift Card extra_value — $ added to this joker's sell value (maxOf(1,cost/2)+bonus)
+}
 /** A shop voucher (one per shop). `extra` is the faithful config.extra (game.lua); the effect is
  *  applied by key in RunState.redeemVoucher (Card:apply_to_run, card.lua:2322). */
 internal data class VoucherOffer(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int = 10)
@@ -545,6 +547,8 @@ private val CATALOG = listOf(
     Offer("j_trading", "Trading Card", "If first discard of round is a single card, destroy it and earn $3", 6, rarity = 2),
     // --- missing vanilla jokers (batch 15): held-card economy ---
     Offer("j_reserved_parking", "Reserved Parking", "Each held face card has a 1 in 2 chance to give $1", 6),
+    // --- missing vanilla jokers (batch 16): sell-value economy ---
+    Offer("j_gift", "Gift Card", "Add $1 of sell value to every Joker at end of round", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -764,7 +768,7 @@ internal class RunState {
                 // aimTarot→useTarot; if used here without a target, enhance tarots fall back to random.
                 when (val fx = c.t.fx) {
                     is TarotFx.DoubleMoney -> money += minOf(money, 20)
-                    is TarotFx.JokerSellMoney -> money += minOf(50, owned.sumOf { maxOf(1, it.offer.cost / 2) })
+                    is TarotFx.JokerSellMoney -> money += minOf(50, owned.sumOf { sellValue(it) })
                     is TarotFx.CreatePlanets -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(Planet.values().random())) }
                     is TarotFx.CreateTarots -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.TarotC(TAROTS.random())) }
                     is TarotFx.Enhance -> deck.enhanceRandom(fx.e)
@@ -802,7 +806,7 @@ internal class RunState {
                 val keep = owned[owned.indices.random()].let { it.copy(offer = it.offer.copy(edition = Edition.POLY)) }
                 owned.clear(); owned.add(keep)
             }
-            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed))); money = 0 }
+            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed))); money = 0 }
             Spectral.SIGIL -> if (hand.isNotEmpty()) {                       // whole hand → one random suit
                 val suit = Suit.values().random()
                 hand.forEach { deck.setSuitCard(it, suit) }
@@ -1402,6 +1406,10 @@ internal class RunState {
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
         // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
+        // j_gift (Gift Card): adds $1 (extra) of sell value to EVERY joker each round (card.lua:3590 —
+        // extra_value += extra for all G.jokers.cards). Each Gift Card contributes; itself included.
+        val giftCards = owned.count { it.offer.key == "j_gift" }
+        if (giftCards > 0) owned.forEach { it.sellBonus += giftCards }
         // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1;
         // popcorn reduce: mult −4, floored at 0).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
@@ -1525,7 +1533,7 @@ internal class RunState {
         if (!free) { money -= cost; totalCardsPurchased += 1 }
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
-        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed)))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
         shopItems = shopItems.filterNot { it is ShopItem.Jk && it.offer === offer }
         if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
     }
@@ -1535,7 +1543,7 @@ internal class RunState {
     private fun createRandomJoker() {
         if (owned.size >= maxJokers) return
         val offer = CATALOG.random()
-        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }, handsPlayed = totalHandsPlayed)))
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
     }
 
@@ -1550,20 +1558,23 @@ internal class RunState {
         return to
     }
 
+    /** Sell value of a joker = base (maxOf(1, cost/2)) + accumulated Gift Card bonus (extra_value). */
+    internal fun sellValue(o: Owned): Int = maxOf(1, o.offer.cost / 2) + o.sellBonus
+
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
         owned.remove(o)
-        val refund = maxOf(1, o.offer.cost / 2)
+        val refund = sellValue(o)
         money += refund
         // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
         val soldKey = o.fj.key
-        val sellCost = refund   // maxOf(1, cost/2) — used for sell_cost >= 2 gates below
+        val sellCost = refund   // sell value (base + Gift Card bonus) — used for sell_cost >= 2 gates below
         // MANIFEST: migrated jokers react to the sale via their reducer on the Sold event
         // (campfire +0.25 Xmult per sale; eternalflame +0.1 when the sold joker's sell_cost >= 2).
         for (rem in owned) JOKER_MANIFEST[rem.fj.key]?.reduce?.let { rem.fj.restore(it(rem.fj.snapshot(), GameEvent.Sold(soldKey, sellCost))) }
         for (rem in owned) when (rem.fj.key) {
             // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
-            "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { maxOf(1.0, it.offer.cost / 2.0) }
+            "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { sellValue(it).toDouble() }
             // (j_cry_m / j_cry_loopy / j_cry_mstack Sold reducers migrated to JOKER_MANIFEST.)
         }
         // j_cry_jollysus: selling any Joker (including a jollysus itself) makes each armed jollysus spawn a
@@ -1739,7 +1750,7 @@ internal class RunState {
         blindIndex = blindIndex, money = money,
         jokers = owned.map { o ->
             JokerSnap(o.offer.key, o.offer.name, o.offer.desc, o.offer.cost, o.offer.edition.name,
-                o.fj.edition, o.fj.mult, o.fj.x, o.fj.chips, o.fj.n, o.fj.rarity, o.fj.xc)
+                o.fj.edition, o.fj.mult, o.fj.x, o.fj.chips, o.fj.n, o.fj.rarity, o.fj.xc, o.sellBonus)
         },
         deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
@@ -1776,7 +1787,7 @@ internal class RunState {
         s.jokers.forEach { j ->
             owned.add(Owned(
                 Offer(j.key, j.name, j.desc, j.cost, edition = Edition.valueOf(j.edition)),
-                FJoker(j.key, j.mult, j.fjEdition, j.x, j.chips, j.n, j.rarity, j.xc)))
+                FJoker(j.key, j.mult, j.fjEdition, j.x, j.chips, j.n, j.rarity, j.xc)).also { it.sellBonus = j.sellBonus })
         }
         deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
@@ -2759,7 +2770,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     .absoluteOffset(y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                     JokerCtl("◀", u, enabled = si > 0) { selJoker = s.moveJoker(si, -1) }
-                    JokerCtl("Sell \$${maxOf(1, s.owned[si].offer.cost / 2)}", u, enabled = s.owned.size > 1) { s.sell(s.owned[si]); selJoker = null }
+                    JokerCtl("Sell \$${s.sellValue(s.owned[si])}", u, enabled = s.owned.size > 1) { s.sell(s.owned[si]); selJoker = null }
                     JokerCtl("▶", u, enabled = si < s.owned.size - 1) { selJoker = s.moveJoker(si, 1) }
                 }
             }
@@ -3178,7 +3189,7 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt
                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 BTxt("Sell:", Balatro.White, 12.sp)
                 s.owned.forEach { o ->
-                    BButton("${o.offer.name}  \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
+                    BButton("${o.offer.name}  \$${s.sellValue(o)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
                 }
             }
         }

@@ -23,6 +23,7 @@ data class JokerSnap(
     val key: String, val name: String, val desc: String, val cost: Int, val edition: String,
     val fjEdition: String, val mult: Double, val x: Double, val chips: Double,
     val n: Int, val rarity: Int, val xc: Double,
+    val sellBonus: Int = 0,   // Gift Card extra_value — accumulated $ added to this joker's sell value
 )
 
 // Shop-stock snaps — so a mid-shop save resumes the EXACT shop (the real post-purchase stock,
