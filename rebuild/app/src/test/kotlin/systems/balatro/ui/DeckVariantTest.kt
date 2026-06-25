@@ -45,4 +45,28 @@ class DeckVariantTest {
         assertEquals(52, deck.size)
         assertEquals(0, deck.count { it.suit == "C" || it.suit == "D" })
     }
+
+    // ── Stakes (chosen alongside the deck on DECK_SELECT) ──
+    @Test fun redStakeRemovesSmallBlindReward() {
+        val rs = RunState(); rs.pickDeck(DeckVariant.YELLOW, stake = 2)
+        assertEquals(0, rs.rewardForSlot(0))     // Red+ : Small Blind gives no money
+        assertEquals(4, rs.rewardForSlot(1))     // Big Blind reward unchanged
+    }
+
+    @Test fun blueStakeRemovesADiscard() {
+        val rs = RunState(); rs.pickDeck(DeckVariant.YELLOW, stake = 5)
+        assertEquals(2, rs.baseDiscards)         // 3 − 1 (Blue stake)
+    }
+
+    @Test fun greenStakeScalesRequirementFaster() {
+        val white = RunState().also { it.pickDeck(DeckVariant.YELLOW, stake = 1); it.blindIndex = 3 }  // ante 2
+        val green = RunState().also { it.pickDeck(DeckVariant.YELLOW, stake = 3); it.blindIndex = 3 }
+        assertEquals(800.0, white.targetForSlot(0), 0.0)   // scaling 1 table
+        assertEquals(900.0, green.targetForSlot(0), 0.0)   // scaling 2 table
+    }
+
+    @Test fun purpleStakeUsesTheSteepestTable() {
+        val purple = RunState().also { it.pickDeck(DeckVariant.YELLOW, stake = 6); it.blindIndex = 3 }
+        assertEquals(1000.0, purple.targetForSlot(0), 0.0) // scaling 3 table, ante 2
+    }
 }

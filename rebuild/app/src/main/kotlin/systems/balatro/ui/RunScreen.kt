@@ -690,6 +690,7 @@ internal class RunState {
     var bossDisabled by mutableStateOf(false)            // Luchador: boss effects suppressed for the round (boss kept for display)
     var phase by mutableStateOf(Phase.DECK_SELECT)   // fresh run picks a deck first (resume/deep-link override)
     var deckJokerBonus = 0                            // Black/Painted deck: ± Joker slots (folded into startRound's maxJokers)
+    var stakeLevel by mutableStateOf(1)               // 1 White … 8 Gold (cumulative; chosen on DECK_SELECT)
     val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
 
     // ── cash-out (ROUND_EVAL) state — the reward breakdown shown after a blind is beaten ──
@@ -902,9 +903,16 @@ internal class RunState {
 
     /** Balatro's small-blind base requirement per ante (ante_base in game.lua) — NOT linear 300×ante.
      *  Big = ×1.5, Boss = ×2 (× boss mult). ante 2 small = 800, matching the reference screenshot. */
-    private fun anteBase(a: Int): Double = when (a) {
-        1 -> 300.0; 2 -> 800.0; 3 -> 2000.0; 4 -> 5000.0
-        5 -> 11000.0; 6 -> 20000.0; 7 -> 35000.0; else -> 50000.0
+    // Base Small-Blind chip requirement per ante (1-8), one table per stake "scaling" tier (game.lua
+    // get_blind_amount): scaling 1 = stakes 1-2, scaling 2 = Green+ (stakes 3-5), scaling 3 = Purple+ (6-8).
+    private val anteTables = arrayOf(
+        doubleArrayOf(300.0, 800.0, 2000.0, 5000.0, 11000.0, 20000.0, 35000.0, 50000.0),
+        doubleArrayOf(300.0, 900.0, 2600.0, 8000.0, 20000.0, 36000.0, 60000.0, 100000.0),
+        doubleArrayOf(300.0, 1000.0, 3200.0, 9000.0, 25000.0, 60000.0, 110000.0, 200000.0),
+    )
+    private fun anteBase(a: Int): Double {
+        val tier = if (stakeLevel >= 6) 2 else if (stakeLevel >= 3) 1 else 0
+        return anteTables[tier][(a - 1).coerceIn(0, 7)]
     }
 
     val target: Double get() {
@@ -982,8 +990,9 @@ internal class RunState {
         return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * upcomingBoss.targetMult }
     }
 
-    /** Reward dollars for each blind slot (config.dollars in Lua: Small=$3, Big=$4, Boss=$5). */
-    fun rewardForSlot(slotIdx: Int): Int = 3 + slotIdx
+    /** Reward dollars for each blind slot (config.dollars: Small=$3, Big=$4, Boss=$5). Red stake (≥2)
+     *  removes the Small Blind's reward. */
+    fun rewardForSlot(slotIdx: Int): Int = if (slotIdx == 0 && stakeLevel >= 2) 0 else 3 + slotIdx
 
     /** Name label for the upcoming blind slot on the blind-select screen. */
     fun nameForSlot(slotIdx: Int): String = when (slotIdx) {
@@ -1033,17 +1042,19 @@ internal class RunState {
 
     /** Commit the chosen starting deck (DECK_SELECT screen) — bake its modifiers, rebuild the deck
      *  composition, then start the first round. */
-    fun pickDeck(v: DeckVariant) {
+    fun pickDeck(v: DeckVariant, stake: Int = 1) {
         if (phase != Phase.DECK_SELECT) return
+        stakeLevel = stake.coerceIn(1, 8)
         baseHands += v.handsDelta
         baseDiscards += v.discardsDelta
+        if (stakeLevel >= 5) baseDiscards -= 1                     // Blue stake (≥5): -1 discard each round
         baseHandSize += v.handSizeDelta
         deckJokerBonus += v.jokerSlotDelta
         money += v.startMoney
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
         phase = Phase.ROUND
-        Telemetry.event("RUN_DECK", "deck" to v.name)
+        Telemetry.event("RUN_DECK", "deck" to v.name, "stake" to stakeLevel)
     }
 
     /** The persistent 52(-ish) card set for a starting deck (vanilla deck composition overrides). */
@@ -1808,6 +1819,7 @@ internal class RunState {
         deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
+        stakeLevel = stakeLevel,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1845,6 +1857,7 @@ internal class RunState {
         deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
+        stakeLevel = s.stakeLevel
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -3160,12 +3173,21 @@ private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () ->
 private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) =
     EndScreen(s, win = true, onRestart = onRestart, onMainMenu = onMainMenu)
 
-/** Run-start deck picker (Phase.DECK_SELECT) — a full-screen list of the starting decks; tapping one
- *  commits its modifiers + composition (RunState.pickDeck) and begins the run. */
+private val STAKE_NAMES = listOf(
+    "White Chip", "Red Chip", "Green Chip", "Black Chip", "Blue Chip", "Purple Chip", "Orange Chip", "Gold Chip")
+/** The cumulative non-joker effects active at a stake level (for the selector caption). */
+private fun stakeEffectText(level: Int): String = buildList {
+    if (level >= 2) add("Small Blind gives no \$")
+    if (level >= 3) add(if (level >= 6) "score scales ×3" else "score scales ×2")
+    if (level >= 5) add("−1 discard")
+    if (level >= 4) add("(eternal/perishable/rental jokers n/a)")
+}.joinToString(" · ").ifEmpty { "no modifiers" }
+
 @Composable
 private fun DeckSelectScreen(s: RunState) {
     val ctx = LocalContext.current
     val u = LocalUIScale.current
+    var stake by remember { mutableStateOf(1) }
     val backs by produceState(emptyMap<DeckVariant, ImageBitmap>()) {
         value = withContext(Dispatchers.Default) { ShopArt.deckBacks(ctx) }
     }
@@ -3175,11 +3197,18 @@ private fun DeckSelectScreen(s: RunState) {
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             BTxt("Choose Your Deck", Balatro.White, 22.sp)
+            // Stake stepper — the chosen stake applies to whichever deck is tapped.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                JokerCtl("◀", u, enabled = stake > 1) { stake-- }
+                BTxt("Stake: ${STAKE_NAMES[stake - 1]}", Balatro.White, 13.sp)
+                JokerCtl("▶", u, enabled = stake < 8) { stake++ }
+            }
+            BTxt(stakeEffectText(stake), Balatro.Gold, 9.sp)
             Spacer(Modifier.height(6.dp))
             DeckVariant.values().forEach { v ->
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel)
-                        .clickable { s.pickDeck(v) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                        .clickable { s.pickDeck(v, stake) }.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     backs[v]?.let {
