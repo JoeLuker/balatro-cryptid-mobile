@@ -3,6 +3,8 @@ package systems.balatro.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import systems.balatro.game.PlayingCard
+import systems.balatro.game.Suit
 
 /**
  * First unit tests of the run loop itself. RunState holds the game state machine (owned/deck/money,
@@ -133,5 +135,42 @@ class RunStateTest {
         val pack = BoosterOffer("p_arcana", "Arcana Pack", "Arcana", 0, 3, 1)
         repeat(10) { rs.consumables.clear(); rs.buyBooster(pack) }
         assertTrue("no Joker → no pack-open Tarot", rs.consumables.none { it is Consumable.TarotC })
+    }
+
+    @Test fun tradingCardDestroysSingleFirstDiscardForThree() {
+        // Vanilla j_trading: first discard of the round of exactly 1 card → destroy it, earn $3.
+        val rs = RunState()
+        rs.buy(offer("j_trading"), free = true)
+        val deckBefore = rs.snapshot().deck.size
+        val moneyBefore = rs.money
+        rs.selected = setOf(0)                                  // discard one real (drawn) deck card, first discard
+        rs.discard()
+        assertEquals("+\$3 on single first-discard", moneyBefore + 3, rs.money)
+        assertEquals("the discarded card is destroyed", deckBefore - 1, rs.snapshot().deck.size)
+    }
+
+    @Test fun tradingCardDoesNotFireOnMultiCardFirstDiscard() {
+        // The "exactly one card" gate: discarding 2 cards on the first discard does NOT fire.
+        val rs = RunState()
+        rs.buy(offer("j_trading"), free = true)
+        val deckBefore = rs.snapshot().deck.size
+        val moneyBefore = rs.money
+        rs.selected = setOf(0, 1)                              // two cards → gate blocks it
+        rs.discard()
+        assertEquals("no \$ on multi-card discard", moneyBefore, rs.money)
+        assertEquals("nothing destroyed", deckBefore, rs.snapshot().deck.size)
+    }
+
+    @Test fun mailInRebatePaysFivePerDiscardedCardOfMailRank() {
+        // Vanilla j_mail: +$5 per discarded card matching this round's random rank (mailRank).
+        val rs = RunState()
+        rs.buy(offer("j_mail"), free = true)
+        val r = rs.mailRank
+        val other = if (r == 3) 4 else 3
+        rs.hand = listOf(PlayingCard(Suit.S, r), PlayingCard(Suit.H, r), PlayingCard(Suit.C, other))
+        rs.selected = setOf(0, 1, 2)                           // two match the mail rank, one doesn't
+        val moneyBefore = rs.money
+        rs.discard()
+        assertEquals("\$5 × 2 matching cards", moneyBefore + 10, rs.money)
     }
 }

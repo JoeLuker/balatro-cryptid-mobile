@@ -540,6 +540,9 @@ private val CATALOG = listOf(
     Offer("j_vagabond", "Vagabond", "Creates a Tarot card if hand is played with $4 or less", 8, rarity = 3),
     // --- missing vanilla jokers (batch 13): pack-open spawn ---
     Offer("j_hallucination", "Hallucination", "1 in 2 chance to create a Tarot card when any Booster Pack is opened", 4),
+    // --- missing vanilla jokers (batch 14): discard economy ---
+    Offer("j_mail", "Mail-In Rebate", "Earn $5 for each discarded card of a rank (rank changes each round)", 4),
+    Offer("j_trading", "Trading Card", "If first discard of round is a single card, destroy it and earn $3", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -699,7 +702,7 @@ internal class RunState {
     private var dropShotSuit: Suit = Suit.S
     /** Random rank chosen for j_mail each round (reset_mail_rank pattern — common_events.lua:2715-2731,
      *  pseudoseed('mail'..ante)). Rebuild seeds by blindIndex; default Ace=14 matches Lua default. */
-    private var mailRank: Int = 14
+    internal var mailRank: Int = 14   // internal (not private) so the discard-economy test can read it
     /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
      *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
      *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
@@ -1495,6 +1498,13 @@ internal class RunState {
                 val smearedJoker = owned.any { it.fj.key == "j_smeared" }
                 o.fj.chips += 3.0 * discardedCards.count { it.isSuit(dropShotSuit, smearedJoker) }
             }
+        }
+        // j_trading (Trading Card): on the FIRST discard of the round (roundDiscardsUsed just became 1) of
+        // EXACTLY one card, earn $3 and destroy that card (card.lua:3402 — discards_used<=0, #full_hand==1).
+        // Each Trading Card pays $3; the single card is destroyed once.
+        if (roundDiscardsUsed == 1 && discardedCards.size == 1) {
+            val tradeCount = owned.count { it.fj.key == "j_trading" }
+            if (tradeCount > 0) { money += 3 * tradeCount; deck.removeCard(discardedCards[0]) }
         }
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
         refill()
