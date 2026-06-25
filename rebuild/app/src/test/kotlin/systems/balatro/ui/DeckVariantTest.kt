@@ -115,4 +115,19 @@ class DeckVariantTest {
         assertTrue(rs.evalRows.any { it.kind == EvalKind.DISCARDS })         // + $1 per remaining discard
         assertEquals(rs.handsLeft * 2, rs.evalRows.first { it.kind == EvalKind.HANDS }.dollars)  // $2/hand
     }
+
+    @Test fun anaglyphDeckSetsTheFlag() {
+        val rs = RunState(); rs.pickDeck(DeckVariant.ANAGLYPH)
+        assertTrue(rs.anaglyph)
+    }
+
+    @Test fun doubleTagDuplicatesTheNextSkipTag() {
+        val rs = RunState(); rs.pickDeck(DeckVariant.BLUE)
+        rs.phase = Phase.BLIND_SELECT                 // a skippable (non-boss) blind at index 0
+        rs.doubleNextTags = 1
+        val before = rs.tags.size
+        rs.skipBlind()
+        assertEquals(before + 2, rs.tags.size)        // the tag + its double
+        assertEquals(0, rs.doubleNextTags)
+    }
 }

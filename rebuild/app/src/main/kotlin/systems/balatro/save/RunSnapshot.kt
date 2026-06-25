@@ -74,6 +74,8 @@ data class RunSnapshot(
     val planetRate: Double = 4.0,
     val telescope: Boolean = false,
     val greenEconomy: Boolean = false,
+    val anaglyph: Boolean = false,
+    val doubleNextTags: Int = 0,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {

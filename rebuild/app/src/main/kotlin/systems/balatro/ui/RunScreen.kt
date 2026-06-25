@@ -90,6 +90,7 @@ internal enum class DeckVariant(
     ZODIAC("Zodiac Deck", "Start with Tarot Merchant, Planet Merchant & Overstock"),
     NEBULA("Nebula Deck", "Start with Telescope voucher, −1 consumable slot"),
     GREEN("Green Deck", "$2/hand + $1/discard at round end; no interest"),
+    ANAGLYPH("Anaglyph Deck", "Gain a Double Tag after each Boss Blind"),
 }
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
@@ -808,6 +809,8 @@ internal class RunState {
     var planetRate = PLANET_RATE                                         // Planet Merchant voucher raises this
     var telescope = false                                                // Telescope voucher / Nebula deck: most-played planet always in shop
     var greenEconomy = false                                             // Green deck: $/hand+discard at round end, no interest
+    var anaglyph = false                                                 // Anaglyph deck: a Double Tag after each boss
+    var doubleNextTags = 0                                               // Double Tags pending — duplicate the next skip tag(s)
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1101,6 +1104,7 @@ internal class RunState {
             redeemedVouchers.add("v_telescope")
         }
         if (v == DeckVariant.GREEN) greenEconomy = true            // $/hand+discard at round end, no interest
+        if (v == DeckVariant.ANAGLYPH) anaglyph = true             // Double Tag after each boss
         deck.setComposition(buildDeckComposition(v))
         startRound()                                               // re-deal from the variant deck + apply slot bonus
         phase = Phase.ROUND
@@ -1526,6 +1530,7 @@ internal class RunState {
     fun cashOut() {
         if (phase != Phase.ROUND_EVAL) return
         money += cashOutTotal
+        if (anaglyph && slot == 2) doubleNextTags += 1          // Anaglyph: gain a Double Tag after each Boss Blind
         // self-destruct jokers (Broken Home) DISSOLVED at end-of-round (the cascade's startDissolve →
         // onGone removes them). Safety net: guarantee the logical removal even if the player cashes out
         // before the 0.735s burn finishes (which unmounts the play field before onGone fires). Idempotent.
@@ -1930,6 +1935,7 @@ internal class RunState {
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
+        anaglyph = anaglyph, doubleNextTags = doubleNextTags,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1969,6 +1975,7 @@ internal class RunState {
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
+        anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -2058,6 +2065,7 @@ internal class RunState {
     fun skipBlind() {
         if (phase != Phase.BLIND_SELECT || slot == 2) return
         tags.add(upcomingTag)
+        if (doubleNextTags > 0) { tags.add(upcomingTag); doubleNextTags -= 1 }   // Double Tag: duplicate this skip tag
         blindIndex += 1
         boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
         Telemetry.event("BLIND_SKIP", "tag" to tags.last().name)
