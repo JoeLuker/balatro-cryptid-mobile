@@ -774,6 +774,8 @@ object Oracle {
         Case("Pair of aces + marble (spawn → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_marble"))),
         Case("Pair of aces + vagabond (on-play spawn → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_vagabond"))),
         Case("Pair of aces + hallucination (pack-open spawn → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_hallucination"))),
+        Case("Pair of aces + mail (discard economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_mail"))),
+        Case("Pair of aces + trading (discard economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_trading"))),
     )
 
     fun run(): Pair<Int, Int> {
