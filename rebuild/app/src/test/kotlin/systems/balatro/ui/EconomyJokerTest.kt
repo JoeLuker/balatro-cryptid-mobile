@@ -150,6 +150,36 @@ class EconomyJokerTest {
         assertEquals("too poor → no spawn", before, rs.owned.size)
     }
 
+    // ── cry-Necromancer: selling a Joker recreates a random previously-sold Joker (no sell value) ──
+    @Test fun cryNecromancerRecreatesASoldJokerWithNoSellValue() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_necromancer"), free = true)
+        rs.buy(offer("j_greedy_joker"), free = true)
+        val before = rs.owned.size
+        rs.sell(rs.owned.first { it.fj.key == "j_greedy_joker" })   // sell value > 0 → Necromancer fires
+        assertEquals("sold 1, recreated 1 → size unchanged", before, rs.owned.size)
+        val recreated = rs.owned.first { it.fj.key == "j_greedy_joker" }
+        assertEquals("recreated Joker has 0 sell value", 0, rs.sellValue(recreated))
+    }
+
+    // ── cry-kidnap: $4 per "type" Joker (Jolly/Sly families) sold this run ──
+    @Test fun cryKidnapPaysFourPerTypeJokerSold() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_kidnap"), free = true)
+        rs.buy(offer("j_jolly"), free = true)
+        rs.sell(rs.owned.first { it.fj.key == "j_jolly" })          // a "type" Joker → counts
+        rs.enterRoundEval()
+        assertEquals("\$4 per type Joker sold", 4, jokerDollars(rs))
+    }
+
+    @Test fun cryKidnapIgnoresNonTypeJokersSold() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_kidnap"), free = true)
+        rs.sell(rs.owned.first { it.fj.key == "j_joker" })          // starter Joker is NOT a type Joker
+        rs.enterRoundEval()
+        assertEquals("non-type Joker sold → \$0", 0, jokerDollars(rs))
+    }
+
     // ── cry-redbloon: pays $20 the round its 2-round countdown reaches 0, then self-destructs ──
     @Test fun cryRedbloonPaysTwentyAfterTwoRoundsThenPops() {
         val rs = RunState()

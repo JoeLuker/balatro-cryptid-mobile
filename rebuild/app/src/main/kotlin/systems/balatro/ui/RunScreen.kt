@@ -100,6 +100,7 @@ internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: Str
 internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val rarity: Int = 1, val edition: Edition = Edition.NONE)
 internal data class Owned(val offer: Offer, val fj: FJoker) {
     var sellBonus: Int = 0   // Gift Card extra_value — $ added to this joker's sell value (maxOf(1,cost/2)+bonus)
+    var noSell: Boolean = false   // cry_no_sell_value (e.g. Necromancer's spawns) — sell value forced to 0
 }
 /** A shop voucher (one per shop). `extra` is the faithful config.extra (game.lua); the effect is
  *  applied by key in RunState.redeemVoucher (Card:apply_to_run, card.lua:2322). */
@@ -267,6 +268,14 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int 
     }
     return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips)
 }
+
+/** Jokers cry-kidnap counts in the run's sale history: the vanilla "type" Jokers — Jolly/Zany/Mad/Crazy/
+ *  Droll (effect "Type Mult") and Sly/Wily/Clever/Devious/Crafty. (Cryptid "Cry Type Mult/Chips" M-pool
+ *  Jokers also qualify in source; none are in the CATALOG yet, so this set is complete for the roster.) */
+private val KIDNAP_TYPE_KEYS = setOf(
+    "j_jolly", "j_zany", "j_mad", "j_crazy", "j_droll",
+    "j_sly", "j_wily", "j_clever", "j_devious", "j_crafty",
+)
 
 internal val CATALOG = listOf(
     // --- vanilla ---
@@ -473,6 +482,8 @@ internal val CATALOG = listOf(
     Offer("j_cry_magnet", "cry-Magnet", "End of round: \$10 if you have 4 or fewer Jokers, otherwise \$2", 6),
     Offer("j_cry_morse", "cry-Morse", "Earns \$1 at end of round; +\$2 each time an edition Joker is sold", 5),
     Offer("j_cry_familiar_currency", "cry-Familiar Currency", "End of round: spend \$19 to create a random Meme Joker (if you have \$19+)", 0, rarity = 3),
+    Offer("j_cry_necromancer", "cry-Necromancer", "When a Joker is sold, create a random previously-sold Joker (no sell value)", 5, rarity = 2),
+    Offer("j_cry_kidnap", "cry-kidnap", "Earn \$4 at end of round for each 'type' Joker (Jolly/Sly families) sold this run", 4),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -837,6 +848,10 @@ internal class RunState {
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
     val owned = mutableStateListOf<Owned>()
+    // History of sold Joker keys this run (G.GAME.jokers_sold) — read by Necromancer (recreate a random
+    // sold Joker) and Kidnap ($ per "type" Joker sold). In-session only: NOT serialized, so a save/load
+    // resume starts the history fresh (a secondary gap for the save/load lane to close later).
+    val jokersSold = mutableListOf<String>()
     /** Joker slots: base 5, +1 per NEGATIVE joker held (e_negative config.extra = 1 → card_limit+1). */
     val jokerSlots: Int get() = 5 + owned.count { it.offer.edition == Edition.NEGATIVE }
     // Voucher run-modifiers (Card:apply_to_run). Persist for the whole run once redeemed.
@@ -1632,7 +1647,10 @@ internal class RunState {
             // cry-Magnet: $10 (money 2 × Xmoney 5) if you have ≤4 Jokers (slots), else $2 (calc_dollar_bonus).
             owned.count { it.offer.key == "j_cry_magnet" } * (if (owned.size <= 4) 10 else 2) +
             // cry-Morse: pays its accumulated money (fj.x, starts 1, +2 per edition-Joker sold) when x > 0.
-            owned.filter { it.offer.key == "j_cry_morse" }.sumOf { it.fj.x.toInt() }
+            owned.filter { it.offer.key == "j_cry_morse" }.sumOf { it.fj.x.toInt() } +
+            // cry-kidnap: $4 (money) per "type" Joker sold this run — the Jolly/Zany/Mad/Crazy/Droll (Type Mult)
+            // and Sly/Wily/Clever/Devious/Crafty families (misc calc_dollar_bonus, counting G.GAME.jokers_sold).
+            owned.count { it.offer.key == "j_cry_kidnap" } * 4 * jokersSold.count { it in KIDNAP_TYPE_KEYS }
         if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
@@ -1814,6 +1832,15 @@ internal class RunState {
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
     }
 
+    /** Spawn a specific Joker by key (e.g. Necromancer recreating a previously-sold Joker). [noSell] marks
+     *  the spawn with cry_no_sell_value (sell value 0). No-op if the key isn't in the CATALOG or slots are full. */
+    private fun createJokerByKey(key: String, noSell: Boolean = false) {
+        if (owned.size >= maxJokers) return
+        val offer = CATALOG.firstOrNull { it.key == key } ?: return
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)).also { it.noSell = noSell })
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to key, "noSell" to noSell)
+    }
+
     /** Spawn a random Cryptid Meme-pool Joker (Cryptid `pools = { ["Meme"] }`) — used by Familiar Currency.
      *  Filtered to the Meme members currently in the CATALOG; falls back to any Joker only if none exist. */
     private fun createMemeJoker() {
@@ -1838,7 +1865,7 @@ internal class RunState {
     }
 
     /** Sell value of a joker = base (maxOf(1, cost/2)) + accumulated Gift Card bonus (extra_value). */
-    internal fun sellValue(o: Owned): Int = maxOf(1, o.offer.cost / 2) + o.sellBonus
+    internal fun sellValue(o: Owned): Int = if (o.noSell) 0 else maxOf(1, o.offer.cost / 2) + o.sellBonus
 
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
@@ -1883,6 +1910,19 @@ internal class RunState {
         // j_cry_morse: selling a Joker that carries an EDITION (Foil/Holo/Poly) grows each remaining morse's
         // payout by +2 (bonus); morse pays its accumulated money (fj.x) at round end. (misc selling_card w/ edition)
         if (o.fj.edition.isNotEmpty()) for (rem in owned) if (rem.fj.key == "j_cry_morse") rem.fj.x += 2.0
+        // Record the sold Joker in the run's sale history (read by Necromancer / Kidnap). Appended AFTER the
+        // per-sell hooks so the just-sold Joker IS a candidate for Necromancer's recreate this same sale.
+        jokersSold.add(soldKey)
+        // j_cry_necromancer: selling a Joker whose sell value > 0 recreates a random previously-sold Joker
+        // with NO sell value (cry_no_sell_value). The sell-value gate stops Necromancer's own value-0 spawns
+        // from chaining. Deterministic per-sale seed; each Necromancer spawns one (slot permitting).
+        if (sellCost > 0 && jokersSold.isNotEmpty()) {
+            val necros = owned.count { it.fj.key == "j_cry_necromancer" }
+            val seedBase = jokersSold.size * 2654435761L + money.toLong() * 131L + 7L
+            repeat(necros) { i ->
+                if (owned.size < maxJokers) createJokerByKey(jokersSold[Random(seedBase + i * 1009L).nextInt(jokersSold.size)], noSell = true)
+            }
+        }
         // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately (unless disabled)
         if (!bossDisabled && boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
