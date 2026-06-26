@@ -487,6 +487,8 @@ internal val CATALOG = listOf(
     Offer("j_cry_arsonist", "cry-Arsonist", "If your played hand contains a Full House, destroy every played card", 5, rarity = 3),
     Offer("j_cry_huntingseason", "cry-Hunting Season", "When you play exactly 3 cards, destroy the middle one", 7, rarity = 2),
     Offer("j_cry_seal_the_deal", "cry-Seal the Deal", "On the final hand of the round, give each scored card a random seal", 5, rarity = 2),
+    Offer("j_cry_queens_gambit", "cry-Queen's Gambit", "Playing a Royal Flush destroys the Queen and creates a Negative Joker", 7),
+    Offer("j_cry_equilib", "cry-Aequilibrium", "Creates 2 Negative Jokers each hand", 50, rarity = 5),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1598,6 +1600,20 @@ internal class RunState {
         // hand-order preserved by play()'s filterIndexed). Removed from the run deck permanently.
         if (owned.any { it.fj.key == "j_cry_huntingseason" } && pendingSel.size == 3)
             deck.removeCard(pendingSel[1])
+        // ── negative-Joker spawners ───────────────────────────────────────────────────────────────────
+        // j_cry_queens_gambit: a ROYAL FLUSH (A-high straight flush — all of 10/J/Q/K/A) destroys the scored
+        // Queen and spawns a NEGATIVE-edition Joker. No separate ROYAL type, so detect STRAIGHT_FLUSH + all
+        // royal ranks present (misc destroying_card == Queen on a Royal Flush).
+        if (owned.any { it.fj.key == "j_cry_queens_gambit" }
+            && HandType.STRAIGHT_FLUSH in r.pokerHands
+            && r.scoringHand.map { it.id }.toSet().containsAll(setOf(10, 11, 12, 13, 14))) {
+            r.scoringHand.firstOrNull { it.id == 12 }?.let { deck.removeCard(it) }   // destroy the scored Queen
+            repeat(owned.count { it.fj.key == "j_cry_queens_gambit" }) { createNegativeJoker(CATALOG.random()) }
+        }
+        // j_cry_equilib (Aequilibrium): each Equilibrium spawns 2 NEGATIVE-edition random Jokers per hand
+        // (exotic before-pass, jokers=2). Spawned in scoreBank (after this hand), so they first score the NEXT
+        // hand — a minor timing deviation from the Lua before-pass to avoid mutating the board mid-scoring.
+        repeat(owned.count { it.fj.key == "j_cry_equilib" } * 2) { createNegativeJoker(CATALOG.random()) }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
@@ -1872,6 +1888,16 @@ internal class RunState {
         val offer = (if (meme.isNotEmpty()) meme else CATALOG).random()
         owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key, "pool" to "Meme")
+    }
+
+    /** Spawn [offer] as a NEGATIVE-edition Joker (Equilibrium / Queen's Gambit). Negative Jokers bring their
+     *  own slot (jokerSlots counts edition==NEGATIVE) so this is NOT gated on maxJokers; a defensive total cap
+     *  (25) guards against runaway when a spawn rolls another spawner. */
+    private fun createNegativeJoker(offer: Offer) {
+        if (owned.size >= 25) return
+        val neg = offer.copy(edition = Edition.NEGATIVE)
+        owned.add(Owned(neg, initialFJoker(neg, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key, "edition" to "NEGATIVE")
     }
 
     /** Reorder a joker by swapping it with its [dir] neighbour (dir = -1 left, +1 right). Joker order is
