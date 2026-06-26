@@ -25,7 +25,8 @@ class RunStateRoundTripTest {
         rs.money = 42; rs.blindIndex = 5
         rs.owned.add(Owned(
             Offer("j_cry_bonk", "Bonk", "+1 Chip per Pair", 6, rarity = 2, edition = Edition.FOIL),
-            FJoker("j_cry_bonk", mult = 3.0, edition = "cry_m", x = 2.5, chips = 88.0, n = 7, rarity = 2, xc = 4.0)))
+            FJoker("j_cry_bonk", mult = 3.0, edition = "cry_m", x = 2.5, chips = 88.0, n = 7, rarity = 2, xc = 4.0))
+            .also { it.sellBonus = 9 })   // Gift Card extra_value — must survive reload
         rs.owned.add(Owned(Offer("j_joker", "Joker", "+4 Mult", 2), FJoker("j_joker")))
         rs.handLevels.setAll(mapOf(HandType.PAIR to 3, HandType.FLUSH to 2))
         rs.shopSlotsBonus = 1; rs.discountPercent = 25; rs.interestCap = 10
@@ -68,6 +69,7 @@ class RunStateRoundTripTest {
         assertEquals(orig.edition, got.edition)
         assertEquals(orig.rarity, got.rarity)
         assertEquals("the Offer edition (cosmetic) survives too", Edition.FOIL, gotOwned.offer.edition)
+        assertEquals("Gift Card sell-value bonus (Owned.sellBonus) must survive reload", 9, gotOwned.sellBonus)
     }
 
     /** A save taken mid-shop must resume the EXACT post-roll stock (jokers/planets/tarots, the voucher,
