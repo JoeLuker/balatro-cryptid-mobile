@@ -462,6 +462,8 @@ private val CATALOG = listOf(
     // --- missing Cryptid jokers (batch 2): economy ---
     Offer("j_cry_gardenfork", "cry-Gardenfork", "Earn $7 if the played hand has an Ace and a 7", 7, rarity = 3),
     Offer("j_cry_hunger", "cry-Hunger", "Earn $3 each time a consumable is used", 6, rarity = 2),
+    // --- missing Cryptid jokers (batch 3): Lucky-trigger economy ---
+    Offer("j_cry_lucky_joker", "cry-Lucky Joker", "Earn $5 each time a Lucky card triggers", 4),
     // m: Xmult from j.x (+13 per Jolly Joker sold).
     Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
     // longboi: Xmult = monstermult (grows each round; M-pool variant).
@@ -1517,6 +1519,8 @@ internal class RunState {
         // j_lucky_cat: persist the X0.25-per-Lucky-trigger growth (the individual hook applied it to THIS
         // hand by reading fj.x + 0.25·triggers-so-far; scoreBank persists fj.x for next hand). card.lua:3660.
         for (o in owned) if (o.fj.key == "j_lucky_cat") o.fj.x += 0.25 * r.luckyTriggers
+        // j_cry_lucky_joker: +$5 per Lucky-card trigger this hand (context.individual on lucky_trigger).
+        money += 5 * r.luckyTriggers * owned.count { it.offer.key == "j_cry_lucky_joker" }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
