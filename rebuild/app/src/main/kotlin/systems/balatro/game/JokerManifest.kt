@@ -511,6 +511,10 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         initialState = FJokerState(n = 5),
         reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = s.n - 1) else s },
     ),
+    // j_rocket: end-of-round $ payout (n = dollars, starts 1); increases by $2 when a Boss Blind is
+    // defeated (config {dollars=1, increase=2}). No scoring output — RunScreen pays n in buildCashOut and
+    // bumps n on a boss win (before the payout, so the boss round itself pays the increased amount).
+    "j_rocket"          to JokerSpec(initialState = FJokerState(n = 1)),
     // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
     "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)

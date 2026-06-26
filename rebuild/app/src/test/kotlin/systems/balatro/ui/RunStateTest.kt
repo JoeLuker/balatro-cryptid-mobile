@@ -314,4 +314,35 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("no enhanced cards → x unchanged", 1.0, v.fj.x, 1e-9)
     }
+
+    private fun jokerDollarsOf(rs: RunState) = rs.evalRows.filter { it.kind == EvalKind.JOKER }.sumOf { it.dollars }
+
+    @Test fun rocketIncreasesAndPaysTheIncreasedAmountOnBossDefeat() {
+        // Vanilla j_rocket: $1/round, +$2 when a Boss Blind is defeated — applied BEFORE the payout, so
+        // the boss round itself pays the increased amount.
+        val rs = RunState()
+        rs.buy(offer("j_rocket"), free = true)
+        val rk = rs.owned.first { it.fj.key == "j_rocket" }
+        assertEquals("base payout \$1", 1, rk.fj.n)
+        rs.blindIndex = 2; rs.boss = null                       // slot 2 = boss round (no play gate)
+        rs.phase = Phase.ROUND
+        rs.roundScore = rs.target + 1000.0                      // force the win branch
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("payout +\$2 on boss defeat", 3, rk.fj.n)
+        assertEquals("the boss round pays the increased \$3", 3, jokerDollarsOf(rs))
+    }
+
+    @Test fun rocketDoesNotIncreaseOnNonBossRound() {
+        val rs = RunState()
+        rs.buy(offer("j_rocket"), free = true)
+        rs.blindIndex = 0; rs.boss = null                       // slot 0 = small blind
+        rs.phase = Phase.ROUND
+        rs.roundScore = rs.target + 1000.0
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        val rk = rs.owned.first { it.fj.key == "j_rocket" }
+        assertEquals("no increase off a boss", 1, rk.fj.n)
+        assertEquals("pays base \$1", 1, jokerDollarsOf(rs))
+    }
 }
