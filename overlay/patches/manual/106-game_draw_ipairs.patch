@@ -1,0 +1,67 @@
+diff --git a/game.lua b/game.lua
+index 81256f4..c81b1df 100644
+--- a/game.lua
++++ b/game.lua
+@@ -3026,7 +3026,7 @@ function Game:draw()
+ 
+     if not G.debug_UI_toggle then 
+ 
+-    for k, v in pairs(self.I.NODE) do
++    for k, v in ipairs(self.I.NODE) do
+         if not v.parent then 
+             love.graphics.push()
+             v:translate_container()
+@@ -3035,7 +3035,7 @@ function Game:draw()
+         end
+     end
+ 
+-    for k, v in pairs(self.I.MOVEABLE) do
++    for k, v in ipairs(self.I.MOVEABLE) do
+         if not v.parent then 
+             love.graphics.push()
+             v:translate_container()
+@@ -3053,7 +3053,7 @@ function Game:draw()
+     end
+ 
+     if G.debug_splash_size_toggle then 
+-        for k, v in pairs(self.I.CARDAREA) do
++        for k, v in ipairs(self.I.CARDAREA) do
+             if not v.parent then 
+                 love.graphics.push()
+                 v:translate_container()
+@@ -3064,7 +3064,7 @@ function Game:draw()
+     else
+     if (not self.OVERLAY_MENU) or (not self.F_HIDE_BG) then 
+         timer_checkpoint('primatives', 'draw')
+-        for k, v in pairs(self.I.UIBOX) do
++        for k, v in ipairs(self.I.UIBOX) do
+             if not v.attention_text and not v.parent and v ~= self.OVERLAY_MENU and v ~= self.screenwipe and v ~= self.OVERLAY_TUTORIAL and v ~= self.debug_tools and v ~= self.online_leaderboard and v ~= self.achievement_notification then 
+                 love.graphics.push()
+                 v:translate_container()
+@@ -3073,7 +3073,7 @@ function Game:draw()
+             end
+         end
+             timer_checkpoint('uiboxes', 'draw')
+-        for k, v in pairs(self.I.CARDAREA) do
++        for k, v in ipairs(self.I.CARDAREA) do
+             if not v.parent then 
+                 love.graphics.push()
+                 v:translate_container()
+@@ -3082,7 +3082,7 @@ function Game:draw()
+             end
+         end
+ 
+-        for k, v in pairs(self.I.CARD) do
++        for k, v in ipairs(self.I.CARD) do
+             if (not v.parent and v ~= self.CONTROLLER.dragging.target and v ~= self.CONTROLLER.focused.target) then
+                 love.graphics.push()
+                 v:translate_container()
+@@ -3091,7 +3091,7 @@ function Game:draw()
+             end
+         end
+ 
+-        for k, v in pairs(self.I.UIBOX) do
++        for k, v in ipairs(self.I.UIBOX) do
+             if v.attention_text and v ~= self.debug_tools and v ~= self.online_leaderboard and v ~= self.achievement_notification  then 
+                 love.graphics.push()
+                 v:translate_container()

@@ -62,6 +62,9 @@ manual/102-cryptid_glow_guard.patch
 manual/103-sticky_hover_unbaked.patch
 manual/104-cardsleeves_nilsafe.patch
 manual/105-cryptid_config_locals.patch
+manual/106-game_draw_ipairs.patch
+manual/107-settings_ux.patch
+manual/108-sticky_sell_label.patch
 manual/59-drag_self_drop_exclude.patch
 manual/60-sticky_fingers_guard.patch
 manual/61-drag_reject_feedback.patch
