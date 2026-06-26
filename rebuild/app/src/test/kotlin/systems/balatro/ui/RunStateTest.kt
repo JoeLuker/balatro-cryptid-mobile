@@ -518,4 +518,19 @@ class RunStateTest {
         rs.useConsumable(0)
         assertEquals("+\$3 each time a consumable is used", 3, rs.money)
     }
+
+    @Test fun cryLuckyJokerPaysFivePerLuckyTrigger() {
+        // cry-Lucky Joker: +$5 per Lucky-card trigger. Reuses the Lucky enhancement — fresh RunState
+        // seed 41, a heart flush whose 3rd card (index 2) is Lucky and triggers (1 trigger → +$5).
+        val rs = RunState()
+        rs.buy(offer("j_cry_lucky_joker"), free = true)
+        rs.money = 0
+        rs.hand = listOf(PlayingCard(Suit.H, 2), PlayingCard(Suit.H, 3),
+                         PlayingCard(Suit.H, 5, Enhancement.LUCKY), PlayingCard(Suit.H, 7), PlayingCard(Suit.H, 9))
+        rs.handSize = 5
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2, 3, 4)
+        rs.play(); rs.scoreBank()
+        assertEquals("+\$5 per Lucky trigger (1 trigger)", 5, rs.money)
+    }
 }
