@@ -530,6 +530,13 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // defeated (config {dollars=1, increase=2}). No scoring output — RunScreen pays n in buildCashOut and
     // bumps n on a boss win (before the payout, so the boss round itself pays the increased amount).
     "j_rocket"          to JokerSpec(initialState = FJokerState(n = 1)),
+    // cry-gold Joker: x = percent (starts 0), grows +2 per scored Gold-enhanced card (epic.lua individual
+    // + m_gold). No scoring output — RunScreen grows x in scoreBank and pays floor(percent% × money) in
+    // buildCashOut (calc_dollar_bonus = floor(0.01·percent·dollars)).
+    "j_cry_goldjoker"        to JokerSpec(initialState = FJokerState(x = 0.0)),
+    // cry-Compound Interest: x = percent (starts 12), pays floor(percent% × money) at round end then grows
+    // +3 (percent_mod) when it pays (calc_dollar_bonus, only when dollars > 0). RunScreen does both inline.
+    "j_cry_compound_interest" to JokerSpec(initialState = FJokerState(x = 12.0)),
     // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
     "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)

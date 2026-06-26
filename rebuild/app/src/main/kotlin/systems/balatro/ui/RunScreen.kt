@@ -466,6 +466,8 @@ private val CATALOG = listOf(
     Offer("j_cry_lucky_joker", "cry-Lucky Joker", "Earn $5 each time a Lucky card triggers", 4),
     // --- missing Cryptid jokers (batch 4): per-round hand-size accumulator ---
     Offer("j_cry_lebaron_james", "cry-LeBaron James", "+1 hand size this round per scored King", 6, rarity = 3),
+    Offer("j_cry_goldjoker", "cry-gold Joker", "Earns a % of your money at end of round; +2% per scored Gold card", 14, rarity = 5),
+    Offer("j_cry_compound_interest", "cry-Compound Interest", "Earns 12% of your money at end of round; the % grows +3% each round", 10, rarity = 3),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1525,6 +1527,9 @@ internal class RunState {
         // j_lucky_cat: persist the X0.25-per-Lucky-trigger growth (the individual hook applied it to THIS
         // hand by reading fj.x + 0.25·triggers-so-far; scoreBank persists fj.x for next hand). card.lua:3660.
         for (o in owned) if (o.fj.key == "j_lucky_cat") o.fj.x += 0.25 * r.luckyTriggers
+        // j_cry_goldjoker: percent (fj.x) grows +2 per scored Gold-enhanced card (epic.lua individual on
+        // m_gold). Pays floor(percent% × money) at round end (buildCashOut). Matches vampire's once-per-card.
+        for (o in owned) if (o.fj.key == "j_cry_goldjoker") o.fj.x += 2.0 * r.scoringHand.count { it.enhancement == Enhancement.GOLD }
         // j_cry_lucky_joker: +$5 per Lucky-card trigger this hand (context.individual on lucky_trigger).
         money += 5 * r.luckyTriggers * owned.count { it.offer.key == "j_cry_lucky_joker" }
         // j_cry_lebaron_james: +1 hand size per scored King this round (temp, before the refill below);
@@ -1590,7 +1595,10 @@ internal class RunState {
             owned.count { it.offer.key == "j_cloud_9" } * deck.composition().count { it.rank == 9 } +  // Cloud 9: $1 per 9 in deck
             owned.count { it.offer.key == "j_to_the_moon" } * (money / 5) +                         // To the Moon: extra $1 interest per $5 (uncapped)
             (if (roundDiscardsUsed == 0) owned.count { it.offer.key == "j_delayed_grat" } * 2 * discardsLeft else 0) +  // Delayed Gratification: $2 per discard, only if none used
-            owned.filter { it.offer.key == "j_rocket" }.sumOf { it.fj.n }                            // Rocket: current payout (base $1, +$2 per boss defeated)
+            owned.filter { it.offer.key == "j_rocket" }.sumOf { it.fj.n } +                          // Rocket: current payout (base $1, +$2 per boss defeated)
+            // cry-gold Joker & cry-Compound Interest: floor(percent% × money), percent = fj.x (calc_dollar_bonus).
+            owned.filter { it.offer.key == "j_cry_goldjoker" || it.offer.key == "j_cry_compound_interest" }
+                 .sumOf { (0.01 * it.fj.x * money).toInt() }
         if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
@@ -1600,6 +1608,10 @@ internal class RunState {
      *  blind→shop transition runs (END_OF_ROUND self-destructs, advance blind, roll the next shop). */
     fun cashOut() {
         if (phase != Phase.ROUND_EVAL) return
+        // j_cry_compound_interest: percent (fj.x) grows +3 each round it pays out — calc_dollar_bonus scales
+        // ONLY when dollars > 0, and reads dollars BEFORE the cash-out bonus is banked (so check money here,
+        // before the `money += cashOutTotal` below). The payout itself used the pre-growth percent (buildCashOut).
+        if (money > 0) for (o in owned) if (o.fj.key == "j_cry_compound_interest") o.fj.x += 3.0
         money += cashOutTotal
         if (anaglyph && slot == 2) doubleNextTags += 1          // Anaglyph: gain a Double Tag after each Boss Blind
         // self-destruct jokers (Broken Home) DISSOLVED at end-of-round (the cascade's startDissolve →

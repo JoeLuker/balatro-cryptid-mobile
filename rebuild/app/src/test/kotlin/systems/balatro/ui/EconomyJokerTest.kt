@@ -47,4 +47,46 @@ class EconomyJokerTest {
         rs.enterRoundEval()
         assertEquals(6, jokerDollars(rs))
     }
+
+    // ── cry-gold Joker: floor(percent% × money) at round end; percent grows +2 per scored Gold card ──
+    @Test fun cryGoldJokerPaysPercentOfMoney() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_goldjoker"), free = true)
+        rs.owned.first { it.fj.key == "j_cry_goldjoker" }.fj.x = 50.0   // percent grown to 50% (Gold cards)
+        rs.money = 20
+        rs.enterRoundEval()
+        assertEquals("floor(0.01 × 50 × \$20) = \$10", 10, jokerDollars(rs))
+    }
+
+    @Test fun cryGoldJokerStartsAtZeroPercentSoNoPayout() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_goldjoker"), free = true)
+        rs.money = 100
+        rs.enterRoundEval()
+        assertEquals("percent starts at 0 → \$0", 0, jokerDollars(rs))
+    }
+
+    // ── cry-Compound Interest: starts 12%, pays floor(percent% × money), then percent grows +3 (when paid) ──
+    @Test fun cryCompoundInterestPaysTwelvePercentThenGrows() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_compound_interest"), free = true)
+        val j = rs.owned.first { it.fj.key == "j_cry_compound_interest" }
+        rs.money = 100
+        rs.enterRoundEval()
+        assertEquals("12% of \$100", 12, jokerDollars(rs))
+        rs.cashOut()                                         // pays, then percent grows 12 → 15
+        assertEquals("percent grew +3 after paying", 15.0, j.fj.x, 1e-9)
+        rs.money = 100
+        rs.enterRoundEval()
+        assertEquals("now 15% of \$100", 15, jokerDollars(rs))
+    }
+
+    @Test fun cryCompoundInterestDoesNotGrowWhenBroke() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_compound_interest"), free = true)
+        val j = rs.owned.first { it.fj.key == "j_cry_compound_interest" }
+        rs.money = 0
+        rs.enterRoundEval(); rs.cashOut()                    // calc_dollar_bonus scales only when dollars > 0
+        assertEquals("no growth at \$0", 12.0, j.fj.x, 1e-9)
+    }
 }
