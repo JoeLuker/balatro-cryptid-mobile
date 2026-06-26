@@ -66,6 +66,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         systems.balatro.audio.SoundManager.init(applicationContext)   // load bundled SFX once
+        getSharedPreferences("balatro", MODE_PRIVATE).let {           // apply saved audio settings
+            systems.balatro.audio.SoundManager.enabled = it.getBoolean("sfx", true)
+            systems.balatro.audio.MusicManager.enabled = it.getBoolean("music", true)
+        }
         // Edge-to-edge: let the Compose surface fill the ENTIRE display, drawing under (hidden) system
         // bars. Without this the content area is inset by the landscape nav bar (~200px), so the room
         // scaled to a too-narrow surface (u≈165px/unit instead of the full-width 174.5) and the whole
@@ -111,6 +115,7 @@ class MainActivity : ComponentActivity() {
                     value = withContext(Dispatchers.Default) { if (jokes.isEmpty()) emptyMap() else buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
+                var showSettings by remember { mutableStateOf(false) }
                 var showRun by remember { mutableStateOf(bootRun || bootScreen != null) }
                 // A saved run auto-resumes on Play; hasSave drives the Continue/New-Run choice.
                 val saveFile = remember { File(ctx.filesDir, SaveIo.FILE_NAME) }
@@ -155,6 +160,10 @@ class MainActivity : ComponentActivity() {
                                 Text("New Run  (abandon the saved run)")
                             }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(onClick = { showSettings = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Settings  (audio)")
+                        }
                         Spacer(Modifier.weight(1f))
                         Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
                             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -175,6 +184,39 @@ class MainActivity : ComponentActivity() {
                             }
                             Spacer(Modifier.height(24.dp))
                         }
+                    }
+
+                    if (showSettings) {
+                        var sfxOn by remember { mutableStateOf(systems.balatro.audio.SoundManager.enabled) }
+                        var musicOn by remember { mutableStateOf(systems.balatro.audio.MusicManager.enabled) }
+                        val prefs = remember { ctx.getSharedPreferences("balatro", Context.MODE_PRIVATE) }
+                        AlertDialog(
+                            onDismissRequest = { showSettings = false },
+                            confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Done") } },
+                            title = { Text("Settings") },
+                            text = {
+                                Column {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Sound effects")
+                                        Switch(checked = sfxOn, onCheckedChange = {
+                                            sfxOn = it; systems.balatro.audio.SoundManager.enabled = it
+                                            prefs.edit().putBoolean("sfx", it).apply()
+                                        })
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Music")
+                                        Switch(checked = musicOn, onCheckedChange = {
+                                            musicOn = it
+                                            systems.balatro.audio.MusicManager.setEnabled(it, ctx.applicationContext)
+                                            prefs.edit().putBoolean("music", it).apply()
+                                        })
+                                    }
+                                }
+                            },
+                        )
                     }
 
                     if (showRun) {
