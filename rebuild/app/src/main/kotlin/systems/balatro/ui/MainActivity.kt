@@ -116,6 +116,7 @@ class MainActivity : ComponentActivity() {
                 }
                 var showManager by remember { mutableStateOf(false) }
                 var showSettings by remember { mutableStateOf(false) }
+                var showStats by remember { mutableStateOf(false) }
                 var showRun by remember { mutableStateOf(bootRun || bootScreen != null) }
                 // A saved run auto-resumes on Play; hasSave drives the Continue/New-Run choice.
                 val saveFile = remember { File(ctx.filesDir, SaveIo.FILE_NAME) }
@@ -161,6 +162,10 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         Spacer(Modifier.height(10.dp))
+                        OutlinedButton(onClick = { showStats = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Stats  (lifetime)")
+                        }
+                        Spacer(Modifier.height(10.dp))
                         OutlinedButton(onClick = { showSettings = true }, modifier = Modifier.fillMaxWidth()) {
                             Text("Settings  (audio)")
                         }
@@ -184,6 +189,30 @@ class MainActivity : ComponentActivity() {
                             }
                             Spacer(Modifier.height(24.dp))
                         }
+                    }
+
+                    if (showStats) {
+                        val st = remember { systems.balatro.save.StatsStore.read(ctx) }
+                        AlertDialog(
+                            onDismissRequest = { showStats = false },
+                            confirmButton = { TextButton(onClick = { showStats = false }) { Text("Done") } },
+                            title = { Text("Lifetime Stats") },
+                            text = {
+                                Column {
+                                    listOf(
+                                        "Runs played" to "${st.games}",
+                                        "Wins" to "${st.wins}  (${st.winRate}%)",
+                                        "Best ante" to "${st.bestAnte}",
+                                        "Best round score" to "${st.bestScore}",
+                                        "Total hands played" to "${st.totalHands}",
+                                    ).forEach { (k, v) ->
+                                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(k); Text(v, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                            },
+                        )
                     }
 
                     if (showSettings) {

@@ -949,6 +949,7 @@ internal class RunState {
     var hand by mutableStateOf<List<PlayingCard>>(emptyList())
     var selected by mutableStateOf(setOf<Int>())
     var roundScore by mutableStateOf(0.0)
+    var runHighScore = 0.0; private set                 // highest round total reached this run (lifetime-stats)
     var handsLeft by mutableStateOf(HANDS)
     var discardsLeft by mutableStateOf(DISCARDS)
     var lastResult by mutableStateOf<ScoreResult?>(null)
@@ -1425,6 +1426,7 @@ internal class RunState {
         // (isNewTypeThisRound removed — keychange migrated to JOKER_MANIFEST HandScored reducer using handPlays[type] == 1.)
         val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
+        if (roundScore > runHighScore) runHighScore = roundScore   // track the best round total this run
         totalChipsScored += r.score
         totalCardsPlayed += pendingSel.size
         if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
@@ -2264,12 +2266,16 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             else -> {}
         }
     }
-    // Win / game-over stings.
+    // Win / game-over stings + lifetime-stats recording (once per finished run).
     LaunchedEffect(s.phase) {
         when (s.phase) {
             Phase.WIN -> systems.balatro.audio.SoundManager.play("timpani")
             Phase.OVER -> systems.balatro.audio.SoundManager.play("gong")
             else -> {}
+        }
+        if (startScreen == null && (s.phase == Phase.WIN || s.phase == Phase.OVER)) {
+            systems.balatro.save.StatsStore.record(ctx, won = s.phase == Phase.WIN, ante = s.ante,
+                hands = s.totalHandsPlayed, bestScore = s.runHighScore.toLong())
         }
     }
 
