@@ -93,4 +93,22 @@ class VoucherTier2Test {
         val rs = run(); rs.redeemVoucher(voucher("v_illusion", 0))
         org.junit.Assert.assertTrue(rs.illusion)
     }
+
+    @Test fun nachoTongAddsAHand() {
+        val rs = run(); val before = rs.baseHands
+        rs.redeemVoucher(voucher("v_nacho_tong", 1))
+        assertEquals(before + 1, rs.baseHands)
+    }
+
+    @Test fun recyclomancyAddsADiscard() {
+        val rs = run(); val before = rs.baseDiscards
+        rs.redeemVoucher(voucher("v_recyclomancy", 1))
+        assertEquals(before + 1, rs.baseDiscards)
+    }
+
+    @Test fun liquidationDiscountsTheShop() {
+        val rs = run()
+        rs.redeemVoucher(voucher("v_liquidation", 50))
+        assertEquals(50, rs.discountPercent)
+    }
 }
