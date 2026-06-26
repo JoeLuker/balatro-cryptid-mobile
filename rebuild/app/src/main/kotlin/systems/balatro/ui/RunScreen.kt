@@ -457,6 +457,8 @@ private val CATALOG = listOf(
     Offer("j_cry_biggestm", "Biggestm", "X7 Mult on Pair+ hands (M-pool)", 7),
     // crustulum: +Chips from j.chips accumulator (reroll shop increments).
     Offer("j_cry_crustulum", "Crustulum", "+Chips from reroll accumulator (M-pool)", 6),
+    // --- missing Cryptid jokers (batch 1): passive hand modifier ---
+    Offer("j_cry_blurred", "cry-Blurred Joker", "+1 hand each round", 4),
     // m: Xmult from j.x (+13 per Jolly Joker sold).
     Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
     // longboi: Xmult = monstermult (grows each round; M-pool variant).
@@ -1211,6 +1213,7 @@ internal class RunState {
         discardsLeft = boss?.discards(baseDiscards) ?: baseDiscards  // base (+Wasteful); The Water: 0 discards
         // ── passive joker hands/discards modifiers (board scan) ──
         handsLeft -= owned.count { it.offer.key == "j_troubadour" }                  // Troubadour: -1 hand
+        handsLeft += owned.count { it.offer.key == "j_cry_blurred" }                 // cry-Blurred: +1 hand each round (extra_hands=1)
         discardsLeft += owned.count { it.offer.key == "j_drunkard" } +               // Drunkard: +1 discard
                         owned.count { it.offer.key == "j_merry_andy" }               // Merry Andy: +1 discard
         if (owned.any { it.offer.key == "j_burglar" }) { handsLeft += 3; discardsLeft = 0 }  // Burglar: +3 hands, no discards
