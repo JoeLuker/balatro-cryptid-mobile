@@ -165,10 +165,13 @@ cap blind_select_tall         apply_blind_select_tall "$B/functions/UI_definitio
 cap draw_shader_nil_reset     apply_draw_shader_nil_reset "$B/engine/sprite.lua" "$B/SMODS/_/src/card_draw.lua" "$B/card.lua" "$B/blind.lua" "$B/functions/misc_functions.lua"
 
 # append hand-maintained patches (re-anchored silent-skip ports) after the
-# mechanical series, in name order — these apply last.
+# mechanical series, in NUMERIC order (sort -V) — these apply last. Numeric, not
+# lexical: string sort orders 10x before 9x (e.g. "107" < "95"), which applies a
+# higher-numbered patch before a lower one it depends on (107's Compat-header
+# anchor is created by 95) and breaks the build. sort -V gives 95 < 100 < 108.
 if compgen -G "$OUT/manual/*.patch" >/dev/null 2>&1; then
   echo "[gen] appending hand-maintained manual/ patches:"
-  for mp in "$OUT"/manual/*.patch; do
+  for mp in $(printf '%s\n' "$OUT"/manual/*.patch | sort -V); do
     echo "manual/$(basename "$mp")" >> "$SERIES"
     echo "  + manual/$(basename "$mp")"
   done
