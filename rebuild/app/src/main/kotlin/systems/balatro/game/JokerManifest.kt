@@ -537,6 +537,10 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // cry-Compound Interest: x = percent (starts 12), pays floor(percent% × money) at round end then grows
     // +3 (percent_mod) when it pays (calc_dollar_bonus, only when dollars > 0). RunScreen does both inline.
     "j_cry_compound_interest" to JokerSpec(initialState = FJokerState(x = 12.0)),
+    // cry-redbloon: n = rounds_remaining (starts 2). RoundEnd reducer decrements n; RunScreen pays $20 in
+    // buildCashOut the round n reaches 0 (predicted at n==1) and self-destructs it (n<=0). No scoring output.
+    "j_cry_redbloon"         to JokerSpec(initialState = FJokerState(n = 2),
+        reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = s.n - 1) else s }),
     // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
     "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)
