@@ -377,4 +377,36 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertTrue("self-destructs when its countdown reaches 0", rs.owned.none { it.fj.key == "j_selzer" })
     }
+
+    @Test fun luckyCatGainsXMultPerLuckyTrigger() {
+        // Vanilla j_lucky_cat: +X0.25 per Lucky-card trigger. The +20 Mult / X0.25 scoring is oracle-verified;
+        // this checks the run-loop persistence. Fresh RunState → luckySeed 41; the scoring-index-2 card triggers.
+        val rs = RunState()
+        rs.buy(offer("j_lucky_cat"), free = true)
+        val lc = rs.owned.first { it.fj.key == "j_lucky_cat" }
+        assertEquals(1.0, lc.fj.x, 0.0)
+        // a heart flush (all 5 score, in order); the 3rd card (index 2) is Lucky → triggers at this seed
+        rs.hand = listOf(PlayingCard(Suit.H, 2), PlayingCard(Suit.H, 3),
+                         PlayingCard(Suit.H, 5, Enhancement.LUCKY), PlayingCard(Suit.H, 7), PlayingCard(Suit.H, 9))
+        rs.handSize = 5
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2, 3, 4)
+        rs.play(); rs.scoreBank()
+        assertEquals("Lucky Cat persists +X0.25 per trigger", 1.25, lc.fj.x, 1e-9)
+    }
+
+    @Test fun luckyCardGrantsTwentyDollarsOnMoneyTrigger() {
+        // m_lucky's 1-in-15 → $20, granted via the run loop's onLuckyMoney callback. At blindIndex 2 the
+        // scoring-index-1 card hits the money roll.
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = null
+        val moneyBefore = rs.money
+        rs.hand = listOf(PlayingCard(Suit.H, 2), PlayingCard(Suit.H, 3, Enhancement.LUCKY),
+                         PlayingCard(Suit.H, 5), PlayingCard(Suit.H, 7), PlayingCard(Suit.H, 9))
+        rs.handSize = 5
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2, 3, 4)
+        rs.play(); rs.scoreBank()
+        assertEquals("Lucky card pays \$20 on the money trigger", moneyBefore + 20, rs.money)
+    }
 }

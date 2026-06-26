@@ -248,6 +248,15 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         val x = fj.x + 0.1 * n
         if (x > 1.0) Effect.XMult(x) else Effect.None
     }),
+    // j_lucky_cat: gains X0.25 per Lucky-card TRIGGER (card.lua:3660 individual on lucky_trigger). Fires per
+    // triggered scored card; reads the persisted x plus 0.25·(triggers so far this hand) — pure, Blueprint-safe.
+    // RunScreen's scoreBank persists the growth (fj.x += 0.25·luckyTriggers) after the hand.
+    "j_lucky_cat"     to JokerSpec(individual = { fj, ctx, _ ->
+        if (ctx.luckyTriggerThisCard) {
+            val x = fj.x + 0.25 * ctx.luckyTriggersThisHand
+            if (x > 1.0) Effect.XMult(x) else Effect.None
+        } else Effect.None
+    }),
     // fibonacci: +8 Mult per scored A, 2, 3, 5, 8 (Fibonacci ranks; get_id, Maximized maps pips→10)
     "j_fibonacci"     to JokerSpec(individual = { _, _, c -> if (c.id in setOf(2, 3, 5, 8, 14)) Effect.Mult(8.0) else Effect.None }),
     // scary_face: +30 Chips per scored face card (includes Pareidolia)

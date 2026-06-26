@@ -9,6 +9,7 @@ package systems.balatro.game
 data class ScoreResult(
     val handType: HandType, val chips: Double, val mult: Double, val score: Double,
     val scoringHand: List<PlayingCard> = emptyList(),   // the cards that actually scored (Midas Mask gold-ifies scoring faces)
+    val luckyTriggers: Int = 0,                         // # of Lucky-card triggers this hand (Lucky Cat persists X0.25 each in scoreBank)
 )
 
 /** One visible step of the cascade — the running chips x mult after `label` resolved. */
