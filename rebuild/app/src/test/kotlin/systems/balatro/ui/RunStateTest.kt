@@ -313,6 +313,48 @@ class RunStateTest {
         assertEquals("number cards are not steeled", 0, steelSevens)
     }
 
+    @Test fun cryArsonistBurnsEveryCardOfAFullHouse() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_arsonist"), free = true)
+        // K♠ K♥ K♦ + Q♠ Q♥ = Full House (5 distinct deck cards)
+        rs.hand = listOf(PlayingCard(Suit.S, 13), PlayingCard(Suit.H, 13), PlayingCard(Suit.D, 13),
+                         PlayingCard(Suit.S, 12), PlayingCard(Suit.H, 12))
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2, 3, 4)
+        val before = rs.snapshot().deck.size
+        rs.play(); rs.scoreBank()
+        assertEquals("all 5 Full House cards destroyed", before - 5, rs.snapshot().deck.size)
+    }
+
+    @Test fun cryArsonistLeavesNonFullHouseAlone() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_arsonist"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.S, 13), PlayingCard(Suit.H, 13))   // a Pair, not a Full House
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        val before = rs.snapshot().deck.size
+        rs.play(); rs.scoreBank()
+        assertEquals("no Full House → nothing burned", before, rs.snapshot().deck.size)
+    }
+
+    @Test fun cryHuntingSeasonDestroysTheMiddleOfThree() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_huntingseason"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.S, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.D, 3))  // middle = 7
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2)
+        val d0 = rs.snapshot().deck
+        rs.play(); rs.scoreBank()
+        val d1 = rs.snapshot().deck
+        assertEquals("exactly one card destroyed", d0.size - 1, d1.size)
+        assertEquals("the middle card (a 7) is gone", d0.count { it.rank == 7 } - 1, d1.count { it.rank == 7 })
+        assertEquals("the first card (10) is untouched", d0.count { it.rank == 10 }, d1.count { it.rank == 10 })
+        assertEquals("the last card (3) is untouched", d0.count { it.rank == 3 }, d1.count { it.rank == 3 })
+    }
+
     @Test fun vampireGainsXMultPerScoredEnhancedCard() {
         // Vanilla j_vampire: the joker_main applies this hand's X0.1·n, and the run loop persists the growth.
         val rs = RunState()

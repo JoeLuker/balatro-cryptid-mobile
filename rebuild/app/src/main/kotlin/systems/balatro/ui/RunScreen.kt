@@ -484,6 +484,8 @@ internal val CATALOG = listOf(
     Offer("j_cry_familiar_currency", "cry-Familiar Currency", "End of round: spend \$19 to create a random Meme Joker (if you have \$19+)", 0, rarity = 3),
     Offer("j_cry_necromancer", "cry-Necromancer", "When a Joker is sold, create a random previously-sold Joker (no sell value)", 5, rarity = 2),
     Offer("j_cry_kidnap", "cry-kidnap", "Earn \$4 at end of round for each 'type' Joker (Jolly/Sly families) sold this run", 4),
+    Offer("j_cry_arsonist", "cry-Arsonist", "If your played hand contains a Full House, destroy every played card", 5, rarity = 3),
+    Offer("j_cry_huntingseason", "cry-Hunting Season", "When you play exactly 3 cards, destroy the middle one", 7, rarity = 2),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1577,6 +1579,15 @@ internal class RunState {
         // j_cry_lebaron_james: +1 hand size per scored King this round (temp, before the refill below);
         // resets next round since startRound recomputes handSize from base. (misc context.individual id==13.)
         handSize += r.scoringHand.count { it.id == 13 } * owned.count { it.offer.key == "j_cry_lebaron_james" }
+        // ── card-destruction jokers (context.destroying_card) — remove played cards from the run deck ──
+        // j_cry_arsonist: if the played hand contains a Full House, BURN every played card (misc
+        // destroying_card → eval["Full House"] non-empty). One Arsonist is enough; destroy is unconditional then.
+        if (owned.any { it.fj.key == "j_cry_arsonist" } && HandType.FULL_HOUSE in r.pokerHands)
+            for (c in pendingSel) deck.removeCard(c)
+        // j_cry_huntingseason: on a 3-card played hand, destroy the MIDDLE card (full_hand[2] = pendingSel[1],
+        // hand-order preserved by play()'s filterIndexed). Removed from the run deck permanently.
+        if (owned.any { it.fj.key == "j_cry_huntingseason" } && pendingSel.size == 3)
+            deck.removeCard(pendingSel[1])
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
