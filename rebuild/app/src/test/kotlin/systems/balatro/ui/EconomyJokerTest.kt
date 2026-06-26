@@ -131,6 +131,25 @@ class EconomyJokerTest {
         assertEquals("no growth selling a plain Joker", 1.0, rs.owned.first { it.fj.key == "j_cry_morse" }.fj.x, 1e-9)
     }
 
+    // ── cry-Familiar Currency: spend $19 at round end to create a random Meme Joker ──
+    @Test fun cryFamiliarCurrencyCreatesJokerWhenRich() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_familiar_currency"), free = true)
+        rs.money = 100                                          // ≥ $19
+        val before = rs.owned.size
+        rs.enterRoundEval(); rs.cashOut()
+        assertEquals("spent \$19 to spawn a Joker", before + 1, rs.owned.size)
+    }
+
+    @Test fun cryFamiliarCurrencyDoesNothingBelowNineteen() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_familiar_currency"), free = true)
+        rs.money = 10                                          // < $19 (pre-bonus gate)
+        val before = rs.owned.size
+        rs.enterRoundEval(); rs.cashOut()
+        assertEquals("too poor → no spawn", before, rs.owned.size)
+    }
+
     // ── cry-redbloon: pays $20 the round its 2-round countdown reaches 0, then self-destructs ──
     @Test fun cryRedbloonPaysTwentyAfterTwoRoundsThenPops() {
         val rs = RunState()
