@@ -339,6 +339,51 @@ class RunStateTest {
         assertEquals("not the last hand → no seals", 0, sealedKings)
     }
 
+    @Test fun cryEquilibSpawnsTwoNegativeJokersPerHand() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_equilib"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.S, 13), PlayingCard(Suit.H, 13))
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        val before = rs.owned.size
+        val negBefore = rs.owned.count { it.offer.edition == systems.balatro.content.Edition.NEGATIVE }
+        rs.play(); rs.scoreBank()
+        assertEquals("2 Jokers spawned this hand", before + 2, rs.owned.size)
+        assertEquals("both spawns carry NEGATIVE edition", negBefore + 2, rs.owned.count { it.offer.edition == systems.balatro.content.Edition.NEGATIVE })
+    }
+
+    @Test fun cryQueensGambitDestroysQueenAndSpawnsNegativeOnRoyalFlush() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_queens_gambit"), free = true)
+        // Royal Flush of spades: 10 J Q K A
+        rs.hand = listOf(PlayingCard(Suit.S, 10), PlayingCard(Suit.S, 11), PlayingCard(Suit.S, 12),
+                         PlayingCard(Suit.S, 13), PlayingCard(Suit.S, 14))
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2, 3, 4)
+        val beforeOwned = rs.owned.size
+        val beforeQueens = rs.snapshot().deck.count { it.rank == 12 }
+        rs.play(); rs.scoreBank()
+        assertEquals("a Negative Joker spawned", beforeOwned + 1, rs.owned.size)
+        assertEquals("spawn is NEGATIVE", 1, rs.owned.count { it.offer.edition == systems.balatro.content.Edition.NEGATIVE })
+        assertEquals("the scored Queen was destroyed", beforeQueens - 1, rs.snapshot().deck.count { it.rank == 12 })
+    }
+
+    @Test fun cryQueensGambitDoesNothingWithoutARoyalFlush() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_queens_gambit"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.S, 12), PlayingCard(Suit.H, 12))   // just a pair of Queens
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        val beforeOwned = rs.owned.size
+        val beforeQueens = rs.snapshot().deck.count { it.rank == 12 }
+        rs.play(); rs.scoreBank()
+        assertEquals("no Royal Flush → no spawn", beforeOwned, rs.owned.size)
+        assertEquals("no Royal Flush → no Queen destroyed", beforeQueens, rs.snapshot().deck.count { it.rank == 12 })
+    }
+
     @Test fun cryArsonistBurnsEveryCardOfAFullHouse() {
         val rs = RunState()
         rs.buy(offer("j_cry_arsonist"), free = true)
