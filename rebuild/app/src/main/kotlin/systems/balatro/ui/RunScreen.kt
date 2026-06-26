@@ -1438,7 +1438,7 @@ internal class RunState {
         // totalHandsPlayed is post-increment (incremented above) — clockwork uses % 3 on it.
         // handPlays snapshot is post-increment (recordHandPlayed ran above) — matches context.after.
         val handPlaysSnapshot = _handPlayed.toMap()
-        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot, totalHandsPlayed))) }
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot, totalHandsPlayed, contained = r.pokerHands))) }
         // (All per-hand accumulators now live in JOKER_MANIFEST HandScored/BeforeHand reducers:
         //  spare_trousers/runner/square/obelisk, cry_clockwork/keychange/duplicare/jimball/happyhouse.
         //  j_popcorn is NOT a per-hand accumulator — it decays −4 per ROUND via its RoundEnd reducer.)

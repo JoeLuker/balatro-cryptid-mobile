@@ -699,6 +699,6 @@ object Score {
         }
 
         if (jokers.isNotEmpty()) trace?.add(ScoreStep("jokers", chips, mult))
-        return ScoreResult(handType, chips, mult, floor(chips * mult), scoringHand, ctx.luckyTriggersThisHand)
+        return ScoreResult(handType, chips, mult, floor(chips * mult), scoringHand, ctx.luckyTriggersThisHand, pokerHands)
     }
 }

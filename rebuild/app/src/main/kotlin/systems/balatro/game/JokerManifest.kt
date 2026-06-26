@@ -95,7 +95,7 @@ sealed interface GameEvent {
     /** A hand was scored and banked (run loop). [playedCount] = number of cards played (for j_square etc.).
      *  [handPlays] = play-counts per hand type AFTER this hand is recorded (matching Lua context.after timing
      *  where G.GAME.hands[...].played has already been incremented). Obelisk uses this to decide grow vs reset. */
-    data class HandScored(val handType: HandType, val playedCount: Int = 0, val handPlays: Map<HandType, Int> = emptyMap(), val totalHandsPlayed: Int = 0) : GameEvent
+    data class HandScored(val handType: HandType, val playedCount: Int = 0, val handPlays: Map<HandType, Int> = emptyMap(), val totalHandsPlayed: Int = 0, val contained: Set<HandType> = emptySet()) : GameEvent
     /** Cards were discarded (run loop). */
     data class Discarded(val cards: List<PlayingCard>) : GameEvent
     /** A joker was sold (run loop). [sellValue] = its sell value (sell_cost), for the eternalflame >= 2 gate. */
@@ -216,12 +216,15 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     "j_scholar"          to JokerSpec(individual = { _, _, c -> if (c.id == 14) Effect.All(listOf(Effect.Chips(20.0), Effect.Mult(4.0))) else Effect.None }),
 
     // ── batch 3: per-hand scaling accumulators (reducer accrues on HandScored; joker_main reads the total) ──
+    // Spare Trousers / Runner fire on CONTAINMENT (context.poker_hands), not the top hand type — so they
+    // also fire when a higher hand contains the pattern (e.g. a Flush House contains a Two Pair). The top-
+    // handType check missed those (only reachable with duplicate-card hands). e.contained = r.pokerHands.
     "j_spare_trousers" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && (e.handType == HandType.TWO_PAIR || e.handType == HandType.FULL_HOUSE)) s.copy(mult = s.mult + 2.0) else s },
+        reduce = { s, e -> if (e is GameEvent.HandScored && HandType.TWO_PAIR in e.contained) s.copy(mult = s.mult + 2.0) else s },
         jokerMain = { s, _ -> Effect.multOrNone(s.mult) },
     ),
     "j_runner" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && (e.handType == HandType.STRAIGHT || e.handType == HandType.STRAIGHT_FLUSH)) s.copy(chips = s.chips + 15.0) else s },
+        reduce = { s, e -> if (e is GameEvent.HandScored && HandType.STRAIGHT in e.contained) s.copy(chips = s.chips + 15.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
     "j_square" to JokerSpec(

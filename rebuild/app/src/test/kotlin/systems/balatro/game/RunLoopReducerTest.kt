@@ -33,8 +33,9 @@ class RunLoopReducerTest {
         private fun dispatch(e: GameEvent) = apply {
             for (j in jokers) JOKER_MANIFEST[j.key]?.reduce?.let { j.restore(it(j.snapshot(), e)) }
         }
-        fun hand(t: HandType, played: Int = 5, plays: Map<HandType, Int> = emptyMap(), total: Int = 0) =
-            dispatch(GameEvent.HandScored(t, played, plays, total))
+        fun hand(t: HandType, played: Int = 5, plays: Map<HandType, Int> = emptyMap(), total: Int = 0,
+                 contained: Set<HandType> = setOf(t)) =
+            dispatch(GameEvent.HandScored(t, played, plays, total, contained))
         fun beforeHand(name: HandType) = dispatch(GameEvent.BeforeHand(Sctx().apply { scoringName = name }))
         fun discard(n: Int) = dispatch(GameEvent.Discarded(List(n) { PlayingCard(Suit.S, 2) }))
         fun sell(key: String, value: Int = 3) = dispatch(GameEvent.Sold(key, value))
@@ -63,18 +64,24 @@ class RunLoopReducerTest {
         assertEquals(0.0, sim["j_green_joker"].mult, 0.0)
     }
 
-    @Test fun spareTrousers_onlyTwoPairAndFullHouse() {
+    @Test fun spareTrousers_firesOnTwoPairContainment() {
+        // Fires whenever the hand CONTAINS a Two Pair (context.poker_hands), not just when the top hand is
+        // Two Pair / Full House — so a Flush House (which contains a Two Pair) also accrues.
         val sim = Sim("j_spare_trousers")
         sim.hand(HandType.TWO_PAIR);  assertEquals(2.0, sim["j_spare_trousers"].mult, 0.0)
-        sim.hand(HandType.FULL_HOUSE); assertEquals(4.0, sim["j_spare_trousers"].mult, 0.0)
-        sim.hand(HandType.PAIR);      assertEquals("Pair must not accrue", 4.0, sim["j_spare_trousers"].mult, 0.0)
+        sim.hand(HandType.FULL_HOUSE, contained = setOf(HandType.FULL_HOUSE, HandType.TWO_PAIR))
+        assertEquals(4.0, sim["j_spare_trousers"].mult, 0.0)
+        sim.hand(HandType.FLUSH_HOUSE, contained = setOf(HandType.FLUSH_HOUSE, HandType.TWO_PAIR))
+        assertEquals("Flush House contains a Two Pair → accrues (the fix)", 6.0, sim["j_spare_trousers"].mult, 0.0)
+        sim.hand(HandType.PAIR);      assertEquals("Pair alone must not accrue", 6.0, sim["j_spare_trousers"].mult, 0.0)
     }
 
-    @Test fun runner_onlyStraights() {
+    @Test fun runner_firesOnStraightContainment() {
         val sim = Sim("j_runner")
         sim.hand(HandType.STRAIGHT);       assertEquals(15.0, sim["j_runner"].chips, 0.0)
-        sim.hand(HandType.STRAIGHT_FLUSH); assertEquals(30.0, sim["j_runner"].chips, 0.0)
-        sim.hand(HandType.FLUSH);          assertEquals(30.0, sim["j_runner"].chips, 0.0)
+        sim.hand(HandType.STRAIGHT_FLUSH, contained = setOf(HandType.STRAIGHT_FLUSH, HandType.STRAIGHT))
+        assertEquals(30.0, sim["j_runner"].chips, 0.0)
+        sim.hand(HandType.FLUSH);          assertEquals("Flush alone has no Straight → no accrue", 30.0, sim["j_runner"].chips, 0.0)
     }
 
     @Test fun bonk_accruesOnPairBeforePass() {

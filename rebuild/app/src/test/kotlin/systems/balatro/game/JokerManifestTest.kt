@@ -50,15 +50,15 @@ class JokerManifestTest {
     }
 
     @Test fun statefulAccumulators() {
-        val trousers = spec("j_spare_trousers")
-        var s = trousers.reduce!!(FJokerState(), GameEvent.HandScored(HandType.TWO_PAIR, 4))
-        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.FULL_HOUSE, 5))
-        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.PAIR, 2))   // not Two Pair / Full House -> no-op
+        val trousers = spec("j_spare_trousers")   // fires on Two-Pair CONTAINMENT (context.poker_hands)
+        var s = trousers.reduce!!(FJokerState(), GameEvent.HandScored(HandType.TWO_PAIR, 4, contained = setOf(HandType.TWO_PAIR)))
+        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.FULL_HOUSE, 5, contained = setOf(HandType.FULL_HOUSE, HandType.TWO_PAIR)))
+        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.PAIR, 2, contained = setOf(HandType.PAIR)))   // no Two Pair contained -> no-op
         assertEquals(4.0, s.mult, 0.0)
         assertEquals(Effect.Mult(4.0), trousers.jokerMain!!(s, ctx(HandType.PAIR)))
 
         val runner = spec("j_runner")
-        val rs = runner.reduce!!(FJokerState(), GameEvent.HandScored(HandType.STRAIGHT, 5))
+        val rs = runner.reduce!!(FJokerState(), GameEvent.HandScored(HandType.STRAIGHT, 5, contained = setOf(HandType.STRAIGHT)))
         assertEquals(Effect.Chips(15.0), runner.jokerMain!!(rs, ctx(HandType.PAIR)))
 
         val square = spec("j_square")  // accrues only on a 4-card hand (vanilla j_square: #full_hand == 4)
