@@ -7,6 +7,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -116,7 +119,6 @@ class MainActivity : ComponentActivity() {
                 }
                 var showManager by remember { mutableStateOf(false) }
                 var showSettings by remember { mutableStateOf(false) }
-                var showStats by remember { mutableStateOf(false) }
                 var showRun by remember { mutableStateOf(bootRun || bootScreen != null) }
                 // A saved run auto-resumes on Play; hasSave drives the Continue/New-Run choice.
                 val saveFile = remember { File(ctx.filesDir, SaveIo.FILE_NAME) }
@@ -159,61 +161,54 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (showStats) {
-                        val st = remember { systems.balatro.save.StatsStore.read(ctx) }
-                        AlertDialog(
-                            onDismissRequest = { showStats = false },
-                            confirmButton = { TextButton(onClick = { showStats = false }) { Text("Done") } },
-                            title = { Text("Lifetime Stats") },
-                            text = {
-                                Column {
-                                    listOf(
-                                        "Runs played" to "${st.games}",
-                                        "Wins" to "${st.wins}  (${st.winRate}%)",
-                                        "Best ante" to "${st.bestAnte}",
-                                        "Best round score" to "${st.bestScore}",
-                                        "Total hands played" to "${st.totalHands}",
-                                    ).forEach { (k, v) ->
-                                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(k); Text(v, fontWeight = FontWeight.SemiBold)
-                                        }
-                                    }
-                                }
-                            },
-                        )
-                    }
-
+                    // OPTIONS — Balatro-styled overlay (felt) replacing the Material dialogs. The vanilla
+                    // create_UIBox_options tree is ~90% Android-inapplicable (resolution/vsync/CRT/shake),
+                    // so this is the applicable subset: audio toggles + the (orphaned) lifetime stats.
                     if (showSettings) {
                         var sfxOn by remember { mutableStateOf(systems.balatro.audio.SoundManager.enabled) }
                         var musicOn by remember { mutableStateOf(systems.balatro.audio.MusicManager.enabled) }
                         val prefs = remember { ctx.getSharedPreferences("balatro", Context.MODE_PRIVATE) }
-                        AlertDialog(
-                            onDismissRequest = { showSettings = false },
-                            confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Done") } },
-                            title = { Text("Settings") },
-                            text = {
-                                Column {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Sound effects")
-                                        Switch(checked = sfxOn, onCheckedChange = {
-                                            sfxOn = it; systems.balatro.audio.SoundManager.enabled = it
-                                            prefs.edit().putBoolean("sfx", it).apply()
-                                        })
-                                    }
-                                    Spacer(Modifier.height(8.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Music")
-                                        Switch(checked = musicOn, onCheckedChange = {
-                                            musicOn = it
-                                            systems.balatro.audio.MusicManager.setEnabled(it, ctx.applicationContext)
-                                            prefs.edit().putBoolean("music", it).apply()
-                                        })
+                        val st = remember { systems.balatro.save.StatsStore.read(ctx) }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            BalatroFelt(Modifier.matchParentSize())
+                            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f)))
+                            Column(
+                                Modifier.widthIn(max = 360.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .background(Balatro.FeltDark)
+                                    .border(2.dp, Balatro.Orange, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                BTxt("OPTIONS", Balatro.Orange, 26.sp)
+                                Spacer(Modifier.height(16.dp))
+                                BButton(if (sfxOn) "Sound: ON" else "Sound: OFF", if (sfxOn) Balatro.Chips else Balatro.Grey,
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    sfxOn = !sfxOn; systems.balatro.audio.SoundManager.enabled = sfxOn
+                                    prefs.edit().putBoolean("sfx", sfxOn).apply()
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                BButton(if (musicOn) "Music: ON" else "Music: OFF", if (musicOn) Balatro.Chips else Balatro.Grey,
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    musicOn = !musicOn
+                                    systems.balatro.audio.MusicManager.setEnabled(musicOn, ctx.applicationContext)
+                                    prefs.edit().putBoolean("music", musicOn).apply()
+                                }
+                                Spacer(Modifier.height(18.dp))
+                                BTxt("LIFETIME STATS", Balatro.Orange, 15.sp)
+                                Spacer(Modifier.height(6.dp))
+                                listOf(
+                                    "Runs" to "${st.games}", "Wins" to "${st.wins} (${st.winRate}%)",
+                                    "Best ante" to "${st.bestAnte}", "Best score" to "${st.bestScore}", "Hands" to "${st.totalHands}",
+                                ).forEach { (k, v) ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        BTxt(k, Balatro.White, 12.sp); BTxt(v, Balatro.White, 12.sp)
                                     }
                                 }
-                            },
-                        )
+                                Spacer(Modifier.height(18.dp))
+                                BButton("Back", Balatro.Orange, modifier = Modifier.fillMaxWidth()) { showSettings = false }
+                            }
+                        }
                     }
 
                     if (showRun) {
