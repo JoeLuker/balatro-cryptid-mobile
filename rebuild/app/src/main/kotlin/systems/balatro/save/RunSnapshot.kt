@@ -77,6 +77,7 @@ data class RunSnapshot(
     val greenEconomy: Boolean = false,
     val anaglyph: Boolean = false,
     val doubleNextTags: Int = 0,
+    val firstShopBuffoon: Boolean = false,
     val directorsCut: Boolean = false,
     val retcon: Boolean = false,
     val bossReshuffle: Int = 0,
