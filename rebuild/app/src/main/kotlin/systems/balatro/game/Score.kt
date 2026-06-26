@@ -3,6 +3,7 @@ package systems.balatro.game
 import kotlin.math.PI
 import kotlin.math.floor
 import kotlin.math.pow
+import kotlin.random.Random
 
 /**
  * FAITHFUL 1:1 port of Balatro's scoring cascade — evaluate_play (state_events.lua:571),
@@ -69,6 +70,8 @@ class Sctx {
     var deckSize: Int = 52                   // current cards in the run deck — Erosion (+4 Mult per card below 52)
     var jokerSlots: Int = 5                  // G.jokers.config.card_limit — Joker Stencil (X1 per empty joker slot)
     var ancientSuit: Suit? = null            // G.GAME.current_round.ancient_card.suit — Ancient Joker (X1.5 per scored card of this suit)
+    var luckyTriggerThisCard = false         // m_lucky: the scored card currently being evaluated rolled a Lucky trigger (Lucky Cat reads it)
+    var luckyTriggersThisHand = 0            // running count of Lucky triggers so far this hand (Lucky Cat's x grows per trigger)
     var retriggeredJoker: FJoker? = null     // the board joker currently being evaluated for retriggers (context.other_card)
     var selfJoker: FJoker? = null           // set by dispatchManifest to j before invoking any hook — enables identity guard (j !== rj / j !== oj)
     /** j_cry_maximized patches get_id: pips→10, faces→13. Used by every rank-literal comparison in
@@ -451,11 +454,14 @@ object Score {
         deckSize: Int = 52,                 // run deck size — Erosion
         jokerSlots: Int = 5,                // joker slot limit — Joker Stencil
         ancientSuit: Suit? = null,          // this round's Ancient Joker suit (run loop picks it; X1.5 per scored card of it)
+        luckySeed: Long = 0,                // per-hand seed for m_lucky rolls (run loop owns RNG; Score derives per-card rolls deterministically)
         trace: MutableList<ScoreStep>? = null,
         /** Callback for j_hiker: fired once per scored card per hiker on board. Caller (RunScreen)
          *  persists the bonus to Deck.all. Fires AFTER the card's own chipBonus() (Lua timing:
          *  joker individual hooks run after eval_card, so this hand uses the old permaBonus). */
         onPermaBonusGained: ((card: PlayingCard, amount: Int) -> Unit)? = null,
+        /** Callback for m_lucky's $20 (1-in-15): Score reports it, RunScreen grants the money. */
+        onLuckyMoney: ((amount: Int) -> Unit)? = null,
     ): ScoreResult {
         // j_cry_maximized patches get_id: pips collide at 10, faces at 13 (so disparate faces pair).
         val rankOf: (PlayingCard) -> Int =
@@ -529,7 +535,7 @@ object Score {
         }
 
         // per scoring card: card's own scoring + each joker's individual reaction
-        for (card in scoringHand) {
+        for ((ci, card) in scoringHand.withIndex()) {
             if (debuff is Debuff.DebuffSuit && card.suit == debuff.suit) continue       // suit-debuffed
             if (debuff is Debuff.DebuffFace && (card.isFace || pareidolia)) continue      // THE_PLANT: face-debuffed (Pareidolia makes all cards faces)
             if (debuff is Debuff.DebuffCards && card in debuff.cards) continue                 // THE_PILLAR: previously played this Ante
@@ -537,9 +543,21 @@ object Score {
             ctx.cardarea = "play"; ctx.individual = false; ctx.otherCard = card
             var reps = 1 + (if (card.seal == Seal.RED) 1 else 0)            // red seal repetition
             for (jk in jokers) { ctx.repetition = true; calcJoker(jk, ctx)?.let { reps += it.repetitions }; ctx.repetition = false }  // joker retriggers
-            repeat(reps) {
+            repeat(reps) { repIdx ->
                 val effects = ArrayList<Fx>()
                 effects.add(evalCard(card, ctx))
+                // m_lucky: each scored Lucky card rolls 1-in-5 (+20 Mult) and 1-in-15 ($20), independently,
+                // per repetition (retriggers re-roll). Either hit sets lucky_trigger (Lucky Cat reads it).
+                // Score owns the deterministic roll off luckySeed (the run loop's per-hand RNG input).
+                ctx.luckyTriggerThisCard = false
+                if (card.enhancement == Enhancement.LUCKY) {
+                    val base = luckySeed + ci * 1009L + repIdx * 31L
+                    val multHit = Random(base).nextInt(5) == 0
+                    val moneyHit = Random(base + 500000L).nextInt(15) == 0
+                    if (multHit) effects.add(Fx().also { it.mult = 20.0 })   // also{it.…}: apply{mult=…} would clobber the outer running `mult`
+                    if (moneyHit) onLuckyMoney?.invoke(20)
+                    if (multHit || moneyHit) { ctx.luckyTriggerThisCard = true; ctx.luckyTriggersThisHand += 1 }
+                }
                 for (j in jokers) {
                     ctx.individual = true; ctx.otherCard = card
                     calcJoker(j, ctx)?.let { effects.add(it) }
@@ -681,6 +699,6 @@ object Score {
         }
 
         if (jokers.isNotEmpty()) trace?.add(ScoreStep("jokers", chips, mult))
-        return ScoreResult(handType, chips, mult, floor(chips * mult), scoringHand)
+        return ScoreResult(handType, chips, mult, floor(chips * mult), scoringHand, ctx.luckyTriggersThisHand)
     }
 }

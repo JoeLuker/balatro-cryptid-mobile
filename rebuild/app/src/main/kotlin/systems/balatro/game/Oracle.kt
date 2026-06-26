@@ -21,6 +21,7 @@ object Oracle {
         val deckSize: Int = 52,                     // run deck size — Erosion
         val jokerSlots: Int = 5,                    // joker slot limit — Joker Stencil
         val ancientSuit: Suit? = null,              // this round's Ancient Joker suit
+        val luckySeed: Long = 0,                    // per-hand seed for m_lucky rolls
     )
     private fun j(vararg fj: FJoker) = fj.toList()
 
@@ -794,12 +795,19 @@ object Oracle {
         Case("Pair of aces + diet_cola (sell-effect → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_diet_cola"))),
         // Seltzer: retriggers every scored card once → same as sock_and_buskin+pareidolia (all 2x) on a pair → 108.
         Case("Pair of aces + seltzer (all cards 2x) → 108", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_selzer"))),
+        // m_lucky (Lucky enhancement): 1-in-5 → +20 Mult. seed=1 makes the index-0 card's roll hit; seed=0 misses.
+        // Chips 10+11+11=32. Hit: mult 2+20=22 → 704. Miss: mult 2 → 64.
+        Case("Lucky ace (+plain) seed=1 → +20 Mult → 704", listOf(en("S_A", Enhancement.LUCKY), PlayingCard.parse("H_A")), 704.0, luckySeed = 1),
+        Case("Lucky ace (+plain) seed=0 → no hit → 64", listOf(en("S_A", Enhancement.LUCKY), PlayingCard.parse("H_A")), 64.0, luckySeed = 0),
+        // Lucky Cat: X0.25 per Lucky trigger. One trigger → X(1.0+0.25)=1.25 applied to the lucky card's mult:
+        // mult (2+20)=22, ×1.25 = 27.5 → 32×27.5 = 880.
+        Case("Lucky ace + lucky_cat seed=1 (trigger → X1.25) → 880", listOf(en("S_A", Enhancement.LUCKY), PlayingCard.parse("H_A")), 880.0, j(FJoker("j_lucky_cat")), luckySeed = 1),
     )
 
     fun run(): Pair<Int, Int> {
         var pass = 0
         for (c in cases) {
-            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money, deckSize = c.deckSize, jokerSlots = c.jokerSlots, ancientSuit = c.ancientSuit).score
+            val score = Score.score(c.hand, c.jokers, c.held, c.level, c.debuff, c.handsLeft, c.discardsLeft, c.bossBlind, c.debuffedJokerKey, c.handTypePlays, c.totalHandsPlayed, money = c.money, deckSize = c.deckSize, jokerSlots = c.jokerSlots, ancientSuit = c.ancientSuit, luckySeed = c.luckySeed).score
             val ok = score == c.expected
             if (ok) pass++
             println("${if (ok) "PASS" else "FAIL"}  ${c.name}: got $score expected ${c.expected}")

@@ -12,7 +12,7 @@ enum class Suit { S, H, D, C }
  *     triggers the Spectrogram joker accumulator when scored). Retrigger probability and
  *     count are pseudoseed-based and not modelled in the deterministic score engine.
  */
-enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$"), WILD("wild"), STONE("+50"), ABSTRACT("^E"), ECHO("~") }
+enum class Enhancement(val badge: String) { NONE(""), BONUS("+30c"), MULT("+4m"), GLASS("x2"), STEEL("x1.5h"), GOLD("$"), WILD("wild"), STONE("+50"), ABSTRACT("^E"), ECHO("~"), LUCKY("luck") }
 
 /** A card seal. Red retriggers the card when played; Gold pays $3 when played. (Blue/Purple: later.) */
 enum class Seal(val badge: String) { NONE(""), RED("R"), GOLD("G"), BLUE("B"), PURPLE("P") }

@@ -590,6 +590,8 @@ private val CATALOG = listOf(
     Offer("j_diet_cola", "Diet Cola", "Sell this card to create a free Double Tag", 6, rarity = 2),
     // --- missing vanilla jokers (batch 23): retrigger-all countdown ---
     Offer("j_selzer", "Seltzer", "Retrigger every played card for the next 10 hands", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 24): Lucky-enhancement scaling (the LAST vanilla joker) ---
+    Offer("j_lucky_cat", "Lucky Cat", "This Joker gains X0.25 Mult each time a Lucky card triggers", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -695,9 +697,10 @@ private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0,
 
 // Faithful vanilla tarots (game.lua c_*). Enhancement tarots use the existing enhancements; the
 // suit-conversion (Star/Sun/Moon/World), rank-up (Strength), and destroy (Hanged Man) tarots modify
-// the selected cards. (Magician=Lucky needs a Lucky enhancement + its scoring — engine lane, omitted;
-// seals come from spectrals Talisman/Deja Vu, not from Sun/Moon as the old mapping wrongly had it.)
+// the selected cards. (The Magician enhances up to 2 cards to Lucky — now that the Lucky enhancement +
+// its scoring exist; seals come from spectrals Talisman/Deja Vu, not from Sun/Moon as the old mapping had.)
 private val TAROTS = listOf(
+    TarotOffer("The Magician", TarotFx.Enhance(Enhancement.LUCKY, 2)),
     TarotOffer("The Empress", TarotFx.Enhance(Enhancement.MULT, 2)),
     TarotOffer("The Hierophant", TarotFx.Enhance(Enhancement.BONUS, 2)),
     TarotOffer("The Lovers", TarotFx.Enhance(Enhancement.WILD, 1)),
@@ -1352,13 +1355,15 @@ internal class RunState {
         val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
                             debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
                             totalHandsPlayed = totalHandsPlayed, money = money,
-                            deckSize = deck.composition().size, jokerSlots = maxJokers, ancientSuit = ancientSuit, trace = trace,
+                            deckSize = deck.composition().size, jokerSlots = maxJokers, ancientSuit = ancientSuit,
+                            luckySeed = blindIndex * 524287L + totalHandsPlayed * 2999L + 41L, trace = trace,
                             // j_hiker: persist the +5 permaBonus to Deck.all after each scored card.
                             // The scored card in `scoringHand` has the OLD permaBonus (Lua timing:
                             // joker individual hooks fire after eval_card, so the +5 takes effect
                             // from the next hand). We match by value — indexOf finds the first
                             // matching instance in Deck.all (safe for standard 52-card deck).
-                            onPermaBonusGained = { card, amount -> deck.addPermaBonus(card, amount) })
+                            onPermaBonusGained = { card, amount -> deck.addPermaBonus(card, amount) },
+                            onLuckyMoney = { money += it })   // m_lucky: 1-in-15 → $20, granted as the card scores
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
         // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
@@ -1491,6 +1496,9 @@ internal class RunState {
             o.fj.x += 0.1 * enhanced.size
             for (c in enhanced) deck.setEnhancement(c, Enhancement.NONE)
         }
+        // j_lucky_cat: persist the X0.25-per-Lucky-trigger growth (the individual hook applied it to THIS
+        // hand by reading fj.x + 0.25·triggers-so-far; scoreBank persists fj.x for next hand). card.lua:3660.
+        for (o in owned) if (o.fj.key == "j_lucky_cat") o.fj.x += 0.25 * r.luckyTriggers
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
