@@ -533,4 +533,16 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("+\$5 per Lucky trigger (1 trigger)", 5, rs.money)
     }
+
+    @Test fun cryLebaronJamesGrowsHandSizePerScoredKing() {
+        // cry-LeBaron James: +1 hand size this round per scored King. A pair of Kings → both score → +2.
+        val rs = RunState()
+        rs.buy(offer("j_cry_lebaron_james"), free = true)
+        val baseHand = rs.handSize
+        rs.hand = listOf(PlayingCard(Suit.S, 13), PlayingCard(Suit.H, 13))   // pair of Kings
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("+1 hand size per scored King (2 Kings)", baseHand + 2, rs.handSize)
+    }
 }

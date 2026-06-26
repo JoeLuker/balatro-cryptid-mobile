@@ -464,6 +464,8 @@ private val CATALOG = listOf(
     Offer("j_cry_hunger", "cry-Hunger", "Earn $3 each time a consumable is used", 6, rarity = 2),
     // --- missing Cryptid jokers (batch 3): Lucky-trigger economy ---
     Offer("j_cry_lucky_joker", "cry-Lucky Joker", "Earn $5 each time a Lucky card triggers", 4),
+    // --- missing Cryptid jokers (batch 4): per-round hand-size accumulator ---
+    Offer("j_cry_lebaron_james", "cry-LeBaron James", "+1 hand size this round per scored King", 6, rarity = 3),
     // m: Xmult from j.x (+13 per Jolly Joker sold).
     Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
     // longboi: Xmult = monstermult (grows each round; M-pool variant).
@@ -1521,6 +1523,9 @@ internal class RunState {
         for (o in owned) if (o.fj.key == "j_lucky_cat") o.fj.x += 0.25 * r.luckyTriggers
         // j_cry_lucky_joker: +$5 per Lucky-card trigger this hand (context.individual on lucky_trigger).
         money += 5 * r.luckyTriggers * owned.count { it.offer.key == "j_cry_lucky_joker" }
+        // j_cry_lebaron_james: +1 hand size per scored King this round (temp, before the refill below);
+        // resets next round since startRound recomputes handSize from base. (misc context.individual id==13.)
+        handSize += r.scoringHand.count { it.id == 13 } * owned.count { it.offer.key == "j_cry_lebaron_james" }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
