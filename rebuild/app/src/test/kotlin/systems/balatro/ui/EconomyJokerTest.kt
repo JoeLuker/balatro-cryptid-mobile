@@ -90,6 +90,47 @@ class EconomyJokerTest {
         assertEquals("no growth at \$0", 12.0, j.fj.x, 1e-9)
     }
 
+    // ── cry-Magnet: $10 if you have ≤4 Jokers, else $2 (calc_dollar_bonus) ──
+    @Test fun cryMagnetPaysTenWithFourOrFewerJokers() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_magnet"), free = true)                       // owned.size = 1 (≤4)
+        rs.enterRoundEval()
+        assertEquals("≤4 Jokers → \$10", 10, jokerDollars(rs))
+    }
+
+    @Test fun cryMagnetPaysTwoWithMoreThanFourJokers() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_magnet"), free = true)
+        repeat(4) { rs.buy(offer("j_joker"), free = true) }              // owned.size = 5 (>4); j_joker adds no $
+        rs.enterRoundEval()
+        assertEquals(">4 Jokers → \$2", 2, jokerDollars(rs))
+    }
+
+    // ── cry-Morse: pays its money (starts $1), +$2 each time an edition Joker is sold ──
+    @Test fun cryMorsePaysOneAtStart() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_morse"), free = true)
+        rs.enterRoundEval()
+        assertEquals("starts at \$1", 1, jokerDollars(rs))
+    }
+
+    @Test fun cryMorseGrowsTwoPerEditionJokerSold() {
+        val rs = RunState()                                            // note: RunState init owns a starter j_joker
+        rs.buy(offer("j_cry_morse"), free = true)
+        rs.buy(Offer("j_joker", "j_joker", "", 0, edition = systems.balatro.content.Edition.FOIL), free = true)
+        rs.sell(rs.owned.first { it.fj.edition == "Foil" })            // sell MY Foil joker (not the starter)
+        assertEquals("payout grew to \$3", 3.0, rs.owned.first { it.fj.key == "j_cry_morse" }.fj.x, 1e-9)
+        rs.enterRoundEval()
+        assertEquals("now pays \$3", 3, jokerDollars(rs))
+    }
+
+    @Test fun cryMorseDoesNotGrowOnNonEditionSell() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_morse"), free = true)
+        rs.sell(rs.owned.first { it.fj.key == "j_joker" })             // sell the (edition-less) starter joker
+        assertEquals("no growth selling a plain Joker", 1.0, rs.owned.first { it.fj.key == "j_cry_morse" }.fj.x, 1e-9)
+    }
+
     // ── cry-redbloon: pays $20 the round its 2-round countdown reaches 0, then self-destructs ──
     @Test fun cryRedbloonPaysTwentyAfterTwoRoundsThenPops() {
         val rs = RunState()
