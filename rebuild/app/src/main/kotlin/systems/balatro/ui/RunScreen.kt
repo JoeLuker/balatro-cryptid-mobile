@@ -2876,6 +2876,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val badgeSp = (0.33f * u * FONT_RATIO).sp
     // Selected joker (tap to select) → shows the move/sell control bar. Resets on phase change.
     var selJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
+    var inspCons by remember(s.phase) { mutableStateOf<Int?>(null) }   // inspected consumable (tap → tooltip → Use)
     // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
     // so they land correctly at the device's scale/letterboxing.
     fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
@@ -3061,7 +3062,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             val raise = if (selJoker == i) 0.4f else 0f   // lift the selected joker
             Box(off(m.VT.x.toFloat(), m.VT.y.toFloat() - raise)
                 .clickable(enabled = !s.scoring, interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                    selJoker = if (selJoker == i) null else i
+                    selJoker = if (selJoker == i) null else i; inspCons = null
                 }) {
                 Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                     jokerCells[o.offer.key]?.let {
@@ -3142,9 +3143,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             .background(if (isAiming) Balatro.Purple.copy(alpha = 0.7f) else Balatro.Panel)
                             .border(1.dp, if (isAiming) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
                             .clickable(enabled = s.phase == Phase.ROUND && !s.scoring) {
-                                // Targeted tarots enter aim mode; non-targeted tarots & other consumables apply now.
-                                systems.balatro.audio.SoundManager.play("tarot1")
-                                if (c is Consumable.TarotC && c.t.fx.needsTarget) s.aimTarot(c.t) else s.useConsumable(i)
+                                // Tap to INSPECT (read it first), not use immediately — Use is in the tooltip.
+                                systems.balatro.audio.SoundManager.play("highlight1")
+                                inspCons = if (inspCons == i) null else i; selJoker = null
                             },
                             contentAlignment = Alignment.Center) {
                             cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
@@ -3156,6 +3157,29 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
             BTxt("${s.consumables.size}/${s.consumableSlots}", Balatro.White, countSp)
+        }
+        // Inspect a held consumable → name + effect + Use (vanilla reads the card before using it).
+        inspCons?.let { ci ->
+            if (!s.scoring && ci in s.consumables.indices) {
+                val c = s.consumables[ci]
+                val name = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
+                val desc = when (c) {
+                    is Consumable.TarotC -> c.t.fx.label
+                    is Consumable.PlanetC -> "Level up ${handName(c.planet.hand)}"
+                    is Consumable.SpectralC -> c.s.desc
+                }
+                val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips; is Consumable.SpectralC -> Balatro.Mult }
+                Box(Modifier.align(Alignment.TopEnd)
+                    .absoluteOffset(x = (-0.3f * u).dp, y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp)) {
+                    DetailTooltip(name, desc, accent, u) {
+                        JokerCtl("Use", u) {
+                            systems.balatro.audio.SoundManager.play("tarot1")
+                            if (c is Consumable.TarotC && c.t.fx.needsTarget) s.aimTarot(c.t) else s.useConsumable(ci)
+                            inspCons = null
+                        }
+                    }
+                }
+            }
         }
         // ── PLAYED (G.play). STATIC repro: ScoredCardsRow, frozen at PLAY_SCORING_Y (bref_3's lifted
         // frame). LIVE: the played cards are engine Moveables on host.play — they fly up from the hand
