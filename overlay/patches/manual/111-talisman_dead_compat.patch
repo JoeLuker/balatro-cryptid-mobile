@@ -1,0 +1,9 @@
+diff --git a/talisman/configtab.lua b/talisman/configtab.lua
+index 3e54e4c..de31dc3 100644
+--- a/talisman/configtab.lua
++++ b/talisman/configtab.lua
+@@ -286,4 +286,3 @@ function G.FUNCS.tal_update_thread_sanitize(arg)
+ end
+ 
+ G.UIDEF.tal_credits = conf.credits_tab
+-G.UIDEF.tal_compat_config = conf.compat.config_tab

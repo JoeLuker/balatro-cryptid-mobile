@@ -1,0 +1,23 @@
+diff --git a/talisman/coroutine.lua b/talisman/coroutine.lua
+index 1e8f3e4..3989015 100644
+--- a/talisman/coroutine.lua
++++ b/talisman/coroutine.lua
+@@ -194,13 +194,16 @@ function co.update_text()
+ 	end
+ 	]]
+ 
+-	co.scoring_text[3] = string.format("%s: %.2fMB", localize("tal_luamem"), collectgarbage('count') / 1024)
++	co._memc = (co._memc or 0) + 1
++	if not co._memmb or co._memc % 30 == 0 then co._memmb = collectgarbage('count') / 1024 end
++	co.scoring_text[3] = string.format("%s: %.2fMB", localize("tal_luamem"), co._memmb)
+ end
+ 
+ function co.update(dt)
+ 	if not Talisman.scoring_coroutine then return end
+ 
+-	if collectgarbage("count") > 1024 * 1024 then
++	co._gcc = (co._gcc or 0) + 1
++	if co._gcc % 15 == 0 and collectgarbage("count") > 1024 * 1024 then
+ 		collectgarbage("collect")
+ 	end
+ 

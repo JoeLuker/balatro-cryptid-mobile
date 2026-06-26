@@ -104,3 +104,5 @@ manual/106-game_draw_ipairs.patch
 manual/107-settings_ux.patch
 manual/108-sticky_sell_label.patch
 manual/109-input_touch_fixes.patch
+manual/110-perf_gc_throttle.patch
+manual/111-talisman_dead_compat.patch
