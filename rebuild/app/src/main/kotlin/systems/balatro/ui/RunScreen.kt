@@ -3106,13 +3106,18 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // right, Brainstorm copies leftmost), so reordering is a real mechanic. Sits below the joker.
         selJoker?.let { si ->
             if (!s.scoring && si in s.owned.indices) {
-                // Centred just below the joker row so it never collides with the left-edge slot count.
-                Row(Modifier.align(Alignment.TopCenter)
-                    .absoluteOffset(y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                    JokerCtl("◀", u, enabled = si > 0) { selJoker = s.moveJoker(si, -1) }
-                    JokerCtl("Sell \$${s.sellValue(s.owned[si])}", u, enabled = s.owned.size > 1) { s.sell(s.owned[si]); selJoker = null }
-                    JokerCtl("▶", u, enabled = si < s.owned.size - 1) { selJoker = s.moveJoker(si, 1) }
+                val o = s.owned[si]
+                // Tap a joker → inspect it: name + ability (the detail tooltip) + the sell/reorder controls,
+                // in one panel below the joker row. Joker order is scored L→R, so reorder is a real mechanic.
+                Box(Modifier.align(Alignment.TopCenter)
+                    .absoluteOffset(y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp)) {
+                    DetailTooltip(o.offer.name, o.offer.desc, Balatro.Mult, u) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            JokerCtl("◀", u, enabled = si > 0) { selJoker = s.moveJoker(si, -1) }
+                            JokerCtl("Sell \$${s.sellValue(o)}", u, enabled = s.owned.size > 1) { s.sell(o); selJoker = null }
+                            JokerCtl("▶", u, enabled = si < s.owned.size - 1) { selJoker = s.moveJoker(si, 1) }
+                        }
+                    }
                 }
             }
         }
@@ -3390,6 +3395,28 @@ private fun JokerCtl(label: String, u: Float, enabled: Boolean = true, onClick: 
         .padding(horizontal = (0.15f * u).dp, vertical = (0.04f * u).dp),
         contentAlignment = Alignment.Center) {
         BTxt(label, Balatro.White, (0.3f * u * FONT_RATIO).sp)
+    }
+}
+
+/** The detail tooltip (vanilla create_UIBox_detailed_tooltip): a dark panel with a coloured name header,
+ *  the wrapped ability description, and an optional action row — shown when a joker/consumable is inspected. */
+@Composable
+private fun DetailTooltip(name: String, desc: String, accent: Color, u: Float,
+                          modifier: Modifier = Modifier, controls: (@Composable () -> Unit)? = null) {
+    val r = RoundedCornerShape((0.22f * u).dp)
+    Column(
+        modifier.width((6f * u).dp).clip(r).background(Balatro.FeltDark)
+            .border((0.05f * u).dp, accent, r).padding((0.12f * u).dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape((0.16f * u).dp)).background(accent)
+            .padding(vertical = (0.06f * u).dp), contentAlignment = Alignment.Center) {
+            BTxt(name, Balatro.White, (0.42f * u * FONT_RATIO).sp)
+        }
+        Spacer(Modifier.height((0.1f * u).dp))
+        BTxtWrap(desc, Balatro.White, (0.34f * u * FONT_RATIO).sp, maxWidth = (5.6f * u).dp,
+            modifier = Modifier.padding(horizontal = (0.1f * u).dp, vertical = (0.06f * u).dp))
+        controls?.let { Spacer(Modifier.height((0.1f * u).dp)); it() }
     }
 }
 
