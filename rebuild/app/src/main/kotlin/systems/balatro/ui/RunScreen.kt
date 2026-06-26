@@ -3718,13 +3718,30 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt
                 ShopSlotOffers(s, name, x, y, w, h, u, jokerCells, shopArt, cardBase, cells)
             })
         }
-        // sell strip — not a Balatro UIBox; the only way to offload jokers until the joker row is interactive
+        // Owned jokers, sellable from the shop (vanilla: tap a joker → inspect + sell). Real card sprites
+        // in the shop's lower area, not a text strip; reuses the DetailTooltip from the play HUD.
+        var selShopJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
         if (s.owned.isNotEmpty()) {
-            Row(Modifier.align(Alignment.BottomCenter).padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                BTxt("Sell:", Balatro.White, 12.sp)
-                s.owned.forEach { o ->
-                    BButton("${o.offer.name}  \$${s.sellValue(o)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
+            val cw = (PF.CARD_W * 0.62f * u).dp; val ch = (PF.CARD_H * 0.62f * u).dp
+            Row(Modifier.align(Alignment.BottomCenter).padding(bottom = (0.25f * u).dp),
+                horizontalArrangement = Arrangement.spacedBy((0.08f * u).dp)) {
+                s.owned.forEachIndexed { i, o ->
+                    Box(Modifier.size(cw, ch).clickable { selShopJoker = if (selShopJoker == i) null else i }) {
+                        jokerCells[o.offer.key]?.let {
+                            Image(it, o.offer.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        } ?: Box(Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark),
+                                 contentAlignment = Alignment.Center) { BTxt(o.offer.name.take(6), Balatro.White, (0.22f * u * FONT_RATIO).sp) }
+                    }
+                }
+            }
+            selShopJoker?.let { si ->
+                if (si in s.owned.indices) {
+                    val o = s.owned[si]
+                    Box(Modifier.align(Alignment.BottomCenter).absoluteOffset(y = -((PF.CARD_H * 0.62f + 1.3f) * u).dp)) {
+                        DetailTooltip(o.offer.name, o.offer.desc, Balatro.Mult, u) {
+                            JokerCtl("Sell \$${s.sellValue(o)}", u, enabled = s.owned.size > 1) { s.sell(o); selShopJoker = null }
+                        }
+                    }
                 }
             }
         }
