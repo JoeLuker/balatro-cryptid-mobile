@@ -609,6 +609,7 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_telescope", "Telescope", "Most-played hand's Planet is always in the shop", 0),
     VoucherOffer("v_directors_cut", "Director's Cut", "Reroll the Boss Blind once per Ante (\$10)", 0),
     VoucherOffer("v_retcon", "Retcon", "Reroll the Boss Blind unlimited times (\$10)", 0),
+    VoucherOffer("v_omen_globe", "Omen Globe", "Spectral cards may appear in Arcana Packs", 0),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -818,7 +819,8 @@ internal class RunState {
     var directorsCut = false                                             // Director's Cut voucher: reroll the boss 1×/ante ($10)
     var retcon = false                                                   // Retcon voucher: reroll the boss unlimited ($10)
     var bossReshuffle = 0                                                // mixed into the boss seed; +1 per reroll
-    var bossRerollsThisAnte = 0                                          // Director's Cut per-ante limit (reset at slot 0)(s)
+    var bossRerollsThisAnte = 0                                          // Director's Cut per-ante limit (reset at slot 0)
+    var omenGlobe = false                                               // Omen Globe voucher: spectrals may appear in Arcana packs(s)
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1814,6 +1816,7 @@ internal class RunState {
             "v_telescope" -> { telescope = true; applyTelescope() }  // most-played planet always in shop
             "v_directors_cut" -> directorsCut = true                 // reroll boss 1×/ante
             "v_retcon" -> retcon = true                              // reroll boss unlimited
+            "v_omen_globe" -> omenGlobe = true                       // spectrals in Arcana packs
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
@@ -1833,7 +1836,9 @@ internal class RunState {
         packSeed += 1
         val rng = Random(blindIndex * 7253L + packSeed * 131L)
         val items: List<PackItem> = when (b.kind) {
-            "Arcana" -> TAROTS.shuffled(rng).take(b.extra).map { PackItem.Tarot(it) }
+            "Arcana" -> TAROTS.shuffled(rng).take(b.extra).map {     // Omen Globe: a slot may roll a spectral instead
+                if (omenGlobe && rng.nextInt(100) < 20) PackItem.SpectralItem(Spectral.values().random(rng)) else PackItem.Tarot(it)
+            }
             "Celestial" -> Planet.values().toList().shuffled(rng).take(b.extra).map { PackItem.Planet(PlanetOffer(it, 0)) }
             "Buffoon" -> CATALOG.filterNot { c -> owned.any { it.offer.key == c.key } }.shuffled(rng).take(b.extra).map { PackItem.Joker(it) }
             "Standard" -> (0 until b.extra).map { PackItem.Card(PlayingCard(Suit.values().random(rng), (2..14).random(rng))) }
@@ -1951,7 +1956,7 @@ internal class RunState {
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
         anaglyph = anaglyph, doubleNextTags = doubleNextTags,
-        directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle,
+        directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1992,7 +1997,7 @@ internal class RunState {
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
         anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags
-        directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle
+        directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }

@@ -71,4 +71,9 @@ class VoucherTier2Test {
         org.junit.Assert.assertTrue(rs.canRerollBoss())           // never limited
         assertEquals(2, rs.bossReshuffle)
     }
+
+    @Test fun omenGlobeEnablesSpectralsInArcanaPacks() {
+        val rs = run(); rs.redeemVoucher(voucher("v_omen_globe", 0))
+        org.junit.Assert.assertTrue(rs.omenGlobe)
+    }
 }
