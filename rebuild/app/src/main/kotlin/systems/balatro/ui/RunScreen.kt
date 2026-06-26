@@ -472,6 +472,7 @@ private val CATALOG = listOf(
     Offer("j_cry_redbloon", "cry-redbloon", "After 2 rounds, gives \$20 and self-destructs", 4),
     Offer("j_cry_magnet", "cry-Magnet", "End of round: \$10 if you have 4 or fewer Jokers, otherwise \$2", 6),
     Offer("j_cry_morse", "cry-Morse", "Earns \$1 at end of round; +\$2 each time an edition Joker is sold", 5),
+    Offer("j_cry_familiar_currency", "cry-Familiar Currency", "End of round: spend \$19 to create a random Meme Joker (if you have \$19+)", 0, rarity = 3),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1630,6 +1631,12 @@ internal class RunState {
         // ONLY when dollars > 0, and reads dollars BEFORE the cash-out bonus is banked (so check money here,
         // before the `money += cashOutTotal` below). The payout itself used the pre-growth percent (buildCashOut).
         if (money > 0) for (o in owned) if (o.fj.key == "j_cry_compound_interest") o.fj.x += 3.0
+        // j_cry_familiar_currency: at end of round, if you have ≥$19, spend $19 to create a random Meme Joker
+        // (misc end_of_round; config.extra=19, bankrupt_at=0). Reads pre-bonus money (like compound_interest);
+        // gated on joker room so it never spends $19 with nowhere to put the Joker. One spend per familiar.
+        for (o in owned.toList()) if (o.fj.key == "j_cry_familiar_currency" && money >= 19 && owned.size < maxJokers) {
+            money -= 19; createMemeJoker()
+        }
         money += cashOutTotal
         if (anaglyph && slot == 2) doubleNextTags += 1          // Anaglyph: gain a Double Tag after each Boss Blind
         // self-destruct jokers (Broken Home) DISSOLVED at end-of-round (the cascade's startDissolve →
@@ -1789,6 +1796,18 @@ internal class RunState {
         val offer = CATALOG.random()
         owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
         Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
+    }
+
+    /** Spawn a random Cryptid Meme-pool Joker (Cryptid `pools = { ["Meme"] }`) — used by Familiar Currency.
+     *  Filtered to the Meme members currently in the CATALOG; falls back to any Joker only if none exist. */
+    private fun createMemeJoker() {
+        if (owned.size >= maxJokers) return
+        val memeKeys = setOf("j_cry_blurred", "j_cry_boredom", "j_cry_chad", "j_cry_cube", "j_cry_filler",
+            "j_cry_happyhouse", "j_cry_jimball", "j_cry_krustytheclown", "j_cry_m", "j_cry_nice")
+        val meme = CATALOG.filter { it.key in memeKeys }
+        val offer = (if (meme.isNotEmpty()) meme else CATALOG).random()
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key, "pool" to "Meme")
     }
 
     /** Reorder a joker by swapping it with its [dir] neighbour (dir = -1 left, +1 right). Joker order is
