@@ -468,6 +468,8 @@ private val CATALOG = listOf(
     Offer("j_cry_lebaron_james", "cry-LeBaron James", "+1 hand size this round per scored King", 6, rarity = 3),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
+    // --- missing Cryptid jokers (batch 6): sell-spawn ---
+    Offer("j_cry_happy", "cry-Happy", "Sell this card to create a random Joker", 2),
     // m: Xmult from j.x (+13 per Jolly Joker sold).
     Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
     // longboi: Xmult = monstermult (grows each round; M-pool variant).
@@ -1799,6 +1801,9 @@ internal class RunState {
         // j_diet_cola: sell to create a free Double Tag (card.lua:2918 add_tag(tag_double)). In this engine
         // a Double Tag = doubleNextTags (duplicate the next earned skip tag), same as the Anaglyph deck.
         if (soldKey == "j_diet_cola") doubleNextTags += 1
+        // j_cry_happy: selling this card creates a random Joker (context.selling_self). The sold happy is
+        // already removed, so there's a free slot; createRandomJoker respects maxJokers.
+        if (soldKey == "j_cry_happy") createRandomJoker()
         // j_cry_coin: selling a Joker earns $1-money_mod (random 1..10) per remaining coin (misc
         // context.selling_card on a Joker). Deterministic per-sell seed; each coin rolls independently.
         run {
