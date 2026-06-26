@@ -103,3 +103,4 @@ manual/105-cryptid_config_locals.patch
 manual/106-game_draw_ipairs.patch
 manual/107-settings_ux.patch
 manual/108-sticky_sell_label.patch
+manual/109-input_touch_fixes.patch
