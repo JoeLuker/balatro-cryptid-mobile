@@ -556,4 +556,14 @@ class RunStateTest {
         val coinGain = rs.money - 2                             // subtract the cavendish refund
         assertTrue("Coin pays \$1-10 on a Joker sale (got $coinGain)", coinGain in 1..10)
     }
+
+    @Test fun cryHappySellSpawnsAReplacementJoker() {
+        // cry-Happy: selling it creates a random Joker (net-0 — the freed slot is filled).
+        val rs = RunState()
+        rs.buy(offer("j_cry_happy"), free = true)
+        rs.buy(offer("j_cavendish"), free = true)              // a 2nd joker so Happy is sellable
+        val before = rs.owned.size
+        rs.sell(rs.owned.first { it.fj.key == "j_cry_happy" })
+        assertEquals("selling Happy spawns a replacement Joker (net 0)", before, rs.owned.size)
+    }
 }
