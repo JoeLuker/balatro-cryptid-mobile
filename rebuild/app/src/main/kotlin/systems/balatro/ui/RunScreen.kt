@@ -486,6 +486,7 @@ internal val CATALOG = listOf(
     Offer("j_cry_kidnap", "cry-kidnap", "Earn \$4 at end of round for each 'type' Joker (Jolly/Sly families) sold this run", 4),
     Offer("j_cry_arsonist", "cry-Arsonist", "If your played hand contains a Full House, destroy every played card", 5, rarity = 3),
     Offer("j_cry_huntingseason", "cry-Hunting Season", "When you play exactly 3 cards, destroy the middle one", 7, rarity = 2),
+    Offer("j_cry_seal_the_deal", "cry-Seal the Deal", "On the final hand of the round, give each scored card a random seal", 5, rarity = 2),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1559,6 +1560,15 @@ internal class RunState {
         if (owned.any { it.fj.key == "j_cry_eyeofhagane" }) {
             val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
             for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.STEEL)
+        }
+        // j_cry_seal_the_deal: on the LAST hand of the round (handsLeft now 0 after the decrement above), set a
+        // RANDOM seal on each scoring card that has none (misc context.after; poll_seal). Seals persist to the
+        // run deck for future rounds. The panopticon alt-trigger is pending panopticon. Deterministic per-card seed.
+        if (owned.any { it.fj.key == "j_cry_seal_the_deal" } && handsLeft == 0) {
+            val seals = listOf(Seal.RED, Seal.GOLD, Seal.BLUE, Seal.PURPLE)
+            r.scoringHand.forEachIndexed { i, c ->
+                if (c.seal == Seal.NONE) deck.setSeal(c, seals[Random(blindIndex * 7919L + totalHandsPlayed * 131L + i * 17L).nextInt(4)])
+            }
         }
         // j_vampire: persist the X0.1-per-enhanced-card growth (the joker_main applied it to THIS hand by
         // reading fj.x + this hand's contribution) and strip the consumed enhancements from the deck so
