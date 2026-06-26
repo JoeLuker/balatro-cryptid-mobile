@@ -56,6 +56,7 @@
 55-blind_select_defer.patch
 56-blind_select_tall.patch
 57-draw_shader_nil_reset.patch
+manual/100-sticky_retire_config.patch
 manual/59-drag_self_drop_exclude.patch
 manual/60-sticky_fingers_guard.patch
 manual/61-drag_reject_feedback.patch
@@ -89,3 +90,8 @@ manual/91-hold_shows_details.patch
 manual/92-deck_select_perf.patch
 manual/93-talisman_overlay_center.patch
 manual/94-save_timer_android.patch
+manual/95-settings_unify_ui.patch
+manual/96-amulet_retire_config.patch
+manual/97-settings_unify_ui2.patch
+manual/98-cryptid_retire_config.patch
+manual/99-cardsleeves_retire_config.patch

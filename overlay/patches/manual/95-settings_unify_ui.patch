@@ -1,0 +1,41 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index 5df2efa..16a191c 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2521,6 +2521,7 @@ function create_UIBox_settings()
+     tab_definition_function_args = 'Audio'
+   }
+ 
++  tabs[#tabs+1] = { label = "Compat", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Compat' }
+   tabs[#tabs+1] = { label = "Debug", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }
+   local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(
+     {tabs = tabs,
+@@ -2544,7 +2545,9 @@ function G.UIDEF.settings_tab(tab)
+   elseif tab == 'Game' then
+     return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
+       create_option_cycle({label = localize('b_set_gamespeed'),scale = 0.8, options = {0.5, 1, 2, 4, 8, 16, 32, 64}, opt_callback = 'change_gamespeed', current_option = (({[0.5]=1,[1]=2,[2]=3,[4]=4,[8]=5,[16]=6,[32]=7,[64]=8})[G.SETTINGS.GAMESPEED] or 2)}),
+-      Talisman.config_sections.disable_anim(),
++      (Talisman and Talisman.config_sections.disable_anim()) or nil,
++      (Talisman and Talisman.config_sections.big_ante()) or nil,
++      (Talisman and Talisman.config_sections.notation()) or nil,
+       create_option_cycle({w = 5, label = localize('b_set_play_discard_pos'),scale = 0.8, options = localize('ml_play_discard_pos_opt'), opt_callback = 'change_play_discard_position', current_option = (G.SETTINGS.play_button_pos)}),
+       G.F_RUMBLE and create_toggle({label = localize('b_set_rumble'), ref_table = G.SETTINGS, ref_value = 'rumble'}) or nil,
+       create_slider({label = localize('b_set_screenshake'),w = 4, h = 0.4, ref_table = G.SETTINGS, ref_value = 'screenshake', min = 0, max = 100}),
+@@ -2593,6 +2596,17 @@ function G.UIDEF.settings_tab(tab)
+       create_slider({label = localize('b_set_CRT'),w = 4, h = 0.4, ref_table = G.SETTINGS.GRAPHICS, ref_value = 'crt', min = 0, max = 100}),
+       create_option_cycle({w = 4,scale = 0.8, label = localize("b_set_CRT_bloom"),options = localize('ml_bloom_opt'), opt_callback = 'change_crt_bloom', current_option = G.SETTINGS.GRAPHICS.bloom}),
+       create_option_cycle({label = localize('b_graphics_mipmap_level'),scale = 0.8, options = SMODS.config.graphics_mipmap_level_options, opt_callback = 'SMODS_change_mipmap', current_option = SMODS.config.graphics_mipmap_level}),
++      (Talisman and Talisman.config_sections.exponential_colours()) or nil,
++    }}
++  elseif tab == 'Compat' then
++    -- SETTINGS_UNIFY: Amulet/Talisman compat + low-level options (relocated from the mod's config tab)
++    return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
++      (Talisman and Talisman.config_sections.debug_coroutine()) or nil,
++      (Talisman and Talisman.config_sections.disable_omega()) or nil,
++      (Talisman and Talisman.config_sections.compat.thread_sanitize()) or nil,
++      (Talisman and Talisman.config_sections.compat.thread_sanitize_num()) or nil,
++      (Talisman and Talisman.config_sections.compat.sanitize_graphics()) or nil,
++      (Talisman and Talisman.config_sections.compat.type_compat()) or nil,
+     }}
+   end
+ 

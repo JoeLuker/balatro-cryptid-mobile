@@ -1,0 +1,15 @@
+diff --git a/Mods/sticky-fingers/main.lua b/Mods/sticky-fingers/main.lua
+index 9a3e223..80b1cb0 100644
+--- a/Mods/sticky-fingers/main.lua
++++ b/Mods/sticky-fingers/main.lua
+@@ -14,7 +14,9 @@ DTM.save_config = function(self)
+   SMODS.save_mod_config(self)
+ end
+ 
+-DTM.config_tab = function()
++-- SETTINGS_UNIFY: relocated to Settings > Game (called via DTM.unified_config_tab);
++-- not a Mods-menu config tab, so it lives in one place.
++DTM.unified_config_tab = function()
+   return {
+     n = G.UIT.ROOT,
+     config = {

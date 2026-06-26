@@ -1,0 +1,17 @@
+diff --git a/Mods/Cryptid/Cryptid.lua b/Mods/Cryptid/Cryptid.lua
+index 1c3348c..9f38abc 100644
+--- a/Mods/Cryptid/Cryptid.lua
++++ b/Mods/Cryptid/Cryptid.lua
+@@ -569,5 +569,10 @@ local cryptidTabs = function()
+ 		},
+ 	}
+ end
+-SMODS.current_mod.extra_tabs = cryptidTabs
+-SMODS.current_mod.config_tab = cryptidConfigTab
++-- SETTINGS_UNIFY: expose Cryptid's config + music builders as stable handles for the unified
++-- Settings (Content tab + Audio section), and retire the Mods-menu config/extra tabs so no
++-- setting lives in two places. (SMODS.current_mod isn't Cryptid at settings-render time.)
++Cryptid.unified_config_tab = cryptidConfigTab
++Cryptid.unified_music_tabs = cryptidTabs
++SMODS.current_mod.extra_tabs = nil
++SMODS.current_mod.config_tab = nil

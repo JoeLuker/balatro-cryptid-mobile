@@ -1,0 +1,63 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index 16a191c..c71680f 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2520,6 +2520,7 @@ function create_UIBox_settings()
+     tab_definition_function = G.UIDEF.settings_tab,
+     tab_definition_function_args = 'Audio'
+   }
++  tabs[#tabs+1] = { label = "Content", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Content' }
+ 
+   tabs[#tabs+1] = { label = "Compat", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Compat' }
+   tabs[#tabs+1] = { label = "Debug", tab_definition_function = G.UIDEF.settings_tab, tab_definition_function_args = 'Debug' }
+@@ -2555,6 +2556,7 @@ function G.UIDEF.settings_tab(tab)
+       create_toggle({label = localize('b_high_contrast_cards'), ref_table = G.SETTINGS, ref_value = 'colourblind_option', callback = G.FUNCS.refresh_contrast_mode}),
+       create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),
+       create_toggle({label = "Slide to select cards", ref_table = G.SETTINGS, ref_value = 'enable_drag_select'}),
++      (DTM and DTM.unified_config_tab and (DTM.unified_config_tab().nodes or {})[1]) or nil,
+       G.F_CRASH_REPORTS and create_toggle({label = localize('b_set_crash_reports'), ref_table = G.SETTINGS, ref_value = 'crashreports', info = localize('ml_crash_report_info')}) or nil,
+     }}
+   elseif tab == 'Video' then
+@@ -2584,11 +2586,20 @@ function G.UIDEF.settings_tab(tab)
+         UIBox_button({button = 'apply_window_changes', label = {localize('b_set_apply')}, minw = 3, func = 'can_apply_window_changes'}),
+     }}
+   elseif tab == 'Audio' then
+-    return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
++    local nodes = {
+       create_slider({label = localize('b_set_master_vol'), w = 5, h = 0.4, ref_table = G.SETTINGS.SOUND, ref_value = 'volume', min = 0, max = 100}),
+       create_slider({label = localize('b_set_music_vol'), w = 5, h = 0.4, ref_table = G.SETTINGS.SOUND, ref_value = 'music_volume', min = 0, max = 100}),
+       create_slider({label = localize('b_set_game_vol'), w = 5, h = 0.4, ref_table = G.SETTINGS.SOUND, ref_value = 'game_sounds_volume', min = 0, max = 100}),
+-    }}
++    }
++    -- SETTINGS_UNIFY: Cryptid music toggles (relocated from the mod's Music tab — music is audio)
++    if Cryptid and Cryptid.unified_music_tabs then
++      local mt = Cryptid.unified_music_tabs()[1]
++      if mt and mt.tab_definition_function then
++        local m = mt.tab_definition_function()
++        if m and m.nodes then for _, n in ipairs(m.nodes) do nodes[#nodes+1] = n end end
++      end
++    end
++    return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes=nodes}
+   elseif tab == 'Graphics' then 
+     return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
+       create_option_cycle({w = 4,scale = 0.8, label = localize("b_set_shadows"),options = localize('ml_shadow_opt'), opt_callback = 'change_shadows', current_option = (G.SETTINGS.GRAPHICS.shadows == 'On' and 1 or 2)}),
+@@ -2608,6 +2619,19 @@ function G.UIDEF.settings_tab(tab)
+       (Talisman and Talisman.config_sections.compat.sanitize_graphics()) or nil,
+       (Talisman and Talisman.config_sections.compat.type_compat()) or nil,
+     }}
++  elseif tab == 'Content' then
++    -- SETTINGS_UNIFY: cosmetic/content config relocated here, once each: Cryptid (content sets,
++    -- gameset switcher, features, reset/update) + CardSleeves (sleeve alignment/info/selection).
++    local nodes = {}
++    if Cryptid and Cryptid.unified_config_tab then
++      local c = Cryptid.unified_config_tab()
++      if c and c.nodes then for _, n in ipairs(c.nodes) do nodes[#nodes+1] = n end end
++    end
++    if CardSleeves and CardSleeves.unified_config_tab then
++      local s = CardSleeves.unified_config_tab()
++      if s and s.nodes then for _, n in ipairs(s.nodes) do nodes[#nodes+1] = n end end
++    end
++    return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes=nodes}
+   end
+ 
+   return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR, minh = 5, minw = 5}, nodes={}}

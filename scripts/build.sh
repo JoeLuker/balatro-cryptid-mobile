@@ -248,6 +248,7 @@ patch_mods_dir() {
 # Order matters: Cryptid first (sed, one line each), then Amulet/CardSleeves/
 # sticky-fingers (Python span replacements for multi-line closures).
 # Idempotency marker: 'RETIRE_MOD_TABS_DONE' comment appended by Python step.
+# SUPERSEDED (2026-06-25): settings unification ships as overlay/patches/manual/95-100 (nix pipeline, deployed+verified). This is the parallel/legacy approach and is NOT registered in nix/gen-patches.sh -- do NOT wire it in; it would duplicate the relocation + retire.
 apply_retire_mod_config_tabs() {
     local mods_dir="$1"
 
@@ -1326,6 +1327,7 @@ apply_settings_debug_tab() {
 #
 # Also registers the three tabs in create_UIBox_settings via sed (before Debug).
 # Idempotency marker: 'SETTINGS_MOD_TABS' injected as a comment into the body.
+# SUPERSEDED (2026-06-25): settings unification ships as overlay/patches/manual/95-100 (nix pipeline, deployed+verified). This is the parallel/legacy approach and is NOT registered in nix/gen-patches.sh -- do NOT wire it in; it would duplicate the relocation + retire.
 apply_settings_mod_tabs() {
     local f="$1"
     if [[ ! -f "$f" ]]; then
@@ -1481,6 +1483,7 @@ PYEOF
 # callback also handles finger-swipe-on-content (touchmoved routes as mousemoved
 # in this engine, so G.CONTROLLER.is_cursor_down + HID.touch is the right gate).
 # Idempotency marker: "SETTINGS_SCROLLABLE" in the function body.
+# SUPERSEDED (2026-06-25): settings unification ships as overlay/patches/manual/95-100 (nix pipeline, deployed+verified). This is the parallel/legacy approach and is NOT registered in nix/gen-patches.sh -- do NOT wire it in; it would duplicate the relocation + retire.
 apply_settings_scrollable() {
     local f="$1"
     if [[ ! -f "$f" ]]; then

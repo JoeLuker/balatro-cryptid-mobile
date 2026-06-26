@@ -1,0 +1,30 @@
+diff --git a/Mods/Amulet/smods.lua b/Mods/Amulet/smods.lua
+index d61f6d2..b13be66 100644
+--- a/Mods/Amulet/smods.lua
++++ b/Mods/Amulet/smods.lua
+@@ -95,21 +95,16 @@ SMODS.Sound({
+ function curmod.load_mod_config() end
+ function curmod.save_mod_config() end
+ 
+-curmod.config_tab = function()
+-	if Talisman and Talisman.config_sections then
+-		return Talisman.config_sections.config_tab()
+-	end
+-	return nil
+-end
++-- SETTINGS_UNIFY: Amulet's options are relocated into the main Settings (Game / Graphics /
++-- Compat tabs, via Talisman.config_sections.* builders) so nothing lives in two places.
++curmod.config_tab = nil
+ curmod.description_loc_vars = function()
+ 	return { background_colour = G.C.CLEAR, text_colour = G.C.WHITE, scale = 1.2 }
+ end
+ 
+ curmod.extra_tabs = function()
++	-- SETTINGS_UNIFY: Compatibility options moved to Settings > Compat; keep only Credits here.
+ 	return {{
+-		label = 'Compatibility',
+-		tab_definition_function = G.UIDEF.tal_compat_config
+-	}, {
+ 		label = 'Credits',
+ 		tab_definition_function = G.UIDEF.tal_credits
+ 	}}
