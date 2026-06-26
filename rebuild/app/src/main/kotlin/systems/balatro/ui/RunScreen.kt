@@ -2378,7 +2378,7 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             // ROUND_EVAL keeps the play field mounted too, so the engine host + joker Moveables persist
             // and the end-of-round self-destruct dissolve burns on behind the cash-out panel (which the
             // when-block below overlays). RoundPlay gates its hand/played/action-bar to Phase.ROUND.
-            if (s.phase == Phase.ROUND || s.phase == Phase.ROUND_EVAL) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
+            if (s.phase == Phase.ROUND || s.phase == Phase.ROUND_EVAL) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy, shopArt)
             Box(
                 // requiredHeight + centre: the 12.9u room centres in the surface — letterboxed when the
                 // surface is taller than the room, cropped top/bottom when shorter (16:9). Plain .height()
@@ -2867,7 +2867,7 @@ private fun CardFace(
 }
 
 @Composable
-private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null, roomTx: Float = 1f, roomTy: Float = 0.4375f) {
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null, roomTx: Float = 1f, roomTy: Float = 0.4375f, shopArt: ShopArt.Cells = ShopArt.Cells.EMPTY) {
     // Play field laid out at ABSOLUTE room coordinates — set_screen_positions (common_events.lua),
     // resolved to screen-top-left room units by the playfield-coords analysis (LÖVE oracle +
     // reference measurement). Card areas (jokers/play/hand/deck/consumeables) are placed via
@@ -3160,8 +3160,18 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                                 inspCons = if (inspCons == i) null else i; selJoker = null
                             },
                             contentAlignment = Alignment.Center) {
-                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                            BTxt(label, accent, countSp, Modifier.padding(horizontal = 2.dp))
+                            // The held card's REAL sprite (same atlas the shop uses) — not a name label.
+                            val sprite = when (c) {
+                                is Consumable.TarotC -> shopArt.tarots[c.t.name]
+                                is Consumable.PlanetC -> shopArt.planets[c.planet]
+                                is Consumable.SpectralC -> shopArt.spectrals[c.s]
+                            }
+                            if (sprite != null) {
+                                Image(sprite, label, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                            } else {   // fallback only if the atlas crop is missing
+                                cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                                BTxt(label, accent, countSp, Modifier.padding(horizontal = 2.dp))
+                            }
                         }
                     }
                 }
