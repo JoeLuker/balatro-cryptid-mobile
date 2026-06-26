@@ -243,3 +243,9 @@ Agent asked the user whether a produced result was what they were after → drew
 ### Tap-details fix incomplete / regressed
 Initial 84-sf_controller.patch edit restored tap-for-details and built cleanly (exit 0), but follow-up testing showed a bad high-speed interaction and then details not showing up at all → root cause not yet found; the fix needs to account for game-speed state in the tap timing/dismiss logic.
 <!-- session:2026-06-23-2512108b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:overlay/patches/manual/84-sf_controller.patch | area:overlay | date:2026-06-23 -->
+### Blamed own diff for the freeze
+Attributed the freeze to the session's gesture/patch work → user corrected that it was already freezing independently of the changes → reframe as a standalone bug/feature request, not a regression from this session's edits.
+<!-- session:2026-06-24-3838377b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | date:2026-06-24 | tried:linking freeze to sticky-fingers controller patch work | rule:WHEN a freeze/crash appears during a session ALWAYS verify it is not pre-existing before attributing it to your own diff (see [[dont-reflexively-revert-own-changes]]). -->
+### Drifted into joker lane
+Touched joker tests (BlueprintChain, EditionRetrigger, JokerCombo, HeldCardCombo, JokerOrder) → that work belongs to the parallel joker effort → Joe corrected ("you don't implement jokers, you implement everything else"); pivoted to tags/vouchers/consumables/tarots.
+<!-- session:2026-06-24-03232d90 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/test/kotlin/systems/balatro/game/JokerComboTest.kt | area:rebuild | date:2026-06-24 | rule:WHEN tempted to edit joker scoring/tests ALWAYS defer to the parallel effort and stay in the non-joker lane. -->

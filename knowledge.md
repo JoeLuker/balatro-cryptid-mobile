@@ -836,3 +836,31 @@ Changes to overlay patches are validated via a "syntax-check + rebuild + sign" b
 ### Reducer test harness pattern
 The #44/#59 class of bug (latent accumulated-state errors across run-loop events) is catchable by dispatching real GameEvents through the run loop and asserting on accumulated state, rather than auditing each joker by hand. This is test infrastructure, not joker logic, so it does not collide with parallel scoring work on the same branch.
 <!-- session:2026-06-23-b782e2ee | commit:8604be4adb86d57a73345475933ea6de0da0ad25 | files:rebuild/app/src/test/kotlin/systems/balatro/game/RunLoopReducerTest.kt,rebuild/app/src/test/kotlin/systems/balatro/game/ScoreHookTest.kt | area:rebuild | date:2026-06-23 -->
+
+### Patch-system audit (gen-patches SKIP mechanism)
+`nix/gen-patches.sh` runs `cap <name>` calls that can silently no-op when a Lua anchor drifts; 5 such SKIPs are compensated by hand-written patches under `overlay/patches/manual/`. Several manual patches target a *different* file/call-site than the cap's `apply_*`, so the SKIP report contains permanent false positives that mask future real drift. `cryptid_oil_lamp_fix` has NO compensating manual patch — the Oil Lamp global-variable leak ships unpatched in the nix APK.
+<!-- session:2026-06-24-3838377b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:nix/gen-patches.sh,overlay/patches/series,overlay/patches/manual/ | area:overlay | date:2026-06-24 -->
+
+### build.sh dead Talisman-era code
+`scripts/build.sh` (~5138 lines) carries ~383 lines of TALISMAN-ERA `apply_*` function bodies whose call sites are all commented out; they reference a `Mods/Talisman/talisman.lua` no longer in the tree and are invisible to gen-patches auditing because they're defined-but-uncalled.
+<!-- session:2026-06-24-3838377b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:scripts/build.sh | area:scripts | date:2026-06-24 -->
+
+### lovely.lua GLSL_ES stub duplication
+The GLSL_ES shader-repair Lua stub is written verbatim in two hot build paths (`scripts/build.sh` build_apk heredoc + `nix/balatro-cryptid.nix` gameLoveBase buildPhase), kept in sync only by manual vigilance — candidate for extraction to a single committed `patches/lovely-stub.lua` like `android-nativefs.lua`.
+<!-- session:2026-06-24-3838377b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:scripts/build.sh,nix/balatro-cryptid.nix | area:scripts | date:2026-06-24 -->
+
+### Joker porting is organized by effect category
+Vanilla jokers were ported in category batches — money, deck, discard, passive, economy, spawn — each with a matching focused test file (e.g. `PassiveJokerTest`, `EconomyJokerTest`, `SpawnJokerTest`). The recurring touch-set per batch is `JokerManifest.kt` (registration) + `Score.kt`/`Oracle.kt` (effect logic + parity oracle) + `RunScreen.kt` (rendering/effect hookup) + a category test.
+<!-- session:2026-06-24-98120920 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-24 -->
+
+### Test harness mirrors system boundaries
+Parity is verified per-system with dedicated test files (economy, levels, hands, vouchers, blinds/debuff, tags, card modifiers, consumables, decks) rather than one monolithic suite — each maps to a game subsystem.
+<!-- session:2026-06-24-98120920 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/test/kotlin/systems/balatro/game,rebuild/app/src/test/kotlin/systems/balatro/ui | area:rebuild | date:2026-06-24 -->
+
+### Lane separation
+Joker scoring/migration and its tests belong to the parallel effort; this session's lane is everything else — boss blinds, tags, vouchers, consumables, deck/hand, economy, save/resume, tooling, and UI.
+<!-- session:2026-06-24-03232d90 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-24 -->
+
+### Consumable serialization
+tarots serialize by name; useConsumable frees the slot first before applying the effect.
+<!-- session:2026-06-24-03232d90 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt | area:rebuild | date:2026-06-24 -->

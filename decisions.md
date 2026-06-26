@@ -203,3 +203,12 @@ Manual audit surfaced the #44/#59 bug class but doesn't scale → build a reduce
 ### Extend hook harness before run-loop harness
 When asked to proceed, user directed "extend the harness first" → prioritized extending ScoreHookTest hook coverage ahead of broadening the run-loop reducer tests.
 <!-- session:2026-06-23-b782e2ee | commit:8604be4adb86d57a73345475933ea6de0da0ad25 | files:rebuild/app/src/test/kotlin/systems/balatro/game/ScoreHookTest.kt | area:rebuild | date:2026-06-23 -->
+### Patch-series cleanup
+A read-only multi-agent review flagged dead/diverged patches → deleted patches 48–57 (letter_table_reuse, nugc_adaptive, moveable_sleep, moveable_shadow_lists, event_burst_attrib, event_queue_compact, ui_func_throttle, blind_select_defer, blind_select_tall, draw_shader_nil_reset) and re-anchored 84-sf_controller (chose to prune the series rather than leave stale entries).
+<!-- session:2026-06-24-3838377b | commit:12b17f2abecd96fae5800f4eedce504d19d19e6f | files:overlay/patches/series,overlay/patches/GEN-REPORT.txt | area:overlay | date:2026-06-24 -->
+### Port jokers in category batches, not alphabetically
+Facing the all-316 goal → grouped jokers by effect mechanism (money/deck/discard/passive/economy/spawn) and ported each batch with its own oracle-backed test (because shared effect machinery in Score.kt/Oracle.kt is reused within a category, so batching by mechanism minimizes repeated wiring and lets one test file cover the batch).
+<!-- session:2026-06-24-98120920 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Score.kt | area:rebuild | date:2026-06-24 -->
+### Scope to non-joker mechanics
+Work initially drifted into joker tests → corrected to non-joker run mechanics + UI only (joker lane is owned by a concurrent parallel agent on the same branch; duplicating it causes collisions).
+<!-- session:2026-06-24-03232d90 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/test/kotlin/systems/balatro/game/JokerComboTest.kt | area:rebuild | date:2026-06-24 | rule:WHEN scoping rebuild work in this repo NEVER implement or migrate jokers — that is the parallel effort's lane; do UI + all non-joker run mechanics. -->
