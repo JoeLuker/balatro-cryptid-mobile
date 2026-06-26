@@ -184,4 +184,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // Background music follows the Activity lifecycle (start/resume foregrounded, pause backgrounded).
+    override fun onResume() { super.onResume(); systems.balatro.audio.MusicManager.start(applicationContext) }
+    override fun onPause() { systems.balatro.audio.MusicManager.pause(); super.onPause() }
+    override fun onDestroy() { systems.balatro.audio.MusicManager.release(); systems.balatro.audio.SoundManager.release(); super.onDestroy() }
 }
