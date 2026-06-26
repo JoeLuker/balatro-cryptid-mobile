@@ -2219,7 +2219,15 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     // startScreen) RESUMES the saved run if one exists (P4 SaveLoadThreadingModel).
     LaunchedEffect(Unit) {
         when (startScreen) {
-            null -> withContext(Dispatchers.IO) { SaveIo.read(saveFile) }?.let { s.restore(RunSnapshot.decode(it)) }
+            null -> withContext(Dispatchers.IO) { SaveIo.read(saveFile) }?.let { json ->
+                // A corrupt or schema-incompatible save must not crash-loop the app: discard it and
+                // start fresh (the DECK_SELECT default already stands) instead of letting decode throw.
+                try { s.restore(RunSnapshot.decode(json)) }
+                catch (e: Throwable) {
+                    Telemetry.event("SAVE_LOAD_FAILED", "err" to e.toString())
+                    withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }
+                }
+            }
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
             "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }

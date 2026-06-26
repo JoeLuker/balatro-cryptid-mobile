@@ -83,9 +83,14 @@ data class RunSnapshot(
     val omenGlobe: Boolean = false,
     val cardRate: Double = 0.0,
     val illusion: Boolean = false,
+    val schemaVersion: Int = SCHEMA_VERSION,   // bump on a breaking change; lets future loads migrate
 ) {
-    fun encode(): String = Json.encodeToString(this)
+    fun encode(): String = JSON.encodeToString(this)
     companion object {
-        fun decode(s: String): RunSnapshot = Json.decodeFromString(s)
+        const val SCHEMA_VERSION = 1
+        // Lenient on purpose: ignoreUnknownKeys = a save written by a newer/parallel build (extra keys)
+        // still loads instead of throwing; new fields here always carry defaults so OLD saves load too.
+        private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true; isLenient = true }
+        fun decode(s: String): RunSnapshot = JSON.decodeFromString(s)
     }
 }
