@@ -2278,7 +2278,10 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             }
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
-            "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
+            "play" -> {   // pick a default deck first — the run now starts at DECK_SELECT, not ROUND
+                if (s.phase == Phase.DECK_SELECT) s.pickDeck(DeckVariant.RED)
+                delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play()
+            }
             "eval" -> s.toEvalForPreview()
             "over" -> s.phase = Phase.OVER
             "win" -> s.phase = Phase.WIN
