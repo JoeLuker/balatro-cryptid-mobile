@@ -2246,6 +2246,14 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
             else -> {}
         }
     }
+    // Win / game-over stings.
+    LaunchedEffect(s.phase) {
+        when (s.phase) {
+            Phase.WIN -> systems.balatro.audio.SoundManager.play("timpani")
+            Phase.OVER -> systems.balatro.audio.SoundManager.play("gong")
+            else -> {}
+        }
+    }
 
     val allCards = remember { Suit.values().flatMap { su -> (2..14).map { PlayingCard(su, it) } } }
     val cells by produceState<Map<PlayingCard, ImageBitmap>>(emptyMap()) {
@@ -2927,6 +2935,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 val step = s.lastSteps[i]
                 host.events.addEvent(Event(trigger = "after", delay = if (i == 1) 0.14 else 0.30, func = {
                     s.popIndex = i - 1                              // pop the scored card
+                    systems.balatro.audio.SoundManager.play("chips1", rate = 1f + (i - 1) * 0.06f)   // rising chip tick
                     // ease_chips/ease_mult (common_events.lua): the readout COUNTS UP to this step's
                     // value over 0.3s instead of jumping. Non-blocking so the cascade keeps marching;
                     // chips floor to integers (ease_chips uses math.floor), mult stays fractional.
@@ -3066,6 +3075,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             .border(1.dp, if (isAiming) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
                             .clickable(enabled = s.phase == Phase.ROUND && !s.scoring) {
                                 // Targeted tarots enter aim mode; non-targeted tarots & other consumables apply now.
+                                systems.balatro.audio.SoundManager.play("tarot1")
                                 if (c is Consumable.TarotC && c.t.fx.needsTarget) s.aimTarot(c.t) else s.useConsumable(i)
                             },
                             contentAlignment = Alignment.Center) {
@@ -3119,7 +3129,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
                         rotationZ = rotZDeg
                         scaleX = scaleFactor; scaleY = scaleFactor
-                    }.clickable(interaction, indication = null, enabled = !s.scoring) { s.toggle(i) }
+                    }.clickable(interaction, indication = null, enabled = !s.scoring) { systems.balatro.audio.SoundManager.play("highlight1"); s.toggle(i) }
                     .then(if (isTarotTarget) Modifier.border(2.dp, Balatro.Purple, RoundedCornerShape(4.dp)) else Modifier)
                 ) {
                     if (isFaceDown) {

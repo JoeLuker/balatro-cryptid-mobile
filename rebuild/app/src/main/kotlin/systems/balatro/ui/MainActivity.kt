@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        systems.balatro.audio.SoundManager.init(applicationContext)   // load bundled SFX once
         // Edge-to-edge: let the Compose surface fill the ENTIRE display, drawing under (hidden) system
         // bars. Without this the content area is inset by the landscape nav bar (~200px), so the room
         // scaled to a too-narrow surface (u≈165px/unit instead of the full-width 174.5) and the whole

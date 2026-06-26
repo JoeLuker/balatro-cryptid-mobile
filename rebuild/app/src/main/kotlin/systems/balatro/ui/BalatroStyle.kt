@@ -132,7 +132,8 @@ fun Pill(value: String, label: String, color: Color, modifier: Modifier = Modifi
 fun BButton(text: String, color: Color, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier.clip(RoundedCornerShape(8.dp)).background(if (enabled) color else Balatro.Grey)
-            .clickable(enabled = enabled) { onClick() }.padding(horizontal = 14.dp, vertical = 9.dp),
+            .clickable(enabled = enabled) { systems.balatro.audio.SoundManager.play("button"); onClick() }
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) { BTxt(text, Balatro.White, 15.sp) }
 }
