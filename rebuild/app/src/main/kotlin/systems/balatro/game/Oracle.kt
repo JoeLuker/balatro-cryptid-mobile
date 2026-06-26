@@ -790,6 +790,7 @@ object Oracle {
         Case("Two Bonus aces + vampire (2 enhanced → X1.2) → 220", listOf(en("S_A", Enhancement.BONUS), en("H_A", Enhancement.BONUS)), 220.0, j(FJoker("j_vampire"))),
         Case("Plain aces + vampire (no enhanced → no fire) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_vampire"))),
         Case("Plain aces + vampire @x=1.5 (accumulated X1.5) → 96", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_vampire", x = 1.5))),
+        Case("Pair of aces + rocket (end-of-round economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_rocket"))),
     )
 
     fun run(): Pair<Int, Int> {

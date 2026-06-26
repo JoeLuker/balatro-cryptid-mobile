@@ -583,6 +583,8 @@ private val CATALOG = listOf(
     Offer("j_midas_mask", "Midas Mask", "All played face cards become Gold cards when scored", 7, rarity = 2),
     // --- missing vanilla jokers (batch 20): scoring-time accumulation (Score.kt) ---
     Offer("j_vampire", "Vampire", "Gains X0.1 Mult per scored enhanced card, removing the enhancement", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 21): boss-scaling economy ---
+    Offer("j_rocket", "Rocket", "Earn $1 at end of round; payout increases by $2 when a Boss Blind is defeated", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1478,6 +1480,9 @@ internal class RunState {
         // CERULEAN_BELL: pick a new forced card after the hand is refilled.
         if (boss == Boss.CERULEAN_BELL) bellForcedIdx = if (hand.isNotEmpty()) hand.indices.random() else null
         if (roundScore >= target) {
+            // j_rocket: defeating a Boss Blind (slot 2) raises its payout by $2 — applied BEFORE the
+            // cash-out, so the boss round itself pays the increased amount (end_round precedes evaluate_round).
+            if (slot == 2) for (o in owned) if (o.fj.key == "j_rocket") o.fj.n += 2
             buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
             phase = Phase.ROUND_EVAL
@@ -1519,7 +1524,8 @@ internal class RunState {
             owned.count { it.offer.key == "j_golden" } * 4 +                                       // Golden Joker: $4 each round
             owned.count { it.offer.key == "j_cloud_9" } * deck.composition().count { it.rank == 9 } +  // Cloud 9: $1 per 9 in deck
             owned.count { it.offer.key == "j_to_the_moon" } * (money / 5) +                         // To the Moon: extra $1 interest per $5 (uncapped)
-            (if (roundDiscardsUsed == 0) owned.count { it.offer.key == "j_delayed_grat" } * 2 * discardsLeft else 0)  // Delayed Gratification: $2 per discard, only if none used
+            (if (roundDiscardsUsed == 0) owned.count { it.offer.key == "j_delayed_grat" } * 2 * discardsLeft else 0) +  // Delayed Gratification: $2 per discard, only if none used
+            owned.filter { it.offer.key == "j_rocket" }.sumOf { it.fj.n }                            // Rocket: current payout (base $1, +$2 per boss defeated)
         if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
