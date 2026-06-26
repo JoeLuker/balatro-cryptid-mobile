@@ -466,6 +466,8 @@ private val CATALOG = listOf(
     Offer("j_cry_lucky_joker", "cry-Lucky Joker", "Earn $5 each time a Lucky card triggers", 4),
     // --- missing Cryptid jokers (batch 4): per-round hand-size accumulator ---
     Offer("j_cry_lebaron_james", "cry-LeBaron James", "+1 hand size this round per scored King", 6, rarity = 3),
+    // --- missing Cryptid jokers (batch 5): sell-economy ---
+    Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // m: Xmult from j.x (+13 per Jolly Joker sold).
     Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
     // longboi: Xmult = monstermult (grows each round; M-pool variant).
@@ -1797,6 +1799,14 @@ internal class RunState {
         // j_diet_cola: sell to create a free Double Tag (card.lua:2918 add_tag(tag_double)). In this engine
         // a Double Tag = doubleNextTags (duplicate the next earned skip tag), same as the Anaglyph deck.
         if (soldKey == "j_diet_cola") doubleNextTags += 1
+        // j_cry_coin: selling a Joker earns $1-money_mod (random 1..10) per remaining coin (misc
+        // context.selling_card on a Joker). Deterministic per-sell seed; each coin rolls independently.
+        run {
+            val coinSeedBase = money.toLong() * 2654435761L + owned.size * 131L + 3L
+            owned.forEachIndexed { idx, o ->
+                if (o.fj.key == "j_cry_coin") money += Random(coinSeedBase + idx * 977L).nextInt(10) + 1
+            }
+        }
         // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately (unless disabled)
         if (!bossDisabled && boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)

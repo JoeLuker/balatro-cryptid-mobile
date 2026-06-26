@@ -545,4 +545,15 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("+1 hand size per scored King (2 Kings)", baseHand + 2, rs.handSize)
     }
+
+    @Test fun cryCoinPaysOneToTenWhenAJokerIsSold() {
+        // cry-Coin: selling a Joker earns $1-10 (random). Sell a distinctly-keyed joker; Coin stays owned.
+        val rs = RunState()
+        rs.buy(offer("j_cry_coin"), free = true)
+        rs.buy(offer("j_cavendish", cost = 4), free = true)   // refund = maxOf(1, 4/2) = 2
+        rs.money = 0
+        rs.sell(rs.owned.first { it.fj.key == "j_cavendish" })
+        val coinGain = rs.money - 2                             // subtract the cavendish refund
+        assertTrue("Coin pays \$1-10 on a Joker sale (got $coinGain)", coinGain in 1..10)
+    }
 }
