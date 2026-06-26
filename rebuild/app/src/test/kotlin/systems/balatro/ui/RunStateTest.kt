@@ -477,4 +477,13 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertTrue("disabled THE_PSYCHIC lets a 2-card hand score", rs.roundScore > 0.0)
     }
+
+    @Test fun cryBlurredAddsOneHandEachRound() {
+        // Vanilla-style passive: cry-Blurred grants +1 hand each round (ease_hands_played, extra_hands=1).
+        val rs = RunState()
+        val base = rs.handsLeft                                 // init startRound, no Blurred yet
+        rs.buy(offer("j_cry_blurred"), free = true)
+        rs.phase = Phase.BLIND_SELECT; rs.selectBlind()         // re-run startRound with Blurred owned
+        assertEquals("+1 hand each round", base + 1, rs.handsLeft)
+    }
 }

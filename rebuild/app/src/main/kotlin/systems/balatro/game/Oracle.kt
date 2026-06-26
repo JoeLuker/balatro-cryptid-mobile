@@ -793,6 +793,7 @@ object Oracle {
         Case("Plain aces + vampire @x=1.5 (accumulated X1.5) → 96", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_vampire", x = 1.5))),
         Case("Pair of aces + rocket (end-of-round economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_rocket"))),
         Case("Pair of aces + diet_cola (sell-effect → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_diet_cola"))),
+        Case("Pair of aces + cry_blurred (passive hands → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_cry_blurred"))),
         // Seltzer: retriggers every scored card once → same as sock_and_buskin+pareidolia (all 2x) on a pair → 108.
         Case("Pair of aces + seltzer (all cards 2x) → 108", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_selzer"))),
         // m_lucky (Lucky enhancement): 1-in-5 → +20 Mult. seed=1 makes the index-0 card's roll hit; seed=0 misses.
