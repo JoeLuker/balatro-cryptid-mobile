@@ -8,6 +8,20 @@ Legend: ✅ faithful-ish · ◑ partial / hand-built-but-present · ❌ missing 
 > (tooltips), its **meta layer** (collection / options / scores), a **real main menu**, and proper
 > **card-container behavior** for most board regions. "Faithful" was only ever pixel-checked for the HUD.
 
+## 0. Teardown progress (2026-06-26, verified on emulator-5560)
+| Crutch | Status |
+|---|---|
+| No detail tooltip (couldn't read cards) | ✅ FIXED #165/#167 — tap joker/consumable → name+ability+actions |
+| Material dev launcher (main menu) | ✅ FIXED #168 — real extracted `main_menu_tree` on felt |
+| Settings/Stats Material dialogs | ✅ FIXED #173 — Balatro Options overlay (audio + stats) |
+| Consumables = name-on-cardback | ✅ FIXED #170 — real tarot/spectral sprites (full Moveable CardArea still TODO) |
+| Collection = Material demo grid | ✅ FIXED #175 — felt overlay, tabs, real content sprites |
+| `play` parity harness (deck-select regression) | ✅ FIXED #166 |
+
+**Still crutches:** shop sell-strip · hand-built cash-out (EvalRow) · deck/stake picker (vs customize_deck) ·
+tag-art placeholder · play/discard sub-label stubs · `onRunInfo` stub · some joker-art placeholders ·
+editions don't render on playing cards · consumeables/jokers not full engine CardAreas (rendering fixed, physics not).
+
 ---
 
 ## 1. Content taxonomy (vanilla base; Cryptid layers hundreds more on top)
