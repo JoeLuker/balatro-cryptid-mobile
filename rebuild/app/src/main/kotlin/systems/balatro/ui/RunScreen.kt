@@ -617,6 +617,10 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_omen_globe", "Omen Globe", "Spectral cards may appear in Arcana Packs", 0),
     VoucherOffer("v_magic_trick", "Magic Trick", "Playing cards can be purchased from the shop", 4),
     VoucherOffer("v_illusion", "Illusion", "Shop playing cards have an Enhancement", 0),
+    VoucherOffer("v_nacho_tong", "Nacho Tong", "+1 hand each round", 1),
+    VoucherOffer("v_recyclomancy", "Recyclomancy", "+1 discard each round", 1),
+    VoucherOffer("v_liquidation", "Liquidation", "All shop cards 50% off", 50),
+    VoucherOffer("v_blank", "Blank", "Does nothing (unlock prerequisite)", 0),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -1850,6 +1854,10 @@ internal class RunState {
             "v_omen_globe" -> omenGlobe = true                       // spectrals in Arcana packs
             "v_magic_trick" -> cardRate += v.extra                   // playing cards in the shop pool
             "v_illusion" -> illusion = true                          // shop playing cards roll an enhancement
+            "v_nacho_tong" -> baseHands += v.extra                   // +1 hand (Grabber tier-2)
+            "v_recyclomancy" -> baseDiscards += v.extra              // +1 discard (Wasteful tier-2)
+            "v_liquidation" -> discountPercent = v.extra             // 50% off (Clearance tier-2)
+            "v_blank" -> {}                                          // Blank: no effect
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
