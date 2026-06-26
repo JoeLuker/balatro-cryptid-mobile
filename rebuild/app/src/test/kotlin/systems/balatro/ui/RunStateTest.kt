@@ -426,4 +426,30 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("Flush House contains a Two Pair → Spare Trousers +2", 2.0, st.fj.mult, 1e-9)
     }
+
+    @Test fun giftCardRefundEqualsSellValueIncludingBonus() {
+        // The sell-value bonus must be consistent: sell()'s refund uses the same sellValue() as the UI.
+        val rs = RunState()
+        rs.buy(offer("j_gift"), free = true)
+        rs.buy(offer("j_cavendish", cost = 6), free = true)     // base sell = 3
+        val cav = rs.owned.last()
+        repeat(3) { rs.enterRoundEval(); rs.cashOut() }         // Gift Card +1/round → sellBonus 3
+        assertEquals("sellValue = base + accumulated bonus", 6, rs.sellValue(cav))
+        val moneyBefore = rs.money
+        rs.sell(cav)
+        assertEquals("refund == sellValue (includes the Gift Card bonus)", moneyBefore + 6, rs.money)
+    }
+
+    @Test fun swashbucklerReflectsGiftCardSellValueBumps() {
+        // Swashbuckler's mult = total sell value of jokers. Gift Card raises sell values each round, so
+        // Swashbuckler must track that — its cached mult was only refreshed on buy/sell before this.
+        val rs = RunState()
+        rs.buy(offer("j_gift"), free = true)
+        rs.buy(offer("j_swashbuckler", cost = 2), free = true)
+        rs.buy(offer("j_cavendish", cost = 6), free = true)
+        val sb = rs.owned.first { it.fj.key == "j_swashbuckler" }
+        rs.enterRoundEval(); rs.cashOut()                       // Gift Card bumps every joker's sellBonus
+        val expected = rs.owned.sumOf { rs.sellValue(it).toDouble() }
+        assertEquals("Swashbuckler mult reflects the raised sell values", expected, sb.fj.mult, 0.0)
+    }
 }

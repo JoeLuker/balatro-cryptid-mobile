@@ -1587,7 +1587,12 @@ internal class RunState {
         // j_gift (Gift Card): adds $1 (extra) of sell value to EVERY joker each round (card.lua:3590 —
         // extra_value += extra for all G.jokers.cards). Each Gift Card contributes; itself included.
         val giftCards = owned.count { it.offer.key == "j_gift" }
-        if (giftCards > 0) owned.forEach { it.sellBonus += giftCards }
+        if (giftCards > 0) {
+            owned.forEach { it.sellBonus += giftCards }
+            // Swashbuckler's mult caches the total sell value (refreshed on buy/sell) — Gift Card just
+            // changed every sell value, so refresh it here too, else it stays stale until the next sale.
+            for (o in owned) if (o.fj.key == "j_swashbuckler") o.fj.mult = owned.sumOf { sellValue(it).toDouble() }
+        }
         // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1;
         // popcorn reduce: mult −4, floored at 0).
         for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
