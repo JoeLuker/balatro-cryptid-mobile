@@ -79,6 +79,7 @@ data class RunSnapshot(
     val directorsCut: Boolean = false,
     val retcon: Boolean = false,
     val bossReshuffle: Int = 0,
+    val omenGlobe: Boolean = false,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {
