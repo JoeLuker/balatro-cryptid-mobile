@@ -605,6 +605,8 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_planet_merchant", "Planet Merchant", "Planets appear 2X more often in the shop", 4),
     VoucherOffer("v_antimatter", "Antimatter", "+1 Joker slot", 1),
     VoucherOffer("v_telescope", "Telescope", "Most-played hand's Planet is always in the shop", 0),
+    VoucherOffer("v_directors_cut", "Director's Cut", "Reroll the Boss Blind once per Ante (\$10)", 0),
+    VoucherOffer("v_retcon", "Retcon", "Reroll the Boss Blind unlimited times (\$10)", 0),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -810,7 +812,11 @@ internal class RunState {
     var telescope = false                                                // Telescope voucher / Nebula deck: most-played planet always in shop
     var greenEconomy = false                                             // Green deck: $/hand+discard at round end, no interest
     var anaglyph = false                                                 // Anaglyph deck: a Double Tag after each boss
-    var doubleNextTags = 0                                               // Double Tags pending — duplicate the next skip tag(s)
+    var doubleNextTags = 0                                               // Double Tags pending — duplicate the next skip tag
+    var directorsCut = false                                             // Director's Cut voucher: reroll the boss 1×/ante ($10)
+    var retcon = false                                                   // Retcon voucher: reroll the boss unlimited ($10)
+    var bossReshuffle = 0                                                // mixed into the boss seed; +1 per reroll
+    var bossRerollsThisAnte = 0                                          // Director's Cut per-ante limit (reset at slot 0)(s)
     fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
     /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
      *  slot, as in vanilla), then apply its effect. */
@@ -1017,7 +1023,7 @@ internal class RunState {
      *  once you're ON the boss slot, so the select screen (you're at Small) needs the upcoming one.
      *  Same RNG as the slot-2 assignment, keyed to the boss-slot index (current ante's 3rd blind). */
     val upcomingBoss: Boss
-        get() = Boss.pool(ante).random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1))
+        get() = Boss.pool(ante).random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1 + bossReshuffle * 7919L))
 
     /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
@@ -1163,7 +1169,8 @@ internal class RunState {
     }
 
     private fun startRound() {
-        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
+        if (slot == 0) bossRerollsThisAnte = 0   // Director's Cut: refresh the per-ante reroll at each new ante
+        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1 + bossReshuffle * 7919L)) else null
         bossDisabled = false                  // a fresh boss is active until Luchador disables it
         handSize = baseHandSize
         applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
@@ -1599,7 +1606,7 @@ internal class RunState {
         } else {
             // Pre-seed boss so blind-select and shop screens show correct name/desc.
             // startRound() re-derives the same deterministic value.
-            boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1)) else null
+            boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1 + bossReshuffle * 7919L)) else null
             phase = Phase.SHOP
             openPendingPackTag()    // a Charm/Meteor/… tag queued a free pack → open it over the shop
         }
@@ -1799,6 +1806,8 @@ internal class RunState {
             "v_planet_merchant" -> planetRate += v.extra         // planets 2x more common (4 → 8)
             "v_antimatter" -> deckJokerBonus += v.extra          // +1 Joker slot (folded into startRound)
             "v_telescope" -> { telescope = true; applyTelescope() }  // most-played planet always in shop
+            "v_directors_cut" -> directorsCut = true                 // reroll boss 1×/ante
+            "v_retcon" -> retcon = true                              // reroll boss unlimited
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
@@ -1936,6 +1945,7 @@ internal class RunState {
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
         anaglyph = anaglyph, doubleNextTags = doubleNextTags,
+        directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -1976,6 +1986,7 @@ internal class RunState {
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
         anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags
+        directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -2060,6 +2071,17 @@ internal class RunState {
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
     fun selectBlind() { if (phase == Phase.BLIND_SELECT) startRound() }
+
+    /** Director's Cut / Retcon: may the upcoming Boss Blind be rerolled right now? */
+    fun canRerollBoss(): Boolean = phase == Phase.BLIND_SELECT && slot == 2 && money >= 10 &&
+        (retcon || (directorsCut && bossRerollsThisAnte < 1))
+
+    /** Reroll the upcoming Boss Blind for $10 (advances the boss seed). */
+    fun rerollBoss() {
+        if (!canRerollBoss()) return
+        money -= 10; bossReshuffle += 1; bossRerollsThisAnte += 1
+        Telemetry.event("BOSS_REROLL", "boss" to upcomingBoss.name, "money" to money)
+    }
 
     /** Skip the current Small/Big blind for its Tag (can't skip the Boss); advance to the next blind. */
     fun skipBlind() {
@@ -3734,6 +3756,11 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
             Spacer(Modifier.height(14.dp))
             BButton("Skip Blind  →  ${s.upcomingTag.display}", Balatro.Mult) { s.skipBlind() }
             BTxt(s.upcomingTag.desc, Balatro.Gold, 11.sp, Modifier.padding(top = 3.dp))
+        }
+        // Director's Cut / Retcon: reroll the upcoming Boss Blind.
+        if (s.canRerollBoss()) {
+            Spacer(Modifier.height(14.dp))
+            BButton("Reroll Boss  (\$10)", Balatro.Mult) { s.rerollBoss() }
         }
         // earned tags awaiting their trigger
         if (s.tags.isNotEmpty()) {
