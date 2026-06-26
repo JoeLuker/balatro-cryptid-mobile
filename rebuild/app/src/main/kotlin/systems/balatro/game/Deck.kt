@@ -162,6 +162,16 @@ class Deck(seed: Long) {
         return true
     }
 
+    /** Set a specific card's seal permanently (e.g. Seal the Deal sealing a scored card). Mirrors
+     *  setEnhancement — matches by VALUE so a fabricated value-equal card works in tests. */
+    fun setSeal(card: PlayingCard, seal: Seal): Boolean {
+        val i = all.indexOf(card); if (i < 0) return false
+        val updated = all[i].copy(seal = seal)
+        all[i] = updated
+        val di = drawPile.indexOf(card); if (di >= 0) { drawPile.removeAt(di); drawPile.add(di, updated) }
+        return true
+    }
+
     /** Permanently destroy a specific card from the deck — e.g. a played Glass card that shattered
      *  (Card:shatter removes it from G.playing_cards). Matches by value, dropping the first equal
      *  instance from the persistent deck and the draw pile if it's still there. Returns true iff one

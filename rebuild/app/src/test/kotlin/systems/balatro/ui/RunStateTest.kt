@@ -313,6 +313,32 @@ class RunStateTest {
         assertEquals("number cards are not steeled", 0, steelSevens)
     }
 
+    @Test fun crySealTheDealSealsScoredCardsOnTheLastHand() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_seal_the_deal"), free = true)
+        rs.handsLeft = 1                                       // this play is the LAST hand (→ 0 after)
+        rs.hand = listOf(PlayingCard(Suit.S, 13), PlayingCard(Suit.H, 13))   // pair of Kings (both score)
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        val sealedKings = rs.snapshot().deck.count { it.rank == 13 && it.seal != "NONE" }
+        assertEquals("both scored Kings got a seal on the last hand", 2, sealedKings)
+    }
+
+    @Test fun crySealTheDealDoesNothingWithHandsRemaining() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_seal_the_deal"), free = true)
+        rs.handsLeft = 3                                       // not the last hand
+        rs.hand = listOf(PlayingCard(Suit.S, 13), PlayingCard(Suit.H, 13))
+        rs.handSize = rs.hand.size
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        val sealedKings = rs.snapshot().deck.count { it.rank == 13 && it.seal != "NONE" }
+        assertEquals("not the last hand → no seals", 0, sealedKings)
+    }
+
     @Test fun cryArsonistBurnsEveryCardOfAFullHouse() {
         val rs = RunState()
         rs.buy(offer("j_cry_arsonist"), free = true)
