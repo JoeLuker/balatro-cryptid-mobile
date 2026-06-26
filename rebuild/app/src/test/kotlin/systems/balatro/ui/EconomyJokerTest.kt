@@ -89,4 +89,19 @@ class EconomyJokerTest {
         rs.enterRoundEval(); rs.cashOut()                    // calc_dollar_bonus scales only when dollars > 0
         assertEquals("no growth at \$0", 12.0, j.fj.x, 1e-9)
     }
+
+    // ── cry-redbloon: pays $20 the round its 2-round countdown reaches 0, then self-destructs ──
+    @Test fun cryRedbloonPaysTwentyAfterTwoRoundsThenPops() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_redbloon"), free = true)
+        assertEquals("starts with a 2-round countdown", 2, rs.owned.first { it.fj.key == "j_cry_redbloon" }.fj.n)
+        rs.enterRoundEval()
+        assertEquals("round 1 (n=2): not expiring → no payout", 0, jokerDollars(rs))
+        rs.cashOut()                                                          // RoundEnd reducer: n 2 → 1
+        assertEquals("countdown decremented", 1, rs.owned.first { it.fj.key == "j_cry_redbloon" }.fj.n)
+        rs.enterRoundEval()
+        assertEquals("round 2 (n=1): expires this round → \$20", 20, jokerDollars(rs))
+        rs.cashOut()                                                          // n 1 → 0 → pops
+        assertEquals("redbloon self-destructed after paying", 0, rs.owned.count { it.fj.key == "j_cry_redbloon" })
+    }
 }

@@ -468,6 +468,8 @@ private val CATALOG = listOf(
     Offer("j_cry_lebaron_james", "cry-LeBaron James", "+1 hand size this round per scored King", 6, rarity = 3),
     Offer("j_cry_goldjoker", "cry-gold Joker", "Earns a % of your money at end of round; +2% per scored Gold card", 14, rarity = 5),
     Offer("j_cry_compound_interest", "cry-Compound Interest", "Earns 12% of your money at end of round; the % grows +3% each round", 10, rarity = 3),
+    Offer("j_cry_eyeofhagane", "cry-Eye of Hagane", "All played face cards become Steel cards when scored", 6, rarity = 2),
+    Offer("j_cry_redbloon", "cry-redbloon", "After 2 rounds, gives \$20 and self-destructs", 4),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1516,6 +1518,13 @@ internal class RunState {
             val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
             for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.GOLD)
         }
+        // j_cry_eyeofhagane: each scored FACE card permanently becomes a Steel card (misc context.before;
+        // respects Pareidolia). Steel only matters for HELD cards, not scored ones, so this hand's score is
+        // unchanged — the conversion persists to the run deck for future X1.5-when-held. Mirrors midas_mask.
+        if (owned.any { it.fj.key == "j_cry_eyeofhagane" }) {
+            val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
+            for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.STEEL)
+        }
         // j_vampire: persist the X0.1-per-enhanced-card growth (the joker_main applied it to THIS hand by
         // reading fj.x + this hand's contribution) and strip the consumed enhancements from the deck so
         // each enhanced card is only ever vampired once (card.lua:4065).
@@ -1598,7 +1607,10 @@ internal class RunState {
             owned.filter { it.offer.key == "j_rocket" }.sumOf { it.fj.n } +                          // Rocket: current payout (base $1, +$2 per boss defeated)
             // cry-gold Joker & cry-Compound Interest: floor(percent% × money), percent = fj.x (calc_dollar_bonus).
             owned.filter { it.offer.key == "j_cry_goldjoker" || it.offer.key == "j_cry_compound_interest" }
-                 .sumOf { (0.01 * it.fj.x * money).toInt() }
+                 .sumOf { (0.01 * it.fj.x * money).toInt() } +
+            // cry-redbloon: pays $20 the round its 2-round countdown reaches 0. n decrements at round end via
+            // its RoundEnd reducer, so n==1 here → it expires THIS round → pays now, then self-destructs in cashOut.
+            owned.count { it.offer.key == "j_cry_redbloon" && it.fj.n == 1 } * 20
         if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
@@ -1641,7 +1653,10 @@ internal class RunState {
         // must NOT be notified.
         val eaten = owned.filter {
             (it.fj.key == "j_popcorn" && it.fj.mult <= 0.0) ||
-            (it.fj.key == "j_turtle_bean" && it.fj.n <= 0)
+            (it.fj.key == "j_turtle_bean" && it.fj.n <= 0) ||
+            // cry-redbloon: its 2-round countdown (n) just decremented via the RoundEnd reducer; pops (and
+            // pays its $20, already counted in buildCashOut) the round n reaches 0. Like "eaten" — no fading notify.
+            (it.fj.key == "j_cry_redbloon" && it.fj.n <= 0)
         }
         if (eaten.isNotEmpty()) {
             owned.removeAll(eaten)

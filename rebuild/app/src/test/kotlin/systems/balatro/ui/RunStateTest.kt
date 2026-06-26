@@ -290,6 +290,29 @@ class RunStateTest {
         assertEquals("number cards are not gold-ified", 0, goldSevens)
     }
 
+    @Test fun cryEyeOfHaganeSteelsScoredFaceCards() {
+        // cry-eyeofhagane: each scored face card permanently becomes a Steel card (mirrors midas with Steel).
+        val rs = RunState()
+        rs.buy(offer("j_cry_eyeofhagane"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.H, 13), PlayingCard(Suit.S, 13))   // Kings value-match deck Kings
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)                              // play the pair → both Kings score
+        rs.play(); rs.scoreBank()
+        val steelKings = rs.snapshot().deck.count { it.rank == 13 && it.enh == "STEEL" }
+        assertEquals("both scored Kings became Steel in the deck", 2, steelKings)
+    }
+
+    @Test fun cryEyeOfHaganeLeavesNumberCardsUnchanged() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_eyeofhagane"), free = true)
+        rs.hand = listOf(PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        val steelSevens = rs.snapshot().deck.count { it.rank == 7 && it.enh == "STEEL" }
+        assertEquals("number cards are not steeled", 0, steelSevens)
+    }
+
     @Test fun vampireGainsXMultPerScoredEnhancedCard() {
         // Vanilla j_vampire: the joker_main applies this hand's X0.1·n, and the run loop persists the growth.
         val rs = RunState()
