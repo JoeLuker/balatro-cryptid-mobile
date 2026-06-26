@@ -82,6 +82,7 @@ data class RunSnapshot(
     val bossReshuffle: Int = 0,
     val omenGlobe: Boolean = false,
     val cardRate: Double = 0.0,
+    val illusion: Boolean = false,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {

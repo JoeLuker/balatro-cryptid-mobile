@@ -88,4 +88,9 @@ class VoucherTier2Test {
         rs.buyShopCard(systems.balatro.game.PlayingCard(systems.balatro.game.Suit.S, 7))
         assertEquals(before + 1, rs.snapshot().deck.size)
     }
+
+    @Test fun illusionEnablesEnhancedShopCards() {
+        val rs = run(); rs.redeemVoucher(voucher("v_illusion", 0))
+        org.junit.Assert.assertTrue(rs.illusion)
+    }
 }
