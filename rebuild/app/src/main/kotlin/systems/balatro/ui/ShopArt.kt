@@ -89,6 +89,11 @@ object ShopArt {
     /** Crop every deck-back from Enhancers.png (one decode). Call off the main thread. */
     internal fun deckBacks(ctx: Context): Map<DeckVariant, ImageBitmap> = crop(decode(ctx, "Enhancers.png"), DECK_BACK_POS)
 
+    /** Crop every Tag sprite from tags.png (408×340 = 6 cols × 5 rows of 68×68 cells, keyed by Tag.tx/ty). */
+    internal fun tags(ctx: Context): Map<Tag, ImageBitmap> = decode(ctx, "tags.png")?.let { bmp ->
+        Tag.values().associateWith { Bitmap.createBitmap(bmp, it.tx * 68, it.ty * 68, 68, 68).asImageBitmap() }
+    } ?: emptyMap()
+
     private fun <K> crop(atlas: Bitmap?, pos: Map<K, Pair<Int, Int>>): Map<K, ImageBitmap> {
         atlas ?: return emptyMap()
         return pos.mapValues { (_, p) -> Bitmap.createBitmap(atlas, p.first * CW, p.second * CH, CW, CH).asImageBitmap() }

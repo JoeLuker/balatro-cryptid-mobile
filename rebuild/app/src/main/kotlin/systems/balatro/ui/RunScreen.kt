@@ -124,20 +124,20 @@ internal class OpenPack(val name: String, val kind: String, val items: List<Pack
 /** When a tag's effect fires (tag.lua config.type). */
 internal enum class TagTrigger { EVAL, ROUND_START, SHOP_START, SHOP_FINAL }
 /** A skip tag (tag.lua / game.lua tag_*). Earned by skipping a Small/Big blind; fires at [trigger]. */
-internal enum class Tag(val display: String, val desc: String, val trigger: TagTrigger) {
-    INVESTMENT("Investment Tag", "+\$25 after the next Blind", TagTrigger.EVAL),       // config.type 'eval', dollars 25
-    JUGGLE("Juggle Tag", "+3 hand size next round", TagTrigger.ROUND_START),           // 'round_start_bonus', h_size 3
-    D_SIX("D6 Tag", "Rerolls start at \$0 next shop", TagTrigger.SHOP_START),          // 'shop_start'
-    COUPON("Coupon Tag", "Next shop cards & packs are free", TagTrigger.SHOP_FINAL),   // 'shop_final_pass'
-    HANDY("Handy Tag", "+\$1 per hand played this run", TagTrigger.EVAL),              // tag_handy
-    ECONOMY("Economy Tag", "Doubles money (max +\$40)", TagTrigger.SHOP_START),        // tag_economy
-    ORBITAL("Orbital Tag", "Upgrade a random poker hand by 3 levels", TagTrigger.ROUND_START),  // tag_orbital
+internal enum class Tag(val display: String, val desc: String, val trigger: TagTrigger, val tx: Int, val ty: Int) {
+    INVESTMENT("Investment Tag", "+\$25 after the next Blind", TagTrigger.EVAL, 2, 1),       // config.type 'eval', dollars 25
+    JUGGLE("Juggle Tag", "+3 hand size next round", TagTrigger.ROUND_START, 5, 1),           // 'round_start_bonus', h_size 3
+    D_SIX("D6 Tag", "Rerolls start at \$0 next shop", TagTrigger.SHOP_START, 5, 3),          // 'shop_start'
+    COUPON("Coupon Tag", "Next shop cards & packs are free", TagTrigger.SHOP_FINAL, 4, 0),   // 'shop_final_pass'
+    HANDY("Handy Tag", "+\$1 per hand played this run", TagTrigger.EVAL, 1, 3),              // tag_handy
+    ECONOMY("Economy Tag", "Doubles money (max +\$40)", TagTrigger.SHOP_START, 4, 3),        // tag_economy
+    ORBITAL("Orbital Tag", "Upgrade a random poker hand by 3 levels", TagTrigger.ROUND_START, 5, 2),  // tag_orbital
     // Pack tags — open a free pack on entering the next shop (queued, opened after phase=SHOP).
-    CHARM("Charm Tag", "Opens a free Mega Arcana Pack", TagTrigger.SHOP_FINAL),        // tag_charm
-    METEOR("Meteor Tag", "Opens a free Mega Celestial Pack", TagTrigger.SHOP_FINAL),   // tag_meteor
-    ETHEREAL("Ethereal Tag", "Opens a free Spectral Pack", TagTrigger.SHOP_FINAL),     // tag_ethereal
-    STANDARD_TAG("Standard Tag", "Opens a free Mega Standard Pack", TagTrigger.SHOP_FINAL),  // tag_standard
-    BUFFOON("Buffoon Tag", "Opens a free Mega Buffoon Pack", TagTrigger.SHOP_FINAL),   // tag_buffoon
+    CHARM("Charm Tag", "Opens a free Mega Arcana Pack", TagTrigger.SHOP_FINAL, 2, 2),        // tag_charm
+    METEOR("Meteor Tag", "Opens a free Mega Celestial Pack", TagTrigger.SHOP_FINAL, 3, 2),   // tag_meteor
+    ETHEREAL("Ethereal Tag", "Opens a free Spectral Pack", TagTrigger.SHOP_FINAL, 3, 3),     // tag_ethereal
+    STANDARD_TAG("Standard Tag", "Opens a free Mega Standard Pack", TagTrigger.SHOP_FINAL, 1, 2),  // tag_standard
+    BUFFOON("Buffoon Tag", "Opens a free Mega Buffoon Pack", TagTrigger.SHOP_FINAL, 4, 2),   // tag_buffoon
 }
 private val TAG_POOL = Tag.values().toList()
 private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
@@ -4068,6 +4068,7 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
         Triple(null, null, null), s.blindIndex
     ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) } }
+    val tagArt by produceState(emptyMap<Tag, ImageBitmap>()) { value = withContext(Dispatchers.Default) { ShopArt.tags(ctx) } }
 
     // Pre-load JSON trees once (cached by HudSpec.root); no recompose cost after first render.
     val spec = remember(ctx) { BlindSpec.load(ctx) }
@@ -4108,10 +4109,13 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                 }
             }
         }
-        // Skip the Small/Big blind for its Tag (the Boss can't be skipped).
+        // Skip the Small/Big blind for its Tag (the Boss can't be skipped) — show the real tag sprite.
         if (currentSlot != 2) {
             Spacer(Modifier.height(14.dp))
-            BButton("Skip Blind  →  ${s.upcomingTag.display}", Balatro.Mult) { s.skipBlind() }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                tagArt[s.upcomingTag]?.let { Image(it, s.upcomingTag.display, Modifier.size(28.dp), filterQuality = FilterQuality.None) }
+                BButton("Skip Blind  →  ${s.upcomingTag.display}", Balatro.Mult) { s.skipBlind() }
+            }
             BTxt(s.upcomingTag.desc, Balatro.Gold, 11.sp, Modifier.padding(top = 3.dp))
         }
         // Director's Cut / Retcon: reroll the upcoming Boss Blind.
@@ -4119,10 +4123,16 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
             Spacer(Modifier.height(14.dp))
             BButton("Reroll Boss  (\$10)", Balatro.Mult) { s.rerollBoss() }
         }
-        // earned tags awaiting their trigger
+        // earned tags awaiting their trigger — real tag sprites
         if (s.tags.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            BTxt("Tags: " + s.tags.joinToString { it.display }, Balatro.Chips, 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                BTxt("Tags:", Balatro.Chips, 12.sp)
+                s.tags.forEach { tag ->
+                    tagArt[tag]?.let { Image(it, tag.display, Modifier.size(26.dp), filterQuality = FilterQuality.None) }
+                        ?: BTxt(tag.display, Balatro.Chips, 11.sp)
+                }
+            }
         }
     }
 }
