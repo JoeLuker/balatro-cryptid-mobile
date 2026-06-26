@@ -616,6 +616,7 @@ private val VOUCHERS = listOf(
     VoucherOffer("v_retcon", "Retcon", "Reroll the Boss Blind unlimited times (\$10)", 0),
     VoucherOffer("v_omen_globe", "Omen Globe", "Spectral cards may appear in Arcana Packs", 0),
     VoucherOffer("v_magic_trick", "Magic Trick", "Playing cards can be purchased from the shop", 4),
+    VoucherOffer("v_illusion", "Illusion", "Shop playing cards have an Enhancement", 0),
 )
 /** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
 private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
@@ -656,7 +657,8 @@ private const val PLANET_RATE = 4.0
  *  slots, poll a TYPE by weight, then draw a distinct card of that type from its pool. The first
  *  joker still gets the rebuild's edition chance. Deterministic per [blind]. */
 private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0,
-                          tarotRate: Double = TAROT_RATE, planetRate: Double = PLANET_RATE, cardRate: Double = 0.0): List<ShopItem> {
+                          tarotRate: Double = TAROT_RATE, planetRate: Double = PLANET_RATE, cardRate: Double = 0.0,
+                          illusion: Boolean = false): List<ShopItem> {
     val rng = Random(blind * 7919L + 13)
     val jokers = CATALOG.shuffled(rng).iterator()
     val planets = Planet.values().toList().shuffled(Random(blind * 104729L)).iterator()
@@ -682,7 +684,8 @@ private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0,
             polled < JOKER_RATE + tarotRate && tarots.hasNext() -> ShopItem.Tt(tarots.next())
             polled < JOKER_RATE + tarotRate + planetRate && planets.hasNext() -> ShopItem.Pl(PlanetOffer(planets.next(), 3))
             polled < JOKER_RATE + tarotRate + planetRate + spectralRate && spectrals.hasNext() -> ShopItem.Sp(spectrals.next())   // Ghost deck
-            polled < total && cardRate > 0 -> ShopItem.Cd(PlayingCard(Suit.values().random(rng), (2..14).random(rng)))            // Magic Trick
+            polled < total && cardRate > 0 -> ShopItem.Cd(PlayingCard(Suit.values().random(rng), (2..14).random(rng),   // Magic Trick
+                enhancement = if (illusion) listOf(Enhancement.BONUS, Enhancement.MULT, Enhancement.WILD, Enhancement.GLASS, Enhancement.STEEL, Enhancement.GOLD).random(rng) else Enhancement.NONE))  // Illusion
             else -> drawJoker()                                 // type pool exhausted → fall back to a joker
         }
         if (item != null) out.add(item)
@@ -821,6 +824,7 @@ internal class RunState {
     var planetRate = PLANET_RATE                                         // Planet Merchant voucher raises this
     var telescope = false                                                // Telescope voucher / Nebula deck: most-played planet always in shop
     var cardRate = 0.0                                                    // Magic Trick voucher: playing cards appear in the shop pool
+    var illusion = false                                                  // Illusion voucher: shop playing cards roll an enhancement
     var greenEconomy = false                                             // Green deck: $/hand+discard at round end, no interest
     var anaglyph = false                                                 // Anaglyph deck: a Double Tag after each boss
     var doubleNextTags = 0                                               // Double Tags pending — duplicate the next skip tag
@@ -1617,7 +1621,7 @@ internal class RunState {
         resetRerollCost()                            // fresh shop → reroll cost back to base
         freeRerollThisShop = false; couponThisShop = false      // per-shop tag effects reset, then re-applied
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate); applyTelescope()
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
         // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
@@ -1845,6 +1849,7 @@ internal class RunState {
             "v_retcon" -> retcon = true                              // reroll boss unlimited
             "v_omen_globe" -> omenGlobe = true                       // spectrals in Arcana packs
             "v_magic_trick" -> cardRate += v.extra                   // playing cards in the shop pool
+            "v_illusion" -> illusion = true                          // shop playing cards roll an enhancement
         }
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
@@ -1984,7 +1989,7 @@ internal class RunState {
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
         anaglyph = anaglyph, doubleNextTags = doubleNextTags,
-        directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe, cardRate = cardRate,
+        directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe, cardRate = cardRate, illusion = illusion,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -2026,7 +2031,7 @@ internal class RunState {
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
         anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags
-        directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe; cardRate = s.cardRate
+        directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe; cardRate = s.cardRate; illusion = s.illusion
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -2064,7 +2069,7 @@ internal class RunState {
         resetRerollCost()
         freeRerollThisShop = false; couponThisShop = false
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)
-        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate); applyTelescope()
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
         shopBoosters = rollBoosters(blindIndex)
         phase = Phase.SHOP
@@ -2089,7 +2094,7 @@ internal class RunState {
         rerolls += 1
         val seed = blindIndex + rerolls * 7
         // reroll re-rolls the CARDS only; the voucher slot stays (Balatro keeps the voucher on reroll).
-        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate); applyTelescope()
+        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
         // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
         // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
         // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
