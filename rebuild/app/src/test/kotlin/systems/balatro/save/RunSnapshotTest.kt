@@ -53,6 +53,17 @@ class RunSnapshotTest {
         assertEquals(snap, RunSnapshot.decode(snap.encode()))
     }
 
+    @Test fun decodeIgnoresUnknownKeysFromNewerBuilds() {
+        val snap = RunSnapshot(0, 4, emptyList(), emptyList(), emptyMap(), 0, 0, 5, 4, 3, 5, emptyList(), emptyList())
+        val withUnknown = snap.encode().replaceFirst("{", "{\"futureFieldFromANewerBuild\":123,")
+        assertEquals(snap, RunSnapshot.decode(withUnknown))   // forward-compat: unknown key ignored, not a crash
+    }
+
+    @Test(expected = Exception::class)
+    fun decodeThrowsOnGarbageSoTheLoaderCanDiscardIt() {
+        RunSnapshot.decode("this is not json at all")          // the RunBody load wraps this in try/catch
+    }
+
     @Test fun savesLoadsAndDeletesOnDisk() {
         val tmp = File.createTempFile("balatro_run", ".json")
         val snap = RunSnapshot(3, 12, emptyList(), listOf(CardSnap("S", 14, "GLASS", "RED")),
