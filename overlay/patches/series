@@ -106,3 +106,4 @@ manual/108-sticky_sell_label.patch
 manual/109-input_touch_fixes.patch
 manual/110-perf_gc_throttle.patch
 manual/111-talisman_dead_compat.patch
+manual/112-cryptid_settings_modui.patch
