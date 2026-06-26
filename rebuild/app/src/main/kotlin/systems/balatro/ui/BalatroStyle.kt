@@ -129,10 +129,10 @@ fun Pill(value: String, label: String, color: Color, modifier: Modifier = Modifi
 
 /** A chunky Balatro action button. */
 @Composable
-fun BButton(text: String, color: Color, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun BButton(text: String, color: Color, enabled: Boolean = true, modifier: Modifier = Modifier, sound: String = "button", onClick: () -> Unit) {
     Box(
         modifier.clip(RoundedCornerShape(8.dp)).background(if (enabled) color else Balatro.Grey)
-            .clickable(enabled = enabled) { systems.balatro.audio.SoundManager.play("button"); onClick() }
+            .clickable(enabled = enabled) { systems.balatro.audio.SoundManager.play(sound); onClick() }
             .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) { BTxt(text, Balatro.White, 15.sp) }
