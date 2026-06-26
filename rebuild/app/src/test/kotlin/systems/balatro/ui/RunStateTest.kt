@@ -409,4 +409,21 @@ class RunStateTest {
         rs.play(); rs.scoreBank()
         assertEquals("Lucky card pays \$20 on the money trigger", moneyBefore + 20, rs.money)
     }
+
+    @Test fun spareTrousersFiresOnAFlushHouseContainingTwoPair() {
+        // End-to-end: a Flush House's top type is FLUSH_HOUSE (above Full House), but it CONTAINS a Two Pair,
+        // so Spare Trousers must accrue (the old top-handType check missed it). Verifies the full path:
+        // Score → pokerHands (TWO_PAIR present) → scoreBank fires HandScored(contained) → reducer accrues.
+        val rs = RunState()
+        rs.buy(offer("j_spare_trousers"), free = true)
+        val st = rs.owned.first { it.fj.key == "j_spare_trousers" }
+        assertEquals(0.0, st.fj.mult, 0.0)
+        rs.hand = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.S, 14), PlayingCard(Suit.S, 14),
+                         PlayingCard(Suit.S, 13), PlayingCard(Suit.S, 13))   // 3 A♠ + 2 K♠ → Flush House
+        rs.handSize = 5
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1, 2, 3, 4)
+        rs.play(); rs.scoreBank()
+        assertEquals("Flush House contains a Two Pair → Spare Trousers +2", 2.0, st.fj.mult, 1e-9)
+    }
 }
