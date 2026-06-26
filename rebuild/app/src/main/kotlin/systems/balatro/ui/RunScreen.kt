@@ -3153,7 +3153,11 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
                         rotationZ = rotZDeg
                         scaleX = scaleFactor; scaleY = scaleFactor
-                    }.clickable(interaction, indication = null, enabled = !s.scoring) { systems.balatro.audio.SoundManager.play("highlight1"); s.toggle(i) }
+                    }.clickable(interaction, indication = null, enabled = !s.scoring) {
+                        systems.balatro.audio.SoundManager.play("highlight1")
+                        m.juiceUp(amount = 0.3, now = host.clock.real)   // vanilla: cards pop when highlighted
+                        s.toggle(i)
+                    }
                     .then(if (isTarotTarget) Modifier.border(2.dp, Balatro.Purple, RoundedCornerShape(4.dp)) else Modifier)
                 ) {
                     if (isFaceDown) {
