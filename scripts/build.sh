@@ -2767,24 +2767,35 @@ apply_android_settings_fix() {
 
     log_info "Patching globals.lua for Android mobile UI..."
 
-    # Add Android-specific settings after the Windows block
-    sed -i '/if love.system.getOS() == .Windows. then/,/end/ {
-        /end/ a\
-    -- Android mobile settings (enables mobile UI, disables desktop-only features)\
-    if love.system.getOS() == '"'"'Android'"'"' then\
-        self.F_MOBILE_UI = true\
-        self.F_SAVE_TIMER = 30\
-        self.F_DISCORD = false\
-        self.F_CRASH_REPORTS = false\
-        self.F_RUMBLE = false\
-        self.F_QUIT_BUTTON = false  -- Android has no meaningful quit; users swipe out (matches Switch/PS behavior)\
-        -- FPS_CAP_DISPLAY: the run loop defaults G.FPS_CAP to 500 and vsync\
-        -- does not engage on this device — light scenes burned 240 fps on a\
-        -- 120 Hz panel (pure battery drain). Cap at the panel refresh rate.\
-        local _, _, _wflags = love.window.getMode()\
-        self.FPS_CAP = (_wflags and _wflags.refreshrate and _wflags.refreshrate > 0) and _wflags.refreshrate or 120\
+    # Add Android-specific settings after the Windows block.
+    # python3 exact-string match instead of the old /Windows/,/end/ range-sed, whose
+    # /end/ could match the wrong Lua 'end' and whose '.'s were unintended regex wildcards.
+    python3 - "$globals_file" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path, encoding='utf-8').read()
+windows_block = "    if love.system.getOS() == 'Windows' then\n        self.F_DISCORD = true\n        self.F_SAVE_TIMER = 5\n        self.F_ENGLISH_ONLY = false\n        self.F_CRASH_REPORTS = false\n    end\n"
+android_block = """\
+    -- Android mobile settings (enables mobile UI, disables desktop-only features)
+    if love.system.getOS() == 'Android' then
+        self.F_MOBILE_UI = true
+        self.F_SAVE_TIMER = 30
+        self.F_DISCORD = false
+        self.F_CRASH_REPORTS = false
+        self.F_RUMBLE = false
+        self.F_QUIT_BUTTON = false  -- Android has no meaningful quit; users swipe out (matches Switch/PS behavior)
+        -- FPS_CAP_DISPLAY: the run loop defaults G.FPS_CAP to 500 and vsync
+        -- does not engage on this device — light scenes burned 240 fps on a
+        -- 120 Hz panel (pure battery drain). Cap at the panel refresh rate.
+        local _, _, _wflags = love.window.getMode()
+        self.FPS_CAP = (_wflags and _wflags.refreshrate and _wflags.refreshrate > 0) and _wflags.refreshrate or 120
     end
-    }' "$globals_file"
+"""
+if windows_block not in text:
+    sys.stderr.write("ERROR: apply_android_settings_fix: Windows block anchor not found\n"); sys.exit(1)
+open(path, 'w', encoding='utf-8').write(text.replace(windows_block, windows_block + android_block, 1))
+print("android_settings_fix: inserted Android block after Windows block")
+PYEOF
 
     log_success "Android settings fix applied"
 }
