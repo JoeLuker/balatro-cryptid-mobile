@@ -9,7 +9,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -145,19 +149,66 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // COLLECTION — Balatro-styled content browser (felt) replacing the Material joker
+                    // bottom-sheet. Tabs over the real content lists, each rendering the actual sprites.
                     if (showManager) {
-                        ModalBottomSheet(onDismissRequest = { showManager = false }) {
-                            Text("  Jokers ($n) — native virtualized grid", fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(12.dp))
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(64.dp),
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                        val jcells by produceState(emptyMap<String, ImageBitmap>()) {
+                            value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
+                        }
+                        val art by produceState(ShopArt.Cells.EMPTY) {
+                            value = withContext(Dispatchers.Default) { ShopArt.cache(ctx) }
+                        }
+                        var tab by remember { mutableStateOf(0) }
+                        val tabs = listOf("Jokers", "Tarots", "Planets", "Spectrals", "Vouchers")
+                        val gridItems: List<Pair<String, ImageBitmap?>> = when (tab) {
+                            0 -> CATALOG.map { it.name to jcells[it.key] }
+                            1 -> TAROTS.map { it.name to art.tarots[it.name] }
+                            2 -> Planet.values().toList().map { it.display to art.planets[it] }
+                            3 -> Spectral.values().toList().map { it.display to art.spectrals[it] }
+                            else -> VOUCHERS.map { it.name to art.vouchers[it.key] }
+                        }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            BalatroFelt(Modifier.matchParentSize())
+                            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)))
+                            Column(
+                                Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.92f)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .background(Balatro.FeltDark)
+                                    .border(2.dp, Balatro.Orange, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                items(jokes) { j -> cells[j.col to j.row]?.let { Image(it, j.name, Modifier.size(60.dp, 80.dp)) } }
+                                BTxt("COLLECTION", Balatro.Orange, 22.sp)
+                                Spacer(Modifier.height(8.dp))
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    tabs.forEachIndexed { i, t ->
+                                        BButton(t, if (i == tab) Balatro.Orange else Balatro.Grey) { tab = i }
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(72.dp),
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(gridItems) { (name, bmp) ->
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            if (bmp != null) Image(bmp, name, Modifier.size(58.dp, 78.dp),
+                                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                                            else Box(Modifier.size(58.dp, 78.dp)
+                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                                .background(Balatro.Panel), contentAlignment = Alignment.Center) {
+                                                BTxt(name.take(6), Balatro.White, 8.sp)
+                                            }
+                                            BTxtWrap(name, Balatro.White, 8.sp, maxWidth = 68.dp, modifier = Modifier.padding(top = 2.dp))
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                BButton("Back", Balatro.Orange, modifier = Modifier.fillMaxWidth()) { showManager = false }
                             }
-                            Spacer(Modifier.height(24.dp))
                         }
                     }
 

@@ -268,7 +268,7 @@ internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int 
     return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips)
 }
 
-private val CATALOG = listOf(
+internal val CATALOG = listOf(
     // --- vanilla ---
     Offer("j_joker", "Joker", "+4 Mult", 2),
     Offer("j_greedy_joker", "Greedy Joker", "+3 Mult / Diamond", 5),
@@ -619,7 +619,7 @@ private const val MAX_JOKERS = 5   // G.GAME.max_jokers default (Balatro game.lu
 
 /** 3 shop offers, deterministic per ante; ~60% of the time the first slot rolls an edition (+3 cost). */
 // The six base economy vouchers (game.lua:608-618); cost $10, effects per Card:apply_to_run.
-private val VOUCHERS = listOf(
+internal val VOUCHERS = listOf(
     VoucherOffer("v_overstock_norm", "Overstock", "+1 card slot in the shop", 1),
     VoucherOffer("v_clearance_sale", "Clearance Sale", "All shop cards 25% off", 25),
     VoucherOffer("v_reroll_surplus", "Reroll Surplus", "Rerolls cost \$2 less", 2),
@@ -723,7 +723,7 @@ private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0,
 // suit-conversion (Star/Sun/Moon/World), rank-up (Strength), and destroy (Hanged Man) tarots modify
 // the selected cards. (The Magician enhances up to 2 cards to Lucky — now that the Lucky enhancement +
 // its scoring exist; seals come from spectrals Talisman/Deja Vu, not from Sun/Moon as the old mapping had.)
-private val TAROTS = listOf(
+internal val TAROTS = listOf(
     TarotOffer("The Magician", TarotFx.Enhance(Enhancement.LUCKY, 2)),
     TarotOffer("The Empress", TarotFx.Enhance(Enhancement.MULT, 2)),
     TarotOffer("The Hierophant", TarotFx.Enhance(Enhancement.BONUS, 2)),
