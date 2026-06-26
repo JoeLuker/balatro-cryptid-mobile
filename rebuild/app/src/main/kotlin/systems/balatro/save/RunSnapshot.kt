@@ -76,6 +76,9 @@ data class RunSnapshot(
     val greenEconomy: Boolean = false,
     val anaglyph: Boolean = false,
     val doubleNextTags: Int = 0,
+    val directorsCut: Boolean = false,
+    val retcon: Boolean = false,
+    val bossReshuffle: Int = 0,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {

@@ -54,4 +54,21 @@ class VoucherTier2Test {
         rs.redeemVoucher(voucher("v_antimatter", 1))
         assertEquals(1, rs.deckJokerBonus)
     }
+
+    @Test fun directorsCutRerollsTheBossOncePerAnte() {
+        val rs = run(); rs.redeemVoucher(voucher("v_directors_cut", 0))
+        rs.phase = Phase.BLIND_SELECT; rs.blindIndex = 2          // ante 1 boss blind
+        org.junit.Assert.assertTrue(rs.canRerollBoss())
+        rs.rerollBoss()
+        org.junit.Assert.assertFalse(rs.canRerollBoss())          // limit: 1 per ante
+        assertEquals(1, rs.bossReshuffle)                         // seed advanced (boss re-picked)
+    }
+
+    @Test fun retconRerollsTheBossUnlimited() {
+        val rs = run(); rs.redeemVoucher(voucher("v_retcon", 0))
+        rs.phase = Phase.BLIND_SELECT; rs.blindIndex = 2
+        rs.rerollBoss(); rs.rerollBoss()
+        org.junit.Assert.assertTrue(rs.canRerollBoss())           // never limited
+        assertEquals(2, rs.bossReshuffle)
+    }
 }
