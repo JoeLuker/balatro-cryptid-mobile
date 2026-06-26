@@ -123,56 +123,24 @@ class MainActivity : ComponentActivity() {
                 var hasSave by remember { mutableStateOf(saveFile.exists()) }
                 LaunchedEffect(showRun) { if (!showRun) hasSave = saveFile.exists() }   // refresh on return to menu
 
-                Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().padding(20.dp)) {
-                        Text("Balatro Native", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        Text("clean-slate rebuild · composition core", color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(16.dp))
-                        ElevatedCard(Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                cells[0 to 0]?.let { Image(it, "Joker", Modifier.size(56.dp, 75.dp)); Spacer(Modifier.width(14.dp)) }
-                                Column {
-                                    Text("$n jokers scored on-device · art reused", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("score = ${boot?.score?.toString() ?: "running…"}", fontFamily = FontFamily.Monospace, fontSize = 20.sp)
-                                    Text("oracle parity: ${boot?.let { "${it.pass}/${it.total}" } ?: "…"} on-device",
-                                        fontFamily = FontFamily.Monospace, fontSize = 13.sp,
-                                        color = if (boot == null || boot!!.pass == boot!!.total) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                                    Text("10 Cryptid archetypes ported · scores like the original", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-                                }
+                // Main menu = the REAL create_UIBox_main_menu_buttons tree (main_menu_tree.json) rendered
+                // through the layout engine on the felt — Play / Options / Collection, wired to nav.
+                Box(Modifier.fillMaxSize()) {
+                    BalatroFelt(Modifier.matchParentSize())
+                    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+                        CompositionLocalProvider(LocalUIScale provides u) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                BTxt("BALATRO", Balatro.Orange, (1.6f * u * FONT_RATIO).sp)
+                                Spacer(Modifier.height((0.5f * u).dp))
+                                val mroot = remember { HudSpec.root(ctx, "main_menu_tree.json") }
+                                if (mroot != null) RenderUIBoxNatural(buildMenu(mroot, MenuBind(
+                                    onPlay = { showRun = true; Telemetry.event("UI", "open" to "run", "resume" to hasSave) },
+                                    onOptions = { showSettings = true },
+                                    onCollection = { showManager = true },
+                                )), u)
                             }
                         }
-                        Spacer(Modifier.height(20.dp))
-                        Button(onClick = { showManager = true; Telemetry.event("UI", "open" to "manager", "n" to n) },
-                            modifier = Modifier.fillMaxWidth(), enabled = cells.isNotEmpty()) {
-                            Text(if (cells.isEmpty()) "Loading art…" else "Manage $n Jokers  (native grid)")
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Button(onClick = { showRun = true; Telemetry.event("UI", "open" to "run", "resume" to hasSave) },
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text(if (hasSave) "Continue  (resume saved run)" else "Play  (the one game: blinds + shop)")
-                        }
-                        // New Run: abandon the saved run (delete the autosave) and start fresh.
-                        if (hasSave) {
-                            Spacer(Modifier.height(10.dp))
-                            OutlinedButton(onClick = {
-                                SaveIo.delete(saveFile); hasSave = false; showRun = true
-                                Telemetry.event("UI", "open" to "run-new")
-                            }, modifier = Modifier.fillMaxWidth()) {
-                                Text("New Run  (abandon the saved run)")
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(onClick = { showStats = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Stats  (lifetime)")
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(onClick = { showSettings = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Settings  (audio)")
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
-                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.CenterHorizontally))
                     }
 
                     if (showManager) {

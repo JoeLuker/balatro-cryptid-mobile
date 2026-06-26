@@ -14,7 +14,7 @@ ASSETS="$ROOT/rebuild/app/src/main/assets/ui"
 mkdir -p "$ASSETS"
 for j in hud_tree shop_tree shop_card_ui \
               pack_arcana_tree pack_spectral_tree pack_standard_tree pack_buffoon_tree pack_celestial_tree \
-              round_eval_tree game_over_tree win_tree run_info_tree \
+              round_eval_tree game_over_tree win_tree run_info_tree main_menu_tree \
               blind_small_tree blind_big_tree blind_boss_tree; do
   cp -f "$DIR/$j.json" "$ASSETS/$j.json"
 done
