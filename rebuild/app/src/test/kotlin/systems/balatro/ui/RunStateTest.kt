@@ -486,4 +486,36 @@ class RunStateTest {
         rs.phase = Phase.BLIND_SELECT; rs.selectBlind()         // re-run startRound with Blurred owned
         assertEquals("+1 hand each round", base + 1, rs.handsLeft)
     }
+
+    @Test fun cryGardenforkPaysSevenForAceAndSeven() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_gardenfork"), free = true)
+        rs.money = 0
+        rs.hand = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 7))   // Ace + 7
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("+\$7 when the played hand has an Ace and a 7", 7, rs.money)
+    }
+
+    @Test fun cryGardenforkPaysNothingWithoutBothRanks() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_gardenfork"), free = true)
+        rs.money = 0
+        rs.hand = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 13))  // Ace + King, no 7
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("no \$ without both an Ace and a 7", 0, rs.money)
+    }
+
+    @Test fun cryHungerPaysThreePerConsumableUsed() {
+        val rs = RunState()
+        rs.buy(offer("j_cry_hunger"), free = true)
+        rs.money = 0
+        rs.consumables.clear()
+        rs.consumables.add(Consumable.SpectralC(Spectral.BLACK_HOLE))   // Black Hole — no money effect of its own
+        rs.useConsumable(0)
+        assertEquals("+\$3 each time a consumable is used", 3, rs.money)
+    }
 }

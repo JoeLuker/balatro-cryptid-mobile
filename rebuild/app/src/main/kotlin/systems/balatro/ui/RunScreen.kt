@@ -459,6 +459,9 @@ private val CATALOG = listOf(
     Offer("j_cry_crustulum", "Crustulum", "+Chips from reroll accumulator (M-pool)", 6),
     // --- missing Cryptid jokers (batch 1): passive hand modifier ---
     Offer("j_cry_blurred", "cry-Blurred Joker", "+1 hand each round", 4),
+    // --- missing Cryptid jokers (batch 2): economy ---
+    Offer("j_cry_gardenfork", "cry-Gardenfork", "Earn $7 if the played hand has an Ace and a 7", 7, rarity = 3),
+    Offer("j_cry_hunger", "cry-Hunger", "Earn $3 each time a consumable is used", 6, rarity = 2),
     // m: Xmult from j.x (+13 per Jolly Joker sold).
     Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
     // longboi: Xmult = monstermult (grows each round; M-pool variant).
@@ -848,6 +851,8 @@ internal class RunState {
     fun useConsumable(i: Int) {
         val c = consumables.getOrNull(i) ?: return
         consumables.removeAt(i)
+        // j_cry_hunger: +$3 each time a consumable is used (context.using_consumeable, p_dollars=money).
+        money += 3 * owned.count { it.offer.key == "j_cry_hunger" }
         when (c) {
             is Consumable.TarotC -> {
                 // Non-targeted tarots apply here (money/creation). Targeted ones normally go via
@@ -1476,6 +1481,10 @@ internal class RunState {
         if (boss == Boss.THE_MOUTH && mouthLockedHand == null) mouthLockedHand = r.handType  // lock first type
         if (boss == Boss.THE_OX && r.handType == mostPlayedHand?.first) money = 0            // zero out money
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
+        // j_cry_gardenfork: +$7 when the played hand contains both an Ace and a 7 (misc context.before,
+        // full_hand scan: any id==14 AND any id==7). One $7 per gardenfork.
+        if (pendingSel.any { it.id == 14 } && pendingSel.any { it.id == 7 })
+            money += 7 * owned.count { it.offer.key == "j_cry_gardenfork" }
         // Blue seal: each blue-sealed scored card creates the Planet for the played hand (if room).
         val bluePlanet = Planet.values().firstOrNull { it.hand == r.handType }
         if (bluePlanet != null) repeat(pendingSel.count { it.seal == Seal.BLUE }) {
