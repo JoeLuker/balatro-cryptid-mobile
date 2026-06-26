@@ -452,4 +452,29 @@ class RunStateTest {
         val expected = rs.owned.sumOf { rs.sellValue(it).toDouble() }
         assertEquals("Swashbuckler mult reflects the raised sell values", expected, sb.fj.mult, 0.0)
     }
+
+    @Test fun thePsychicBlocksUnderFiveCardPlays() {
+        // Control for the Luchador play()-shadow test: THE_PSYCHIC requires exactly 5 cards, so a 2-card
+        // play is blocked (play() early-returns → nothing scores).
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = Boss.THE_PSYCHIC
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("THE_PSYCHIC blocks a 2-card play → no score", 0.0, rs.roundScore, 0.0)
+    }
+
+    @Test fun luchadorDisablesThePsychicPlayGate() {
+        // Selling Luchador disables THE_PSYCHIC, so the play() boss-gate (shadowed `boss`) lifts and a
+        // 2-card hand scores. Verifies the play()-site shadow (scoreBank's was covered by the THE_TOOTH test).
+        val rs = RunState()
+        rs.blindIndex = 2; rs.boss = Boss.THE_PSYCHIC
+        rs.buy(offer("j_luchador"), free = true)
+        rs.sell(rs.owned.first { it.fj.key == "j_luchador" })
+        assertTrue(rs.bossDisabled)
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertTrue("disabled THE_PSYCHIC lets a 2-card hand score", rs.roundScore > 0.0)
+    }
 }
