@@ -1132,7 +1132,11 @@ private fun buildRoundEvalCfg(c: org.json.JSONObject): Cfg {
         padding = c.optDouble("padding", 0.0).toFloat(),
         r       = c.optDouble("r", 0.0).toFloat(),
         minw    = c.optDouble("minw", 0.0).toFloat(),
-        minh    = c.optDouble("minh", 0.0).toFloat(),
+        // The extracted frame carries a minh≈30 wrapper (an attach-context artifact — vanilla's panel is
+        // minh=3, positioned by the overlay system). Rendered raw it makes a 30u-tall frame that anchors
+        // its rows to the top with a huge empty void below. Drop the oversized min so the panel sizes to
+        // its content and the centering wrapper in RoundEvalScreen places it over the play area.
+        minh    = c.optDouble("minh", 0.0).toFloat().let { if (it > 12f) 0f else it },
         emboss  = c.optDouble("emboss", 0.0).toFloat(),
         shadow  = c.optBoolean("shadow", false),
     )
