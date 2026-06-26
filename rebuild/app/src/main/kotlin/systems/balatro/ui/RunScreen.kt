@@ -1719,7 +1719,7 @@ internal class RunState {
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
         owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
         shopItems = shopItems.filterNot { it is ShopItem.Jk && it.offer === offer }
-        if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money)
+        if (!free) { systems.balatro.audio.SoundManager.play("coin1"); Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money) }
     }
 
     /** Put a random Joker on the board with its correct initial state — jollysus' on-sell spawn
@@ -1791,6 +1791,7 @@ internal class RunState {
         consumables.add(Consumable.PlanetC(po.planet))    // HELD until used (was: insta-level-up)
         shopItems = shopItems.filterNot { it is ShopItem.Pl && it.po === po }
         // (j_constellation / j_hiker: trigger is planet USE, not purchase — hooks moved to useConsumable.)
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
         Telemetry.event("RUN_BUY_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
 
@@ -1802,6 +1803,7 @@ internal class RunState {
         onCardBought()
         consumables.add(Consumable.TarotC(t))             // HELD until used (was: insta-enhance)
         shopItems = shopItems.filterNot { it is ShopItem.Tt && it.t === t }
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
         Telemetry.event("RUN_BUY_TAROT", "tarot" to t.name, "money" to money)
     }
 
@@ -1823,6 +1825,7 @@ internal class RunState {
         onCardBought()
         deck.add(card)
         shopItems = shopItems.filterNot { it is ShopItem.Cd && it.card == card }
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
         Telemetry.event("RUN_BUY_CARD", "card" to card.label, "money" to money)
     }
 
@@ -1835,6 +1838,7 @@ internal class RunState {
         onCardBought()
         consumables.add(Consumable.SpectralC(sp))
         shopItems = shopItems.filterNot { it is ShopItem.Sp && it.s == sp }
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
         Telemetry.event("RUN_BUY_SPECTRAL", "spectral" to sp.name, "money" to money)
     }
 
@@ -1872,6 +1876,7 @@ internal class RunState {
             "v_liquidation" -> discountPercent = v.extra             // 50% off (Clearance tier-2)
             "v_blank" -> {}                                          // Blank: no effect
         }
+        systems.balatro.audio.SoundManager.play("coin1")
         Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
     }
 
@@ -2715,7 +2720,7 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
             padding = 0.3f,
             r       = 0.1f,
             colour  = if (canPlay) Balatro.Chips else Balatro.Grey,
-            onClick = if (canPlay) ({ s.play() }) else null,
+            onClick = if (canPlay) ({ systems.balatro.audio.SoundManager.play("cardSlide1"); s.play() }) else null,
         ),
         R(Cfg(align = "bcm", padding = 0f),
             T(Cfg(scale = ts, textColour = Balatro.White), "Play Hand")),
@@ -2732,7 +2737,7 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
             padding = 0.3f,
             r       = 0.1f,
             colour  = if (canDiscard) Balatro.Mult else Balatro.Grey,
-            onClick = if (canDiscard) ({ s.discard() }) else null,
+            onClick = if (canDiscard) ({ systems.balatro.audio.SoundManager.play("whoosh1"); s.discard() }) else null,
         ),
         R(Cfg(align = "cm", padding = 0f),
             T(Cfg(scale = ts, textColour = Balatro.White), "Discard")),
@@ -3287,7 +3292,7 @@ private fun RoundEvalScreen(s: RunState) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Panel(Modifier.width(300.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
+                    BButton("Cash Out: \${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth(), sound = "coin1") { s.cashOut() }
                     Spacer(Modifier.height(2.dp))
                     s.evalRows.forEach { EvalRowView(it, u) }
                 }
@@ -3324,7 +3329,7 @@ private fun RoundEvalScreen(s: RunState) {
                 }
                 "eval_bottom"      -> Box(slotMod, contentAlignment = Alignment.Center) {
                     BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = (0.2f * u).dp)) { s.cashOut() }
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = (0.2f * u).dp), sound = "coin1") { s.cashOut() }
                 }
             }
         })
