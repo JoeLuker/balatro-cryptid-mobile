@@ -470,6 +470,8 @@ private val CATALOG = listOf(
     Offer("j_cry_compound_interest", "cry-Compound Interest", "Earns 12% of your money at end of round; the % grows +3% each round", 10, rarity = 3),
     Offer("j_cry_eyeofhagane", "cry-Eye of Hagane", "All played face cards become Steel cards when scored", 6, rarity = 2),
     Offer("j_cry_redbloon", "cry-redbloon", "After 2 rounds, gives \$20 and self-destructs", 4),
+    Offer("j_cry_magnet", "cry-Magnet", "End of round: \$10 if you have 4 or fewer Jokers, otherwise \$2", 6),
+    Offer("j_cry_morse", "cry-Morse", "Earns \$1 at end of round; +\$2 each time an edition Joker is sold", 5),
     // --- missing Cryptid jokers (batch 5): sell-economy ---
     Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
     // --- missing Cryptid jokers (batch 6): sell-spawn ---
@@ -1610,7 +1612,11 @@ internal class RunState {
                  .sumOf { (0.01 * it.fj.x * money).toInt() } +
             // cry-redbloon: pays $20 the round its 2-round countdown reaches 0. n decrements at round end via
             // its RoundEnd reducer, so n==1 here → it expires THIS round → pays now, then self-destructs in cashOut.
-            owned.count { it.offer.key == "j_cry_redbloon" && it.fj.n == 1 } * 20
+            owned.count { it.offer.key == "j_cry_redbloon" && it.fj.n == 1 } * 20 +
+            // cry-Magnet: $10 (money 2 × Xmoney 5) if you have ≤4 Jokers (slots), else $2 (calc_dollar_bonus).
+            owned.count { it.offer.key == "j_cry_magnet" } * (if (owned.size <= 4) 10 else 2) +
+            // cry-Morse: pays its accumulated money (fj.x, starts 1, +2 per edition-Joker sold) when x > 0.
+            owned.filter { it.offer.key == "j_cry_morse" }.sumOf { it.fj.x.toInt() }
         if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
@@ -1839,6 +1845,9 @@ internal class RunState {
                 if (o.fj.key == "j_cry_coin") money += Random(coinSeedBase + idx * 977L).nextInt(10) + 1
             }
         }
+        // j_cry_morse: selling a Joker that carries an EDITION (Foil/Holo/Poly) grows each remaining morse's
+        // payout by +2 (bonus); morse pays its accumulated money (fj.x) at round end. (misc selling_card w/ edition)
+        if (o.fj.edition.isNotEmpty()) for (rem in owned) if (rem.fj.key == "j_cry_morse") rem.fj.x += 2.0
         // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately (unless disabled)
         if (!bossDisabled && boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)

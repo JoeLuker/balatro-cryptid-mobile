@@ -541,6 +541,9 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // buildCashOut the round n reaches 0 (predicted at n==1) and self-destructs it (n<=0). No scoring output.
     "j_cry_redbloon"         to JokerSpec(initialState = FJokerState(n = 2),
         reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = s.n - 1) else s }),
+    // cry-Morse: x = money payout (starts 1), grows +2 (bonus) each time a Joker WITH an edition is sold
+    // (RunScreen.sell). Pays x at round end (calc_dollar_bonus, when x > 0) via buildCashOut. No scoring.
+    "j_cry_morse"            to JokerSpec(initialState = FJokerState(x = 1.0)),
     // cry_zooble: j.mult += distinct-rank-count in before-pass (Score.kt line 612); no individual hook
     "j_cry_zooble"      to JokerSpec(jokerMain = { s, _ -> if (s.mult > 0.0) Effect.Mult(s.mult) else Effect.None }),
     // cry_poor_joker: j.mult += mult_mod(4) each rental (non-scoring, RunScreen event)
