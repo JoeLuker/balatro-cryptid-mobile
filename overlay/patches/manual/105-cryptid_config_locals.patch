@@ -1,0 +1,26 @@
+diff --git a/Mods/Cryptid/Cryptid.lua b/Mods/Cryptid/Cryptid.lua
+index 9f38abc..ede3b31 100644
+--- a/Mods/Cryptid/Cryptid.lua
++++ b/Mods/Cryptid/Cryptid.lua
+@@ -371,7 +371,7 @@ G.FUNCS.update_cry_members = function(...)
+ end
+ 
+ local cryptidConfigTab = function()
+-	cry_nodes = {
++	local cry_nodes = {
+ 		{
+ 			n = G.UIT.R,
+ 			config = { align = "cm" },
+@@ -390,9 +390,9 @@ local cryptidConfigTab = function()
+ 			},
+ 		},
+ 	}
+-	left_settings = { n = G.UIT.C, config = { align = "tl", padding = 0.05 }, nodes = {} }
+-	right_settings = { n = G.UIT.C, config = { align = "tl", padding = 0.05 }, nodes = {} }
+-	config = { n = G.UIT.R, config = { align = "tm", padding = 0 }, nodes = { left_settings, right_settings } }
++	local left_settings = { n = G.UIT.C, config = { align = "tl", padding = 0.05 }, nodes = {} }
++	local right_settings = { n = G.UIT.C, config = { align = "tl", padding = 0.05 }, nodes = {} }
++	local config = { n = G.UIT.R, config = { align = "tm", padding = 0 }, nodes = { left_settings, right_settings } }
+ 	cry_nodes[#cry_nodes + 1] = config
+ 	cry_nodes[#cry_nodes + 1] = UIBox_button({
+ 		colour = G.C.CRY_GREENGRADIENT,
