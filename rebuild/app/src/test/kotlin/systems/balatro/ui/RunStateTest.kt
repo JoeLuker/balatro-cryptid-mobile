@@ -356,4 +356,25 @@ class RunStateTest {
         rs.sell(rs.owned.first { it.fj.key == "j_diet_cola" })
         assertEquals("selling Diet Cola grants one Double Tag", before + 1, rs.doubleNextTags)
     }
+
+    @Test fun seltzerCountsDownEachHandAndSelfDestructsAtZero() {
+        // Vanilla j_selzer: lasts 10 hands (n), decrementing once per hand, then self-destructs. The
+        // retrigger-every-card effect itself is verified by the oracle (pair of aces → 108).
+        val rs = RunState()
+        rs.buy(offer("j_selzer"), free = true)
+        val s = rs.owned.first { it.fj.key == "j_selzer" }
+        assertEquals(10, s.fj.n)
+        rs.hand = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 14))
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertEquals("decrements each hand", 9, s.fj.n)
+        // one hand before expiry → the next hand self-destructs it
+        s.fj.n = 1
+        rs.hand = listOf(PlayingCard(Suit.S, 14), PlayingCard(Suit.H, 14))
+        rs.phase = Phase.ROUND
+        rs.selected = setOf(0, 1)
+        rs.play(); rs.scoreBank()
+        assertTrue("self-destructs when its countdown reaches 0", rs.owned.none { it.fj.key == "j_selzer" })
+    }
 }

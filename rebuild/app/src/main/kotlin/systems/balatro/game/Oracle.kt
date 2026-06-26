@@ -792,6 +792,8 @@ object Oracle {
         Case("Plain aces + vampire @x=1.5 (accumulated X1.5) → 96", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_vampire", x = 1.5))),
         Case("Pair of aces + rocket (end-of-round economy → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_rocket"))),
         Case("Pair of aces + diet_cola (sell-effect → score unchanged) → 64", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_diet_cola"))),
+        // Seltzer: retriggers every scored card once → same as sock_and_buskin+pareidolia (all 2x) on a pair → 108.
+        Case("Pair of aces + seltzer (all cards 2x) → 108", PlayingCard.hand("S_A", "H_A"), 108.0, j(FJoker("j_selzer"))),
     )
 
     fun run(): Pair<Int, Int> {
