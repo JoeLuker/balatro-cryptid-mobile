@@ -76,4 +76,16 @@ class VoucherTier2Test {
         val rs = run(); rs.redeemVoucher(voucher("v_omen_globe", 0))
         org.junit.Assert.assertTrue(rs.omenGlobe)
     }
+
+    @Test fun magicTrickEnablesPlayingCardsInShop() {
+        val rs = run(); rs.redeemVoucher(voucher("v_magic_trick", 4))
+        org.junit.Assert.assertTrue(rs.cardRate > 0.0)
+    }
+
+    @Test fun buyingAShopCardAddsItToTheDeck() {
+        val rs = run()
+        val before = rs.snapshot().deck.size
+        rs.buyShopCard(systems.balatro.game.PlayingCard(systems.balatro.game.Suit.S, 7))
+        assertEquals(before + 1, rs.snapshot().deck.size)
+    }
 }

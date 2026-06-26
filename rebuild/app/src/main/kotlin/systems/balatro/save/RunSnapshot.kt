@@ -39,6 +39,7 @@ data class JokerSnap(
     val planet: PlanetSnap? = null,
     val tarot: TarotSnap? = null,
     val spectral: String? = null,           // Spectral enum name (Ghost-deck shop spectrals)
+    val card: CardSnap? = null,             // Magic Trick: a playing card offered in the shop
 )
 @Serializable data class VoucherSnap(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int)
 @Serializable data class BoosterSnap(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int)
@@ -80,6 +81,7 @@ data class RunSnapshot(
     val retcon: Boolean = false,
     val bossReshuffle: Int = 0,
     val omenGlobe: Boolean = false,
+    val cardRate: Double = 0.0,
 ) {
     fun encode(): String = Json.encodeToString(this)
     companion object {
