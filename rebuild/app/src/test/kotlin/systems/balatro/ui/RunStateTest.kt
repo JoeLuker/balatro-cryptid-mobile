@@ -345,4 +345,15 @@ class RunStateTest {
         assertEquals("no increase off a boss", 1, rk.fj.n)
         assertEquals("pays base \$1", 1, jokerDollarsOf(rs))
     }
+
+    @Test fun dietColaSellCreatesADoubleTag() {
+        // Vanilla j_diet_cola: selling it creates a free Double Tag — here, +1 to doubleNextTags
+        // (which duplicates the next earned skip tag, same mechanism as the Anaglyph deck).
+        val rs = RunState()
+        rs.buy(offer("j_diet_cola"), free = true)
+        rs.buy(offer("j_joker"), free = true)                  // a second joker so Diet Cola is sellable
+        val before = rs.doubleNextTags
+        rs.sell(rs.owned.first { it.fj.key == "j_diet_cola" })
+        assertEquals("selling Diet Cola grants one Double Tag", before + 1, rs.doubleNextTags)
+    }
 }

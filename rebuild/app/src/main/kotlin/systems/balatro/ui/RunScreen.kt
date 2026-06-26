@@ -585,6 +585,8 @@ private val CATALOG = listOf(
     Offer("j_vampire", "Vampire", "Gains X0.1 Mult per scored enhanced card, removing the enhancement", 7, rarity = 2),
     // --- missing vanilla jokers (batch 21): boss-scaling economy ---
     Offer("j_rocket", "Rocket", "Earn $1 at end of round; payout increases by $2 when a Boss Blind is defeated", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 22): sell-to-create-tag ---
+    Offer("j_diet_cola", "Diet Cola", "Sell this card to create a free Double Tag", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1735,6 +1737,9 @@ internal class RunState {
         // (the boss is kept for display; bossDisabled gates the per-hand effect reads). Done before the
         // VERDANT_LEAF check so disabling Verdant also cancels its sell-to-defeat trigger.
         if (soldKey == "j_luchador" && slot == 2 && boss != null) bossDisabled = true
+        // j_diet_cola: sell to create a free Double Tag (card.lua:2918 add_tag(tag_double)). In this engine
+        // a Double Tag = doubleNextTags (duplicate the next earned skip tag), same as the Anaglyph deck.
+        if (soldKey == "j_diet_cola") doubleNextTags += 1
         // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately (unless disabled)
         if (!bossDisabled && boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
