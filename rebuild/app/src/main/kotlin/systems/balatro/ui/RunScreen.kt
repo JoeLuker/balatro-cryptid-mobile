@@ -587,6 +587,8 @@ private val CATALOG = listOf(
     Offer("j_rocket", "Rocket", "Earn $1 at end of round; payout increases by $2 when a Boss Blind is defeated", 6, rarity = 2),
     // --- missing vanilla jokers (batch 22): sell-to-create-tag ---
     Offer("j_diet_cola", "Diet Cola", "Sell this card to create a free Double Tag", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 23): retrigger-all countdown ---
+    Offer("j_selzer", "Seltzer", "Retrigger every played card for the next 10 hands", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
@@ -1423,12 +1425,17 @@ internal class RunState {
         // (All per-hand accumulators now live in JOKER_MANIFEST HandScored/BeforeHand reducers:
         //  spare_trousers/runner/square/obelisk, cry_clockwork/keychange/duplicare/jimball/happyhouse.
         //  j_popcorn is NOT a per-hand accumulator — it decays −4 per ROUND via its RoundEnd reducer.)
+        // j_selzer (Seltzer): retriggers every scored card while alive (its individual hook); lasts 10 hands
+        // (config extra=10, n), decrementing once per hand (context.after) and self-destructing (k_drank_ex)
+        // when its counter reaches 0. Decremented here, before the self-destruct filter below.
+        for (o in owned) if (o.fj.key == "j_selzer") o.fj.n -= 1
         // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
         // j_ramen: self-destructs when x_mult drops to ≤1.0 (card.lua equivalent; default start 2.0).
         // Fires AFTER the per-hand loop so the score engine still reads the final value this hand.
         // (j_popcorn self-destructs at END OF ROUND when its mult floors at 0 — handled in cashOut.)
         val handSelfDestruct = owned.filter { o ->
             (o.fj.key == "j_ramen"   && o.fj.x <= 1.0) ||
+            (o.fj.key == "j_selzer"  && o.fj.n <= 0) ||
             // blacklist: self-destructs once its blacklisted rank is absent from the whole deck
             // (spooky.lua:1044-1063 — gone from play∪hand∪discard∪deck, which partition deck.all).
             // n=0 → unset → Ace(14), matching the engine's blacklist default.

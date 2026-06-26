@@ -511,6 +511,9 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
         initialState = FJokerState(n = 5),
         reduce = { s, e -> if (e is GameEvent.RoundEnd) s.copy(n = s.n - 1) else s },
     ),
+    // j_selzer (Seltzer): retriggers EVERY scored card once, for the next 10 hands, then self-destructs
+    // (card.lua:3963 repetitions=1, unconditional; n = hands remaining, RunScreen decrements + prunes).
+    "j_selzer"          to JokerSpec(initialState = FJokerState(n = 10), individual = { _, _, _ -> Effect.Retrigger(1) }),
     // j_rocket: end-of-round $ payout (n = dollars, starts 1); increases by $2 when a Boss Blind is
     // defeated (config {dollars=1, increase=2}). No scoring output — RunScreen pays n in buildCashOut and
     // bumps n on a boss win (before the payout, so the boss round itself pays the increased amount).
