@@ -1062,6 +1062,45 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
     }
 }
 
+// ── MAIN MENU: render create_UIBox_main_menu_buttons (main_menu_tree.json) with nav callbacks ──────
+internal class MenuBind(val onPlay: () -> Unit, val onOptions: () -> Unit, val onCollection: () -> Unit)
+
+private fun menuColour(name: String): Color = when (name) {
+    "BLUE" -> Color(0xFF009DFF); "ORANGE" -> Color(0xFFFDA200); "PALE_GREEN" -> Color(0xFF56A887)
+    "RED" -> Color(0xFFFE5F55); "L_BLACK" -> Color(0xFF4F6367)
+    "CLEAR" -> Color.Transparent; "UI.TEXT_LIGHT", "WHITE" -> Balatro.White
+    else -> Color.Transparent
+}
+
+internal fun buildMenu(node: org.json.JSONObject, b: MenuBind): UI {
+    val cfgJ = node.optJSONObject("config") ?: org.json.JSONObject()
+    val cv = cfgJ.optJSONObject("colour")
+    val fill: Color? = if (cv?.optString("\$") == "colour") menuColour(cv.getString("name")) else null
+    val onClick: (() -> Unit)? = when (cfgJ.optString("button")) {
+        "setup_run", "start_run" -> b.onPlay
+        "options" -> b.onOptions
+        "your_collection" -> b.onCollection
+        else -> null
+    }
+    val cfg = Cfg(
+        align = cfgJ.optString("align", "cm"), colour = fill,
+        padding = cfgJ.optDouble("padding", 0.0).toFloat(), r = cfgJ.optDouble("r", 0.0).toFloat(),
+        minw = cfgJ.optDouble("minw", 0.0).toFloat(), minh = cfgJ.optDouble("minh", 0.0).toFloat(),
+        emboss = cfgJ.optDouble("emboss", 0.0).toFloat(),
+        textColour = (cv?.takeIf { it.optString("\$") == "colour" }?.let { menuColour(it.getString("name")) }) ?: Balatro.White,
+        onClick = onClick,
+    )
+    val nodesJ = node.optJSONArray("nodes")
+    val kids = if (nodesJ != null) (0 until nodesJ.length()).map { buildMenu(nodesJ.getJSONObject(it), b) } else emptyList()
+    return when (node.getString("n")) {
+        "R", "ROOT" -> Ro(cfg, kids)
+        "C" -> Co(cfg, kids)
+        "B" -> Bx(cfg, kids)
+        "T" -> Tx(cfg, (cfgJ.opt("text") as? String) ?: "")
+        else -> Bx(cfg, kids)
+    }
+}
+
 private fun buildRoundEvalCfg(c: org.json.JSONObject): Cfg {
     fun colourByName(name: String): Color = when (name) {
         "BLACK"                  -> Color(0xFF1A2123)   // distinct near-black frame — NOT the scene-matching Panel

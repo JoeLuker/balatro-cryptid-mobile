@@ -25,6 +25,8 @@ local C = {
   -- ORANGE (#FDA200) is the Options button fill (UI_definitions.lua:1536, colour=G.C.ORANGE); without
   -- it registered the options button's colour was dropped from the tree and rendered as bare text.
   ORANGE = leaf("ORANGE",hx("fda200")), FILTER = leaf("FILTER",hx("ff9a00")),
+  PALE_GREEN = leaf("PALE_GREEN",hx("56a887")),   -- main-menu Collection button fill
+
   CHIPS = leaf("CHIPS",hx("009dff")), MULT = leaf("MULT",hx("fe5f55")),
   -- globals.lua:475 assigns G.C.UI_CHIPS = BLUE, G.C.UI_MULT = RED at runtime (outside the C literal),
   -- so the chips/mult readout boxes get their fill. Without these the extracted colours were nil.
@@ -144,6 +146,8 @@ function localize(a, misc_cat)
       -- run-info tab labels (create_tabs concatenates these as strings)
       b_poker_hands='Poker Hands', b_blinds='Blinds', b_vouchers='Vouchers', b_stake='Stake',
       k_level_prefix='lvl.',
+      -- main menu button caps
+      b_play_cap='Play', b_options_cap='Options', b_collection_cap='Collection', b_quit_cap='Quit',
     }
     -- run-info concatenates the poker-hand name/description as a string ('lvl.'..level, ' '..name),
     -- so these categories must return a plain string (the key), not a {__loc} descriptor.
@@ -715,3 +719,15 @@ dump(create_UIBox_round_evaluation(), "round_eval_tree.json")
 -- ROOT holding 12 hand rows (level pip + localized name + per-level chips/mult + lifetime play count).
 local ok_ri, ridef = pcall(create_UIBox_current_hands, false)
 if ok_ri and ridef then dump(ridef, "run_info_tree.json") else print("RUNINFO ERR: "..tostring(ridef)) end
+
+-- ── MAIN MENU: create_UIBox_main_menu_buttons ────────────────────────────────────────────────────
+-- The landing screen's button column. Flags chosen for the mobile-faithful core: English-only +
+-- no Discord/Twitter/language nodes + no desktop Quit → Play (BLUE) / Options (ORANGE) / Collection
+-- (PALE_GREEN). tutorial_complete=true so Play binds 'start_run' (not the tutorial setup_run).
+G.F_DISCORD = false
+G.F_ENGLISH_ONLY = true
+G.F_QUIT_BUTTON = false
+G.SETTINGS = G.SETTINGS or {}
+G.SETTINGS.tutorial_complete = true
+local ok_mm, mmdef = pcall(create_UIBox_main_menu_buttons)
+if ok_mm and mmdef then dump(mmdef, "main_menu_tree.json") else print("MAINMENU ERR: "..tostring(mmdef)) end
