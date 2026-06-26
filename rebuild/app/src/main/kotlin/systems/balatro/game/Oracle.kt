@@ -802,6 +802,21 @@ object Oracle {
         // Lucky Cat: X0.25 per Lucky trigger. One trigger → X(1.0+0.25)=1.25 applied to the lucky card's mult:
         // mult (2+20)=22, ×1.25 = 27.5 → 32×27.5 = 880.
         Case("Lucky ace + lucky_cat seed=1 (trigger → X1.25) → 880", listOf(en("S_A", Enhancement.LUCKY), PlayingCard.parse("H_A")), 880.0, j(FJoker("j_lucky_cat")), luckySeed = 1),
+        // ── adversarial: interactions on the new Score.kt scoring tier (Lucky / Vampire / Blueprint) ──
+        // Two Lucky aces both trigger (seed=38) + Lucky Cat grows PER trigger: chips 32; card0 +20→×1.25,
+        // card1 +20→×1.5. mult ((2+20)*1.25 +20)*1.5 = 71.25 → 32×71.25 = 2280.
+        Case("Two Lucky aces + lucky_cat seed=38 (per-card X growth) → 2280", listOf(en("S_A", Enhancement.LUCKY), en("H_A", Enhancement.LUCKY)), 2280.0, j(FJoker("j_lucky_cat")), luckySeed = 38),
+        // Red-seal Lucky ace re-rolls per repetition (seed=83: rep0 AND rep1 hit) → +20 twice; scores chips twice.
+        // chips 10 + 11·2 + 11 = 43; mult 2+20+20 = 42 → 43×42 = 1806.
+        Case("Red-seal Lucky ace retriggers + re-rolls seed=83 → 1806", listOf(en("S_A", Enhancement.LUCKY).copy(seal = Seal.RED), PlayingCard.parse("H_A")), 1806.0, luckySeed = 83),
+        // Vampire with 3 enhanced cards (Three of a Kind, Bonus aces): chips 30+41·3=153; X(1.0+0.3)=1.3;
+        // mult 3×1.3=3.9 → 153×3.9 = 596.7 → 596.
+        Case("Three Bonus aces + vampire (3 enhanced → X1.3) → 596", listOf(en("S_A", Enhancement.BONUS), en("H_A", Enhancement.BONUS), en("D_A", Enhancement.BONUS)), 596.0, j(FJoker("j_vampire"))),
+        // Blueprint copies Vampire (pre-accumulated x=2.0): both apply X(2.0+0.1·2)=2.2 reading Vampire's fj.
+        // chips 92; mult 2×2.2×2.2=9.68 → 92×9.68 = 890.56 → 890. (A wrong-fj bug would give 92×5.28=485.)
+        Case("Blueprint+Vampire(x=2) 2 enhanced (copy reads vampire's x) → 890", listOf(en("S_A", Enhancement.BONUS), en("H_A", Enhancement.BONUS)), 890.0, j(FJoker("j_blueprint"), FJoker("j_vampire", x = 2.0))),
+        // Blueprint copies Lucky Cat on the triggered card: chips 32; mult (2+20)×1.25×1.25 = 34.375 → 32×34.375 = 1100.
+        Case("Blueprint+lucky_cat, Lucky ace seed=1 (X1.25 twice) → 1100", listOf(en("S_A", Enhancement.LUCKY), PlayingCard.parse("H_A")), 1100.0, j(FJoker("j_blueprint"), FJoker("j_lucky_cat")), luckySeed = 1),
     )
 
     fun run(): Pair<Int, Int> {
