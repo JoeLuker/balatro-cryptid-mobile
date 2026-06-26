@@ -106,7 +106,7 @@ internal data class Owned(val offer: Offer, val fj: FJoker) {
 internal data class VoucherOffer(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int = 10)
 /** A booster pack offer (game.lua p_*). `kind` = Arcana/Celestial/Buffoon; `extra` cards shown,
  *  `choose` picks. Buying opens the pack (Phase.PACK_OPEN). */
-internal data class BoosterOffer(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int)
+internal data class BoosterOffer(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int, val weight: Double = 1.0)
 /** One revealed pack item (a tarot/planet/joker the player may pick). */
 internal sealed class PackItem {
     data class Tarot(val t: TarotOffer) : PackItem()
@@ -650,26 +650,41 @@ private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
 
 // Booster packs (game.lua p_*). Arcana/Celestial/Buffoon map to the tarot/planet/joker buy systems
 // (Standard/Spectral need deck-add + spectral effects — deferred). extra cards shown, choose picks.
+// Weights are the vanilla per-variant weights SUMMED over each logical pack's variants (game.lua p_*):
+// Arcana/Celestial/Standard normal=4 (4×1) jumbo=2 mega=0.5 (2×0.25); Buffoon 1.2/0.6/0.15;
+// Spectral 0.6/0.3/0.07. So commons (Arcana/Celestial/Standard) dominate, Spectral mega is ~1-in-200.
 private val BOOSTERS = listOf(
-    BoosterOffer("p_arcana_normal", "Arcana Pack", "Arcana", 4, 3, 1),
-    BoosterOffer("p_arcana_jumbo", "Jumbo Arcana Pack", "Arcana", 6, 5, 1),
-    BoosterOffer("p_arcana_mega", "Mega Arcana Pack", "Arcana", 8, 5, 2),
-    BoosterOffer("p_celestial_normal", "Celestial Pack", "Celestial", 4, 3, 1),
-    BoosterOffer("p_celestial_jumbo", "Jumbo Celestial Pack", "Celestial", 6, 5, 1),
-    BoosterOffer("p_celestial_mega", "Mega Celestial Pack", "Celestial", 8, 5, 2),
-    BoosterOffer("p_buffoon_normal", "Buffoon Pack", "Buffoon", 4, 2, 1),
-    BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1),
-    BoosterOffer("p_buffoon_mega", "Mega Buffoon Pack", "Buffoon", 8, 4, 2),
-    BoosterOffer("p_standard_normal", "Standard Pack", "Standard", 4, 3, 1),
-    BoosterOffer("p_standard_jumbo", "Jumbo Standard Pack", "Standard", 6, 5, 1),
-    BoosterOffer("p_standard_mega", "Mega Standard Pack", "Standard", 8, 5, 2),
-    BoosterOffer("p_spectral_normal", "Spectral Pack", "Spectral", 4, 2, 1),
-    BoosterOffer("p_spectral_jumbo", "Jumbo Spectral Pack", "Spectral", 6, 4, 1),
-    BoosterOffer("p_spectral_mega", "Mega Spectral Pack", "Spectral", 8, 4, 2),
+    BoosterOffer("p_arcana_normal", "Arcana Pack", "Arcana", 4, 3, 1, weight = 4.0),
+    BoosterOffer("p_arcana_jumbo", "Jumbo Arcana Pack", "Arcana", 6, 5, 1, weight = 2.0),
+    BoosterOffer("p_arcana_mega", "Mega Arcana Pack", "Arcana", 8, 5, 2, weight = 0.5),
+    BoosterOffer("p_celestial_normal", "Celestial Pack", "Celestial", 4, 3, 1, weight = 4.0),
+    BoosterOffer("p_celestial_jumbo", "Jumbo Celestial Pack", "Celestial", 6, 5, 1, weight = 2.0),
+    BoosterOffer("p_celestial_mega", "Mega Celestial Pack", "Celestial", 8, 5, 2, weight = 0.5),
+    BoosterOffer("p_buffoon_normal", "Buffoon Pack", "Buffoon", 4, 2, 1, weight = 1.2),
+    BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1, weight = 0.6),
+    BoosterOffer("p_buffoon_mega", "Mega Buffoon Pack", "Buffoon", 8, 4, 2, weight = 0.15),
+    BoosterOffer("p_standard_normal", "Standard Pack", "Standard", 4, 3, 1, weight = 4.0),
+    BoosterOffer("p_standard_jumbo", "Jumbo Standard Pack", "Standard", 6, 5, 1, weight = 2.0),
+    BoosterOffer("p_standard_mega", "Mega Standard Pack", "Standard", 8, 5, 2, weight = 0.5),
+    BoosterOffer("p_spectral_normal", "Spectral Pack", "Spectral", 4, 2, 1, weight = 0.6),
+    BoosterOffer("p_spectral_jumbo", "Jumbo Spectral Pack", "Spectral", 6, 4, 1, weight = 0.3),
+    BoosterOffer("p_spectral_mega", "Mega Spectral Pack", "Spectral", 8, 4, 2, weight = 0.07),
 )
-/** Two booster slots per shop (Balatro's shop has 2). */
-private fun rollBoosters(blind: Int): List<BoosterOffer> =
-    BOOSTERS.shuffled(Random(blind * 80021L + 3)).take(2)
+/** Two booster slots per shop, polled by vanilla WEIGHT (not uniform). [firstShop] forces a Buffoon
+ *  pack into the very first shop of a run (game.lua first_shop_buffoon guarantee). */
+internal fun rollBoosters(blind: Int, firstShop: Boolean = false): List<BoosterOffer> {
+    val rng = Random(blind * 80021L + 3)
+    val total = BOOSTERS.sumOf { it.weight }
+    fun pick(): BoosterOffer {
+        var r = rng.nextDouble() * total
+        for (b in BOOSTERS) { r -= b.weight; if (r <= 0) return b }
+        return BOOSTERS.last()
+    }
+    val out = ArrayList<BoosterOffer>(2)
+    if (firstShop) out.add(BOOSTERS.first { it.key == "p_buffoon_normal" })
+    while (out.size < 2) out.add(pick())
+    return out
+}
 
 /** Vanilla default joker_max — the shop holds this many MIXED slots (game.lua:1984). */
 private const val JOKER_MAX = 2
@@ -1707,7 +1722,8 @@ internal class RunState {
         applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
         shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
-        shopBoosters = rollBoosters(blindIndex)                           // two booster slots per shop
+        shopBoosters = rollBoosters(blindIndex, firstShop = !firstShopBuffoon)   // 2 weighted slots; first shop guarantees a Buffoon
+        firstShopBuffoon = true
         // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
         if (wasSlot == 2 && wasAnte in setOf(8, 10)) {
             phase = Phase.WIN
@@ -2107,7 +2123,7 @@ internal class RunState {
         handLevels = handLevels.all().entries.associate { it.key.name to it.value },
         shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
         stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
-        anaglyph = anaglyph, doubleNextTags = doubleNextTags,
+        anaglyph = anaglyph, doubleNextTags = doubleNextTags, firstShopBuffoon = firstShopBuffoon,
         directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe, cardRate = cardRate, illusion = illusion,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
@@ -2149,7 +2165,7 @@ internal class RunState {
         handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
         shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
         stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
-        anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags
+        anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags; firstShopBuffoon = s.firstShopBuffoon
         directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe; cardRate = s.cardRate; illusion = s.illusion
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
@@ -2201,6 +2217,7 @@ internal class RunState {
     // shop, reset to base each new shop. rerollBase is reducible by vouchers/back later.
     var rerollBase = 5
     var rerollIncrease by mutableStateOf(0)                  // current_round.reroll_cost_increase
+    var firstShopBuffoon = false                            // game.lua first_shop_buffoon: the 1st shop guarantees a Buffoon pack
     val rerollCost: Int get() = (if (freeRerollThisShop) 0 else rerollBase) + rerollIncrease
     private var rerolls = 0                                  // global counter → reroll-stock RNG variety
     /** state_events.lua:347 — entering a fresh shop resets the per-shop reroll escalation. */
