@@ -485,6 +485,7 @@ internal class BlindBind(
     val selectAction: (() -> Unit)?,
     val skipAction: (() -> Unit)?,
     val mostPlayedHand: String = "High Card",   // for the boss debuff "#1#" var (vanilla: most_played_poker_hand)
+    val tagBmp: ImageBitmap? = null,            // this blind's skip-reward tag sprite (null for Boss / missing)
 ) {
     fun colourByName(name: String): Color = when {
         name == "WHITE" || name == "UI.TEXT_LIGHT" -> Balatro.White
@@ -584,8 +585,8 @@ internal class BlindBind(
                               ?: DynaText(emptyList(), w = 1.4f, h = 1.4f)
                 "stake"    -> stakeBmp?.let { Sprite(it, 0.5f, 0.5f) }
                               ?: DynaText(emptyList(), w = 0.5f, h = 0.5f)
-                // tag sprite: tinted placeholder square (tag art atlas crop deferred)
-                "tag"      -> DynaText(emptyList(), w = 0.8f, h = 0.8f)
+                // tag sprite: the real skip-reward tag art (BlindSelectScreen passes tagBmp per slot)
+                "tag"      -> tagBmp?.let { Sprite(it, 0.8f, 0.8f) } ?: DynaText(emptyList(), w = 0.8f, h = 0.8f)
                 else       -> DynaText(emptyList(), w = 0f, h = 0f)
             }
             else       -> DynaText(emptyList(), w = 0f, h = 0f)
@@ -669,6 +670,7 @@ internal class BlindSpec(
         selectAction: (() -> Unit)?,
         skipAction: (() -> Unit)?,
         mostPlayedHand: String = "High Card",
+        tagBmp: ImageBitmap? = null,
     ): UI? {
         val (tree, slotType) = when (slotIdx) {
             0 -> (small ?: return null) to "Small"
@@ -687,6 +689,7 @@ internal class BlindSpec(
             selectAction = selectAction,
             skipAction   = skipAction,
             mostPlayedHand = mostPlayedHand,
+            tagBmp      = tagBmp,
         )
         return buildBlind(tree, bind)
     }
