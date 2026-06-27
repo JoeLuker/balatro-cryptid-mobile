@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -3007,9 +3008,27 @@ private fun CardFace(
                 contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None,
                 colorFilter = ColorFilter.tint(Color.Black))
         }
-        base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-        face?.let { Image(it, card.label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+        if (card.edition.isNotEmpty() && base != null) {
+            // EDITION shimmer (Aura: Foil/Holo/Poly) on playing cards. Unlike a joker (one opaque sprite),
+            // a playing card is base stock + a TRANSPARENT pip overlay, so the shader must run over the
+            // COMPOSITE — applied to the face alone it washes the pips out. EditionCard composites both.
+            EditionCard(base, face, card.edition, card.label)
+        } else {
+            base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+            face?.let { Image(it, card.label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+        }
         badges()
+    }
+}
+
+/** A playing card (base stock + pip overlay) composited under its edition shader (foil/holo/poly),
+ *  animated by the Compose frame clock. Gated to its own composable so only edition cards run the clock. */
+@Composable
+private fun EditionCard(base: ImageBitmap, face: ImageBitmap?, edition: String, label: String) {
+    val t by produceState(0f) { while (true) { withInfiniteAnimationFrameMillis { value = it / 1000f } } }
+    Box(Modifier.fillMaxSize().graphicsLayer { renderEffect = editionRenderEffect(edition, size.width, size.height, t) }) {
+        Image(base, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None)
+        face?.let { Image(it, label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
     }
 }
 
