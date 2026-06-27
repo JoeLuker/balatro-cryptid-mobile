@@ -864,3 +864,23 @@ Joker scoring/migration and its tests belong to the parallel effort; this sessio
 ### Consumable serialization
 tarots serialize by name; useConsumable frees the slot first before applying the effect.
 <!-- session:2026-06-24-03232d90 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt | area:rebuild | date:2026-06-24 -->
+
+### Consumable content port status
+Tarots, planets, spectrals, seals, tags, and vouchers are largely faithfully ported in the Kotlin rebuild; remaining gaps are joker-lane / new-mechanics. Consumables serialize by name; useConsumable frees the slot first.
+<!-- session:2026-06-24-4653fb2e | commit:b430447a1fa9bc40668804369652aa91dae56968 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/save/RunSnapshot.kt | area:rebuild | date:2026-06-24 -->
+
+### Android autosave fired 12×/min
+`globals.lua` had two OS blocks — the Android-only block set `F_SAVE_TIMER=30`, but the immediately-following combined `Android or iOS` block unconditionally reset it to `5`, clobbering the intended value. Each fire deep-copies (Talisman sanitize) the full run table and pushes it across the save-manager channel. Fix: drop the `F_SAVE_TIMER=5` from the combined block so the Android 30s value survives.
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:globals.lua (scratch tree) | date:2026-06-24 -->
+
+### Oil Lamp fix silently skipped
+`apply_cryptid_oil_lamp_local_fix` anchor in `build.sh` expected `other_joker = G.jokers.cards[i+1]` with `if other_joker and other_joker ~= card`, but current Cryptid source uses `local other_joker` + `card.area.cards` + `local compatible = ...`. Anchor matched zero bytes → `cap` always SKIPped → `OIL_LAMP_LOCAL_FIX` sentinel never written, so the cap could never confirm. Fix: plant the sentinel via a no-op `local other_joker = nil -- OIL_LAMP_LOCAL_FIX` (semantically identical in Lua) and realign the build.sh anchor so a clean checkout fails loudly instead of skipping silently.
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:nix/gen-patches.sh,scripts/build.sh | area:nix | date:2026-06-24 -->
+
+### Build-cap pattern
+build.sh patches use a `cap` mechanism with a grep sentinel to confirm application; an anchor that drifts from upstream source SKIPs silently rather than erroring. Sentinels should be planted so drift surfaces as a loud failure, not a silent no-op.
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:scripts/build.sh,nix/gen-patches.sh | area:scripts | date:2026-06-24 -->
+
+### Settings UI is fully readable in code
+the settings/mod-config layout is determined entirely by visible UIDef/UI-builder Lua — no screenshot needed to judge structure; read the UI code to reason about flows and duplication.
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/talisman/coroutine.lua,.claude/worktrees/relaxed-elbakyan-1c44d4/patches/lovely-stub.lua,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md | area:engine | date:2026-06-24 -->

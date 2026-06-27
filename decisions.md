@@ -212,3 +212,12 @@ Facing the all-316 goal → grouped jokers by effect mechanism (money/deck/disca
 ### Scope to non-joker mechanics
 Work initially drifted into joker tests → corrected to non-joker run mechanics + UI only (joker lane is owned by a concurrent parallel agent on the same branch; duplicating it causes collisions).
 <!-- session:2026-06-24-03232d90 | commit:d5ff6ae97cf341d8b55e78d31b76ca70491f4927 | files:rebuild/app/src/test/kotlin/systems/balatro/game/JokerComboTest.kt | area:rebuild | date:2026-06-24 | rule:WHEN scoping rebuild work in this repo NEVER implement or migrate jokers — that is the parallel effort's lane; do UI + all non-joker run mechanics. -->
+### Settings consolidation: one home per setting
+mod configs were scattered and some duplicated across surfaces → unify everything into the single mobile-first Settings surface, relocating (not proxying) each setting so it lives in exactly one place. (Joe: never render the same setting in two different spots, ever; consolidate by function not by mod.)
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/talisman/coroutine.lua,.claude/worktrees/relaxed-elbakyan-1c44d4/patches/lovely-stub.lua,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md | area:engine | date:2026-06-24 | rule:WHEN adding or relocating a setting NEVER render the same setting in two different places — consolidate by function into one home. -->
+### Prune experimental perf patch batch
+a large batch of speculative perf patches (45–57) was added then removed → keep only the changes that addressed the actual deck-select lag / Talisman centering, drop the rest. (Avoid shipping speculative perf churn; minimal correct fix.)
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:overlay/patches/series | area:overlay | date:2026-06-24 -->
+### Lua cleanup scope
+clean up dead build/telemetry code but verify behavior-neutral → confirmed lovely intact and `cry_diag` removed via build before accepting. (Cleanup must be behavior-neutral, proven by build verification not assertion.)
+<!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:nix/balatro-cryptid.nix,scripts/build.sh,patches/android-telemetry.lua | area:nix | date:2026-06-24 -->
