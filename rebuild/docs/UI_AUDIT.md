@@ -17,10 +17,17 @@ Legend: ✅ faithful-ish · ◑ partial / hand-built-but-present · ❌ missing 
 | Consumables = name-on-cardback | ✅ FIXED #170 — real tarot/spectral sprites (full Moveable CardArea still TODO) |
 | Collection = Material demo grid | ✅ FIXED #175 — felt overlay, tabs, real content sprites |
 | `play` parity harness (deck-select regression) | ✅ FIXED #166 |
+| Cash-out panel top-anchored overflow | ✅ FIXED #178 — centered over the board (minh artifact capped) |
+| Shop sell-strip ("not a Balatro UIBox") | ✅ FIXED #182 — owned jokers as cards, tap→inspect+sell |
+| Tag-art placeholder squares | ✅ FIXED #184 — real tag sprites (skip reward + earned tags) |
 
-**Still crutches:** shop sell-strip · hand-built cash-out (EvalRow) · deck/stake picker (vs customize_deck) ·
-tag-art placeholder · play/discard sub-label stubs · `onRunInfo` stub · some joker-art placeholders ·
-editions don't render on playing cards · consumeables/jokers not full engine CardAreas (rendering fixed, physics not).
+**Behavioral traces (vs source):** shop ✅ (booster-weighting bug **fixed #177**) · cash-out economy ✅ faithful ·
+blind-select ✅ faithful (requirements/rewards/scaling byte-exact). The whole run loop is source-verified.
+
+**Still crutches:** deck/stake picker (vs customize_deck) · per-blind tree tag (HudSpec placeholder) ·
+play/discard sub-label stubs · `onRunInfo` stub · some joker-art placeholders · editions don't render on
+playing cards · consumeables/jokers not full engine CardAreas (rendering fixed, physics not) ·
+the 12 proper `your_collection_*` trees (one grid stands in).
 
 ---
 
