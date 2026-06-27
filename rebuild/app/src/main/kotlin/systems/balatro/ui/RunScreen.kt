@@ -4136,6 +4136,9 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                 }
                 val enabled = slotIdx == currentSlot
                 val bossColour = if (slotIdx == 2) bossColourOf(s.upcomingBoss) else null
+                // Each Small/Big slot shows its own skip-reward tag (the Boss can't be skipped).
+                val slotTagBmp: ImageBitmap? =
+                    if (slotIdx < 2) tagArt[tagForBlind(s.blindIndex - currentSlot + slotIdx)] else null
 
                 val tree: UI? = spec.forSlot(
                     slotIdx    = slotIdx,
@@ -4148,6 +4151,7 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
                     selectAction = if (enabled) { { s.selectBlind() } } else null,
                     skipAction   = if (slotIdx != 2) { { s.skipBlind() } } else null,
                     mostPlayedHand = s.mostPlayedHand?.first?.let { handName(it) } ?: "High Card",
+                    tagBmp     = slotTagBmp,
                 )
                 Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
                     if (tree != null) RenderUIBoxNatural(tree, u)
