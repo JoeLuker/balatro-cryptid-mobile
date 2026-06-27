@@ -1,0 +1,33 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index 87015d1..c422b3b 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2555,15 +2555,23 @@ local function _settings_make_scrollbox(rows)
+       local touch = ctrl and ctrl.HID and (ctrl.HID.touch or ctrl.HID.touch_env)
+       -- Engine's transform-aware hit test (maps the cursor through the container chain).
+       -- A raw self.T compare is in the wrong coordinate space and never matches.
+-      local over = (self.container and self.collides_with_point and self:collides_with_point(G.CURSOR.T)) and true or false
+-      self._dbgc = (self._dbgc or 0) + 1 -- SCROLL_DIAG (temporary, crash.log, CALL-count not dt)
++      -- "over": walk up from the node the engine already resolved as under the cursor
++      -- (cursor_hover.target — computed with correct coordinate-space mapping) to see if it
++      -- belongs to this scrollbox. Avoids collides_with_point, whose container defaults to
++      -- G.ROOM for a nested UIScrollBox and so never matches.
++      local over, node, d = false, (ctrl and ctrl.cursor_hover and ctrl.cursor_hover.target), 0
++      while node and d < 40 do
++        if node == self or node == self.content or node == self.content_container then over = true; break end
++        node = node.parent; d = d + 1
++      end
++      self._dbgc = (self._dbgc or 0) + 1 -- SCROLL_DIAG (temporary)
+       if self._dbgc % 30 == 0 then
+-        pcall(function() local _, _md = self:get_scroll_distance(); love.filesystem.append("crash.log", string.format("SCROLLDBG n=%d cd=%s over=%s cur=%.1f,%.1f off=%.1f maxd=%.1f\n", self._dbgc, tostring(ctrl and ctrl.is_cursor_down), tostring(over), G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9, _md or -9)) end)
++        pcall(function() love.filesystem.append("crash.log", string.format("SCROLLDBG n=%d cd=%s over=%s hov=%s cur=%.1f,%.1f off=%.1f\n", self._dbgc, tostring(ctrl and ctrl.is_cursor_down), tostring(over), tostring(ctrl and ctrl.cursor_hover and ctrl.cursor_hover.target ~= nil), G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9)) end)
+       end
+       if touch and ctrl.is_cursor_down and over then
+         if self._prev_cy then
+-          local _, max_scroll = self:get_scroll_distance()
+-          self.scroll_offset.y = math.max(0, math.min((self.scroll_offset.y or 0) - (G.CURSOR.T.y - self._prev_cy), max_scroll))
++          local ok, _dx, max_scroll = pcall(self.get_scroll_distance, self)
++          self.scroll_offset.y = math.max(0, math.min((self.scroll_offset.y or 0) - (G.CURSOR.T.y - self._prev_cy), (ok and max_scroll) or 0))
+         end
+         self._prev_cy = G.CURSOR.T.y
+       else

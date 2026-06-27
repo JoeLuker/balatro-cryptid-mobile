@@ -1,0 +1,20 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index d2078d1..e3944c4 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2556,11 +2556,10 @@ local function _settings_make_scrollbox(rows)
+       -- Engine's transform-aware hit test (maps the cursor through the container chain).
+       -- A raw self.T compare is in the wrong coordinate space and never matches.
+       local over = (self.container and self.collides_with_point and self:collides_with_point(G.CURSOR.T)) and true or false
+-      if ctrl and ctrl.is_cursor_down then -- SCROLL_DIAG (temporary)
+-        self._dbgt = (self._dbgt or 0) + (dt or 0)
+-        if self._dbgt > 0.25 then self._dbgt = 0
+-          pcall(function() local _, _md = self:get_scroll_distance(); love.filesystem.append("scroll_dbg.log", string.format("over=%s cont=%s selfT=%.2f,%.2f,%.2f,%.2f cur=%.2f,%.2f off=%.2f maxd=%.2f\n", tostring(over), tostring(self.container ~= nil), self.T.x, self.T.y, self.T.w, self.T.h, G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9, _md or -9)) end)
+-        end
++      self._dbgt = (self._dbgt or 0) + (dt or 0) -- SCROLL_DIAG (temporary, logcat)
++      if self._dbgt > 0.5 then self._dbgt = 0
++        local _, _md = self:get_scroll_distance()
++        print(string.format("[SCROLLDBG] cd=%s over=%s cont=%s selfT=%.1f,%.1f,%.1f,%.1f cur=%.1f,%.1f off=%.1f maxd=%.1f", tostring(ctrl and ctrl.is_cursor_down), tostring(over), tostring(self.container ~= nil), self.T.x, self.T.y, self.T.w, self.T.h, G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9, _md or -9))
+       end
+       if touch and ctrl.is_cursor_down and over then
+         if self._prev_cy then

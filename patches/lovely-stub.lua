@@ -23,8 +23,8 @@ return {
     if name ~= 'GLSL_ES_PATCHES.fs' then return content end
     local s = content
     -- int literals -> float (twice: adjacent literals share boundary chars)
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
+    s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
     -- int type -> float in cast/array/decl contexts
     s = s:gsub('([%s({])int([%s([])', '%1 float%2')
     -- cleanups (undo false positives the above introduces)

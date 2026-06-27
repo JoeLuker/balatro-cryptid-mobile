@@ -1,0 +1,25 @@
+diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
+index e3944c4..1ae8d25 100644
+--- a/functions/UI_definitions.lua
++++ b/functions/UI_definitions.lua
+@@ -2556,10 +2556,9 @@ local function _settings_make_scrollbox(rows)
+       -- Engine's transform-aware hit test (maps the cursor through the container chain).
+       -- A raw self.T compare is in the wrong coordinate space and never matches.
+       local over = (self.container and self.collides_with_point and self:collides_with_point(G.CURSOR.T)) and true or false
+-      self._dbgt = (self._dbgt or 0) + (dt or 0) -- SCROLL_DIAG (temporary, logcat)
++      self._dbgt = (self._dbgt or 0) + (dt or 0) -- SCROLL_DIAG (temporary, crash.log sink)
+       if self._dbgt > 0.5 then self._dbgt = 0
+-        local _, _md = self:get_scroll_distance()
+-        print(string.format("[SCROLLDBG] cd=%s over=%s cont=%s selfT=%.1f,%.1f,%.1f,%.1f cur=%.1f,%.1f off=%.1f maxd=%.1f", tostring(ctrl and ctrl.is_cursor_down), tostring(over), tostring(self.container ~= nil), self.T.x, self.T.y, self.T.w, self.T.h, G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9, _md or -9))
++        pcall(function() local _, _md = self:get_scroll_distance(); love.filesystem.append("crash.log", string.format("SCROLLDBG cd=%s over=%s cont=%s selfT=%.1f,%.1f,%.1f,%.1f cur=%.1f,%.1f off=%.1f maxd=%.1f\n", tostring(ctrl and ctrl.is_cursor_down), tostring(over), tostring(self.container ~= nil), self.T.x, self.T.y, self.T.w, self.T.h, G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9, _md or -9)) end)
+       end
+       if touch and ctrl.is_cursor_down and over then
+         if self._prev_cy then
+@@ -2573,6 +2572,7 @@ local function _settings_make_scrollbox(rows)
+     end,
+   })
+   local content_h = sb.content.UIRoot.T.h
++  pcall(function() love.filesystem.append("crash.log", string.format("SCROLLBOX_MADE content_h=%.1f SCROLL_H=%.1f rows=%d\n", content_h or -9, SCROLL_H, #rows)) end) -- SCROLL_DIAG
+   local bar_node = (content_h > SCROLL_H) and {
+     n = G.UIT.C, config = { padding = 0.05 },
+     nodes = { SMODS.GUI.scrollbar({ w = 0.15, h = SCROLL_H - 0.1, scroll_collision_obj = sb, knob_h = SCROLL_H * SCROLL_H / content_h, bg_colour = { 0, 0, 0, 0.2 } }) },
