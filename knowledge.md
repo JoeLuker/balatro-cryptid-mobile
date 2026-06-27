@@ -884,3 +884,23 @@ build.sh patches use a `cap` mechanism with a grep sentinel to confirm applicati
 ### Settings UI is fully readable in code
 the settings/mod-config layout is determined entirely by visible UIDef/UI-builder Lua — no screenshot needed to judge structure; read the UI code to reason about flows and duplication.
 <!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/talisman/coroutine.lua,.claude/worktrees/relaxed-elbakyan-1c44d4/patches/lovely-stub.lua,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md | area:engine | date:2026-06-24 -->
+
+### Settings consolidation principle
+Settings are organized by *function*, not by originating mod — each mod's config surface relocates into one shared settings home in `functions/UI_definitions.lua` rather than rendering its own config tab. Never render a setting in two places.
+<!-- session:2026-06-25-ce0afa5a | commit:47a2d00141b0dd9539e5ba53f38f227b1c6b86a3 | files:functions/UI_definitions.lua,overlay/patches/series | area:functions | date:2026-06-25 -->
+
+### Build/verify loop runs against a scratch worktree
+Settings changes are edited and built/verified under `/mnt/scratch/sf-port/work/` (the sf-port build tree), with patches registered into `overlay/patches/series` to ship them into the APK.
+<!-- session:2026-06-25-ce0afa5a | commit:47a2d00141b0dd9539e5ba53f38f227b1c6b86a3 | files:overlay/patches/series | area:overlay | date:2026-06-25 -->
+
+### Joker porting is worktree-isolated and batched
+Each joker batch was implemented in its own `.claude/worktrees/jokers-batchN` worktree to avoid colliding with the parallel effort on shared files (`RunScreen.kt`, `JokerManifest.kt`).
+<!-- session:2026-06-26-594c9e59 | commit:b59167bc82fb31aa26b8241abbc05e4c1c2f6e12 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt | area:rebuild | date:2026-06-26 -->
+
+### Joker effect surface spans multiple subsystems
+Porting a single joker can touch scoring (`RunScreen.kt`), registration (`JokerManifest.kt`), deck mechanics (`Deck.kt`), and shop art (`ShopArt.kt`) — not just the scoring hook.
+<!-- session:2026-06-26-594c9e59 | commit:b59167bc82fb31aa26b8241abbc05e4c1c2f6e12 | files:rebuild/app/src/main/kotlin/systems/balatro/game/Deck.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/ShopArt.kt | area:rebuild | date:2026-06-26 -->
+
+### Balatro source structure as the fidelity oracle
+The session established that the rebuild should be checked against actual Balatro Lua source structure (create_UIBox_* / CardArea / detailed_tooltip patterns) rather than approximated by eye. Porting from source structure is the method; screenshots only verify.
+<!-- session:2026-06-26-f71cc0f7 | commit:650ece03a56cb1867f74834016472288b3a04dd2 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/docs/UI_AUDIT.md | area:rebuild | date:2026-06-26 -->

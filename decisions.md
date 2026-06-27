@@ -221,3 +221,9 @@ a large batch of speculative perf patches (45–57) was added then removed → k
 ### Lua cleanup scope
 clean up dead build/telemetry code but verify behavior-neutral → confirmed lovely intact and `cry_diag` removed via build before accepting. (Cleanup must be behavior-neutral, proven by build verification not assertion.)
 <!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:nix/balatro-cryptid.nix,scripts/build.sh,patches/android-telemetry.lua | area:nix | date:2026-06-24 -->
+### Retire mod config_tabs vs. proxy them
+Per-mod config tabs (Amulet/Cryptid/CardSleeves/sticky-fingers) were the existing pattern → relocate each setting into the unified by-function UI rather than proxying mod config through a shared shell (consolidate by function, don't just re-home the tab structure).
+<!-- session:2026-06-25-ce0afa5a | commit:47a2d00141b0dd9539e5ba53f38f227b1c6b86a3 | files:functions/UI_definitions.lua,Mods/Amulet/smods.lua,Mods/Cryptid/Cryptid.lua,Mods/CardSleeves/CardSleeves.lua,Mods/sticky-fingers/main.lua | area:Mods | date:2026-06-25 | rule:WHEN adding or relocating an in-game setting ALWAYS place it in the single by-function settings home, NEVER in a per-mod config tab. -->
+### Strict lane scoping to jokers only
+Session opened with the user correcting scope ("your job is only to handle jokers") → all subsequent work confined to joker porting, deferring non-joker UI/mechanics to the other effort (reasoning: avoid duplicate/colliding work with the parallel agent on the same branch).
+<!-- session:2026-06-26-594c9e59 | commit:b59167bc82fb31aa26b8241abbc05e4c1c2f6e12 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-26 | rule:WHEN this session is scoped to jokers NEVER modify non-joker UI or run mechanics -->
