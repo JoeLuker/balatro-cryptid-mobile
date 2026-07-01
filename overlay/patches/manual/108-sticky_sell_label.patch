@@ -1,0 +1,15 @@
+diff --git a/Mods/sticky-fingers/main.lua b/Mods/sticky-fingers/main.lua
+index 80b1cb0..26622a4 100644
+--- a/Mods/sticky-fingers/main.lua
++++ b/Mods/sticky-fingers/main.lua
+@@ -25,8 +25,8 @@ DTM.unified_config_tab = function()
+     nodes = {
+       create_toggle({
+         id = "vanilla_joker_sell",
+-        label = "Vanilla Joker sell target",
+-        info = {"Use the mobile Joker sell target. Beware of accidental sells!"},
++        label = "Classic joker sell zone",
++        info = {"On: sell a joker by dragging it onto the consumable area (classic; easy to mis-sell). Off: a dedicated, safer sell target."},
+         ref_table = DTM.config,
+         ref_value = "vanilla_joker_sell",
+         callback = function()

@@ -1,0 +1,30 @@
+diff --git a/game.lua b/game.lua
+index 81256f4..64b7fee 100644
+--- a/game.lua
++++ b/game.lua
+@@ -2119,6 +2119,25 @@ function Game:start_run(args)
+     selected_back = get_deck_from_name(selected_back)
+     self.GAME = saveTable and saveTable.GAME or self:init_game_object()
+     if Talisman and Talisman.igo then self.GAME = Talisman.igo(self.GAME) end
++    -- no-lovely fix: STR_PACK/STR_UNPACK does not preserve metatables, so a loaded save's
++    -- bosses_used arrives as a plain {boss,small,big} table. Without the metatable (built only
++    -- in init_game_object, the new-game branch), flat bosses_used[k] access used by
++    -- get_new_boss's increment and Cryptid's boss reroll read/write the top level instead of
++    -- the .boss subtable that the min_use loop reads, so the boss reroll pool freezes and never
++    -- reopens. Re-attach it (migrating any stray top-level counts a prior build wrote into .boss).
++    if self.GAME and self.GAME.bosses_used and not getmetatable(self.GAME.bosses_used) then
++      local bu = self.GAME.bosses_used
++      bu.boss = bu.boss or {}; bu.small = bu.small or {}; bu.big = bu.big or {}
++      local stray = {}
++      for k, v in pairs(bu) do
++        if k ~= 'boss' and k ~= 'small' and k ~= 'big' and type(v) == 'number' then stray[k] = v end
++      end
++      for k, v in pairs(stray) do bu.boss[k] = (bu.boss[k] or 0) + v; rawset(bu, k, nil) end
++      setmetatable(bu, {
++        __index = function(t, key) return t.boss[key] or t.big[key] or t.small[key] end,
++        __newindex = function(t, key, value) rawset(t.boss, key, value) end,
++      })
++    end
+     SMODS.update_hand_limit_text(true, true)
+     self.GAME.modifiers = self.GAME.modifiers or {}
+     self.GAME.stake = args.stake_choice or args.stake or self.GAME.stake or 1

@@ -1,0 +1,15 @@
+diff --git a/Mods/Cryptid/lib/misc.lua b/Mods/Cryptid/lib/misc.lua
+index 6b630b5..622b337 100644
+--- a/Mods/Cryptid/lib/misc.lua
++++ b/Mods/Cryptid/lib/misc.lua
+@@ -326,9 +326,7 @@ function Cryptid.deep_copy(obj, seen)
+ 	if type(obj) ~= "table" then
+ 		return obj
+ 	end
+-	if is_big and is_big(obj) then -- Talisman bignums are value-like cdata; type_compat makes type()=="table" so the check above misses them, and pairs()/setmetatable choke on the struct. Share by reference.
+-		return obj
+-	end
++	if not pcall(next, obj) then return obj end -- Talisman bignums are cdata: type_compat fakes type()=="table" but they are not pairs-iterable, so next() errors. Detect that and share by reference (is_big is a no-bignum stub here).
+ 	if seen and seen[obj] then
+ 		return seen[obj]
+ 	end

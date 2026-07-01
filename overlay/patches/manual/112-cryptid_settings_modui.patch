@@ -1,0 +1,34 @@
+diff --git a/Mods/Cryptid/Cryptid.lua b/Mods/Cryptid/Cryptid.lua
+index ede3b31..6569708 100644
+--- a/Mods/Cryptid/Cryptid.lua
++++ b/Mods/Cryptid/Cryptid.lua
+@@ -572,7 +572,27 @@ end
+ -- SETTINGS_UNIFY: expose Cryptid's config + music builders as stable handles for the unified
+ -- Settings (Content tab + Audio section), and retire the Mods-menu config/extra tabs so no
+ -- setting lives in two places. (SMODS.current_mod isn't Cryptid at settings-render time.)
+-Cryptid.unified_config_tab = cryptidConfigTab
+-Cryptid.unified_music_tabs = cryptidTabs
++-- SETTINGS_UNIFY: these builders moved out of the Mods menu into base Settings, which does
++-- not set G.ACTIVE_MOD_UI. modsCollectionTally / content-set tallies index G.ACTIVE_MOD_UI.id,
++-- so restore the Cryptid mod-UI context around each render (and always restore, even on error).
++local _cry_mod_ui = SMODS.current_mod
++local function _cry_with_mod_ui(fn)
++	return function(...)
++		local _prev = G.ACTIVE_MOD_UI
++		G.ACTIVE_MOD_UI = _cry_mod_ui
++		local ok, res = pcall(fn, ...)
++		G.ACTIVE_MOD_UI = _prev
++		if not ok then error(res) end
++		return res
++	end
++end
++Cryptid.unified_config_tab = _cry_with_mod_ui(cryptidConfigTab)
++Cryptid.unified_music_tabs = function()
++	local tabs = cryptidTabs()
++	for _, t in ipairs(tabs) do
++		if t.tab_definition_function then t.tab_definition_function = _cry_with_mod_ui(t.tab_definition_function) end
++	end
++	return tabs
++end
+ SMODS.current_mod.extra_tabs = nil
+ SMODS.current_mod.config_tab = nil

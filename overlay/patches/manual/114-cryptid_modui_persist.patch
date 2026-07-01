@@ -1,0 +1,21 @@
+diff --git a/Mods/Cryptid/Cryptid.lua b/Mods/Cryptid/Cryptid.lua
+index 6569708..799be83 100644
+--- a/Mods/Cryptid/Cryptid.lua
++++ b/Mods/Cryptid/Cryptid.lua
+@@ -578,12 +578,11 @@ end
+ local _cry_mod_ui = SMODS.current_mod
+ local function _cry_with_mod_ui(fn)
+ 	return function(...)
+-		local _prev = G.ACTIVE_MOD_UI
++		-- persist (no restore): the Content tab's sub-screen buttons (Content Sets, gameset) are
++		-- clicked AFTER this render and also index G.ACTIVE_MOD_UI; Settings never sets it. Leaving it
++		-- is harmless -- any other mod-UI entry re-sets it, and vanilla screens don't read it.
+ 		G.ACTIVE_MOD_UI = _cry_mod_ui
+-		local ok, res = pcall(fn, ...)
+-		G.ACTIVE_MOD_UI = _prev
+-		if not ok then error(res) end
+-		return res
++		return fn(...)
+ 	end
+ end
+ Cryptid.unified_config_tab = _cry_with_mod_ui(cryptidConfigTab)

@@ -1,0 +1,22 @@
+diff --git a/talisman/coroutine.lua b/talisman/coroutine.lua
+index 2736a84..1e8f3e4 100644
+--- a/talisman/coroutine.lua
++++ b/talisman/coroutine.lua
+@@ -159,6 +159,17 @@ function co.overlay()
+ 		definition = co.create_overlay_ui(co.scoring_text),
+ 		config = { align = "cm", offset = { x = 0, y = 0 }, major = G.ROOM_ATTACH, bond = 'Weak' }
+ 	})
++	-- OVERLAY_CENTER: Moveable:align_to_major is suppressed while scoring (frames>=3) to freeze
++	-- card anims, so the freshly-created calculating overlay never aligns and sits off-center
++	-- (T.x stays 0 instead of -1, ~one ROOM-padding tile right). Lift the suppression for one
++	-- explicit align of the overlay (nil scoring_coroutine makes the override fall through to the
++	-- real align_to_major), then restore it.
++	if G.OVERLAY_MENU then
++		local _sc = Talisman.scoring_coroutine
++		Talisman.scoring_coroutine = nil
++		G.OVERLAY_MENU:align_to_major()
++		Talisman.scoring_coroutine = _sc
++	end
+ end
+ 
+ function co.update_text()

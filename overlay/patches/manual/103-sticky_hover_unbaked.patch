@@ -1,0 +1,13 @@
+diff --git a/engine/ui.lua b/engine/ui.lua
+index 17c13cf..902a72d 100644
+--- a/engine/ui.lua
++++ b/engine/ui.lua
+@@ -806,7 +806,7 @@ function UIElement:draw_self()
+             local collided_button = self.config.button_UIE or self
+             self.ARGS.button_colours = self.ARGS.button_colours or {}
+             self.ARGS.button_colours[1] = self.config.button_delay and mix_colours(self.config.colour, G.C.L_BLACK, 0.5) or self.config.colour
+-            self.ARGS.button_colours[2] = (((collided_button.config.hover and collided_button.states.hover.is) or (collided_button.last_clicked and collided_button.last_clicked > G.TIMERS.REAL - 0.1)) and G.C.UI.HOVER or nil)
++            self.ARGS.button_colours[2] = (((collided_button.config.hover and collided_button.states.hover.is and ((not G.CONTROLLER.HID.touch) or G.CONTROLLER.is_cursor_down)) or (collided_button.last_clicked and collided_button.last_clicked > G.TIMERS.REAL - 0.1)) and G.C.UI.HOVER or nil)
+             for k, v in ipairs(self.ARGS.button_colours) do
+                 love.graphics.setColor(v)
+                 if self.config.r and self.VT.w > 0.01 then 

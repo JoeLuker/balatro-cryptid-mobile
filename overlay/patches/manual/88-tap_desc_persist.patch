@@ -1,0 +1,20 @@
+diff --git a/engine/controller.lua b/engine/controller.lua
+index 7668996..18bd10c 100644
+--- a/engine/controller.lua
++++ b/engine/controller.lua
+@@ -473,6 +473,15 @@ function Controller:update(dt)
+                  and (self.cursor_down.distance or 0) < G.MIN_CLICK_DIST) then -- TAP_DESC_HOLD_DRAG_HOVER: stationary hold-drag keeps hover
+         self.hovering.target.states.hover.is = false -- TAP_DESC_RELAX
+     end
++    -- TAP_DESC_SHOW: a tap sets shown_desc (TAP_DESC_TOGGLE), but on touch the finger
++    -- lifts and RELAX drops hover.is with nothing re-driving the popup. Re-assert it
++    -- here each frame while NOT pressing, until a re-tap clears shown_desc.
++    if (self.HID.touch or self.HID.touch_env) and not self.is_cursor_down and self.shown_desc
++        and not self.shown_desc.REMOVED and self.shown_desc.states and self.shown_desc.states.hover and self.shown_desc.states.hover.can then
++        if self.hovering.target and self.hovering.target ~= self.shown_desc then self.hovering.target.states.hover.is = false end
++        self.hovering.target = self.shown_desc
++        self.shown_desc.states.hover.is = true
++    end
+     --The object being hovered over
+     if self.hovering.target then
+         self.hovering.target:set_offset(self.cursor_hover.T, 'Hover')

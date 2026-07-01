@@ -191,6 +191,15 @@ let
       done < "${overlay}/patches/series"
       echo "[patch] applied $applied patch(es)"
 
+      # Build stamp: hash the applied patch series so the main-menu badge
+      # (CRYPTID_MOBILE_BUILD, shown as "MODDED_VERSION | <stamp>") identifies THIS
+      # exact build. Deterministic (same patches -> same stamp) but changes whenever
+      # any cap/manual patch changes, so a stale deploy is visible on the menu.
+      # Overrides the cryptid-rev placeholder baked in stage 1a.
+      stamp="dev-$( ( cat "${overlay}/patches/series"; find "${overlay}/patches" -name '*.patch' | sort | xargs cat ) 2>/dev/null | sha1sum | cut -c1-7 )"
+      sed -i "s|self.CRYPTID_MOBILE_BUILD = '[^']*'|self.CRYPTID_MOBILE_BUILD = '$stamp'|" globals.lua
+      echo "[stamp] build = $stamp"
+
       # TODO Phase 3: strip_en_us_assets (size-only)
       popd >/dev/null
       runHook postBuild

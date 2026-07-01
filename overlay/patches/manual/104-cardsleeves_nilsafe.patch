@@ -1,0 +1,13 @@
+diff --git a/Mods/CardSleeves/CardSleeves.lua b/Mods/CardSleeves/CardSleeves.lua
+index cbb4bfe..7871914 100644
+--- a/Mods/CardSleeves/CardSleeves.lua
++++ b/Mods/CardSleeves/CardSleeves.lua
+@@ -1290,7 +1290,7 @@ local function populate_sleeve_card_areas(page, mod_id)
+         end
+ 
+         local sleeve_center = sleeve_pool[count]
+-        local selected_deck_center = in_collection and G.P_CENTERS.b_red or Galdur.run_setup.choices.deck.effect.center
++        local selected_deck_center = in_collection and G.P_CENTERS.b_red or (Galdur and Galdur.run_setup.choices.deck.effect.center)
+         local effect = stacked_effects_shown[sleeve_center.key] or 1
+ 
+         if showing_stacked_effects and in_collection then

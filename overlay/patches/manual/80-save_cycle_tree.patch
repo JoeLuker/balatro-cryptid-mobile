@@ -1,0 +1,34 @@
+diff --git a/functions/misc_functions.lua b/functions/misc_functions.lua
+index 32d878f..bd28ef6 100644
+--- a/functions/misc_functions.lua
++++ b/functions/misc_functions.lua
+@@ -1595,16 +1595,26 @@ function inc_career_stat(stat, mod)
+   G:save_settings()
+ end
+ 
+-function recursive_table_cull(t)
++function recursive_table_cull(t, seen)
++  -- SAVE_CYCLE_TREE: emit a serialisable tree for the cross-thread save push.
++  -- `seen` is the in-progress ancestor path: a back-reference to an ancestor is
++  -- a true cycle and is dropped; popping on exit means a subtable shared by two
++  -- siblings is duplicated, not shared. Big as_table() output is recursed so two
++  -- Big values sharing an internal bigs[] array don't leave a repeated table for
++  -- love's serialiser to reject ("Cycle detected in table").
++  seen = seen or {}
++  if seen[t] then return nil end
++  seen[t] = true
+   local ret_t = {}
+   for k, v in pairs(t) do 
+       if type(v) == 'table' then
+-          if Big and Big.is(v) then ret_t[k] = v:as_table()
++          if Big and Big.is(v) then ret_t[k] = recursive_table_cull(v:as_table(), seen)
+           elseif v.is and v:is(Object) then ret_t[k] = [["]].."MANUAL_REPLACE"..[["]]
+-          else ret_t[k] = recursive_table_cull(v)
++          else ret_t[k] = recursive_table_cull(v, seen)
+           end
+       else ret_t[k] = v end
+   end
++  seen[t] = nil
+   return ret_t
+ end
+ 

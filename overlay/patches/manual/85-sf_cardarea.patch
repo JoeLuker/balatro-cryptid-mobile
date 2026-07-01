@@ -1,0 +1,13 @@
+diff --git a/cardarea.lua b/cardarea.lua
+index 4ff4c4c..7838e45 100644
+--- a/cardarea.lua
++++ b/cardarea.lua
+@@ -268,7 +268,7 @@ function CardArea:set_ranks()
+             card.states.drag.can = false 
+             card.states.collide.can = false 
+         elseif self.config.type == 'play' or self.config.type == 'shop' or self.config.type == 'consumeable' then 
+-            card.states.drag.can = false
++            if (self.config.type == 'shop') or (self.config.type == 'consumeable') then card.states.drag.can = true else card.states.drag.can = false end -- STICKY_SHELF: shop/consumeable draggable
+         else
+             card.states.drag.can = true
+         end

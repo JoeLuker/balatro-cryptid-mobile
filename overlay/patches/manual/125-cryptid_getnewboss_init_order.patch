@@ -1,0 +1,22 @@
+diff --git a/Mods/Cryptid/lib/overrides.lua b/Mods/Cryptid/lib/overrides.lua
+index 934b4bc..64f4870 100644
+--- a/Mods/Cryptid/lib/overrides.lua
++++ b/Mods/Cryptid/lib/overrides.lua
+@@ -100,13 +100,15 @@ end
+ 
+ local gnb = get_new_boss
+ function get_new_boss()
+-	local bl = gnb()
+-	--Fix an issue with adding bosses mid-run
++	--Fix an issue with adding bosses mid-run. MUST run BEFORE gnb(): the vanilla gnb does
++	--G.GAME.bosses_used[boss] + 1 (common_events.lua:2907) and crashes on a mid-run-added/never-used
++	--boss whose bosses_used entry is still nil. The original order ran this init AFTER gnb(), too late.
+ 	for k, v in pairs(G.P_BLINDS) do
+ 		if not G.GAME.bosses_used[k] then
+ 			G.GAME.bosses_used[k] = 0
+ 		end
+ 	end
++	local bl = gnb()
+ 	-- Force Clock and Lavender Loop for Rush hour
+ 	if G.GAME.modifiers.cry_rush_hour then
+ 		--Check if Clock and Lavender Loop are both enabled

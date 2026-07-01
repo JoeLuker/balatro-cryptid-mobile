@@ -1,0 +1,20 @@
+diff --git a/card.lua b/card.lua
+index a6e2f23..00017a5 100644
+--- a/card.lua
++++ b/card.lua
+@@ -4715,6 +4715,15 @@ function Card:update(dt)
+         end
+     end
+ 
++    -- self-heal an interrupted flip: the b2f/f2b sprite swap only fires when the pinch
++    -- drives VT.w <= 0; if pinch.x is reset before then (e.g. jokers flipped face-up on
++    -- Amber Acorn defeat, then the round-end transition resets the pinch mid-animation),
++    -- sprite_facing stays stuck on the old side until a reload re-syncs it. Once we are no
++    -- longer pinching, converge the sprite to the logical facing.
++    if self.flipping and not self.pinch.x and self.facing ~= self.sprite_facing then
++        self.sprite_facing = self.facing
++    end
++
+     if not self.states.focus.is and self.children.focused_ui then
+         self.children.focused_ui:remove()
+         self.children.focused_ui = nil

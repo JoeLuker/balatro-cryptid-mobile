@@ -1,0 +1,13 @@
+diff --git a/globals.lua b/globals.lua
+index 5569bf6..163f2d4 100644
+--- a/globals.lua
++++ b/globals.lua
+@@ -65,7 +65,7 @@ function Game:set_globals()
+     end
+ 
+     if love.system.getOS() == 'Android' or love.system.getOS() == 'iOS' then
+-    	self.F_SAVE_TIMER = 5
++    	self.F_SAVE_TIMER = (love.system.getOS() == 'Android') and 30 or 5 -- SAVE_TIMER_ANDROID: 30s autosave on Android (5s fired the Talisman deep-copy + cross-thread push ~12x/min); iOS stays 5s
+     	self.F_DISCORD = true
+     	self.F_NO_ACHIEVEMENTS = true
+     	self.F_CRASH_REPORTS = false

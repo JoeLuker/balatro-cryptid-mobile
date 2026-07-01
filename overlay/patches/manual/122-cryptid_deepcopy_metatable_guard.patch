@@ -1,0 +1,14 @@
+diff --git a/Mods/Cryptid/lib/misc.lua b/Mods/Cryptid/lib/misc.lua
+index 19ba092..48a86c6 100644
+--- a/Mods/Cryptid/lib/misc.lua
++++ b/Mods/Cryptid/lib/misc.lua
+@@ -330,7 +330,8 @@ function Cryptid.deep_copy(obj, seen)
+ 		return seen[obj]
+ 	end
+ 	local s = seen or {}
+-	local res = setmetatable({}, getmetatable(obj))
++	local _mt = getmetatable(obj) -- guard: a protected/non-table metatable (e.g. some Talisman/LÖVE objects) makes setmetatable error 'nil or table expected'
++	local res = setmetatable({}, type(_mt) == "table" and _mt or nil)
+ 	s[obj] = res
+ 	for k, v in pairs(obj) do
+ 		res[Cryptid.deep_copy(k, s)] = Cryptid.deep_copy(v, s)
