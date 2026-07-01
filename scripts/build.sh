@@ -442,8 +442,10 @@ return {
     if type(content) ~= 'string' then return content end
     if name ~= 'GLSL_ES_PATCHES.fs' then return content end
     local s = content
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    -- boundary excludes '_' too (Lua %w doesn't cover it) — see nix/balatro-cryptid.nix
+    -- for why (69741e8: astral shader failed to compile without this).
+    s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
+    s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
     s = s:gsub('([%s({])int([%s([])', '%1 float%2')
     s = s:gsub('(__%w+__%s*[<>]%s*%d+)%.', '%1')
     s = s:gsub('([%d.]e%-?%d+)%.', '%1')
