@@ -95,7 +95,6 @@ manual/97-settings_unify_ui2.patch
 manual/98-cryptid_retire_config.patch
 manual/99-cardsleeves_retire_config.patch
 manual/100-sticky_retire_config.patch
-manual/101-settings_scroll.patch
 manual/102-cryptid_glow_guard.patch
 manual/103-sticky_hover_unbaked.patch
 manual/104-cardsleeves_nilsafe.patch
@@ -107,13 +106,7 @@ manual/109-input_touch_fixes.patch
 manual/110-perf_gc_throttle.patch
 manual/111-talisman_dead_compat.patch
 manual/112-cryptid_settings_modui.patch
-manual/113-settings_scroll_touch_fix.patch
 manual/114-cryptid_modui_persist.patch
-manual/115-scroll_diag_TEMP.patch
-manual/116-scroll_diag_logcat.patch
-manual/117-scroll_diag_crashlog.patch
-manual/118-scroll_diag_callcount.patch
-manual/119-scroll_cursor_hover.patch
 manual/121-settings_two_column.patch
 manual/122-cryptid_deepcopy_metatable_guard.patch
 manual/123-cryptid_deepcopy_bignum_skip.patch

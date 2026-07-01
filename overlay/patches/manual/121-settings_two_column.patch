@@ -1,61 +1,11 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index c422b3b..4b98c8f 100644
+index aa7218c..7e015f6 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -2535,65 +2535,35 @@ end
+@@ -2533,7 +2533,39 @@ function create_UIBox_settings()
+ return t
+ end
  
- -- SETTINGS_SCROLLABLE: vertical-scroll wrapper so any settings tab whose content
- -- exceeds the panel height scrolls (touch-swipe + scrollbar) instead of clipping.
--local function _settings_make_scrollbox(rows)
--  local SCROLL_H = G.F_MOBILE_UI and 5.5 or 6.5
--  local sb = SMODS.UIScrollBox({
--    content = {
--      definition = {
--        n = G.UIT.ROOT,
--        config = { colour = G.C.CLEAR, align = "cm" },
--        nodes = {
--          { n = G.UIT.C, config = { align = "tm", padding = 0.08 }, nodes = rows },
--        },
--      },
--      config = { align = "cm" },
--    },
--    overflow = { node_config = { maxh = SCROLL_H, colour = G.C.CLEAR } },
--    sync_mode = "offset",
--    scroll_move = function(self, dt)
--      local ctrl = G.CONTROLLER
--      local touch = ctrl and ctrl.HID and (ctrl.HID.touch or ctrl.HID.touch_env)
--      -- Engine's transform-aware hit test (maps the cursor through the container chain).
--      -- A raw self.T compare is in the wrong coordinate space and never matches.
--      -- "over": walk up from the node the engine already resolved as under the cursor
--      -- (cursor_hover.target — computed with correct coordinate-space mapping) to see if it
--      -- belongs to this scrollbox. Avoids collides_with_point, whose container defaults to
--      -- G.ROOM for a nested UIScrollBox and so never matches.
--      local over, node, d = false, (ctrl and ctrl.cursor_hover and ctrl.cursor_hover.target), 0
--      while node and d < 40 do
--        if node == self or node == self.content or node == self.content_container then over = true; break end
--        node = node.parent; d = d + 1
--      end
--      self._dbgc = (self._dbgc or 0) + 1 -- SCROLL_DIAG (temporary)
--      if self._dbgc % 30 == 0 then
--        pcall(function() love.filesystem.append("crash.log", string.format("SCROLLDBG n=%d cd=%s over=%s hov=%s cur=%.1f,%.1f off=%.1f\n", self._dbgc, tostring(ctrl and ctrl.is_cursor_down), tostring(over), tostring(ctrl and ctrl.cursor_hover and ctrl.cursor_hover.target ~= nil), G.CURSOR.T.x, G.CURSOR.T.y, self.scroll_offset.y or -9)) end)
--      end
--      if touch and ctrl.is_cursor_down and over then
--        if self._prev_cy then
--          local ok, _dx, max_scroll = pcall(self.get_scroll_distance, self)
--          self.scroll_offset.y = math.max(0, math.min((self.scroll_offset.y or 0) - (G.CURSOR.T.y - self._prev_cy), (ok and max_scroll) or 0))
--        end
--        self._prev_cy = G.CURSOR.T.y
--      else
--        self._prev_cy = nil
--      end
--    end,
--  })
--  local content_h = sb.content.UIRoot.T.h
--  pcall(function() local _inO=false; for _,v in ipairs(G.MOVEABLES_O or {}) do if v==sb then _inO=true; break end end; love.filesystem.append("crash.log", string.format("SCROLLBOX_MADE content_h=%.1f rows=%d inO=%s isupd=%s\n", content_h or -9, #rows, tostring(_inO), tostring(sb.update == SMODS.UIScrollBox.update))) end) -- SCROLL_DIAG
--  local bar_node = (content_h > SCROLL_H) and {
--    n = G.UIT.C, config = { padding = 0.05 },
--    nodes = { SMODS.GUI.scrollbar({ w = 0.15, h = SCROLL_H - 0.1, scroll_collision_obj = sb, knob_h = SCROLL_H * SCROLL_H / content_h, bg_colour = { 0, 0, 0, 0.2 } }) },
--  } or nil
 +-- SETTINGS_LAYOUT: lay a tab's rows out in two columns so every tab fits on one screen
 +-- WITHOUT scrolling. Touch-drag scroll is unusable on this build -- the input engine freezes
 +-- the cursor during a finger drag (diagnosed on-device: cursor position constant through an
@@ -73,20 +23,31 @@ index c422b3b..4b98c8f 100644
 +  for k = 1, n do
 +    if k <= half then left[#left + 1] = dense[k] else right[#right + 1] = dense[k] end
 +  end
-   return {
-     n = G.UIT.ROOT, config = { align = "cm", padding = 0.05, colour = G.C.CLEAR },
--    nodes = { { n = G.UIT.R, config = { align = "cm" }, nodes = { { n = G.UIT.O, config = { object = sb } }, bar_node } } },
++  return {
++    n = G.UIT.ROOT, config = { align = "cm", padding = 0.05, colour = G.C.CLEAR },
 +    nodes = { { n = G.UIT.R, config = { align = "cm", padding = 0.15 }, nodes = {
 +      { n = G.UIT.C, config = { align = "tm", padding = 0.05 }, nodes = left },
 +      { n = G.UIT.C, config = { align = "tm", padding = 0.05 }, nodes = right },
 +    } } },
-   }
- end
- 
++  }
++end
++
  function G.UIDEF.settings_tab(tab)
-   local _root = G.UIDEF._settings_tab_body(tab)
--  if _root and _root.nodes and #_root.nodes > 0 then return _settings_make_scrollbox(_root.nodes) end
++  local _root = G.UIDEF._settings_tab_body(tab)
 +  if _root and _root.nodes and #_root.nodes > 0 then return _settings_two_column(_root.nodes) end
-   return _root
- end
- 
++  return _root
++end
++
++function G.UIDEF._settings_tab_body(tab)
+   if tab == 'Debug' then
+     return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
+       create_toggle({label = "FPS counter", ref_table = G.SETTINGS, ref_value = 'fps_counter'}),
+@@ -2545,7 +2577,7 @@ function G.UIDEF.settings_tab(tab)
+     }}
+   elseif tab == 'Game' then
+     return {n=G.UIT.ROOT, config={align = "cm", padding = 0.05, colour = G.C.CLEAR}, nodes={
+-      create_option_cycle({label = localize('b_set_gamespeed'),scale = 0.8, options = {0.5, 1, 2, 4, 8, 16, 32, 64}, opt_callback = 'change_gamespeed', current_option = (({[0.5]=1,[1]=2,[2]=3,[4]=4,[8]=5,[16]=6,[32]=7,[64]=8})[G.SETTINGS.GAMESPEED] or 2), on_demand_tooltip = {text = {"Higher = faster animations.", "At 64x, hand resolution can briefly reach ~78x", "(acceleration ramp during scoring)."}}}),
++      create_option_cycle({label = localize('b_set_gamespeed'),scale = 0.8, options = {0.5, 1, 2, 4, 8, 16, 32, 64}, opt_callback = 'change_gamespeed', current_option = (({[0.5]=1,[1]=2,[2]=3,[4]=4,[8]=5,[16]=6,[32]=7,[64]=8})[G.SETTINGS.GAMESPEED] or 2)}),
+       (Talisman and Talisman.config_sections.disable_anim()) or nil,
+       (Talisman and Talisman.config_sections.big_ante()) or nil,
+       (Talisman and Talisman.config_sections.notation()) or nil,
