@@ -1,0 +1,13 @@
+diff --git a/game.lua b/game.lua
+index 4381cde..e38d4ee 100644
+--- a/game.lua
++++ b/game.lua
+@@ -2980,7 +2980,7 @@ love.graphics.pop()
+             end
+
+             if G.FILE_HANDLER.run then
+-            Talisman.sanitizer.sanitize(G.ARGS.save_run)
++            G.ARGS.save_run = Talisman.sanitizer.copy_table(G.ARGS.save_run, Talisman.sanitizer.copy_for_thread)
+                 G.SAVE_MANAGER.channel:push({
+                     type = 'save_run',
+                     save_table = G.ARGS.save_run,

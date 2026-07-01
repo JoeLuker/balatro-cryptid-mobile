@@ -74,6 +74,8 @@ manual/74-cry_libscan_diag.patch
 manual/75-cry_igo_diag.patch
 manual/76-gamespeed_options.patch
 manual/77-sticky_fingers_dep.patch
+manual/78-save_run_cycle_fix.patch
+manual/79-cry_banished_keys_guard.patch
 manual/80-save_cycle_tree.patch
 manual/81-sf_misc_append.patch
 manual/82-sf_buttoncb_append.patch
