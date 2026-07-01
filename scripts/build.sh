@@ -2589,6 +2589,13 @@ deploy() {
         exit 1
     fi
     log_info "Deploying to device: $device"
+    # Every subsequent bare `adb` call in this function relies on there being
+    # exactly one attached device — false whenever both a USB and a wireless
+    # connection are up at once (hit 2026-07-01: adb refused with "more than
+    # one device/emulator"). ANDROID_SERIAL makes them all target the one we
+    # already picked and gated above, instead of silently depending on adb's
+    # own default-device rules.
+    export ANDROID_SERIAL="$device"
 
     # Install APK
     local apk_file="$BUILD_DIR/apk/$PACKAGE_ID.apk"
