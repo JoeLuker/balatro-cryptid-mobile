@@ -34,7 +34,11 @@ build:
     [ -f build/game/lovely.lua ] && cp build/game/lovely.lua build/phone-transfer/lovely.lua || true
     echo "[build] done → build/balatro-cryptid.apk, build/game, build/phone-transfer"
 
-# Deploy APK and mods to connected phone (installs build/apk + pushes build/phone-transfer)
+# Deploy to connected phone. Installs build/apk only — mod code is baked into
+# the APK (embed_zip in nix/balatro-cryptid.nix), never pushed separately.
+# Only per-mod config.lua files already on-device are preserved; everything
+# else under the save-dir Mods/ folder is cleaned up so it can't shadow the
+# fresh APK build.
 deploy:
     ./scripts/build.sh deploy
 
