@@ -3,6 +3,9 @@ package systems.balatro.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.offset
@@ -10,12 +13,16 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +75,7 @@ fun textWidthUnits(s: String, scale: Float): Float {
 /** O-node intrinsic size in units when config.w/h is absent: the embedded object's self-measure. */
 private fun objMeasure(o: Obj): Pair<Float, Float> = when (o) {
     is Sprite -> o.w to o.h
+    is CardAreaSlot -> o.w to o.h
     is DynaText -> {
         var w = 0f; var h = 0f
         for (seg in o.segs) {
@@ -100,6 +108,7 @@ private class LNode(val ui: UI, val isRoot: Boolean) {
     }.map { LNode(it, false) }
     var x = 0f; var y = 0f; var w = 0f; var h = 0f
     var cw = 0f; var ch = 0f   // content_dimensions (pre-set_wh content size, used by set_alignments)
+    var renderScale = cfg.scale   // effective text scale after the inherited maxw rescale (calc sets it)
 }
 
 /** calculate_xywh — sets node.{x,y,w,h,cw,ch}; returns (w,h). [fac] is the inherited maxw rescale. */
@@ -110,7 +119,11 @@ private fun calc(n: LNode, tx: Float, ty: Float, fac: Float): Pair<Float, Float>
     if (n.type == T || n.type == B || n.type == O) {
         val w: Float; val h: Float
         when (n.type) {
-            T -> { w = textWidthUnits((n.ui as Tx).text, scale); h = scale * TEXT_H }
+            T -> {                                     // ui.lua:135-145
+                n.renderScale = scale
+                val tw = textWidthUnits((n.ui as Tx).text, scale); val th = scale * TEXT_H
+                if (cfg.vert) { w = th; h = tw } else { w = tw; h = th }   // vert swaps tx/ty
+            }
             else -> {  // B or O: config.w/h wins, else (O) object self-measure, else 0
                 if (cfg.wCfg != null || cfg.hCfg != null) { w = cfg.wCfg ?: 0f; h = cfg.hCfg ?: 0f }
                 else if (n.type == O) { val m = objMeasure((n.ui as Ob).obj); w = m.first; h = m.second }
@@ -204,9 +217,21 @@ private fun layout(root: UI): LNode {
     return n
 }
 
+/** The laid-out (w, h) of a UI tree in engine units — for callers that must position a sub-box
+ *  relative to another (e.g. the shop card's price tag / buy button attach offsets). */
+fun measureUnits(root: UI): Pair<Float, Float> = layout(root).let { it.w to it.h }
+
 // ── absolute renderer ───────────────────────────────────────────────────────────────────────────
 /** Emboss lip colour: the fill darkened ~40% (the shaded 3-D edge under a box). */
 private fun embossLip(c: Color) = Color(c.red * 0.6f, c.green * 0.6f, c.blue * 0.6f, c.alpha)
+
+/** Lighten toward white — Balatro's button hover overlay (G.C.UI.HOVER is translucent white). */
+private fun lightenColour(c: Color, amt: Float = 0.2f) = Color(
+    red   = c.red   + (1f - c.red)   * amt,
+    green = c.green + (1f - c.green) * amt,
+    blue  = c.blue  + (1f - c.blue)  * amt,
+    alpha = c.alpha,
+)
 
 /** A flattened node with its absolute rect (units) — pre-order so parents paint under children. */
 private class Placed(val node: LNode, val x: Float, val y: Float)
@@ -233,17 +258,35 @@ fun RenderUIBoxAbsolute(
     roomH: Float,
     fontRatio: Float = FONT_RATIO,
     blindOverlay: (@Composable (x: Float, y: Float, w: Float, h: Float) -> Unit)? = null,
+    cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null,
 ) {
     val laid = layout(root)
     val yShift = (roomH - laid.h) / 2f          // centre the tall panel; it bleeds off top/bottom
     val placed = ArrayList<Placed>()
     flatten(laid, 0f, yShift, placed)
     Box(Modifier.size((laid.w * u).dp, (roomH * u).dp).clipToBounds()) {
-        for (p in placed) renderNode(p, u, fontRatio)
+        for (p in placed) renderNode(p, u, fontRatio, cardAreaContent)
         if (blindOverlay != null) {
             val rb = findRowBlind(laid)
             if (rb != null) blindOverlay(rb.x, rb.y + yShift, rb.w, rb.h)
         }
+    }
+}
+
+/**
+ * Render a UIBox tree at its NATURAL size — no roomH clip, no vertical centring offset. Used for
+ * inline sub-trees (action bar, blind-choice cards, hands table) that are placed by the caller's
+ * Compose layout and must not bleed. The outer Box wraps tightly to the tree's measured w×h, so the
+ * surrounding layout can centre/position it normally.
+ */
+@Composable
+fun RenderUIBoxNatural(root: UI, u: Float, fontRatio: Float = FONT_RATIO,
+                       cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null) {
+    val laid = layout(root)
+    val placed = ArrayList<Placed>()
+    flatten(laid, 0f, 0f, placed)
+    Box(Modifier.size((laid.w * u).dp, (laid.h * u).dp)) {
+        for (p in placed) renderNode(p, u, fontRatio, cardAreaContent)
     }
 }
 
@@ -253,13 +296,14 @@ fun RenderUIBoxAbsolute(
  * Laid out at its natural size; no clip (the caller's box clips). Same exact layout engine.
  */
 @Composable
-fun RenderUIBoxAt(root: UI, u: Float, rectX: Float, rectY: Float, rectW: Float, rectH: Float, fontRatio: Float = FONT_RATIO) {
+fun RenderUIBoxAt(root: UI, u: Float, rectX: Float, rectY: Float, rectW: Float, rectH: Float, fontRatio: Float = FONT_RATIO,
+                  cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null) {
     val laid = layout(root)
     val dx = rectX + (rectW - laid.w) / 2f
     val dy = rectY + (rectH - laid.h) / 2f
     val placed = ArrayList<Placed>()
     flatten(laid, dx, dy, placed)
-    Box(Modifier) { for (p in placed) renderNode(p, u, fontRatio) }
+    Box(Modifier) { for (p in placed) renderNode(p, u, fontRatio, cardAreaContent) }
 }
 
 /** row_blind is the single source-empty R reserved at minh=3.75 (the blind UIBox attaches separately). */
@@ -270,7 +314,8 @@ private fun findRowBlind(n: LNode): LNode? {
 }
 
 @Composable
-private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
+private fun renderNode(p: Placed, u: Float, fontRatio: Float,
+                       cardAreaContent: (@Composable (name: String, x: Float, y: Float, w: Float, h: Float) -> Unit)? = null) {
     val n = p.node
     val cfg = n.cfg
     // requiredSize (NOT size): nodes are positioned via absoluteOffset inside a box that clips. The
@@ -286,36 +331,80 @@ private fun renderNode(p: Placed, u: Float, fontRatio: Float) {
             // BEHIND the full-size fill (an inset border instead shrank the fill ~10% vs the reference).
             if (cfg.colour != null && cfg.colour != Color.Transparent && n.w > 0 && n.h > 0) {
                 val shape = RoundedCornerShape((cfg.r * u).dp)
+                // onClick: press-scale 0.985 + lighten fill while finger is down (ui.lua draw_self:
+                // `button_being_pressed and 0.985 or 1` / ARGS.button_colours[2] HOVER).
+                val pressed: Boolean
+                var fillMod = at.requiredSize((n.w * u).dp, (n.h * u).dp)
+                if (cfg.onClick != null) {
+                    val interaction = remember { MutableInteractionSource() }
+                    pressed = interaction.collectIsPressedAsState().value
+                    fillMod = fillMod
+                        .graphicsLayer { val s = if (pressed) 0.985f else 1f; scaleX = s; scaleY = s }
+                        .clickable(interaction, indication = null) { cfg.onClick.invoke() }
+                } else {
+                    pressed = false
+                }
+                val fill = if (pressed) lightenColour(cfg.colour) else cfg.colour
                 if (cfg.emboss > 0f) {
                     Box(at.requiredSize((n.w * u).dp, ((n.h + cfg.emboss) * u).dp).clip(shape)
                         .background(embossLip(cfg.colour)))
                 }
-                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp).clip(shape).background(cfg.colour))
+                Box(fillMod.clip(shape).background(fill))
+                // outline: cosmetic border at the clip boundary (config.outline / outline_colour).
+                // Drawn AFTER the fill box so it renders on top. Thickness is in dp (sub-unit).
+                if (cfg.outline > 0f && cfg.outlineColour != Color.Transparent) {
+                    Box(at.requiredSize((n.w * u).dp, (n.h * u).dp)
+                        .border(cfg.outline.dp, cfg.outlineColour, shape))
+                }
+            } else if (cfg.onClick != null && n.w > 0 && n.h > 0) {
+                // No fill but still clickable (e.g. transparent button area).
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp)
+                    .graphicsLayer { val s = if (pressed) 0.985f else 1f; scaleX = s; scaleY = s }
+                    .clickable(interaction, indication = null) { cfg.onClick.invoke() })
             }
         }
         T -> {
             val tx = (n.ui as Tx)
-            val size = (n.cfg.scale * u * fontRatio)
-            // Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the
-            // DESCENT (bottom), so the glyph sits high in the box. Compose centres the glyph in the
-            // line box, so it lands (1-0.83)/2 = 0.085·lineHeight too LOW. Shift up by that to match.
-            val vshift = -((1f - TEXT_H) / 2f * n.cfg.scale * u)
-            Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.offset(y = vshift.dp)) {
-                    if (cfg.shadow) Box {
-                        BTxt(tx.text, Color.Black.copy(alpha = 0.3f), size.sp, Modifier.offset(y = 2.dp))
-                        BTxt(tx.text, cfg.textColour, size.sp)
-                    } else BTxt(tx.text, cfg.textColour, size.sp)
+            // renderScale = cfg.scale after the inherited maxw rescale (calc shrinks text to fit maxw).
+            // Using cfg.scale here drew text full-size inside the shrunk node → overflow (boss debuff).
+            val size = (n.renderScale * u * fontRatio)
+            @Composable fun glyphs() = if (cfg.shadow) Box {
+                BTxt(tx.text, Color.Black.copy(alpha = 0.3f), size.sp, Modifier.offset(y = 2.dp))
+                BTxt(tx.text, cfg.textColour, size.sp)
+            } else BTxt(tx.text, cfg.textColour, size.sp)
+            if (cfg.vert) {
+                // vert: text rotated -90° (ui.lua:699); the node box already swapped w/h in calc, so
+                // centring the rotated glyphs (pivot = centre) fits them into the narrow vertical strip.
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.rotate(-90f)) { glyphs() }
+                }
+            } else {
+                // Balatro's text box is TEXT_HEIGHT_SCALE (0.83) of the font line height — it trims the
+                // DESCENT (bottom), so the glyph sits high in the box. Compose centres the glyph in the
+                // line box, so it lands (1-0.83)/2 = 0.085·lineHeight too LOW. Shift up by that to match.
+                val vshift = -((1f - TEXT_H) / 2f * n.renderScale * u)
+                Box(at.requiredSize((n.w * u).dp, (n.h * u).dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.offset(y = vshift.dp)) { glyphs() }
                 }
             }
         }
         O -> {
             val obj = (n.ui as Ob).obj
             when (obj) {
+                // Wrap the Image in Box(at) — same as the DynaText case below. A lone Image carrying the
+                // absoluteOffset+requiredSize directly does NOT place inside RenderUIBoxNatural's fixed-size
+                // Box (it renders nothing); wrapping in a positioned Box and filling it fixes the sprite.
                 is Sprite -> if (n.w > 0 && n.h > 0)
-                    Image(obj.bmp, null, at.requiredSize((n.w * u).dp, (n.h * u).dp),
-                        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    Box(at) {
+                        Image(obj.bmp, null, Modifier.requiredSize((n.w * u).dp, (n.h * u).dp),
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    }
                 is DynaText -> Box(at) { RenderDynaText(obj) }
+                // CardArea slot: hand the engine-computed rect (units) to the caller, which fills it
+                // with live cards/offers from RunState (the frame is the ported tree; contents bind).
+                is CardAreaSlot -> cardAreaContent?.invoke(obj.name, p.x, p.y, n.w, n.h)
             }
         }
     }

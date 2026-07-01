@@ -430,7 +430,33 @@ build_apk() {
     fi
 
     # Create lovely.lua config
-    cp "$PATCHES_DIR/lovely-stub.lua" "$game_dir/lovely.lua"
+    cat > "$game_dir/lovely.lua" << EOF
+return {
+  repo = "https://github.com/ethangreen-dev/lovely-injector",
+  version = "0.9.0",
+  mod_dir = "Mods",
+  remove_var = function() return false end,
+  set_var = function() end,
+  reload_patches = function() return true end,
+  apply_patches = function(name, content)
+    if type(content) ~= 'string' then return content end
+    if name ~= 'GLSL_ES_PATCHES.fs' then return content end
+    local s = content
+    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    s = s:gsub('([%s({])int([%s([])', '%1 float%2')
+    s = s:gsub('(__%w+__%s*[<>]%s*%d+)%.', '%1')
+    s = s:gsub('([%d.]e%-?%d+)%.', '%1')
+    s = s:gsub('%[(%d+)%.%]', '[%1]')
+    s = s:gsub('%[([^%[%]]*[^%d.][^%[%]]*)%]', '[int(%1)]')
+    s = s:gsub('(%d+%.%d+)f([^%w])', '%1%2')
+    s = s:gsub('(extern%s+)(number)', '%1highp %2')
+    s = s:gsub('(uniform%s+)(number)', '%1highp %2')
+    s = s:gsub('mediump(%s+)', 'highp%1')
+    return s
+  end,
+}
+EOF
 
     # Apply patches to game files
     log_info "Applying patches..."

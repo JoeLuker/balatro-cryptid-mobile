@@ -9,11 +9,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +30,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -42,8 +46,22 @@ import systems.balatro.content.Edition
 import systems.balatro.engine.EaseSpec
 import systems.balatro.engine.EngineHost
 import systems.balatro.engine.Event
+import systems.balatro.engine.Moveable
+import systems.balatro.engine.Room
 import kotlin.math.floor
 import systems.balatro.game.*
+import systems.balatro.save.RunSnapshot
+import systems.balatro.save.JokerSnap
+import systems.balatro.save.CardSnap
+import systems.balatro.save.ConsumableSnap
+import systems.balatro.save.OfferSnap
+import systems.balatro.save.PlanetSnap
+import systems.balatro.save.TarotSnap
+import systems.balatro.save.ShopItemSnap
+import systems.balatro.save.VoucherSnap
+import systems.balatro.save.BoosterSnap
+import systems.balatro.save.SaveIo
+import java.io.File
 
 /**
  * A full run: alternating blinds and a shop, on ONE persistent engine. Beating a blind pays
@@ -51,21 +69,216 @@ import systems.balatro.game.*
  * destroy live — the clean-removal payoff ShopSim proves). Jokers and their scaling state
  * carry across blinds because the engine is never rebuilt. This is the game on the engine.
  */
-internal enum class Phase { ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER }
+internal enum class Phase { DECK_SELECT, ROUND, BLIND_SELECT, SHOP, RUN_INFO, ROUND_EVAL, OVER, WIN, PACK_OPEN }
+
+/** A run's starting deck — non-joker run modifiers + deck composition (vanilla back_* decks). Chosen on
+ *  the DECK_SELECT screen at run start; effects bake into baseHands/discards/handSize/maxJokers/money. */
+internal enum class DeckVariant(
+    val display: String, val desc: String,
+    val handsDelta: Int = 0, val discardsDelta: Int = 0, val handSizeDelta: Int = 0,
+    val jokerSlotDelta: Int = 0, val startMoney: Int = 0,
+) {
+    RED("Red Deck", "+1 discard each round", discardsDelta = 1),
+    BLUE("Blue Deck", "+1 hand each round", handsDelta = 1),
+    YELLOW("Yellow Deck", "Start with an extra \$10", startMoney = 10),
+    BLACK("Black Deck", "+1 Joker slot, −1 hand each round", jokerSlotDelta = 1, handsDelta = -1),
+    PAINTED("Painted Deck", "+2 hand size, −1 Joker slot", handSizeDelta = 2, jokerSlotDelta = -1),
+    ABANDONED("Abandoned Deck", "Start with no face cards (J/Q/K)"),
+    CHECKERED("Checkered Deck", "Start with 26 Spades & 26 Hearts"),
+    ERRATIC("Erratic Deck", "Ranks & suits are randomised"),
+    MAGIC("Magic Deck", "Start with Crystal Ball voucher + 2 The Fool"),
+    GHOST("Ghost Deck", "Spectral cards appear in the shop; start with a Hex"),
+    ZODIAC("Zodiac Deck", "Start with Tarot Merchant, Planet Merchant & Overstock"),
+    NEBULA("Nebula Deck", "Start with Telescope voucher, −1 consumable slot"),
+    GREEN("Green Deck", "$2/hand + $1/discard at round end; no interest"),
+    ANAGLYPH("Anaglyph Deck", "Gain a Double Tag after each Boss Blind"),
+}
 
 /** One row of the cash-out screen (create_UIBox_round_evaluation). `dollars` = gold paid;
  *  `leadNum` is the left-side coloured count (hands/gold cards), null for blind/interest. */
-internal enum class EvalKind { BLIND, HANDS, GOLD, INTEREST }
+internal enum class EvalKind { BLIND, HANDS, DISCARDS, GOLD, INTEREST, JOKER }
 internal data class EvalRow(val kind: EvalKind, val dollars: Int, val label: String, val leadNum: String? = null)
-internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val edition: Edition = Edition.NONE)
-internal data class Owned(val offer: Offer, val fj: FJoker)
+internal data class Offer(val key: String, val name: String, val desc: String, val cost: Int, val rarity: Int = 1, val edition: Edition = Edition.NONE)
+internal data class Owned(val offer: Offer, val fj: FJoker) {
+    var sellBonus: Int = 0   // Gift Card extra_value — $ added to this joker's sell value (maxOf(1,cost/2)+bonus)
+    var noSell: Boolean = false   // cry_no_sell_value (e.g. Necromancer's spawns) — sell value forced to 0
+}
+/** A shop voucher (one per shop). `extra` is the faithful config.extra (game.lua); the effect is
+ *  applied by key in RunState.redeemVoucher (Card:apply_to_run, card.lua:2322). */
+internal data class VoucherOffer(val key: String, val name: String, val desc: String, val extra: Int, val cost: Int = 10)
+/** A booster pack offer (game.lua p_*). `kind` = Arcana/Celestial/Buffoon; `extra` cards shown,
+ *  `choose` picks. Buying opens the pack (Phase.PACK_OPEN). */
+internal data class BoosterOffer(val key: String, val name: String, val kind: String, val cost: Int, val extra: Int, val choose: Int, val weight: Double = 1.0)
+/** One revealed pack item (a tarot/planet/joker the player may pick). */
+internal sealed class PackItem {
+    data class Tarot(val t: TarotOffer) : PackItem()
+    data class Planet(val p: PlanetOffer) : PackItem()
+    data class Joker(val o: Offer) : PackItem()
+    data class Card(val card: PlayingCard) : PackItem()    // Standard pack: a playing card added to the deck
+    data class SpectralItem(val s: Spectral) : PackItem()  // Spectral pack
+}
+/** An open booster pack: the revealed [items], how many remain to [pick], and which are taken. */
+internal class OpenPack(val name: String, val kind: String, val items: List<PackItem>, choose: Int) {
+    val picked = mutableStateListOf<Int>()
+    var picksLeft by mutableStateOf(choose)
+}
+/** When a tag's effect fires (tag.lua config.type). */
+internal enum class TagTrigger { EVAL, ROUND_START, SHOP_START, SHOP_FINAL }
+/** A skip tag (tag.lua / game.lua tag_*). Earned by skipping a Small/Big blind; fires at [trigger]. */
+internal enum class Tag(val display: String, val desc: String, val trigger: TagTrigger, val tx: Int, val ty: Int) {
+    INVESTMENT("Investment Tag", "+\$25 after the next Blind", TagTrigger.EVAL, 2, 1),       // config.type 'eval', dollars 25
+    JUGGLE("Juggle Tag", "+3 hand size next round", TagTrigger.ROUND_START, 5, 1),           // 'round_start_bonus', h_size 3
+    D_SIX("D6 Tag", "Rerolls start at \$0 next shop", TagTrigger.SHOP_START, 5, 3),          // 'shop_start'
+    COUPON("Coupon Tag", "Next shop cards & packs are free", TagTrigger.SHOP_FINAL, 4, 0),   // 'shop_final_pass'
+    HANDY("Handy Tag", "+\$1 per hand played this run", TagTrigger.EVAL, 1, 3),              // tag_handy
+    ECONOMY("Economy Tag", "Doubles money (max +\$40)", TagTrigger.SHOP_START, 4, 3),        // tag_economy
+    ORBITAL("Orbital Tag", "Upgrade a random poker hand by 3 levels", TagTrigger.ROUND_START, 5, 2),  // tag_orbital
+    // Pack tags — open a free pack on entering the next shop (queued, opened after phase=SHOP).
+    CHARM("Charm Tag", "Opens a free Mega Arcana Pack", TagTrigger.SHOP_FINAL, 2, 2),        // tag_charm
+    METEOR("Meteor Tag", "Opens a free Mega Celestial Pack", TagTrigger.SHOP_FINAL, 3, 2),   // tag_meteor
+    ETHEREAL("Ethereal Tag", "Opens a free Spectral Pack", TagTrigger.SHOP_FINAL, 3, 3),     // tag_ethereal
+    STANDARD_TAG("Standard Tag", "Opens a free Mega Standard Pack", TagTrigger.SHOP_FINAL, 1, 2),  // tag_standard
+    BUFFOON("Buffoon Tag", "Opens a free Mega Buffoon Pack", TagTrigger.SHOP_FINAL, 4, 2),   // tag_buffoon
+}
+private val TAG_POOL = Tag.values().toList()
+private fun tagForBlind(blindIndex: Int): Tag = TAG_POOL[Random(blindIndex * 6151L + 17).nextInt(TAG_POOL.size)]
+
+/** Spectral cards (the Spectral consumable set) — powerful run-altering effects. The subset here
+ *  wires to existing systems (deck/jokers/hand-levels/money/hand-size); rarity-gated ones deferred. */
+internal enum class Spectral(val display: String, val desc: String) {
+    BLACK_HOLE("Black Hole", "Upgrade every poker hand by 1 level"),
+    IMMOLATE("Immolate", "Destroy 5 cards in the deck, gain \$20"),
+    ECTOPLASM("Ectoplasm", "Add Negative to a random Joker, -1 hand size"),
+    HEX("Hex", "Add Polychrome to a random Joker, destroy the rest"),
+    TALISMAN("Talisman", "Add a Gold Seal to a card"),
+    DEJA_VU("Deja Vu", "Add a Red Seal to a card"),
+    WRAITH("Wraith", "Create a random Joker, set money to \$0"),
+    SIGIL("Sigil", "Convert all cards in hand to a single suit"),
+    OUIJA("Ouija", "Convert all cards in hand to a single rank, -1 hand size"),
+    FAMILIAR("Familiar", "Destroy 1 card in hand, add 3 random Enhanced face cards"),
+    GRIM("Grim", "Destroy 1 card in hand, add 2 random Enhanced Aces"),
+    INCANTATION("Incantation", "Destroy 1 card in hand, add 4 random Enhanced numbered cards"),
+    TRANCE("Trance", "Add a Blue Seal to a card (creates a Planet when played)"),
+    MEDIUM("Medium", "Add a Purple Seal to a card (creates a Tarot when discarded)"),
+    AURA("Aura", "Add Foil/Holographic/Polychrome to a card in hand"),
+}
+
+/** A consumable held in the consumable slots (a tarot, planet, or spectral), used when the player
+ *  chooses — rather than the shop/pack applying it instantly. */
+internal sealed class Consumable {
+    data class TarotC(val t: TarotOffer) : Consumable()
+    data class PlanetC(val planet: Planet) : Consumable()
+    data class SpectralC(val s: Spectral) : Consumable()
+}
 
 /** Jokers that leave the board after a won round (END_OF_ROUND self-destruct), keyed by FJoker key. */
 private val SELF_DESTRUCT_KEYS = setOf("j_cry_brokenhome")
 internal data class PlanetOffer(val planet: Planet, val cost: Int)
-internal data class TarotOffer(val name: String, val enhancement: Enhancement = Enhancement.NONE, val cost: Int, val seal: Seal = Seal.NONE)
+/** A tarot's effect on up to [maxTargets] selected hand cards (game.lua c_* set="Tarot"). */
+internal sealed class TarotFx {
+    abstract val maxTargets: Int
+    abstract val label: String
+    /** Targeted tarots (maxTargets>0) aim at chosen hand cards; non-targeted ones apply immediately. */
+    val needsTarget: Boolean get() = maxTargets > 0
+    data class Enhance(val e: Enhancement, override val maxTargets: Int) : TarotFx() { override val label get() = e.name.lowercase() }
+    data class ConvertSuit(val suit: Suit, override val maxTargets: Int) : TarotFx() { override val label get() = "→ ${suit.name}" }
+    data class RankUp(override val maxTargets: Int) : TarotFx() { override val label get() = "+1 rank" }
+    data class Destroy(override val maxTargets: Int) : TarotFx() { override val label get() = "destroy" }
+    // Non-targeted (maxTargets = 0): applied immediately on use.
+    object DoubleMoney : TarotFx() { override val maxTargets = 0; override val label = "2x \$" }          // The Hermit (cap +$20)
+    object JokerSellMoney : TarotFx() { override val maxTargets = 0; override val label = "sell \$" }      // Temperance (cap $50)
+    data class CreatePlanets(val n: Int) : TarotFx() { override val maxTargets = 0; override val label get() = "$n planet" }   // High Priestess
+    data class CreateTarots(val n: Int) : TarotFx() { override val maxTargets = 0; override val label get() = "$n tarot" }     // The Emperor
+    object CreateLastUsed : TarotFx() { override val maxTargets = 0; override val label = "copy last" }                        // The Fool
+    object ConvertCopy : TarotFx() { override val maxTargets = 2; override val label = "→ copy" }                             // Death (left → copy of right)
+}
+internal data class TarotOffer(val name: String, val fx: TarotFx, val cost: Int = 3)
 
-private val CATALOG = listOf(
+/** One filled shop slot. Vanilla's shop is a single mixed CardArea: create_card_for_shop polls a
+ *  TYPE per slot by weight (joker_rate/tarot_rate/planet_rate), then draws a card of that type
+ *  (UI_definitions.lua:742). The rebuild models that pool as one ordered list of these. */
+internal sealed class ShopItem {
+    abstract val cost: Int
+    data class Jk(val offer: Offer) : ShopItem() { override val cost get() = offer.cost }
+    data class Pl(val po: PlanetOffer) : ShopItem() { override val cost get() = po.cost }
+    data class Tt(val t: TarotOffer) : ShopItem() { override val cost get() = t.cost }
+    data class Sp(val s: Spectral) : ShopItem() { override val cost get() = 4 }   // Ghost deck: spectrals in shop
+    data class Cd(val card: PlayingCard) : ShopItem() { override val cost get() = 1 }   // Magic Trick: playing cards in shop
+}
+
+/** Cryptid's offline fallback for the live Discord member count (lib/https.lua `member_fallback`). The
+ *  rebuild can't fetch the live value, so membershipcard / membershipcardtwo scale off this constant —
+ *  bump it to re-snapshot the count. */
+internal const val CRYPTID_MEMBER_COUNT = 38598
+
+/** Build a freshly-acquired joker's FJoker with its per-key initial scaling state — the seed values the
+ *  scoring engine reads. Shared by buy(), the Wraith spectral, and jollysus' on-sell spawn so every
+ *  acquisition path seeds identically (previously only buy() did, so Wraith-/spawn-created jokers were
+ *  mis-seeded). [swashSellSum] is the current total sell value of owned jokers — only j_swashbuckler reads
+ *  it; passing it in keeps this pure and directly unit-testable. */
+internal fun initialFJoker(offer: Offer, swashSellSum: Double, handsPlayed: Int = 0): FJoker {
+    val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
+    // MANIFEST: a migrated joker's initial scaling state comes from its JokerSpec (co-located with its hooks).
+    JOKER_MANIFEST[offer.key]?.let { spec ->
+        val s = spec.initialState
+        // j_loyalty_card: n stores hands_played_at_create (card.lua:459 self.ability.hands_played_at_create = G.GAME.hands_played or 0).
+        // j_cry_blacklist: n stores the pseudorandom blacklisted rank id (2..14), chosen at add_to_deck time.
+        //   The legacy fjN block below had this random — replicated here for the MANIFEST path.
+        // All other MANIFEST jokers use s.n (usually 0).
+        val n = when (offer.key) {
+            "j_loyalty_card"  -> handsPlayed
+            "j_cry_blacklist" -> (2..14).random()
+            else              -> s.n
+        }
+        // j_cry_membershipcard: x = Xmult_mod(0.1) × member_count (initialFJoker legacy fallthrough is now
+        // unreachable for MANIFEST keys; we apply the runtime constant here instead).
+        val x = if (offer.key == "j_cry_membershipcard") 0.1 * CRYPTID_MEMBER_COUNT else s.x
+        return FJoker(offer.key, edition = ed, rarity = offer.rarity, mult = s.mult, x = x, chips = s.chips, n = n, xc = s.xc)
+    }
+    val fjX = if (offer.key == "j_cry_primus") 1.01 else 1.0
+    val fjMult = when (offer.key) {
+        "j_popcorn"      -> 20.0            // +20 Mult, -4 per round (extra=4); self-destructs at 0
+        "j_swashbuckler" -> swashSellSum    // sum of current sell values
+        else -> 0.0
+    }
+    val fjXInit = when (offer.key) {
+        // (j_ramen x=2.0 / j_campfire x=1.0 now come from their JOKER_MANIFEST initialState — unreachable here.)
+        "j_cry_caramel"    -> 1.75  // config.extra.x_mult
+        "j_cry_starfruit"  -> 2.0   // config.emult
+        "j_cry_biggestm"   -> 7.0   // config.extra.xmult (read once the before-pass activates it)
+        "j_cry_mprime"     -> 1.05  // config.extra.mult (^Emult exponent per Jolly/M joker)
+        "j_cry_membershipcard" -> 0.1 * CRYPTID_MEMBER_COUNT   // Xmult_mod(0.1) × member count → read as xMultMod
+        "j_cry_spy"        -> 0.5   // config.extra.x_mult — static, before-pass never sets this
+        else -> fjX
+    }
+    val fjN = when (offer.key) {
+        "j_cry_mstack"       -> 1   // retriggers >= 1
+        "j_cry_chili_pepper" -> 8   // perishable countdown
+        "j_cry_caramel"      -> 11  // end_of_round countdown
+        "j_cry_spaceglobe"   -> HandType.HIGH_CARD.ordinal   // target hand type ordinal
+        "j_cry_blacklist"    -> (2..14).random()             // random blacklisted rank id
+        "j_cry_busdriver"    -> 4   // before-hand roll odds
+        "j_cry_jollysus"     -> 1   // spawn flag armed (config.extra.spawn=true); reset to 1 at end_of_round
+        "j_cry_chad"         -> 2   // config.extra.retriggers — retriggers the leftmost board joker j.n times
+        else -> 0
+    }
+    val fjChips = when (offer.key) {
+        "j_cry_membershipcardtwo" -> CRYPTID_MEMBER_COUNT.toDouble()  // chips(1) × floor(member count / chips_mod=1)
+        "j_cry_clicked_cookie" -> 200.0                               // config.extra.chips — decrements via cry_press (unimplemented)
+        else -> 0.0
+    }
+    return FJoker(offer.key, edition = ed, rarity = offer.rarity, x = fjXInit, mult = fjMult, n = fjN, chips = fjChips)
+}
+
+/** Jokers cry-kidnap counts in the run's sale history: the vanilla "type" Jokers — Jolly/Zany/Mad/Crazy/
+ *  Droll (effect "Type Mult") and Sly/Wily/Clever/Devious/Crafty. (Cryptid "Cry Type Mult/Chips" M-pool
+ *  Jokers also qualify in source; none are in the CATALOG yet, so this set is complete for the roster.) */
+private val KIDNAP_TYPE_KEYS = setOf(
+    "j_jolly", "j_zany", "j_mad", "j_crazy", "j_droll",
+    "j_sly", "j_wily", "j_clever", "j_devious", "j_crafty",
+)
+
+internal val CATALOG = listOf(
     // --- vanilla ---
     Offer("j_joker", "Joker", "+4 Mult", 2),
     Offer("j_greedy_joker", "Greedy Joker", "+3 Mult / Diamond", 5),
@@ -76,19 +289,44 @@ private val CATALOG = listOf(
     Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
     Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
     // --- vanilla, individual (already faithful in calcJoker) ---
-    Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5),
-    Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5),
-    Offer("j_fibonacci", "Fibonacci", "+8 Mult / A,2,3,5,8", 8),
+    Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5, rarity = 2),
+    Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5, rarity = 2),
+    Offer("j_fibonacci", "Fibonacci", "+8 Mult / A,2,3,5,8", 8, rarity = 2),
     Offer("j_scary_face", "Scary Face", "+30 Chips / face card", 4),
     Offer("j_smiley", "Smiley Face", "+5 Mult / face card", 4),
-    Offer("j_triboulet", "Triboulet", "x2 Mult / King or Queen", 8),
+    Offer("j_triboulet", "Triboulet", "x2 Mult / King or Queen", 8, rarity = 4),
     Offer("j_walkie_talkie", "Walkie Talkie", "10 or 4: +10 Chips & +4 Mult", 4),
     Offer("j_photograph", "Photograph", "x2 Mult on first face card", 5),
     // --- vanilla, joker_main flat ---
     Offer("j_half", "Half Joker", "+20 Mult if <= 3 cards", 5),
-    Offer("j_stuntman", "Stuntman", "+250 Chips", 7),
-    Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6),
-    Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6),
+    Offer("j_stuntman", "Stuntman", "+250 Chips", 7, rarity = 3),
+    Offer("j_seeing_double", "Seeing Double", "x2 Mult if a Club + non-Club score", 6, rarity = 2),
+    Offer("j_flower_pot", "Flower Pot", "x3 Mult if all 4 suits score", 6, rarity = 2),
+    // --- vanilla "+Chips if hand contains <type>" family (j_sly..j_crafty) ---
+    Offer("j_sly", "Sly Joker", "+50 Chips if hand has a Pair", 3),
+    Offer("j_wily", "Wily Joker", "+100 Chips if hand has Three of a Kind", 4),
+    Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 4),
+    Offer("j_devious", "Devious Joker", "+100 Chips if hand has a Straight", 4),
+    Offer("j_crafty", "Crafty Joker", "+80 Chips if hand has a Flush", 4),
+    // --- vanilla "+Mult if hand contains <type>" family (j_jolly..j_droll) ---
+    Offer("j_jolly", "Jolly Joker", "+8 Mult if hand has a Pair", 3),
+    Offer("j_zany", "Zany Joker", "+12 Mult if hand has Three of a Kind", 4),
+    Offer("j_mad", "Mad Joker", "+10 Mult if hand has a Two Pair", 4),
+    Offer("j_crazy", "Crazy Joker", "+12 Mult if hand has a Straight", 4),
+    Offer("j_droll", "Droll Joker", "+10 Mult if hand has a Flush", 4),
+    // --- vanilla scoring-set modifier ---
+    Offer("j_splash", "Splash", "every played card counts in scoring", 3),
+    // --- vanilla hand-detection hooks ---
+    Offer("j_four_fingers", "Four Fingers", "Flushes & Straights need only 4 cards", 7, rarity = 2),
+    Offer("j_shortcut", "Shortcut", "Straights can skip one rank", 7, rarity = 2),
+    Offer("j_smeared", "Smeared Joker", "Hearts/Diamonds & Spades/Clubs count as one suit", 7, rarity = 2),
+    // --- vanilla face / retrigger hooks ---
+    Offer("j_pareidolia", "Pareidolia", "every card counts as a face card", 5, rarity = 2),
+    Offer("j_sock_and_buskin", "Sock and Buskin", "retrigger every played face card", 6, rarity = 2),
+    Offer("j_hanging_chad", "Hanging Chad", "retrigger the first scored card 2x", 4),
+    Offer("j_dusk", "Dusk", "retrigger all played cards on last hand", 6, rarity = 2),
+    Offer("j_hack", "Hack", "retrigger 2s, 3s, 4s, and 5s", 6, rarity = 2),
+    Offer("j_mime", "Mime", "retrigger all held-in-hand card abilities", 6, rarity = 2),
     // --- Cryptid ---
     Offer("j_cry_cube", "Cube", "+6 Chips", 4),
     Offer("j_cry_triplet_rhythm", "Triplet Rhythm", "x3 Mult if three 3s", 6),
@@ -123,6 +361,18 @@ private val CATALOG = listOf(
     Offer("j_cry_nosound", "No Sound?", "retrigger scored 7s x3", 5),
     Offer("j_cry_exposed", "Exposed", "retrigger scored non-faces x2", 5),
     Offer("j_cry_mask", "Mask", "retrigger scored faces x3", 5),
+    // sock_and_sock: retrigger each played Abstract-enhanced card once (config.extra.retriggers=1; max 40).
+    // rarity=2 (Uncommon), cost=7. Confirmed from SpectralPack/Cryptid items/misc_joker.lua.
+    Offer("j_cry_sock_and_sock", "Sock and Sock", "retrigger Abstract cards x1", 7, rarity = 2),
+    // --- Cryptid joker-retrigger jokers (context.retrigger_joker_check family) ---
+    // Chad: retrigger leftmost joker j.n times (config.extra.retriggers=2). rarity=3 (Rare), cost=10. Confirmed.
+    Offer("j_cry_chad", "Chad", "retrigger leftmost Joker 2x", 10, rarity = 3),
+    // Loopy: retrigger all other jokers j.n times (Jolly Jokers sold). rarity=1 (M-pool), cost=4. Confirmed.
+    Offer("j_cry_loopy", "Loopy", "retrigger all Jokers x sold Jolly Jokers", 4, rarity = 1),
+    // Spectrogram: retrigger rightmost joker per Echo card scored. rarity=5 (cry_epic), cost=9. Confirmed.
+    Offer("j_cry_spectrogram", "Spectrogram", "retrigger rightmost Joker per Echo card scored", 9, rarity = 5),
+    // Flip Side: retrigger all double-sided-edition jokers once. rarity=2 (Uncommon), cost=7. Confirmed.
+    Offer("j_cry_flip_side", "On the Flip Side", "retrigger all Double-Sided Jokers", 7, rarity = 2),
     Offer("j_cry_wee_fib", "Wee Fibonacci", "+3 Mult per scored A/2/3/5/8 (scaling)", 6),
     Offer("j_cry_meteor", "Meteor", "+75 Chips per Foil joker", 5),
     Offer("j_cry_exoplanet", "Exoplanet", "+15 Mult per Holo joker", 5),
@@ -149,12 +399,12 @@ private val CATALOG = listOf(
     Offer("j_cry_clicked_cookie", "Clicked Cookie", "+Chips (starts 200, -1 per click)", 6),
     Offer("j_cry_monkey_dagger", "Monkey Dagger", "+10*sell_cost Chips when left joker sold", 7),
     Offer("j_cry_unjust_dagger", "Unjust Dagger", "+0.2*sell_cost Xmult when left joker sold", 8),
-    Offer("j_cry_jimball", "Jimball", "Xmult scales +0.15 when this hand type is least-played", 7),
+    Offer("j_cry_jimball", "Jimball", "Xmult scales +0.15 while this hand type is your most-played", 7),
     Offer("j_cry_pizza_slice", "Pizza Slice", "Xmult scales +0.5 per other pizza slice sold", 6),
     Offer("j_cry_wheelhope", "Wheelhope", "Xmult scales +0.5 per Wheel of Fortune trigger", 7),
     Offer("j_cry_fspinner", "Fspinner", "+6 Chips each hand another type played as much (scaling)", 6),
     Offer("j_cry_pirate_dagger", "Pirate Dagger", "+0.25*sell_cost Xchips when right joker sold", 7),
-    // --- Cryptid custom hand-type jokers (dispatch wired; dormant until CRY_* hand evaluation ported) ---
+    // --- Cryptid CRY_* hand-type jokers (CRY_BULWARK/ULTPAIR/CLUSTERFUCK/NONE all LIVE; only CRY_WHOLEDECK dormant) ---
     Offer("j_cry_stronghold", "Stronghold", "x5 Mult if cry_Bulwark", 8),
     Offer("j_cry_wtf", "WTF", "x10 Mult if cry_Clusterfuck", 8),
     Offer("j_cry_clash", "Clash", "x12 Mult if cry_UltPair", 8),
@@ -171,49 +421,375 @@ private val CATALOG = listOf(
     Offer("j_cry_nebulous", "Nebulous Joker", "+30 Chips if cry_None", 5),
     Offer("j_cry_many_lost_minds", "Many Lost Minds", "+52! Chips if cry_WholeDeck", 9),
     Offer("j_cry_jtron", "J-Tron", "mult^(1 + Jokers on board)", 9),
+    // Thalia and Melpomene: Xmult = C(n,2) where n = distinct rarities on the board; Legendary (rarity=4).
+    // Art position unknown (Cryptid source unavailable); renders without sprite until atlas position is confirmed.
+    Offer("j_cry_thalia", "Thalia and Melpomene", "Xmult = C(unique rarities, 2)", 10, rarity = 4),
+    // --- Missing wired-but-not-in-catalog batch ---
+    // apjoker: X4 Xmult on boss blinds.
+    Offer("j_cry_apjoker", "Apjoker", "x4 Mult on boss blinds", 7, rarity = 3),
+    // chili_pepper: Xmult accumulator (+0.5 per end_of_round; perishable).
+    Offer("j_cry_chili_pepper", "Chili Pepper", "Xmult +0.5 per round (perishable)", 6),
+    // dropshot: Xmult accumulator (+0.2 per non-scoring card of random suit each hand).
+    Offer("j_cry_dropshot", "Dropshot", "Xmult +0.2 per non-scoring suit card", 6),
+    // fading_joker: Xmult accumulator (+1 when perishable expires).
+    Offer("j_cry_fading_joker", "Fading Joker", "Xmult +1 when perishable expires", 5),
+    // mondrian: Xmult accumulator (+0.25 per end_of_round with 0 discards).
+    Offer("j_cry_mondrian", "Mondrian", "Xmult +0.25 per unused-discard round", 6),
+    // keychange: Xmult accumulator (+0.25 per new hand type played; resets each round).
+    Offer("j_cry_keychange", "Key Change", "Xmult +0.25 per new hand type played", 6),
+    // poor_joker: +Mult accumulator (+4 per rent payment).
+    Offer("j_cry_poor_joker", "Poor Joker", "+Mult accumulates per rent payment", 4),
+    // spaceglobe: Xchip accumulator (+0.2 when target hand type played; target rotates).
+    Offer("j_cry_spaceglobe", "Spaceglobe", "Xchip +0.2 per target hand played", 6),
+    // supercell: flat +15c X2c +15m X2m every hand.
+    Offer("j_cry_supercell", "Supercell", "+15c X2c +15m X2m", 9),
+    // universe: Emult^1.2 per other Astral-edition joker (other_joker pass).
+    Offer("j_cry_universe", "Universe", "Emult^1.2 per Astral joker", 9, rarity = 3),
+    // caramel: X1.75 Mult per scored played card (individual pass; j.x=1.75; perishable).
+    Offer("j_cry_caramel", "Caramel", "x1.75 Mult per scored card (perishable)", 8, rarity = 5),
+    // --- Cryptid Epic/M/Exotic pool jokers (Epic=5, Exotic=6, M=M-pool) ---
+    // clockwork: Xmult accumulator (+0.25 every 3rd hand; starts at 1).
+    Offer("j_cry_clockwork", "Clockwork", "Xmult +0.25 every 3rd hand played", 7, rarity = 5),
+    // starfruit: Emult from j.x (starts 2, -0.2 per reroll; perishable).
+    Offer("j_cry_starfruit", "Starfruit", "Emult from scaling (perishable)", 8, rarity = 5),
+    // stella_mortis: Emult accumulator (+0.4 per planet destroyed in shop).
+    Offer("j_cry_stella_mortis", "Stella Mortis", "Emult +0.4 per planet destroyed", 9, rarity = 5),
+    // circulus_pistoris: Xchip*π and Emult*π when exactly 3 hands left.
+    Offer("j_cry_circulus_pistoris", "Circulus Pistoris", "Xchip*π Emult*π at hands_left=3", 9, rarity = 5),
+    // facile: Emult=3 each hand (nearly always fires in standard play).
+    Offer("j_cry_facile", "Facile", "Emult 3 each hand", 8, rarity = 5),
+    // M-pool jokers (special pool; rarity=1 placeholder — not available in standard shop).
+    // foodm: +Mult from j.mult accumulator (starts 40, depletes per round; jolly restores).
+    Offer("j_cry_foodm", "Foodm", "+Mult from accumulator (M-pool)", 6),
+    // mstack: +j.n retriggers per scored card (n=1 base; grows by selling jolly jokers).
+    Offer("j_cry_mstack", "Mstack", "+retriggers per scored card (M-pool)", 6),
+    // biggestm: X7 Mult when activated by Pair+ hand (before-pass gate).
+    Offer("j_cry_biggestm", "Biggestm", "X7 Mult on Pair+ hands (M-pool)", 7),
+    // crustulum: +Chips from j.chips accumulator (reroll shop increments).
+    Offer("j_cry_crustulum", "Crustulum", "+Chips from reroll accumulator (M-pool)", 6),
+    // --- missing Cryptid jokers (batch 1): passive hand modifier ---
+    Offer("j_cry_blurred", "cry-Blurred Joker", "+1 hand each round", 4),
+    // --- missing Cryptid jokers (batch 2): economy ---
+    Offer("j_cry_gardenfork", "cry-Gardenfork", "Earn $7 if the played hand has an Ace and a 7", 7, rarity = 3),
+    Offer("j_cry_hunger", "cry-Hunger", "Earn $3 each time a consumable is used", 6, rarity = 2),
+    // --- missing Cryptid jokers (batch 3): Lucky-trigger economy ---
+    Offer("j_cry_lucky_joker", "cry-Lucky Joker", "Earn $5 each time a Lucky card triggers", 4),
+    // --- missing Cryptid jokers (batch 4): per-round hand-size accumulator ---
+    Offer("j_cry_lebaron_james", "cry-LeBaron James", "+1 hand size this round per scored King", 6, rarity = 3),
+    Offer("j_cry_goldjoker", "cry-gold Joker", "Earns a % of your money at end of round; +2% per scored Gold card", 14, rarity = 5),
+    Offer("j_cry_compound_interest", "cry-Compound Interest", "Earns 12% of your money at end of round; the % grows +3% each round", 10, rarity = 3),
+    Offer("j_cry_eyeofhagane", "cry-Eye of Hagane", "All played face cards become Steel cards when scored", 6, rarity = 2),
+    Offer("j_cry_redbloon", "cry-redbloon", "After 2 rounds, gives \$20 and self-destructs", 4),
+    Offer("j_cry_magnet", "cry-Magnet", "End of round: \$10 if you have 4 or fewer Jokers, otherwise \$2", 6),
+    Offer("j_cry_morse", "cry-Morse", "Earns \$1 at end of round; +\$2 each time an edition Joker is sold", 5),
+    Offer("j_cry_familiar_currency", "cry-Familiar Currency", "End of round: spend \$19 to create a random Meme Joker (if you have \$19+)", 0, rarity = 3),
+    Offer("j_cry_necromancer", "cry-Necromancer", "When a Joker is sold, create a random previously-sold Joker (no sell value)", 5, rarity = 2),
+    Offer("j_cry_kidnap", "cry-kidnap", "Earn \$4 at end of round for each 'type' Joker (Jolly/Sly families) sold this run", 4),
+    Offer("j_cry_arsonist", "cry-Arsonist", "If your played hand contains a Full House, destroy every played card", 5, rarity = 3),
+    Offer("j_cry_huntingseason", "cry-Hunting Season", "When you play exactly 3 cards, destroy the middle one", 7, rarity = 2),
+    Offer("j_cry_seal_the_deal", "cry-Seal the Deal", "On the final hand of the round, give each scored card a random seal", 5, rarity = 2),
+    Offer("j_cry_queens_gambit", "cry-Queen's Gambit", "Playing a Royal Flush destroys the Queen and creates a Negative Joker", 7),
+    Offer("j_cry_equilib", "cry-Aequilibrium", "Creates 2 Negative Jokers each hand", 50, rarity = 5),
+    // --- missing Cryptid jokers (batch 5): sell-economy ---
+    Offer("j_cry_coin", "cry-Coin", "Earn $1-10 when a Joker is sold", 5),
+    // --- missing Cryptid jokers (batch 6): sell-spawn ---
+    Offer("j_cry_happy", "cry-Happy", "Sell this card to create a random Joker", 2),
+    // m: Xmult from j.x (+13 per Jolly Joker sold).
+    Offer("j_cry_m", "M", "Xmult +13 per Jolly sold (M-pool)", 7),
+    // longboi: Xmult = monstermult (grows each round; M-pool variant).
+    Offer("j_cry_longboi", "Longboi", "Xmult = monstermult (M-pool)", 6),
+    // circus: Xmult per other joker based on rarity (Rare=X2, Epic=X3, Legendary=X4, Exotic=X20).
+    Offer("j_cry_circus", "Circus", "Xmult per rarity: Rare x2, Epic x3, Leg x4, Exotic x20", 9, rarity = 6),
+    // broken_sync_catalyst: atomically swaps 10% of chips into mult and 10% of mult into chips.
+    // rarity=3 (Rare), cost=8. Confirmed from SpectralPack/Cryptid items/misc_joker.lua.
+    // (cry_broken_swap=10 → portion=10%); math: delta=(chips−mult)*0.10. Inline intercept in joker_main.
+    Offer("j_cry_broken_sync_catalyst", "Broken Sync Catalyst", "swap 10% of Chips↔Mult", 8, rarity = 3),
+    // sync_catalyst: balances Chips and Mult (sets both to their average = (chips+mult)/2).
+    // rarity=4 (Legendary), cost=20. Confirmed from SpectralPack/Cryptid items/misc_joker.lua.
+    Offer("j_cry_sync_catalyst", "Sync Catalyst", "balance Chips = Mult = average", 20, rarity = 4),
+    // --- Cryptid Spooky-Code scoring jokers ---
+    // Spy: flat X0.5 Mult every hand (halves mult); x_mult=0.5 is fixed.
+    Offer("j_cry_spy", "Spy", "x0.5 Mult every hand", 3),
+    // Cut: Xmult from j.x accumulator (+0.5 per Code card destroyed when leaving shop). Rarity/cost: best-guess.
+    Offer("j_cry_cut", "Cut", "Xmult +0.5 per Code card destroyed", 6),
+    // Python: Xmult from j.x accumulator (+0.15 per Code consumable used). Rarity/cost: best-guess.
+    Offer("j_cry_python", "Python", "Xmult +0.15 per Code card used", 5),
+    // --- cry jokers implemented in the engine but previously unacquirable (now wired into the shop;
+    //     name/desc/cost/rarity from mods/Cryptid/items). Rarity ints: cry_cursed→1, cry_epic→5, cry_exotic→6.
+    //     blacklist/membershipcard(two) are partially inert in the rebuild (no random-rank shop pool / no live
+    //     Discord member count); jollysus' create-on-sell and bonk's Pair-bonus scaling are unported — engine gaps. ---
+    Offer("j_cry_blacklist", "Blacklist", "Zeroes hands holding a chosen rank; self-destructs if it leaves the deck", 0),
+    Offer("j_cry_bonk", "Bonk", "+6 Chips per Joker (x3 for Jolly Jokers)", 5, rarity = 2),
+    Offer("j_cry_boredom", "Boredom", "1 in 2 chance to retrigger each Joker or card", 14, rarity = 5),
+    Offer("j_cry_busdriver", "Bus Driver", "3-in-4: +50 Mult; 1-in-4: -50 Mult each hand", 7, rarity = 2),
+    Offer("j_cry_googol_play", "Googol Play Card", "1 in 8 chance for X1e100 Mult", 10, rarity = 5),
+    Offer("j_cry_jollysus", "Jolly Joker?", "Create a Joker when a Joker is sold (once per round)", 4),
+    Offer("j_cry_membershipcard", "Membership Card", "X0.1 Mult per Cryptid Discord member", 20, rarity = 4),
+    Offer("j_cry_membershipcardtwo", "Membership Card", "+1 Chip per Cryptid Discord member", 17, rarity = 5),
+    Offer("j_cry_mprime", "M Prime", "^1.05 Emult per Jolly / M Joker", 50, rarity = 6),
+    Offer("j_cry_paved_joker", "Paved Joker", "Stones fill 1-gaps in straights/flushes; +X1 per Perishable expired", 4),
+    // --- vanilla held-in-hand jokers ---
+    Offer("j_baron", "Baron", "each King held gives x1.5 Mult", 8, rarity = 3),
+    Offer("j_shoot_the_moon", "Shoot the Moon", "each Queen held gives +13 Mult", 1),
+    Offer("j_raised_fist", "Raised Fist", "+2x lowest held card's rank in Mult", 1),
+    // --- vanilla n-based flat jokers ---
+    Offer("j_abstract", "Abstract Joker", "+3 Mult per joker on board", 1),
+    Offer("j_supernova", "Supernova", "+1 Mult per times this hand type played", 1),
+    Offer("j_blue_joker", "Blue Joker", "+2 Chips per card left in deck", 1),
+    Offer("j_banner", "Banner", "+30 Chips per remaining discard", 1),
+    Offer("j_stone", "Stone Joker", "+25 Chips per Stone card in deck", 2, rarity = 2),
+    Offer("j_steel_joker", "Steel Joker", "x1.2 Mult per Steel card in hand", 2, rarity = 2),
+    Offer("j_drivers_license", "Driver's License", "x3 Mult if 16+ enhanced cards in deck", 8, rarity = 3),
+    Offer("j_baseball", "Baseball Card", "x1.5 Mult per Uncommon joker on board", 8, rarity = 3),
+    // --- vanilla copy-jokers (copy the target joker's effect in every context) ---
+    Offer("j_blueprint", "Blueprint", "copies the joker to the right", 10, rarity = 3),
+    Offer("j_brainstorm", "Brainstorm", "copies the leftmost joker", 10, rarity = 3),
+    // --- vanilla accumulator-mult jokers ---
+    Offer("j_green_joker", "Green Joker", "+1 Mult per hand played, -1 per discard", 1),
+    Offer("j_spare_trousers", "Spare Trousers", "+2 Mult each time Two Pair or Full House played", 2, rarity = 2),
+    Offer("j_swashbuckler", "Swashbuckler", "+Mult equal to total sell value of jokers", 1),
+    Offer("j_red_card", "Red Card", "+3 Mult each time a pack is skipped", 1),
+    // --- vanilla accumulator-Xmult jokers ---
+    Offer("j_obelisk", "Obelisk", "+0.2 Xmult per hand NOT this type played", 8, rarity = 3),
+    Offer("j_hologram", "Hologram", "+0.25 Xmult per card added to deck", 2, rarity = 2),
+    Offer("j_ramen", "Ramen", "starts x2 Mult, -0.01 per discarded card", 2, rarity = 2),
+    Offer("j_campfire", "Campfire", "+0.25 Xmult per joker sold", 8, rarity = 3),
+    Offer("j_loyalty_card", "Loyalty Card", "x4 Mult every 5 hands played", 2, rarity = 2),
+    Offer("j_throwback", "Throwback", "+0.25 Xmult per blind skipped this run", 2, rarity = 2),
+    // --- vanilla accumulator-chips jokers ---
+    Offer("j_runner", "Runner", "+15 Chips each Straight played", 1),
+    Offer("j_square", "Square Joker", "+4 Chips each time 5-card hand played", 1),
+    Offer("j_castle", "Castle", "+3 Chips per suit discarded from flush", 2, rarity = 2),
+    Offer("j_wee", "Wee Joker", "+8 Chips each time 4-card Straight played", 8, rarity = 3),
     // --- vanilla hands/discards-remaining jokers (now wired) ---
-    Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6),
+    Offer("j_acrobat", "Acrobat", "x3 Mult on the final hand", 6, rarity = 2),
     Offer("j_mystic_summit", "Mystic Summit", "+15 Mult at 0 discards", 5),
+    // --- missing vanilla jokers (batch 1) ---
+    Offer("j_cavendish", "Cavendish", "X3 Mult", 4),
+    Offer("j_gros_michel", "Gros Michel", "+15 Mult", 5),
+    Offer("j_ice_cream", "Ice Cream", "+100 Chips, -5 per hand played", 5),
+    Offer("j_blackboard", "Blackboard", "X3 Mult if all held cards are Spades or Clubs", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 2): X Mult if hand contains <type> ---
+    Offer("j_duo", "The Duo", "X2 Mult if hand contains a Pair", 8, rarity = 2),
+    Offer("j_trio", "The Trio", "X3 Mult if hand contains a Three of a Kind", 8, rarity = 2),
+    Offer("j_family", "The Family", "X4 Mult if hand contains a Four of a Kind", 8, rarity = 2),
+    Offer("j_order", "The Order", "X3 Mult if hand contains a Straight", 8, rarity = 2),
+    Offer("j_tribe", "The Tribe", "X2 Mult if hand contains a Flush", 8, rarity = 2),
+    // --- missing vanilla jokers (batch 3): money-scaling ---
+    Offer("j_bull", "Bull", "+2 Chips per $1 you have", 6, rarity = 2),
+    Offer("j_bootstraps", "Bootstraps", "+2 Mult per $5 you have", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 4): deck-size / slot scaling ---
+    Offer("j_erosion", "Erosion", "+4 Mult per card below 52 in your deck", 6, rarity = 2),
+    Offer("j_stencil", "Joker Stencil", "X1 Mult per empty Joker slot (counts itself)", 8, rarity = 2),
+    // --- missing vanilla jokers (batch 5): discard-scaling ---
+    Offer("j_yorick", "Yorick", "+X1 Mult per 23 cards discarded", 20, rarity = 4),
+    Offer("j_hit_the_road", "Hit the Road", "+X0.5 Mult per Jack discarded this round", 8, rarity = 3),
+    // --- missing vanilla jokers (batch 6): passive hand-size / discard modifiers (board scan in startRound) ---
+    Offer("j_juggler", "Juggler", "+1 hand size", 4),
+    Offer("j_drunkard", "Drunkard", "+1 discard each round", 4),
+    Offer("j_troubadour", "Troubadour", "+2 hand size, -1 hand each round", 6, rarity = 2),
+    Offer("j_merry_andy", "Merry Andy", "+1 discard, -1 hand size", 7, rarity = 2),
+    Offer("j_turtle_bean", "Turtle Bean", "+5 hand size, reduces by 1 each round", 6, rarity = 2),
+    Offer("j_burglar", "Burglar", "+3 hands, no discards this round", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 7): end-of-round economy (calculate_dollar_bonus) ---
+    Offer("j_golden", "Golden Joker", "Earn $4 at end of round", 6),
+    Offer("j_cloud_9", "Cloud 9", "Earn $1 for each 9 in your deck at end of round", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 8): blind-select spawns ---
+    Offer("j_marble", "Marble Joker", "Adds a Stone card to your deck each Blind", 6, rarity = 2),
+    Offer("j_cartomancer", "Cartomancer", "Creates a Tarot when Blind is selected (if room)", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 9): more end-of-round economy ---
+    Offer("j_to_the_moon", "To the Moon", "Earn an extra $1 of interest for every $5 you have", 5, rarity = 2),
+    Offer("j_delayed_grat", "Delayed Gratification", "Earn $2 per discard if no discards are used by end of round", 4),
+    // --- missing vanilla jokers (batch 11): reroll-scaling ---
+    Offer("j_flash", "Flash Card", "This Joker gains +2 Mult per reroll in the shop", 5, rarity = 2),
+    // --- missing vanilla jokers (batch 12): on-play spawn ---
+    Offer("j_vagabond", "Vagabond", "Creates a Tarot card if hand is played with $4 or less", 8, rarity = 3),
+    // --- missing vanilla jokers (batch 13): pack-open spawn ---
+    Offer("j_hallucination", "Hallucination", "1 in 2 chance to create a Tarot card when any Booster Pack is opened", 4),
+    // --- missing vanilla jokers (batch 14): discard economy ---
+    Offer("j_mail", "Mail-In Rebate", "Earn $5 for each discarded card of a rank (rank changes each round)", 4),
+    Offer("j_trading", "Trading Card", "If first discard of round is a single card, destroy it and earn $3", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 15): held-card economy ---
+    Offer("j_reserved_parking", "Reserved Parking", "Each held face card has a 1 in 2 chance to give $1", 6),
+    // --- missing vanilla jokers (batch 16): sell-value economy ---
+    Offer("j_gift", "Gift Card", "Add $1 of sell value to every Joker at end of round", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 17): sell-to-disable-boss ---
+    Offer("j_luchador", "Luchador", "Sell this card to disable the current Boss Blind", 5, rarity = 2),
+    // --- missing vanilla jokers (batch 18): scoring-time per-suit (Score.kt) ---
+    Offer("j_ancient", "Ancient Joker", "Each played card with a chosen suit gives X1.5 Mult (suit changes each round)", 8, rarity = 3),
+    // --- missing vanilla jokers (batch 19): on-play card transform ---
+    Offer("j_midas_mask", "Midas Mask", "All played face cards become Gold cards when scored", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 20): scoring-time accumulation (Score.kt) ---
+    Offer("j_vampire", "Vampire", "Gains X0.1 Mult per scored enhanced card, removing the enhancement", 7, rarity = 2),
+    // --- missing vanilla jokers (batch 21): boss-scaling economy ---
+    Offer("j_rocket", "Rocket", "Earn $1 at end of round; payout increases by $2 when a Boss Blind is defeated", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 22): sell-to-create-tag ---
+    Offer("j_diet_cola", "Diet Cola", "Sell this card to create a free Double Tag", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 23): retrigger-all countdown ---
+    Offer("j_selzer", "Seltzer", "Retrigger every played card for the next 10 hands", 6, rarity = 2),
+    // --- missing vanilla jokers (batch 24): Lucky-enhancement scaling (the LAST vanilla joker) ---
+    Offer("j_lucky_cat", "Lucky Cat", "This Joker gains X0.25 Mult each time a Lucky card triggers", 6, rarity = 2),
 )
 private const val HANDS = 4
 private const val DISCARDS = 3
+private const val MAX_JOKERS = 5   // G.GAME.max_jokers default (Balatro game.lua)
 
 /** 3 shop offers, deterministic per ante; ~60% of the time the first slot rolls an edition (+3 cost). */
-private fun rollShop(blind: Int): List<Offer> {
-    val rng = Random(blind * 7919L + 13)
-    val base = CATALOG.shuffled(rng).take(3)
-    return base.mapIndexed { i, o ->
-        if (i == 0 && rng.nextInt(100) < 60) {
-            val ed = listOf(Edition.FOIL, Edition.HOLO, Edition.POLY).random(rng)
-            o.copy(edition = ed, name = "${ed.tag} ${o.name}", cost = o.cost + 3)
-        } else o
+// The six base economy vouchers (game.lua:608-618); cost $10, effects per Card:apply_to_run.
+internal val VOUCHERS = listOf(
+    VoucherOffer("v_overstock_norm", "Overstock", "+1 card slot in the shop", 1),
+    VoucherOffer("v_clearance_sale", "Clearance Sale", "All shop cards 25% off", 25),
+    VoucherOffer("v_reroll_surplus", "Reroll Surplus", "Rerolls cost \$2 less", 2),
+    VoucherOffer("v_grabber", "Grabber", "+1 hand each round", 1),
+    VoucherOffer("v_wasteful", "Wasteful", "+1 discard each round", 1),
+    VoucherOffer("v_seed_money", "Seed Money", "Raise interest cap to \$10", 50),
+    VoucherOffer("v_crystal_ball", "Crystal Ball", "+1 consumable slot", 1),
+    VoucherOffer("v_overstock_plus", "Overstock Plus", "+1 card slot in the shop", 1),
+    VoucherOffer("v_reroll_glut", "Reroll Glut", "Rerolls cost \$2 less", 2),
+    VoucherOffer("v_money_tree", "Money Tree", "Double interest cap to \$20", 100),
+    VoucherOffer("v_tarot_merchant", "Tarot Merchant", "Tarots appear 2X more often in the shop", 4),
+    VoucherOffer("v_planet_merchant", "Planet Merchant", "Planets appear 2X more often in the shop", 4),
+    VoucherOffer("v_antimatter", "Antimatter", "+1 Joker slot", 1),
+    VoucherOffer("v_telescope", "Telescope", "Most-played hand's Planet is always in the shop", 0),
+    VoucherOffer("v_directors_cut", "Director's Cut", "Reroll the Boss Blind once per Ante (\$10)", 0),
+    VoucherOffer("v_retcon", "Retcon", "Reroll the Boss Blind unlimited times (\$10)", 0),
+    VoucherOffer("v_omen_globe", "Omen Globe", "Spectral cards may appear in Arcana Packs", 0),
+    VoucherOffer("v_magic_trick", "Magic Trick", "Playing cards can be purchased from the shop", 4),
+    VoucherOffer("v_illusion", "Illusion", "Shop playing cards have an Enhancement", 0),
+    VoucherOffer("v_nacho_tong", "Nacho Tong", "+1 hand each round", 1),
+    VoucherOffer("v_recyclomancy", "Recyclomancy", "+1 discard each round", 1),
+    VoucherOffer("v_liquidation", "Liquidation", "All shop cards 50% off", 50),
+    VoucherOffer("v_blank", "Blank", "Does nothing (unlock prerequisite)", 0),
+)
+/** One voucher per shop (Balatro shows a single voucher slot); skip ones already redeemed. */
+private fun rollVoucher(blind: Int, redeemed: Set<String>): VoucherOffer? =
+    VOUCHERS.filterNot { it.key in redeemed }.shuffled(Random(blind * 49157L + 5)).firstOrNull()
+
+// Booster packs (game.lua p_*). Arcana/Celestial/Buffoon map to the tarot/planet/joker buy systems
+// (Standard/Spectral need deck-add + spectral effects — deferred). extra cards shown, choose picks.
+// Weights are the vanilla per-variant weights SUMMED over each logical pack's variants (game.lua p_*):
+// Arcana/Celestial/Standard normal=4 (4×1) jumbo=2 mega=0.5 (2×0.25); Buffoon 1.2/0.6/0.15;
+// Spectral 0.6/0.3/0.07. So commons (Arcana/Celestial/Standard) dominate, Spectral mega is ~1-in-200.
+private val BOOSTERS = listOf(
+    BoosterOffer("p_arcana_normal", "Arcana Pack", "Arcana", 4, 3, 1, weight = 4.0),
+    BoosterOffer("p_arcana_jumbo", "Jumbo Arcana Pack", "Arcana", 6, 5, 1, weight = 2.0),
+    BoosterOffer("p_arcana_mega", "Mega Arcana Pack", "Arcana", 8, 5, 2, weight = 0.5),
+    BoosterOffer("p_celestial_normal", "Celestial Pack", "Celestial", 4, 3, 1, weight = 4.0),
+    BoosterOffer("p_celestial_jumbo", "Jumbo Celestial Pack", "Celestial", 6, 5, 1, weight = 2.0),
+    BoosterOffer("p_celestial_mega", "Mega Celestial Pack", "Celestial", 8, 5, 2, weight = 0.5),
+    BoosterOffer("p_buffoon_normal", "Buffoon Pack", "Buffoon", 4, 2, 1, weight = 1.2),
+    BoosterOffer("p_buffoon_jumbo", "Jumbo Buffoon Pack", "Buffoon", 6, 4, 1, weight = 0.6),
+    BoosterOffer("p_buffoon_mega", "Mega Buffoon Pack", "Buffoon", 8, 4, 2, weight = 0.15),
+    BoosterOffer("p_standard_normal", "Standard Pack", "Standard", 4, 3, 1, weight = 4.0),
+    BoosterOffer("p_standard_jumbo", "Jumbo Standard Pack", "Standard", 6, 5, 1, weight = 2.0),
+    BoosterOffer("p_standard_mega", "Mega Standard Pack", "Standard", 8, 5, 2, weight = 0.5),
+    BoosterOffer("p_spectral_normal", "Spectral Pack", "Spectral", 4, 2, 1, weight = 0.6),
+    BoosterOffer("p_spectral_jumbo", "Jumbo Spectral Pack", "Spectral", 6, 4, 1, weight = 0.3),
+    BoosterOffer("p_spectral_mega", "Mega Spectral Pack", "Spectral", 8, 4, 2, weight = 0.07),
+)
+/** Two booster slots per shop, polled by vanilla WEIGHT (not uniform). [firstShop] forces a Buffoon
+ *  pack into the very first shop of a run (game.lua first_shop_buffoon guarantee). */
+internal fun rollBoosters(blind: Int, firstShop: Boolean = false): List<BoosterOffer> {
+    val rng = Random(blind * 80021L + 3)
+    val total = BOOSTERS.sumOf { it.weight }
+    fun pick(): BoosterOffer {
+        var r = rng.nextDouble() * total
+        for (b in BOOSTERS) { r -= b.weight; if (r <= 0) return b }
+        return BOOSTERS.last()
     }
+    val out = ArrayList<BoosterOffer>(2)
+    if (firstShop) out.add(BOOSTERS.first { it.key == "p_buffoon_normal" })
+    while (out.size < 2) out.add(pick())
+    return out
 }
 
-/** 2 planet cards per ante, deterministic. Each levels up its hand type ($3). */
-private fun rollPlanets(blind: Int): List<PlanetOffer> =
-    Planet.values().toList().shuffled(Random(blind * 104729L)).take(2).map { PlanetOffer(it, 3) }
+/** Vanilla default joker_max — the shop holds this many MIXED slots (game.lua:1984). */
+private const val JOKER_MAX = 2
+// Per-slot type weights (game.lua:1901-1905 defaults). The shop polls a type per slot:
+// joker ~71%, tarot ~14%, planet ~14% (playing-card/spectral default 0 → from packs only).
+private const val JOKER_RATE = 20.0
+private const val TAROT_RATE = 4.0
+private const val PLANET_RATE = 4.0
 
-private val TAROTS = listOf(
-    TarotOffer("The Hierophant", Enhancement.BONUS, 3),
-    TarotOffer("The Empress", Enhancement.MULT, 3),
-    TarotOffer("Justice", Enhancement.GLASS, 3),
-    TarotOffer("The Chariot", Enhancement.STEEL, 4),      // steel (corrects the earlier mislabel)
-    TarotOffer("The Devil", Enhancement.GOLD, 4),
-    TarotOffer("The Star", Enhancement.WILD, 4),
-    TarotOffer("The Tower", Enhancement.STONE, 4),        // stone: +50 chips, no rank/suit
-    TarotOffer("The Sun", cost = 4, seal = Seal.RED),     // red seal: retrigger
-    TarotOffer("The Moon", cost = 4, seal = Seal.GOLD),   // gold seal: +$3 when played
+/** The unified shop pool (vanilla create_card_for_shop, UI_definitions.lua:742): for each of [slots]
+ *  slots, poll a TYPE by weight, then draw a distinct card of that type from its pool. The first
+ *  joker still gets the rebuild's edition chance. Deterministic per [blind]. */
+private fun rollShopItems(blind: Int, slots: Int, spectralRate: Double = 0.0,
+                          tarotRate: Double = TAROT_RATE, planetRate: Double = PLANET_RATE, cardRate: Double = 0.0,
+                          illusion: Boolean = false): List<ShopItem> {
+    val rng = Random(blind * 7919L + 13)
+    val jokers = CATALOG.shuffled(rng).iterator()
+    val planets = Planet.values().toList().shuffled(Random(blind * 104729L)).iterator()
+    val tarots = TAROTS.shuffled(Random(blind * 1299709L)).iterator()
+    val spectrals = Spectral.values().toList().shuffled(Random(blind * 15485863L)).iterator()
+    val total = JOKER_RATE + tarotRate + planetRate + spectralRate + cardRate  // Merchant/Ghost/Magic-Trick vouchers raise these
+    val out = ArrayList<ShopItem>(slots)
+    var jokerSlotIdx = 0
+    fun drawJoker(): ShopItem? {
+        if (!jokers.hasNext()) return null
+        var o = jokers.next()
+        if (jokerSlotIdx == 0 && rng.nextInt(100) < 60) {       // first joker may roll an edition (+3 cost)
+            val ed = listOf(Edition.FOIL, Edition.HOLO, Edition.POLY).random(rng)
+            o = o.copy(edition = ed, name = "${ed.tag} ${o.name}", cost = o.cost + 3)
+        }
+        jokerSlotIdx++
+        return ShopItem.Jk(o)
+    }
+    repeat(slots) {
+        val polled = rng.nextDouble() * total
+        val item = when {
+            polled < JOKER_RATE -> drawJoker()
+            polled < JOKER_RATE + tarotRate && tarots.hasNext() -> ShopItem.Tt(tarots.next())
+            polled < JOKER_RATE + tarotRate + planetRate && planets.hasNext() -> ShopItem.Pl(PlanetOffer(planets.next(), 3))
+            polled < JOKER_RATE + tarotRate + planetRate + spectralRate && spectrals.hasNext() -> ShopItem.Sp(spectrals.next())   // Ghost deck
+            polled < total && cardRate > 0 -> ShopItem.Cd(PlayingCard(Suit.values().random(rng), (2..14).random(rng),   // Magic Trick
+                enhancement = if (illusion) listOf(Enhancement.BONUS, Enhancement.MULT, Enhancement.WILD, Enhancement.GLASS, Enhancement.STEEL, Enhancement.GOLD).random(rng) else Enhancement.NONE))  // Illusion
+            else -> drawJoker()                                 // type pool exhausted → fall back to a joker
+        }
+        if (item != null) out.add(item)
+    }
+    return out
+}
+
+// Faithful vanilla tarots (game.lua c_*). Enhancement tarots use the existing enhancements; the
+// suit-conversion (Star/Sun/Moon/World), rank-up (Strength), and destroy (Hanged Man) tarots modify
+// the selected cards. (The Magician enhances up to 2 cards to Lucky — now that the Lucky enhancement +
+// its scoring exist; seals come from spectrals Talisman/Deja Vu, not from Sun/Moon as the old mapping had.)
+internal val TAROTS = listOf(
+    TarotOffer("The Magician", TarotFx.Enhance(Enhancement.LUCKY, 2)),
+    TarotOffer("The Empress", TarotFx.Enhance(Enhancement.MULT, 2)),
+    TarotOffer("The Hierophant", TarotFx.Enhance(Enhancement.BONUS, 2)),
+    TarotOffer("The Lovers", TarotFx.Enhance(Enhancement.WILD, 1)),
+    TarotOffer("The Chariot", TarotFx.Enhance(Enhancement.STEEL, 1)),
+    TarotOffer("Justice", TarotFx.Enhance(Enhancement.GLASS, 1)),
+    TarotOffer("The Devil", TarotFx.Enhance(Enhancement.GOLD, 1)),
+    TarotOffer("The Tower", TarotFx.Enhance(Enhancement.STONE, 1)),
+    TarotOffer("The Star", TarotFx.ConvertSuit(Suit.D, 3)),   // → Diamonds
+    TarotOffer("The Sun", TarotFx.ConvertSuit(Suit.H, 3)),    // → Hearts
+    TarotOffer("The Moon", TarotFx.ConvertSuit(Suit.C, 3)),   // → Clubs
+    TarotOffer("The World", TarotFx.ConvertSuit(Suit.S, 3)),  // → Spades
+    TarotOffer("Strength", TarotFx.RankUp(2)),                // +1 rank to up to 2
+    TarotOffer("The Hanged Man", TarotFx.Destroy(2)),         // destroy up to 2
+    TarotOffer("The Hermit", TarotFx.DoubleMoney),            // double money (max +$20)
+    TarotOffer("Temperance", TarotFx.JokerSellMoney),         // gain total joker sell value (max $50)
+    TarotOffer("The High Priestess", TarotFx.CreatePlanets(2)),  // create 2 Planets
+    TarotOffer("The Emperor", TarotFx.CreateTarots(2)),       // create 2 Tarots
+    TarotOffer("The Fool", TarotFx.CreateLastUsed),           // copy the last Tarot/Planet used
+    TarotOffer("Death", TarotFx.ConvertCopy),                 // left selected card → copy of the right
 )
-/** 2 tarots per ante; each enhances a random deck card. */
-private fun rollTarots(blind: Int): List<TarotOffer> = TAROTS.shuffled(Random(blind * 1299709L)).take(2)
+/** Look a tarot up by display name — save/restore serializes tarots by name (fx isn't serialized). */
+private fun tarotByName(n: String): TarotOffer = TAROTS.find { it.name == n } ?: TAROTS.first()
 
 /** Compose-observable run state; mutations drive recomposition. Scoring is the faithful Score engine. */
 internal class RunState {
     var money by mutableStateOf(4)
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
-    var phase by mutableStateOf(Phase.ROUND)
+    var bossDisabled by mutableStateOf(false)            // Luchador: boss effects suppressed for the round (boss kept for display)
+    var phase by mutableStateOf(Phase.DECK_SELECT)   // fresh run picks a deck first (resume/deep-link override)
+    var deckJokerBonus = 0                            // Black/Painted deck: ± Joker slots (folded into startRound's maxJokers)
+    var stakeLevel by mutableStateOf(1)               // 1 White … 8 Gold (cumulative; chosen on DECK_SELECT)
+    private var lastConsumable: Consumable? = null     // last Tarot(non-Fool)/Planet used — The Fool copies it
     val handLevels = HandLevels()                        // per-hand-type planet levels (run state)
 
     // ── cash-out (ROUND_EVAL) state — the reward breakdown shown after a blind is beaten ──
@@ -227,23 +803,211 @@ internal class RunState {
 
     // ── game-over (Phase.OVER) stats — round_scores_row equivalents the run actually tracks ──
     val handsPlayedTotal: Int get() = _handPlayed.values.sum()
+
+    // ── boss round-state (THE_EYE, THE_MOUTH) — reset each round ───────────────────────────────
+    /** THE_EYE: hand types already played this round; each type may only be played once. */
+    val eyeUsedHands = mutableSetOf<HandType>()
+    /** THE_MOUTH: the first hand type played; all subsequent plays must match it (null = not locked yet). */
+    var mouthLockedHand: HandType? = null
+    /** THE_PILLAR: cards played in any previous hand this Ante are debuffed for THE_PILLAR blind.
+     *  Resets at the start of each new Ante (slot 0 = first blind of the ante). */
+    val pillarPlayedCards = mutableSetOf<PlayingCard>()
+    /** Current joker slot capacity (default 5; THE_MANACLE reduces by 1 for the boss round). */
+    var maxJokers by mutableStateOf(MAX_JOKERS)
+    /** CRIMSON_HEART: the joker currently disabled for this hand (rotates after each play). */
+    var crimsonHeartDisabled: FJoker? = null
+    /** CERULEAN_BELL: index into `hand` of the forced-selected card (null = none). */
+    var bellForcedIdx: Int? = null
+    /** Cumulative hands played this run (used by j_cry_clockwork: fires every 3rd hand). */
+    var totalHandsPlayed by mutableStateOf(0); private set
+    /** Hand types played this round (j_cry_keychange: +0.25 Xmult per new type first seen; resets on startRound). */
+    private val roundHandTypes = mutableSetOf<HandType>()
+    /** Discards used this round (mondrian: +0.25 Xmult when 0 used at end_of_round). Reset in startRound(). */
+    private var roundDiscardsUsed = 0
+    /** Random suit chosen for j_cry_dropshot each round (reset_castle_card pattern, seeded by blindIndex).
+     *  Default Spades matches Cryptid's G.GAME.current_round.cry_dropshot_card = { suit = "Spades" }. */
+    private var dropShotSuit: Suit = Suit.S
+    var ancientSuit: Suit = Suit.H               // Ancient Joker: this round's suit (reset_ancient_card — never last round's)
+    /** Random rank chosen for j_mail each round (reset_mail_rank pattern — common_events.lua:2715-2731,
+     *  pseudoseed('mail'..ante)). Rebuild seeds by blindIndex; default Ace=14 matches Lua default. */
+    internal var mailRank: Int = 14   // internal (not private) so the discard-economy test can read it
+    /** Face-down card indices (THE_HOUSE/MARK/WHEEL/FISH): set of `hand` indices currently showing
+     *  the card back. Tapping a face-down card reveals it (removes from faceDown) AND selects it —
+     *  the same gesture as vanilla Balatro's hover-reveals + click-selects on desktop. Newly drawn
+     *  cards are added here by applyFaceDown(), called from startRound() and refill(). */
+    var faceDown by mutableStateOf(setOf<Int>())
     val mostPlayedHand: Pair<HandType, Int>? get() = _handPlayed.entries.maxByOrNull { it.value }?.toPair()
     val timesRerolled: Int get() = rerolls
+    /** G.GAME.round_scores['hand'].amt — cumulative chips scored across all rounds. */
+    var totalChipsScored by mutableStateOf(0.0); private set
+    /** G.GAME.round_scores['cards_played'].amt — total cards played in hands this run. */
+    var totalCardsPlayed by mutableStateOf(0); private set
+    /** G.GAME.round_scores['cards_discarded'].amt — total cards discarded this run. */
+    var totalCardsDiscarded by mutableStateOf(0); private set
+    /** G.GAME.round_scores['cards_purchased'].amt — total cards/packs bought this run. */
+    var totalCardsPurchased by mutableStateOf(0); private set
+    /** G.GAME.pseudorandom.seed — a display seed string generated once at run start. */
+    var runSeed: String = java.util.UUID.randomUUID().toString().take(8).uppercase(); private set
+
 
     val ante: Int get() = blindIndex / 3 + 1
     private val slot: Int get() = blindIndex % 3          // 0 Small, 1 Big, 2 Boss
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
     val owned = mutableStateListOf<Owned>()
-    var shop by mutableStateOf<List<Offer>>(emptyList())
-    var shopPlanets by mutableStateOf<List<PlanetOffer>>(emptyList())
-    var shopTarots by mutableStateOf<List<TarotOffer>>(emptyList())
-    var enhancedCount by mutableStateOf(0)
+    // History of sold Joker keys this run (G.GAME.jokers_sold) — read by Necromancer (recreate a random
+    // sold Joker) and Kidnap ($ per "type" Joker sold). In-session only: NOT serialized, so a save/load
+    // resume starts the history fresh (a secondary gap for the save/load lane to close later).
+    val jokersSold = mutableListOf<String>()
+    /** Joker slots: base 5, +1 per NEGATIVE joker held (e_negative config.extra = 1 → card_limit+1). */
+    val jokerSlots: Int get() = 5 + owned.count { it.offer.edition == Edition.NEGATIVE }
+    // Voucher run-modifiers (Card:apply_to_run). Persist for the whole run once redeemed.
+    var shopSlotsBonus by mutableStateOf(0)        // Overstock: +1 shop card slot
+    var discountPercent by mutableStateOf(0)       // Clearance Sale: % off all shop prices
+    var interestCap by mutableStateOf(5)           // Seed Money: max interest dollars (5 → 10)
+    var baseHands by mutableStateOf(HANDS)         // Grabber: +1 hand/round
+    var baseDiscards by mutableStateOf(DISCARDS)   // Wasteful: +1 discard/round
+    val redeemedVouchers = mutableStateListOf<String>()
+    var shopVoucher by mutableStateOf<VoucherOffer?>(null)
+    var shopBoosters by mutableStateOf<List<BoosterOffer>>(emptyList())   // 2 booster slots per shop
+    var openPack by mutableStateOf<OpenPack?>(null)                       // the pack being opened (PACK_OPEN)
+    private var packSeed = 0                                              // varies pack contents per buy
+    // Skip tags: earned by skipping a blind, fired at their trigger. handSize + the per-shop tag
+    // transients (reset on each shop entry) are how the timed effects land.
+    val tags = mutableStateListOf<Tag>()                                 // earned, awaiting their trigger
+    var handSize by mutableStateOf(8)                                    // cards drawn this round (Juggle: +3)
+    var baseHandSize by mutableStateOf(8)                                // permanent base hand size (Ectoplasm: -1)
+    var freeRerollThisShop by mutableStateOf(false)                      // D6 Tag (this shop only)
+    var couponThisShop by mutableStateOf(false)                          // Coupon Tag (this shop only)
+    // Consumable slots (G.consumeables): tarots/planets are HELD here and used when chosen.
+    val consumables = mutableStateListOf<Consumable>()
+    var consumableSlotsBonus by mutableStateOf(0)                        // Crystal Ball voucher (follow-on)
+    val consumableSlots: Int get() = 2 + consumableSlotsBonus
+    var spectralRate = 0.0                                               // Ghost deck: spectrals appear in the shop pool
+    var tarotRate = TAROT_RATE                                           // Tarot Merchant voucher raises this
+    var planetRate = PLANET_RATE                                         // Planet Merchant voucher raises this
+    var telescope = false                                                // Telescope voucher / Nebula deck: most-played planet always in shop
+    var cardRate = 0.0                                                    // Magic Trick voucher: playing cards appear in the shop pool
+    var illusion = false                                                  // Illusion voucher: shop playing cards roll an enhancement
+    var greenEconomy = false                                             // Green deck: $/hand+discard at round end, no interest
+    var anaglyph = false                                                 // Anaglyph deck: a Double Tag after each boss
+    var doubleNextTags = 0                                               // Double Tags pending — duplicate the next skip tag
+    var directorsCut = false                                             // Director's Cut voucher: reroll the boss 1×/ante ($10)
+    var retcon = false                                                   // Retcon voucher: reroll the boss unlimited ($10)
+    var bossReshuffle = 0                                                // mixed into the boss seed; +1 per reroll
+    var bossRerollsThisAnte = 0                                          // Director's Cut per-ante limit (reset at slot 0)
+    var omenGlobe = false                                               // Omen Globe voucher: spectrals may appear in Arcana packs(s)
+    fun hasConsumableRoom(): Boolean = consumables.size < consumableSlots
+    /** Use the held consumable at [i] — free its slot FIRST (so creation tarots create into the freed
+     *  slot, as in vanilla), then apply its effect. */
+    fun useConsumable(i: Int) {
+        val c = consumables.getOrNull(i) ?: return
+        consumables.removeAt(i)
+        // j_cry_hunger: +$3 each time a consumable is used (context.using_consumeable, p_dollars=money).
+        money += 3 * owned.count { it.offer.key == "j_cry_hunger" }
+        when (c) {
+            is Consumable.TarotC -> {
+                // Non-targeted tarots apply here (money/creation). Targeted ones normally go via
+                // aimTarot→useTarot; if used here without a target, enhance tarots fall back to random.
+                when (val fx = c.t.fx) {
+                    is TarotFx.DoubleMoney -> money += minOf(money, 20)
+                    is TarotFx.JokerSellMoney -> money += minOf(50, owned.sumOf { sellValue(it) })
+                    is TarotFx.CreatePlanets -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(Planet.values().random())) }
+                    is TarotFx.CreateTarots -> repeat(fx.n) { if (hasConsumableRoom()) consumables.add(Consumable.TarotC(TAROTS.random())) }
+                    is TarotFx.CreateLastUsed -> lastConsumable?.let { if (hasConsumableRoom()) consumables.add(it) }   // The Fool
+                    is TarotFx.Enhance -> deck.enhanceRandom(fx.e)
+                    else -> {}
+                }
+                if (c.t.fx !is TarotFx.CreateLastUsed) lastConsumable = c   // Fool itself is excluded
+                Telemetry.event("RUN_USE_TAROT", "tarot" to c.t.name)
+            }
+            is Consumable.PlanetC -> {
+                handLevels.levelUp(c.planet.hand)
+                // j_constellation: +0.1 Xmult per planet consumable USED (card.lua:3286 context.consumeable,
+                //   ability.set=='Planet'). Was incorrectly firing on planet purchase — fixed here.
+                lastConsumable = c                                          // The Fool can copy the last Planet used
+                for (o in owned) if (o.fj.key == "j_constellation") o.fj.x += 0.1
+                // j_hiker: +5 Chips permanently per scored played card (card.lua:3606-3608 context.individual).
+                //   Implemented: permaBonus field on PlayingCard; Score.kt onPermaBonusGained callback
+                //   persists the +5 to Deck.all after each scored card (card.lua:3606-3608).
+                //   Removing from wrong site (planet purchase) — correct site is the individual card-scoring pass.
+                Telemetry.event("RUN_USE_PLANET", "planet" to c.planet.display)
+            }
+            is Consumable.SpectralC -> { applySpectral(c.s); Telemetry.event("RUN_USE_SPECTRAL", "spectral" to c.s.name) }
+        }
+    }
+
+    /** Apply a spectral card's effect to the run (Spectral consumable use). */
+    private fun applySpectral(s: Spectral) {
+        when (s) {
+            Spectral.BLACK_HOLE -> HandType.values().forEach { handLevels.levelUp(it) }
+            Spectral.IMMOLATE -> { repeat(5) { deck.removeRandom() }; money += 20 }
+            Spectral.TALISMAN -> deck.sealRandom(Seal.GOLD)
+            Spectral.DEJA_VU -> deck.sealRandom(Seal.RED)
+            Spectral.ECTOPLASM -> {
+                if (owned.isNotEmpty()) { val i = owned.indices.random(); owned[i] = owned[i].copy(offer = owned[i].offer.copy(edition = Edition.NEGATIVE)) }
+                baseHandSize = maxOf(1, baseHandSize - 1)
+            }
+            Spectral.HEX -> if (owned.isNotEmpty()) {
+                val keep = owned[owned.indices.random()].let { it.copy(offer = it.offer.copy(edition = Edition.POLY)) }
+                owned.clear(); owned.add(keep)
+            }
+            Spectral.WRAITH -> { val o = CATALOG.random(); owned.add(Owned(o, initialFJoker(o, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed))); money = 0 }
+            Spectral.SIGIL -> if (hand.isNotEmpty()) {                       // whole hand → one random suit
+                val suit = Suit.values().random()
+                hand.forEach { deck.setSuitCard(it, suit) }
+                hand = hand.map { it.copy(suit = suit) }
+            }
+            Spectral.OUIJA -> {                                             // whole hand → one random rank, -1 hand size
+                if (hand.isNotEmpty()) {
+                    val rank = (2..14).random()
+                    hand.forEach { deck.setRankCard(it, rank) }
+                    hand = hand.map { it.copy(rank = rank) }
+                }
+                baseHandSize = maxOf(1, baseHandSize - 1)
+            }
+            Spectral.FAMILIAR -> { destroyRandomHandCard(); createEnhancedCards(3, 11..13) }   // 3 Enhanced face cards
+            Spectral.GRIM -> { destroyRandomHandCard(); createEnhancedCards(2, 14..14) }        // 2 Enhanced Aces
+            Spectral.INCANTATION -> { destroyRandomHandCard(); createEnhancedCards(4, 2..10) }  // 4 Enhanced numbered
+            Spectral.TRANCE -> deck.sealRandom(Seal.BLUE)                                       // Blue seal → Planet on play
+            Spectral.MEDIUM -> deck.sealRandom(Seal.PURPLE)                                     // Purple seal → Tarot on discard
+            Spectral.AURA -> deck.editionRandom(listOf("Foil", "Holo", "Poly").random())       // random edition
+        }
+    }
+
+    /** Destroy one random card from the current hand (Familiar/Grim/Incantation), if any. */
+    private fun destroyRandomHandCard() {
+        if (hand.isEmpty()) return
+        val c = hand.random(); deck.destroyCard(c); hand = hand - c
+    }
+
+    /** Create [n] cards of a random suit, rank in [ranks], and a random enhancement — added to the deck
+     *  and the current hand (Familiar/Grim/Incantation). */
+    private fun createEnhancedCards(n: Int, ranks: IntRange) {
+        val enh = listOf(Enhancement.BONUS, Enhancement.MULT, Enhancement.WILD, Enhancement.GLASS, Enhancement.STEEL, Enhancement.GOLD)
+        val made = (0 until n).map { PlayingCard(Suit.values().random(), ranks.random(), enh.random()) }
+        made.forEach { deck.add(it) }
+        hand = hand + made
+    }
+    /** The tag offered for skipping the current (Small/Big) blind. */
+    val upcomingTag: Tag get() = tagForBlind(blindIndex)
+    /** Shop price after the Clearance Sale discount + the Coupon Tag (free this shop). set_cost: floor, min $1. */
+    fun price(base: Int): Int {
+        val d = maxOf(discountPercent, if (couponThisShop) 100 else 0)
+        return if (d >= 100) 0 else maxOf(1, base * (100 - d) / 100)
+    }
+    /** The shop stock: one mixed pool of jokers/planets/tarots (vanilla joker_max slots). */
+    var shopItems by mutableStateOf<List<ShopItem>>(emptyList())
+    /** The tarot currently being aimed — non-null while the player is selecting target hand cards. */
+    var pendingTarot by mutableStateOf<TarotOffer?>(null)
+    /** Hand-card indices selected as targets for [pendingTarot] (up to 2, like vanilla). */
+    var tarotTarget by mutableStateOf(setOf<Int>())
 
     private val deck = Deck(20260614L)   // persistent across the run (tarot enhancements stick)
     val deckRemaining: Int get() = deck.remaining
     var hand by mutableStateOf<List<PlayingCard>>(emptyList())
     var selected by mutableStateOf(setOf<Int>())
     var roundScore by mutableStateOf(0.0)
+    var runHighScore = 0.0; private set                 // highest round total reached this run (lifetime-stats)
     var handsLeft by mutableStateOf(HANDS)
     var discardsLeft by mutableStateOf(DISCARDS)
     var lastResult by mutableStateOf<ScoreResult?>(null)
@@ -263,54 +1027,96 @@ internal class RunState {
 
     /** Balatro's small-blind base requirement per ante (ante_base in game.lua) — NOT linear 300×ante.
      *  Big = ×1.5, Boss = ×2 (× boss mult). ante 2 small = 800, matching the reference screenshot. */
-    private fun anteBase(a: Int): Double = when (a) {
-        1 -> 300.0; 2 -> 800.0; 3 -> 2000.0; 4 -> 5000.0
-        5 -> 11000.0; 6 -> 20000.0; 7 -> 35000.0; else -> 50000.0
+    // Base Small-Blind chip requirement per ante (1-8), one table per stake "scaling" tier (game.lua
+    // get_blind_amount): scaling 1 = stakes 1-2, scaling 2 = Green+ (stakes 3-5), scaling 3 = Purple+ (6-8).
+    private val anteTables = arrayOf(
+        doubleArrayOf(300.0, 800.0, 2000.0, 5000.0, 11000.0, 20000.0, 35000.0, 50000.0),
+        doubleArrayOf(300.0, 900.0, 2600.0, 8000.0, 20000.0, 36000.0, 60000.0, 100000.0),
+        doubleArrayOf(300.0, 1000.0, 3200.0, 9000.0, 25000.0, 60000.0, 110000.0, 200000.0),
+    )
+    private fun anteBase(a: Int): Double {
+        val tier = if (stakeLevel >= 6) 2 else if (stakeLevel >= 3) 1 else 0
+        return anteTables[tier][(a - 1).coerceIn(0, 7)]
     }
 
     val target: Double get() {
         val base = anteBase(ante)
-        return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * (boss?.targetMult ?: 1.0) }
+        return when (slot) { 0 -> base; 1 -> base * 1.5; else -> base * (boss?.targetMult ?: 2.0) }
     }
 
     /** PROOF harness: inject the EXACT state of the reference screenshot (Balatro press kit, Small Blind
      *  ante 2) so a render can be diffed pixel-for-pixel against it. Two Pair 40×2 frozen mid-score. */
     fun loadRepro() {
         repro = true
-        blindIndex = 3                       // ante 2, slot 0 = Small Blind → target 800
+        // The pixel-gate reference is now the STABLE first-blind SELECTING_HAND frame (vanilla seed
+        // REFSHOT1, captured by test/ref.sh → /tmp/bref_3.png). CardArea align_cards is oracle-verified
+        // correct for a resting hand, so this can reach true parity — unlike the old transient scoring
+        // frame whose mid-slide hand no static layout matched (stuck ~16.9%).
+        blindIndex = 0                       // ante 1, slot 0 = Small Blind → target 300
         money = 4
-        owned.clear()
-        buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)
-        // bref_3's 2nd joker is the Clever Joker (the Two Pair chip joker — the hand here is Two Pair),
-        // identified by the jester+fanned-cards art at Jokers.png cell (2,14) (game.lua j_clever pos x=2,y=14).
-        buy(Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 0), free = true)
+        owned.clear()                        // REFSHOT1's first blind — no jokers yet
         deck.reshuffle(); deck.draw(8)       // remaining → 44/52
-        hand = listOf(PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4))
+        // REFSHOT1's resting hand in G.hand.cards order (rank-desc), dumped by test/ref-autorun.lua.
+        hand = listOf(
+            PlayingCard(Suit.C, 13), PlayingCard(Suit.H, 12), PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11),
+            PlayingCard(Suit.H, 8), PlayingCard(Suit.D, 6), PlayingCard(Suit.C, 4), PlayingCard(Suit.S, 2),
+        )
         selected = emptySet()
-        handsLeft = 3; discardsLeft = 4; roundScore = 0.0
-        lastResult = ScoreResult(HandType.TWO_PAIR, 40.0, 2.0, 80.0)
+        handsLeft = 4; discardsLeft = 4; roundScore = 0.0
+        lastResult = null                    // no hand played yet — hand name row must be blank
         lastSteps = emptyList()
-        scoreCards = listOf(PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10), PlayingCard(Suit.H, 7), PlayingCard(Suit.S, 7))
-        displayChips = 40.0; displayMult = 2.0; popIndex = -1
-        scoring = true
+        scoreCards = emptyList()
+        displayChips = 0.0; displayMult = 0.0; popIndex = -1
+        scoring = false                      // resting SELECTING_HAND — no scoring overlay
         phase = Phase.ROUND
+    }
+
+    /** Like [loadRepro] but lets the scoring cascade actually RUN (repro = false) — a live-cascade
+     *  harness for verifying the P4 animation (chip/mult count-up + card pops via the EventManager).
+     *  Sets up the bref_3 jokers/deck, then plays the Two Pair fresh so the cascade fires live. */
+    fun loadReproLive() {
+        loadRepro()
+        repro = false; scoring = false
+        // self-contained demo jokers (loadRepro no longer sets any — it's the plain SELECTING_HAND
+        // gate state): foil + holo + negative + poly so all four edition shaders show in repro-live.
+        owned.clear()
+        buy(Offer("j_joker", "Joker", "+4 Mult", 0, edition = Edition.FOIL), free = true)
+        buy(Offer("j_clever", "Clever Joker", "+80 Chips if hand has a Two Pair", 0, edition = Edition.HOLO), free = true)
+        buy(Offer("j_joker", "Negative Joker", "+1 joker slot", 0, edition = Edition.NEGATIVE), free = true)
+        buy(Offer("j_joker", "Poly Joker", "+4 Mult", 0, edition = Edition.POLY), free = true)   // last → demo self-destruct
+        // 8-card hand = the Two Pair to play (0..3) + the 4 that REMAIN (4..7, the bref_3 unplayed hand).
+        // Playing 0..3 leaves 4..7 in the hand, which then SLIDE 6.986→8.886 as scoring starts.
+        // One played card is GLASS + forceGlassBreak so it SHATTERS (dissolve.fs) after the tally;
+        // materializeJokers fades the jokers IN at the start (start_materialize) — the create half.
+        forceGlassBreak = true
+        materializeJokers = true
+        demoSelfDestruct = true   // a joker burns away (fiery dissolve) on cash-out — the destroy half
+        consumables.add(Consumable.TarotC(TAROTS[0])); consumables.add(Consumable.SpectralC(Spectral.BLACK_HOLE))  // fill the consumable slots (tap to use)
+        hand = listOf(
+            PlayingCard(Suit.D, 10), PlayingCard(Suit.C, 10),
+            PlayingCard(Suit.H, 7, enhancement = Enhancement.GLASS), PlayingCard(Suit.S, 7),
+            PlayingCard(Suit.C, 12), PlayingCard(Suit.S, 11), PlayingCard(Suit.D, 6), PlayingCard(Suit.S, 4),
+        )
+        selected = setOf(0, 1, 2, 3)
+        play()
     }
 
     /** The boss at THIS ante's Boss slot — for the blind-select preview. `boss` is only assigned
      *  once you're ON the boss slot, so the select screen (you're at Small) needs the upcoming one.
      *  Same RNG as the slot-2 assignment, keyed to the boss-slot index (current ante's 3rd blind). */
     val upcomingBoss: Boss
-        get() = Boss.values().random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1))
+        get() = Boss.pool(ante).random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1 + bossReshuffle * 7919L))
 
     /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
     fun targetForSlot(slotIdx: Int): Double {
         val base = anteBase(ante)
-        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * 2.0 * upcomingBoss.targetMult }
+        return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * upcomingBoss.targetMult }
     }
 
-    /** Reward dollars for each blind slot (config.dollars in Lua: Small=$3, Big=$4, Boss=$5). */
-    fun rewardForSlot(slotIdx: Int): Int = 3 + slotIdx
+    /** Reward dollars for each blind slot (config.dollars: Small=$3, Big=$4, Boss=$5). Red stake (≥2)
+     *  removes the Small Blind's reward. */
+    fun rewardForSlot(slotIdx: Int): Int = if (slotIdx == 0 && stakeLevel >= 2) 0 else 3 + slotIdx
 
     /** Name label for the upcoming blind slot on the blind-select screen. */
     fun nameForSlot(slotIdx: Int): String = when (slotIdx) {
@@ -354,48 +1160,287 @@ internal class RunState {
     init {
         Telemetry.event("RUN_START")
         buy(Offer("j_joker", "Joker", "+4 Mult", 0), free = true)   // start with a Joker
-        startRound()
+        startRound()                                                // deals a standard hand; pickDeck re-deals
+        phase = Phase.DECK_SELECT                                   // fresh run picks a deck first (resume/deep-link override in RunBody)
+    }
+
+    /** Commit the chosen starting deck (DECK_SELECT screen) — bake its modifiers, rebuild the deck
+     *  composition, then start the first round. */
+    fun pickDeck(v: DeckVariant, stake: Int = 1) {
+        if (phase != Phase.DECK_SELECT) return
+        stakeLevel = stake.coerceIn(1, 8)
+        baseHands += v.handsDelta
+        baseDiscards += v.discardsDelta
+        if (stakeLevel >= 5) baseDiscards -= 1                     // Blue stake (≥5): -1 discard each round
+        baseHandSize += v.handSizeDelta
+        deckJokerBonus += v.jokerSlotDelta
+        money += v.startMoney
+        if (v == DeckVariant.MAGIC) {                              // Crystal Ball voucher + 2 The Fool
+            consumableSlotsBonus += 1
+            repeat(2) { consumables.add(Consumable.TarotC(tarotByName("The Fool"))) }
+        }
+        if (v == DeckVariant.GHOST) {                              // spectrals in shop + start with a Hex
+            spectralRate = 2.0
+            consumables.add(Consumable.SpectralC(Spectral.HEX))
+        }
+        if (v == DeckVariant.ZODIAC) {                             // Tarot Merchant + Planet Merchant + Overstock
+            tarotRate += 4; planetRate += 4; shopSlotsBonus += 1
+            redeemedVouchers.addAll(listOf("v_tarot_merchant", "v_planet_merchant", "v_overstock_norm"))
+        }
+        if (v == DeckVariant.NEBULA) {                             // Telescope voucher, -1 consumable slot
+            telescope = true; consumableSlotsBonus -= 1
+            redeemedVouchers.add("v_telescope")
+        }
+        if (v == DeckVariant.GREEN) greenEconomy = true            // $/hand+discard at round end, no interest
+        if (v == DeckVariant.ANAGLYPH) anaglyph = true             // Double Tag after each boss
+        deck.setComposition(buildDeckComposition(v))
+        startRound()                                               // re-deal from the variant deck + apply slot bonus
+        phase = Phase.ROUND
+        Telemetry.event("RUN_DECK", "deck" to v.name, "stake" to stakeLevel)
+    }
+
+    /** The persistent 52(-ish) card set for a starting deck (vanilla deck composition overrides). */
+    private fun buildDeckComposition(v: DeckVariant): List<PlayingCard> = when (v) {
+        DeckVariant.ABANDONED -> Suit.values().flatMap { su -> ((2..10) + 14).map { PlayingCard(su, it) } }          // no J/Q/K
+        DeckVariant.CHECKERED -> listOf(Suit.S, Suit.H).flatMap { su -> (2..14).flatMap { r -> List(2) { PlayingCard(su, r) } } }  // 26 S + 26 H
+        DeckVariant.ERRATIC -> (0 until 52).map { PlayingCard(Suit.values().random(), (2..14).random()) }            // random ranks/suits
+        else -> Suit.values().flatMap { su -> (2..14).map { PlayingCard(su, it) } }                                  // standard 52
+    }
+
+    /** Sync the static FJoker.n fields that mirror run-state counts — deck size, stone/steel card
+     *  counts, joker count, enhanced-card count. Called at the start of play() so the score engine
+     *  sees live values every hand. (The accumulating fields mult/x/chips are updated incrementally
+     *  by the event hooks below; only the *count* fields read from run state every hand.) */
+    private fun syncFJokerN() {
+        val stoneCount = deck.countEnhancement(Enhancement.STONE)
+        val steelCount = deck.countEnhancement(Enhancement.STEEL)
+        for (o in owned) when (o.fj.key) {
+            "j_blue_joker"       -> o.fj.n = deck.remaining
+            "j_stone"            -> o.fj.n = stoneCount
+            "j_steel_joker"      -> o.fj.n = steelCount
+            "j_abstract"         -> o.fj.n = owned.size
+            "j_drivers_license"  -> o.fj.n = deck.enhancedCards
+            "j_banner"           -> o.fj.n = discardsLeft
+            "j_mystic_summit"    -> {} // reads ctx.discardsLeft directly — no FJoker state needed
+        }
+    }
+
+    /** Compute which card indices should be face-down after a draw, per the active boss.
+     *  [newIndices] is the set of indices in the current `hand` that were JUST drawn (not kept from
+     *  a previous hand). Called from startRound() (all cards are new) and refill() (kept cards stay
+     *  at their previous reveal state; only newly drawn slots may flip face-down). */
+    private fun applyFaceDown(newIndices: Set<Int>) {
+        val extra = when (boss) {
+            // THE_HOUSE: entire first hand is face-down; refill() passes an empty set so nothing flips.
+            Boss.THE_HOUSE -> newIndices
+            // THE_MARK: all face cards (J/Q/K) that are newly drawn go face-down.
+            Boss.THE_MARK  -> newIndices.filter { hand.getOrNull(it)?.isFace == true }.toSet()
+            // THE_WHEEL: 1 in 7 newly drawn cards face-down. Balatro rolls a 1-in-7 per card
+            // (pseudorandom per card index). We derive deterministically from the card's identity
+            // (hash of suit+rank+blindIndex) so the same card in the same round always agrees.
+            Boss.THE_WHEEL -> newIndices.filter { i ->
+                val c = hand.getOrNull(i) ?: return@filter false
+                ((c.suit.ordinal * 13 + c.rank + blindIndex * 17) and 0x7FFFFFFF) % 7 == 0
+            }.toSet()
+            // THE_FISH: ALL newly drawn cards are face-down (cards kept from the previous hand
+            // were already revealed when the player selected them and stay face-up).
+            Boss.THE_FISH  -> newIndices
+            else -> emptySet()
+        }
+        faceDown = faceDown + extra
     }
 
     private fun startRound() {
-        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        if (slot == 0) bossRerollsThisAnte = 0   // Director's Cut: refresh the per-ante reroll at each new ante
+        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1 + bossReshuffle * 7919L)) else null
+        bossDisabled = false                  // a fresh boss is active until Luchador disables it
+        handSize = baseHandSize
+        applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
+        // ── passive joker hand-size modifiers (board scan; add_to_deck h_size, applied before the deal) ──
+        handSize += owned.count { it.offer.key == "j_juggler" } +          // Juggler: +1 hand size
+                    2 * owned.count { it.offer.key == "j_troubadour" } -    // Troubadour: +2 hand size
+                    owned.count { it.offer.key == "j_merry_andy" } +        // Merry Andy: -1 hand size
+                    owned.filter { it.offer.key == "j_turtle_bean" }.sumOf { it.fj.n }   // Turtle Bean: +h_size (5, −1/round)
+        handSize = maxOf(1, handSize)
         deck.reshuffle()                  // re-deal the persistent deck (enhancements preserved)
-        hand = deck.draw(8); selected = emptySet()
+        hand = deck.draw(handSize); selected = emptySet(); faceDown = emptySet()
         roundScore = 0.0
-        handsLeft = boss?.hands(HANDS) ?: HANDS          // The Needle: 1 hand
-        discardsLeft = boss?.discards(DISCARDS) ?: DISCARDS  // The Water: 0 discards
+        handsLeft = boss?.hands(baseHands) ?: baseHands          // base (+Grabber); The Needle: 1 hand
+        discardsLeft = boss?.discards(baseDiscards) ?: baseDiscards  // base (+Wasteful); The Water: 0 discards
+        // ── passive joker hands/discards modifiers (board scan) ──
+        handsLeft -= owned.count { it.offer.key == "j_troubadour" }                  // Troubadour: -1 hand
+        handsLeft += owned.count { it.offer.key == "j_cry_blurred" }                 // cry-Blurred: +1 hand each round (extra_hands=1)
+        discardsLeft += owned.count { it.offer.key == "j_drunkard" } +               // Drunkard: +1 discard
+                        owned.count { it.offer.key == "j_merry_andy" }               // Merry Andy: +1 discard
+        if (owned.any { it.offer.key == "j_burglar" }) { handsLeft += 3; discardsLeft = 0 }  // Burglar: +3 hands, no discards
+        handsLeft = maxOf(1, handsLeft); discardsLeft = maxOf(0, discardsLeft)
+        // ── spawn jokers (context.setting_blind): create cards/consumables when the Blind is selected ──
+        repeat(owned.count { it.offer.key == "j_marble" }) {                          // Marble: +1 Stone card each blind
+            deck.add(PlayingCard(Suit.S, 2, Enhancement.STONE))
+        }
+        if (owned.any { it.offer.key == "j_cartomancer" } && hasConsumableRoom()) {    // Cartomancer: create a Tarot (if room)
+            consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 7919L + 11)).first()))
+        }
         lastResult = null; lastSteps = emptyList()
+        eyeUsedHands.clear(); mouthLockedHand = null    // THE_EYE / THE_MOUTH per-round state
+        if (slot == 0) pillarPlayedCards.clear()        // THE_PILLAR: reset at start of new Ante
+        // ── Ante-10 showdown per-round state ──────────────────────────────────────────────
+        crimsonHeartDisabled = null; bellForcedIdx = null
+        roundHandTypes.clear()    // j_cry_keychange resets each round
+        roundDiscardsUsed = 0   // mondrian: track discards used this round
+        // dropshot: pick a random suit for this round (mirrors reset_castle_card pseudorandom_element
+        // on deck cards seeded by ante in Lua). Seeded by blindIndex; Suit.NONE excluded (SMODS.has_no_suit).
+        dropShotSuit = Suit.values().random(Random(blindIndex * 998244353L + 7))
+        // Ancient Joker: pick this round's suit, never the same as last round's (reset_ancient_card).
+        ancientSuit = Suit.values().filter { it != ancientSuit }.random(Random(blindIndex * 2147483647L + 19))
+        mailRank = (2..14).random(Random(blindIndex * 1000000007L + 13))  // reset_mail_rank: pseudoseed('mail'..ante)
+        // THE_MANACLE: -1 joker slot for the boss round; restore at round start so it only applies once.
+        maxJokers = (if (boss == Boss.THE_MANACLE) MAX_JOKERS - 1 else MAX_JOKERS) + deckJokerBonus
+        if (boss == Boss.AMBER_ACORN && owned.size > 1) owned.shuffle()  // AMBER_ACORN: randomise joker order
+        if (boss == Boss.CERULEAN_BELL) bellForcedIdx = hand.indices.random()  // pick forced card after draw
         phase = Phase.ROUND
+        applyFaceDown(hand.indices.toSet())   // face-down bosses flip their initial cards
         Telemetry.event("ROUND_START", "ante" to ante, "blind" to blindName, "target" to target, "boss" to (boss?.display ?: "-"))
     }
 
     private fun refill() {
         val keep = hand.filterIndexed { i, _ -> i !in selected }
-        hand = keep + deck.draw(8 - keep.size)
+        val keepSize = keep.size
+        hand = keep + deck.draw(handSize - keepSize)
+        // Face-down state: kept cards keep whatever reveal state they had; newly drawn slots
+        // (indices keepSize..hand.lastIndex) are candidates for the boss's face-down rule.
+        // THE_HOUSE does NOT re-apply on refill (only the opening hand is face-down).
+        faceDown = faceDown.filter { it < keepSize }.toSet()   // drop face-down for discarded slots
+        if (boss != Boss.THE_HOUSE) applyFaceDown((keepSize until hand.size).toSet())
         selected = emptySet()
     }
 
-    fun toggle(i: Int) { if (phase == Phase.ROUND) selected = if (i in selected) selected - i else selected + i }
+    fun toggle(i: Int) {
+        if (phase != Phase.ROUND) return
+        // When a tarot is pending, taps select TARGET cards (not play-selection).
+        if (pendingTarot != null) {
+            tarotTarget = if (i in tarotTarget) tarotTarget - i
+                          else if (tarotTarget.size < 2) tarotTarget + i
+                          else tarotTarget   // already 2 targets; ignore
+            return
+        }
+        // Face-down cards: first tap REVEALS (removes from faceDown) and selects simultaneously,
+        // matching vanilla Balatro where hover reveals and click selects in one gesture. The card
+        // stays revealed for the rest of the round (faceDown is not re-added on deselect).
+        if (i in faceDown) { faceDown = faceDown - i; selected = selected + i; return }
+        // CERULEAN_BELL: the forced card is always selected and cannot be deselected
+        if (boss == Boss.CERULEAN_BELL && i == bellForcedIdx && i in selected) return
+        selected = if (i in selected) selected - i else selected + i
+    }
 
     /** Score the selection now (the engine), but resolve it as an ANIMATION — the UI drives
      *  scoreStep()/scoreCommit() over time so chips/mult tick up and cards pop one by one. */
     fun play() {
         if (phase != Phase.ROUND || selected.isEmpty() || scoring) return
+        val boss = if (bossDisabled) null else this.boss   // Luchador: a disabled boss applies no effects this hand
+        syncFJokerN()   // update deck-size / stone / steel / abstract / drivers_license counts before scoring
+        // ── hand-detection joker hooks (derived early — needed for both boss gates and scoring) ──
+        val fjokers = owned.map { it.fj }
+        val maxi        = fjokers.any { it.key == "j_cry_maximized" }
+        val fourFingers = fjokers.any { it.key == "j_four_fingers" }
+        val shortcut    = fjokers.any { it.key == "j_shortcut" }
+        val smeared     = fjokers.any { it.key == "j_smeared" }
+        val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
+        // ── boss blind play gates ──────────────────────────────────────────────────────────────
+        val selIndices = selected   // capture before we compute sel
+        val handType0 = Hands.evaluate(hand.filterIndexed { i, _ -> i in selIndices }, rankOf, fourFingers, shortcut, smeared).first
+        if (boss == Boss.THE_PSYCHIC && selIndices.size != 5) return    // THE_PSYCHIC: must play 5
+        if (boss == Boss.THE_EYE && handType0 in eyeUsedHands) return  // THE_EYE: no repeat type
+        if (boss == Boss.THE_MOUTH && mouthLockedHand != null && handType0 != mouthLockedHand) return  // THE_MOUTH: locked
         val sel = hand.filterIndexed { i, _ -> i in selected }
         val held = hand.filterIndexed { i, _ -> i !in selected }
         // FAITHFUL Score engine: maximized-aware hand type drives the planet level; FJokers carry
         // scaling state and accumulate across hands (krusty/primus mutate during scoring).
-        val fjokers = owned.map { it.fj }
-        val maxi = fjokers.any { it.key == "j_cry_maximized" }
-        val rankOf: (PlayingCard) -> Int = if (maxi) { c -> c.id.let { if (it in 2..10) 10 else if (it in 11..13) 13 else it } } else { c -> c.id }
-        val handType = Hands.evaluate(sel, rankOf).first
+        val handType = Hands.evaluate(sel, rankOf, fourFingers, shortcut, smeared).first
         val level = handLevels.level(handType)
         val trace = ArrayList<ScoreStep>()
         // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
         // count AFTER this hand (Balatro decrements before scoring), discards_left is the current count.
-        val r = Score.score(sel, fjokers, held, level, boss?.scoringDebuff ?: Debuff.None, handsLeft - 1, discardsLeft, trace = trace)
+        // THE_PILLAR: pass previously-played-this-Ante cards as DebuffCards; other bosses use scoringDebuff
+        val activeDebuff: Debuff = if (boss == Boss.THE_PILLAR) Debuff.DebuffCards(pillarPlayedCards.toSet())
+                                   else boss?.scoringDebuff ?: Debuff.None
+        // CERULEAN_BELL: the forced card must be included in every play
+        val bellIdx = bellForcedIdx
+        if (boss == Boss.CERULEAN_BELL && bellIdx != null && bellIdx !in selIndices) return
+        // CRIMSON_HEART: pass the currently-disabled joker key so calcJoker skips it
+        val crimsonKey = if (boss == Boss.CRIMSON_HEART) crimsonHeartDisabled?.key else null
+        // ── per-hand pseudorandom joker pre-resolution (run loop owns RNG; score engine is pure) ──
+        // googol_play: X1e100 Mult with 1-in-odds (default 8) probability each hand (epic.lua:220-228).
+        // Roll here; score engine reads j.x (1e100 on hit, 1.0 on miss). Reset each hand before the roll.
+        for (o in owned) if (o.fj.key == "j_cry_googol_play") {
+            val odds = if (o.fj.n > 0) o.fj.n else 8
+            o.fj.x = if (Random.nextInt(odds) == 0) 1e100 else 1.0
+        }
+        // busdriver: +mult or -mult (default 50) each joker_main with 1-in-odds probability (misc_joker.lua:7653).
+        // j.mult = +default_mult on success, -default_mult on fail. j.n stores odds (default 2).
+        for (o in owned) if (o.fj.key == "j_cry_busdriver") {
+            val base = 50.0   // config.extra.mult_mod (default 50; could be stored in o.fj.chips if run loop tracks it)
+            val odds = if (o.fj.n > 0) o.fj.n else 2
+            o.fj.mult = if (Random.nextInt(odds) == 0) base else -base
+        }
+        // ── before-hand joker accumulator hooks (context.before, non-scoring) ──────────────────
+        // fspinner: +6 Chips when ANY other visible hand type has been played >= times this type has
+        // (misc_joker.lua:1872-1886: for k,v in pairs(G.GAME.hands): k ~= scoring_name and v.played >= played_count).
+        // "visible" = the hand is available to play; all standard hands visible in the engine.
+        // Approximation: check all other hand types in _handPlayed (played>=1 implies visible+played).
+        // But the Lua checks `v.played >= play_more_than` where play_more_than is THIS hand's played count
+        // (including the current hand, since played is incremented before the before pass in vanilla).
+        // Engine: use handPlayed(handType) for the current count (this hand NOT yet counted → use +1 to match).
+        for (o in owned) if (o.fj.key == "j_cry_fspinner") {
+            val thisCount = handPlayed(handType) + 1  // +1: vanilla increments played before before-pass
+            val yes = _handPlayed.any { (k, v) -> k != handType && v >= thisCount }
+            if (yes) o.fj.chips += 6.0
+        }
+        // spaceglobe: +0.2 Xchip each time the target hand type is played (misc_joker.lua:3432-3453).
+        // j.n stores the target hand type as its ordinal (0=HIGH_CARD by default from config.extra.type="High Card").
+        // After a match, the target rotates to a random OTHER hand type. Score engine reads j.xc when > 1.
+        for (o in owned) if (o.fj.key == "j_cry_spaceglobe") {
+            val targetType = HandType.values().getOrNull(o.fj.n) ?: HandType.HIGH_CARD
+            if (handType == targetType) {
+                o.fj.xc += 0.2
+                // Rotate to a random other standard hand type (exclude NONE and CRY_* custom types and current).
+                val candidates = HandType.values().filter { it != targetType && it != HandType.NONE
+                    && !it.name.startsWith("CRY_") }
+                if (candidates.isNotEmpty()) o.fj.n = candidates.random().ordinal
+            }
+        }
+        // dropshot: +0.2 Xmult per non-scoring (held) card of this round's target suit (misc_joker.lua:57-88).
+        // "non-scoring" = cards in full_hand but NOT in scoring_hand (cry_dropshot_incompat).
+        // dropShotSuit was chosen at startRound() from the deck, seeded by blindIndex.
+        for (o in owned) if (o.fj.key == "j_cry_dropshot") {
+            val nonScoring = held.filter { it.isSuit(dropShotSuit, smeared) }
+            if (nonScoring.isNotEmpty()) o.fj.x += 0.2 * nonScoring.size
+        }
+        val r = Score.score(sel, fjokers, held, level, activeDebuff, handsLeft - 1, discardsLeft,
+                            debuffedJokerKey = crimsonKey, handTypePlays = _handPlayed,
+                            totalHandsPlayed = totalHandsPlayed, money = money,
+                            deckSize = deck.composition().size, jokerSlots = maxJokers, ancientSuit = ancientSuit,
+                            luckySeed = blindIndex * 524287L + totalHandsPlayed * 2999L + 41L, trace = trace,
+                            // j_hiker: persist the +5 permaBonus to Deck.all after each scored card.
+                            // The scored card in `scoringHand` has the OLD permaBonus (Lua timing:
+                            // joker individual hooks fire after eval_card, so the +5 takes effect
+                            // from the next hand). We match by value — indexOf finds the first
+                            // matching instance in Deck.all (safe for standard 52-card deck).
+                            onPermaBonusGained = { card, amount -> deck.addPermaBonus(card, amount) },
+                            onLuckyMoney = { money += it })   // m_lucky: 1-in-15 → $20, granted as the card scores
         lastResult = r; lastSteps = trace
         pending = r; pendingSel = sel; pendingHeld = held
+        // the played cards LEAVE the hand immediately (they're now in G.play) — so the engine's
+        // identity-tracked card Moveables transfer hand→play carrying their VT (the fly-in). refill()
+        // keeps the held hand (selected is empty now) and draws back up to 8 at commit.
+        // Remap faceDown indices after the played cards leave the hand. Played cards were
+        // already revealed (toggle removes from faceDown before adding to selected), so faceDown
+        // only contains held-card indices; map each through to its new position in `held`.
+        val oldToNew = HashMap<Int, Int>()
+        var newIdx = 0
+        for (oldIdx in hand.indices) { if (oldIdx !in selected) { oldToNew[oldIdx] = newIdx; newIdx++ } }
+        faceDown = faceDown.mapNotNull { oldToNew[it] }.toSet()
+        hand = held; selected = emptySet()
         scoreCards = sel; popIndex = -1
         displayChips = trace.firstOrNull()?.chips ?: r.chips    // start at the hand base
         displayMult = trace.firstOrNull()?.mult ?: r.mult
@@ -410,16 +1455,184 @@ internal class RunState {
         popIndex = i - 1                                        // step 0 is the base; 1.. are cards
     }
 
-    /** Commit the scored hand: bank the score, refill, advance the run. */
-    fun scoreCommit() {
-        val r = pending ?: return
+    /** repro-live demo: force every played glass card to shatter (so the burn animation is visible). */
+    var forceGlassBreak = false
+    /** repro-live demo: materialize the jokers IN on first frame (start_materialize, the create half
+     *  of the destroy/create pair) so the reverse-dissolve is visible. */
+    var materializeJokers = false
+    /** repro-live demo: at end-of-round, also self-destruct the LAST owned joker (a sprite-backed one)
+     *  so the fiery dissolve is visible behind the cash-out panel — exercises the real SELF_DESTRUCT
+     *  path with a rendered joker (Broken Home, the only real self-destruct key, may lack art). */
+    var demoSelfDestruct = false
+    /** m_glass `extra = 4` → a played glass card has a 1-in-4 chance to shatter (Card:shatter) after
+     *  it scores. The demo flag forces it; real play rolls it. */
+    fun rollGlassBreak(): Boolean = forceGlassBreak || Random.nextInt(4) == 0
+
+    /** A played Glass card shattered after scoring — permanently destroy it from the run's deck
+     *  (Card:shatter removes it from G.playing_cards). Shrinks the deck for the rest of the run, so
+     *  deck-size jokers (Blue Joker) and stone/steel/enhanced tallies (Driver's License) update, and
+     *  it can empty a rank for j_cry_blacklist's self-destruct. Persists via the serialized composition. */
+    fun shatterCard(card: PlayingCard) { deck.removeCard(card) }
+
+    /** Bank the scored hand (the end-of-round evaluation): score, refill, settle the lose/over case.
+     *  Returns true if the round was WON (target met) — the cascade then runs the end-of-round
+     *  self-destruct-joker dissolve and [enterRoundEval]. (state_events.lua: the end_of_round
+     *  calculate destroys self-destruct jokers BEFORE the ROUND_EVAL state, on the board.) */
+    fun scoreBank(): Boolean {
+        val r = pending ?: return false
+        val boss = if (bossDisabled) null else this.boss   // Luchador: a disabled boss applies no effects
+        // ── capture pre-increment state for accumulator hooks (must be BEFORE recordHandPlayed) ──
+        // (isNewTypeThisRound removed — keychange migrated to JOKER_MANIFEST HandScored reducer using handPlays[type] == 1.)
+        val prevMostPlayed = mostPlayedHand?.first                // obelisk: most-played BEFORE this hand
         roundScore += r.score; handsLeft -= 1
-        if (r.handType != HandType.NONE) recordHandPlayed(r.handType)
+        if (roundScore > runHighScore) runHighScore = roundScore   // track the best round total this run
+        totalChipsScored += r.score
+        totalCardsPlayed += pendingSel.size
+        if (r.handType != HandType.NONE && r.handType != HandType.CRY_NONE) recordHandPlayed(r.handType)
+        // ── per-hand joker accumulator hooks (the run loop owns state; score engine reads it) ──────
+        totalHandsPlayed += 1
+        roundHandTypes.add(r.handType)
+        // MANIFEST: migrated jokers evolve state on the hand-scored event via their reducer
+        // (green_joker/spare_trousers/runner/square/obelisk + duplicare x+=playedCount,
+        //  clockwork +0.25 every 3rd hand, keychange +0.25 on first-type-this-round,
+        //  jimball +0.15 or reset based on handPlays map).
+        // totalHandsPlayed is post-increment (incremented above) — clockwork uses % 3 on it.
+        // handPlays snapshot is post-increment (recordHandPlayed ran above) — matches context.after.
+        val handPlaysSnapshot = _handPlayed.toMap()
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.HandScored(r.handType, pendingSel.size, handPlaysSnapshot, totalHandsPlayed, contained = r.pokerHands))) }
+        // (All per-hand accumulators now live in JOKER_MANIFEST HandScored/BeforeHand reducers:
+        //  spare_trousers/runner/square/obelisk, cry_clockwork/keychange/duplicare/jimball/happyhouse.
+        //  j_popcorn is NOT a per-hand accumulator — it decays −4 per ROUND via its RoundEnd reducer.)
+        // j_selzer (Seltzer): retriggers every scored card while alive (its individual hook); lasts 10 hands
+        // (config extra=10, n), decrementing once per hand (context.after) and self-destructing (k_drank_ex)
+        // when its counter reaches 0. Decremented here, before the self-destruct filter below.
+        for (o in owned) if (o.fj.key == "j_selzer") o.fj.n -= 1
+        // ── per-hand self-destruct: jokers that destroy themselves when their counter hits 0 ────
+        // j_ramen: self-destructs when x_mult drops to ≤1.0 (card.lua equivalent; default start 2.0).
+        // Fires AFTER the per-hand loop so the score engine still reads the final value this hand.
+        // (j_popcorn self-destructs at END OF ROUND when its mult floors at 0 — handled in cashOut.)
+        val handSelfDestruct = owned.filter { o ->
+            (o.fj.key == "j_ramen"   && o.fj.x <= 1.0) ||
+            (o.fj.key == "j_selzer"  && o.fj.n <= 0) ||
+            // blacklist: self-destructs once its blacklisted rank is absent from the whole deck
+            // (spooky.lua:1044-1063 — gone from play∪hand∪discard∪deck, which partition deck.all).
+            // n=0 → unset → Ace(14), matching the engine's blacklist default.
+            (o.fj.key == "j_cry_blacklist" && !deck.hasRank(if (o.fj.n == 0) 14 else o.fj.n))
+        }
+        if (handSelfDestruct.isNotEmpty()) {
+            owned.removeAll(handSelfDestruct)
+            Telemetry.event("HAND_DESTROY", "n" to handSelfDestruct.size,
+                "keys" to handSelfDestruct.joinToString { it.fj.key })
+        }
+        // ── boss blind effects triggered after each scored hand ────────────────────────────────
+        pillarPlayedCards.addAll(pendingSel)                                              // THE_PILLAR: track cards played this Ante
+        if (boss == Boss.THE_TOOTH) money = maxOf(0, money - pendingSel.size)   // - per played card
+        if (boss == Boss.THE_ARM)   handLevels.degrade(r.handType)              // degrade played hand level
+        if (boss == Boss.THE_EYE)   eyeUsedHands += r.handType                 // lock this type for the round
+        if (boss == Boss.THE_MOUTH && mouthLockedHand == null) mouthLockedHand = r.handType  // lock first type
+        if (boss == Boss.THE_OX && r.handType == mostPlayedHand?.first) money = 0            // zero out money
         money += pendingSel.count { it.seal == Seal.GOLD } * 3
+        // j_cry_gardenfork: +$7 when the played hand contains both an Ace and a 7 (misc context.before,
+        // full_hand scan: any id==14 AND any id==7). One $7 per gardenfork.
+        if (pendingSel.any { it.id == 14 } && pendingSel.any { it.id == 7 })
+            money += 7 * owned.count { it.offer.key == "j_cry_gardenfork" }
+        // Blue seal: each blue-sealed scored card creates the Planet for the played hand (if room).
+        val bluePlanet = Planet.values().firstOrNull { it.hand == r.handType }
+        if (bluePlanet != null) repeat(pendingSel.count { it.seal == Seal.BLUE }) {
+            if (hasConsumableRoom()) consumables.add(Consumable.PlanetC(bluePlanet))
+        }
+        // j_vagabond: create a Tarot if the hand was played at $4 or less (config.extra=4, card.lua:4329).
+        // Fires after card-level $ effects (gold seals above), matching its joker_main timing; one per Vagabond.
+        for (o in owned) if (o.fj.key == "j_vagabond" && money <= 4 && hasConsumableRoom())
+            consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 6151L + totalHandsPlayed * 31L)).first()))
+        // j_reserved_parking: each HELD face card has a 1-in-2 chance (odds=2) to give $1 (dollars), per
+        // joker (card.lua:3894, context.individual on G.hand). Money side-effect — rolled in the run loop.
+        for (o in owned) if (o.fj.key == "j_reserved_parking")
+            pendingHeld.forEachIndexed { i, c ->
+                if (c.isFace && Random(blindIndex * 8123L + totalHandsPlayed * 101L + i * 17L).nextInt(2) == 0) money += 1
+            }
+        // j_midas_mask: each scored face card permanently becomes a Gold card (card.lua:4040 — the face
+        // check respects Pareidolia). No scoring effect; the transform persists to the run deck.
+        if (owned.any { it.fj.key == "j_midas_mask" }) {
+            val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
+            for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.GOLD)
+        }
+        // j_cry_eyeofhagane: each scored FACE card permanently becomes a Steel card (misc context.before;
+        // respects Pareidolia). Steel only matters for HELD cards, not scored ones, so this hand's score is
+        // unchanged — the conversion persists to the run deck for future X1.5-when-held. Mirrors midas_mask.
+        if (owned.any { it.fj.key == "j_cry_eyeofhagane" }) {
+            val pareidolia = owned.any { it.fj.key == "j_pareidolia" }
+            for (c in r.scoringHand) if (pareidolia || c.isFace) deck.setEnhancement(c, Enhancement.STEEL)
+        }
+        // j_cry_seal_the_deal: on the LAST hand of the round (handsLeft now 0 after the decrement above), set a
+        // RANDOM seal on each scoring card that has none (misc context.after; poll_seal). Seals persist to the
+        // run deck for future rounds. The panopticon alt-trigger is pending panopticon. Deterministic per-card seed.
+        if (owned.any { it.fj.key == "j_cry_seal_the_deal" } && handsLeft == 0) {
+            val seals = listOf(Seal.RED, Seal.GOLD, Seal.BLUE, Seal.PURPLE)
+            r.scoringHand.forEachIndexed { i, c ->
+                if (c.seal == Seal.NONE) deck.setSeal(c, seals[Random(blindIndex * 7919L + totalHandsPlayed * 131L + i * 17L).nextInt(4)])
+            }
+        }
+        // j_vampire: persist the X0.1-per-enhanced-card growth (the joker_main applied it to THIS hand by
+        // reading fj.x + this hand's contribution) and strip the consumed enhancements from the deck so
+        // each enhanced card is only ever vampired once (card.lua:4065).
+        for (o in owned) if (o.fj.key == "j_vampire") {
+            val enhanced = r.scoringHand.filter { it.enhancement != Enhancement.NONE }
+            o.fj.x += 0.1 * enhanced.size
+            for (c in enhanced) deck.setEnhancement(c, Enhancement.NONE)
+        }
+        // j_lucky_cat: persist the X0.25-per-Lucky-trigger growth (the individual hook applied it to THIS
+        // hand by reading fj.x + 0.25·triggers-so-far; scoreBank persists fj.x for next hand). card.lua:3660.
+        for (o in owned) if (o.fj.key == "j_lucky_cat") o.fj.x += 0.25 * r.luckyTriggers
+        // j_cry_goldjoker: percent (fj.x) grows +2 per scored Gold-enhanced card (epic.lua individual on
+        // m_gold). Pays floor(percent% × money) at round end (buildCashOut). Matches vampire's once-per-card.
+        for (o in owned) if (o.fj.key == "j_cry_goldjoker") o.fj.x += 2.0 * r.scoringHand.count { it.enhancement == Enhancement.GOLD }
+        // j_cry_lucky_joker: +$5 per Lucky-card trigger this hand (context.individual on lucky_trigger).
+        money += 5 * r.luckyTriggers * owned.count { it.offer.key == "j_cry_lucky_joker" }
+        // j_cry_lebaron_james: +1 hand size per scored King this round (temp, before the refill below);
+        // resets next round since startRound recomputes handSize from base. (misc context.individual id==13.)
+        handSize += r.scoringHand.count { it.id == 13 } * owned.count { it.offer.key == "j_cry_lebaron_james" }
+        // ── card-destruction jokers (context.destroying_card) — remove played cards from the run deck ──
+        // j_cry_arsonist: if the played hand contains a Full House, BURN every played card (misc
+        // destroying_card → eval["Full House"] non-empty). One Arsonist is enough; destroy is unconditional then.
+        if (owned.any { it.fj.key == "j_cry_arsonist" } && HandType.FULL_HOUSE in r.pokerHands)
+            for (c in pendingSel) deck.removeCard(c)
+        // j_cry_huntingseason: on a 3-card played hand, destroy the MIDDLE card (full_hand[2] = pendingSel[1],
+        // hand-order preserved by play()'s filterIndexed). Removed from the run deck permanently.
+        if (owned.any { it.fj.key == "j_cry_huntingseason" } && pendingSel.size == 3)
+            deck.removeCard(pendingSel[1])
+        // ── negative-Joker spawners ───────────────────────────────────────────────────────────────────
+        // j_cry_queens_gambit: a ROYAL FLUSH (A-high straight flush — all of 10/J/Q/K/A) destroys the scored
+        // Queen and spawns a NEGATIVE-edition Joker. No separate ROYAL type, so detect STRAIGHT_FLUSH + all
+        // royal ranks present (misc destroying_card == Queen on a Royal Flush).
+        if (owned.any { it.fj.key == "j_cry_queens_gambit" }
+            && HandType.STRAIGHT_FLUSH in r.pokerHands
+            && r.scoringHand.map { it.id }.toSet().containsAll(setOf(10, 11, 12, 13, 14))) {
+            r.scoringHand.firstOrNull { it.id == 12 }?.let { deck.removeCard(it) }   // destroy the scored Queen
+            repeat(owned.count { it.fj.key == "j_cry_queens_gambit" }) { createNegativeJoker(CATALOG.random()) }
+        }
+        // j_cry_equilib (Aequilibrium): each Equilibrium spawns 2 NEGATIVE-edition random Jokers per hand
+        // (exotic before-pass, jokers=2). Spawned in scoreBank (after this hand), so they first score the NEXT
+        // hand — a minor timing deviation from the Lua before-pass to avoid mutating the board mid-scoring.
+        repeat(owned.count { it.fj.key == "j_cry_equilib" } * 2) { createNegativeJoker(CATALOG.random()) }
         scoring = false; scoreCards = emptyList(); popIndex = -1
         Telemetry.event("ROUND_BANK", "total" to roundScore)
         refill()
+        // THE_SERPENT: after refill, discard the new hand and draw again (player never keeps held cards)
+        if (boss == Boss.THE_SERPENT) { hand = deck.draw(hand.size); faceDown = emptySet(); applyFaceDown(hand.indices.toSet()); selected = emptySet() }
+        // CRIMSON_HEART: after each play, rotate the disabled joker (never the same one twice in a row;
+        // if only one joker exists, it is always the chosen one — fallback = first).
+        if (boss == Boss.CRIMSON_HEART && owned.isNotEmpty()) {
+            val prev = crimsonHeartDisabled
+            val candidates = owned.map { it.fj }.filter { it !== prev }
+            crimsonHeartDisabled = (if (candidates.isNotEmpty()) candidates else owned.map { it.fj }).random()
+        }
+        // CERULEAN_BELL: pick a new forced card after the hand is refilled.
+        if (boss == Boss.CERULEAN_BELL) bellForcedIdx = if (hand.isNotEmpty()) hand.indices.random() else null
         if (roundScore >= target) {
+            // j_rocket: defeating a Boss Blind (slot 2) raises its payout by $2 — applied BEFORE the
+            // cash-out, so the boss round itself pays the increased amount (end_round precedes evaluate_round).
+            if (slot == 2) for (o in owned) if (o.fj.key == "j_rocket") o.fj.n += 2
             buildCashOut()      // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
             Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
             phase = Phase.ROUND_EVAL
@@ -427,6 +1640,16 @@ internal class RunState {
             phase = Phase.OVER
             Telemetry.event("ROUND_LOSE", "blind" to blindName, "total" to roundScore)
         }
+        return false
+    }
+
+    /** Round won → the cash-out screen (entered after the end-of-round self-destruct dissolves start,
+     *  so the burning jokers are still visible behind the cash-out panel — see RoundPlay). */
+    fun enterRoundEval() {
+        applyTags(TagTrigger.EVAL)   // Investment Tag: +$25 after defeating the blind
+        buildCashOut()          // faithful reward breakdown → evalRows / cashOutTotal; banked on Cash Out
+        Telemetry.event("ROUND_WIN", "blind" to blindName, "total" to roundScore, "reward" to cashOutTotal)
+        phase = Phase.ROUND_EVAL
     }
 
     /** Build the cash-out rows the way evaluate_round (state_events.lua:1147) does — in order:
@@ -437,11 +1660,36 @@ internal class RunState {
     private fun buildCashOut() {
         val rows = ArrayList<EvalRow>()
         rows += EvalRow(EvalKind.BLIND, rewardForSlot(slot), blindName)
-        if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft, "\$1 per remaining hand", handsLeft.toString())
+        // Green deck pays $2 per remaining hand + $1 per remaining discard and earns NO interest;
+        // the standard economy is $1 per remaining hand + interest.
+        if (handsLeft > 0) rows += EvalRow(EvalKind.HANDS, handsLeft * (if (greenEconomy) 2 else 1),
+            "\$${if (greenEconomy) 2 else 1} per remaining hand", handsLeft.toString())
+        if (greenEconomy && discardsLeft > 0) rows += EvalRow(EvalKind.DISCARDS, discardsLeft, "\$1 per remaining discard", discardsLeft.toString())
         val gold = pendingHeld.count { it.enhancement == Enhancement.GOLD }
         if (gold > 0) rows += EvalRow(EvalKind.GOLD, gold * 3, "Gold cards held", gold.toString())
-        val interest = minOf(money / 5, 5)
-        if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$5)")
+        val interest = if (greenEconomy) 0 else minOf(money / 5, interestCap)   // Seed Money raises the cap 5 → 10
+        if (interest > 0) rows += EvalRow(EvalKind.INTEREST, interest, "1 interest per \$5 (max \$$interestCap)")
+        // ── end-of-round joker dollars (context.end_of_round, calculate_dollar_bonus) ──
+        val jokerDollars =
+            owned.count { it.offer.key == "j_golden" } * 4 +                                       // Golden Joker: $4 each round
+            owned.count { it.offer.key == "j_cloud_9" } * deck.composition().count { it.rank == 9 } +  // Cloud 9: $1 per 9 in deck
+            owned.count { it.offer.key == "j_to_the_moon" } * (money / 5) +                         // To the Moon: extra $1 interest per $5 (uncapped)
+            (if (roundDiscardsUsed == 0) owned.count { it.offer.key == "j_delayed_grat" } * 2 * discardsLeft else 0) +  // Delayed Gratification: $2 per discard, only if none used
+            owned.filter { it.offer.key == "j_rocket" }.sumOf { it.fj.n } +                          // Rocket: current payout (base $1, +$2 per boss defeated)
+            // cry-gold Joker & cry-Compound Interest: floor(percent% × money), percent = fj.x (calc_dollar_bonus).
+            owned.filter { it.offer.key == "j_cry_goldjoker" || it.offer.key == "j_cry_compound_interest" }
+                 .sumOf { (0.01 * it.fj.x * money).toInt() } +
+            // cry-redbloon: pays $20 the round its 2-round countdown reaches 0. n decrements at round end via
+            // its RoundEnd reducer, so n==1 here → it expires THIS round → pays now, then self-destructs in cashOut.
+            owned.count { it.offer.key == "j_cry_redbloon" && it.fj.n == 1 } * 20 +
+            // cry-Magnet: $10 (money 2 × Xmoney 5) if you have ≤4 Jokers (slots), else $2 (calc_dollar_bonus).
+            owned.count { it.offer.key == "j_cry_magnet" } * (if (owned.size <= 4) 10 else 2) +
+            // cry-Morse: pays its accumulated money (fj.x, starts 1, +2 per edition-Joker sold) when x > 0.
+            owned.filter { it.offer.key == "j_cry_morse" }.sumOf { it.fj.x.toInt() } +
+            // cry-kidnap: $4 (money) per "type" Joker sold this run — the Jolly/Zany/Mad/Crazy/Droll (Type Mult)
+            // and Sly/Wily/Clever/Devious/Crafty families (misc calc_dollar_bonus, counting G.GAME.jokers_sold).
+            owned.count { it.offer.key == "j_cry_kidnap" } * 4 * jokersSold.count { it in KIDNAP_TYPE_KEYS }
+        if (jokerDollars > 0) rows += EvalRow(EvalKind.JOKER, jokerDollars, "Jokers")
         evalRows = rows
         cashOutTotal = rows.sumOf { it.dollars }
     }
@@ -450,98 +1698,699 @@ internal class RunState {
      *  blind→shop transition runs (END_OF_ROUND self-destructs, advance blind, roll the next shop). */
     fun cashOut() {
         if (phase != Phase.ROUND_EVAL) return
+        // j_cry_compound_interest: percent (fj.x) grows +3 each round it pays out — calc_dollar_bonus scales
+        // ONLY when dollars > 0, and reads dollars BEFORE the cash-out bonus is banked (so check money here,
+        // before the `money += cashOutTotal` below). The payout itself used the pre-growth percent (buildCashOut).
+        if (money > 0) for (o in owned) if (o.fj.key == "j_cry_compound_interest") o.fj.x += 3.0
+        // j_cry_familiar_currency: at end of round, if you have ≥$19, spend $19 to create a random Meme Joker
+        // (misc end_of_round; config.extra=19, bankrupt_at=0). Reads pre-bonus money (like compound_interest);
+        // gated on joker room so it never spends $19 with nowhere to put the Joker. One spend per familiar.
+        for (o in owned.toList()) if (o.fj.key == "j_cry_familiar_currency" && money >= 19 && owned.size < maxJokers) {
+            money -= 19; createMemeJoker()
+        }
         money += cashOutTotal
-        // END_OF_ROUND: self-destruct jokers (Broken Home) leave the board after a won round.
+        if (anaglyph && slot == 2) doubleNextTags += 1          // Anaglyph: gain a Double Tag after each Boss Blind
+        // self-destruct jokers (Broken Home) DISSOLVED at end-of-round (the cascade's startDissolve →
+        // onGone removes them). Safety net: guarantee the logical removal even if the player cashes out
+        // before the 0.735s burn finishes (which unmounts the play field before onGone fires). Idempotent.
         val destroyed = owned.filter { it.fj.key in SELF_DESTRUCT_KEYS }
         if (destroyed.isNotEmpty()) {
             owned.removeAll(destroyed)
             Telemetry.event("END_OF_ROUND_DESTROY", "n" to destroyed.size)
         }
+        // ── end-of-round joker accumulator hooks (context.end_of_round, non-scoring) ─────────────
+        // j_gift (Gift Card): adds $1 (extra) of sell value to EVERY joker each round (card.lua:3590 —
+        // extra_value += extra for all G.jokers.cards). Each Gift Card contributes; itself included.
+        val giftCards = owned.count { it.offer.key == "j_gift" }
+        if (giftCards > 0) {
+            owned.forEach { it.sellBonus += giftCards }
+            // Swashbuckler's mult caches the total sell value (refreshed on buy/sell) — Gift Card just
+            // changed every sell value, so refresh it here too, else it stays stale until the next sale.
+            for (o in owned) if (o.fj.key == "j_swashbuckler") o.fj.mult = owned.sumOf { sellValue(it).toDouble() }
+        }
+        // MANIFEST: dispatch RoundEnd to all manifest jokers (chili_pepper reduce: x += 0.5, n -= 1;
+        // popcorn reduce: mult −4, floored at 0).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.RoundEnd(roundDiscardsUsed))) }
+        // Eaten self-destructs (card.lua k_eaten_ex) AFTER their RoundEnd reduce above: j_popcorn once
+        // its mult floors at 0, j_turtle_bean once its h_size counter (n) hits 0. Kept separate from
+        // perishableExpired below — these are "eaten", not perishable-sticker expiries, so fading_joker
+        // must NOT be notified.
+        val eaten = owned.filter {
+            (it.fj.key == "j_popcorn" && it.fj.mult <= 0.0) ||
+            (it.fj.key == "j_turtle_bean" && it.fj.n <= 0) ||
+            // cry-redbloon: its 2-round countdown (n) just decremented via the RoundEnd reducer; pops (and
+            // pays its $20, already counted in buildCashOut) the round n reaches 0. Like "eaten" — no fading notify.
+            (it.fj.key == "j_cry_redbloon" && it.fj.n <= 0)
+        }
+        if (eaten.isNotEmpty()) {
+            owned.removeAll(eaten)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to eaten.size, "reason" to "eaten")
+        }
+        // fading_joker / paved_joker: +1 Xmult when another perishable joker expires (perishable_debuffed).
+        // Trigger: when chili_pepper's rounds_remaining reaches 0 (after RoundEnd reduce), notify fading/paved.
+        val perishableExpired = ArrayList<Owned>()
+        for (o in owned) if (o.fj.key == "j_cry_chili_pepper" && o.fj.n <= 0) perishableExpired.add(o)
+        // caramel: counts down rounds_remaining (j.n, init 11) each end_of_round; self-destructs at 0
+        // (epic.lua:1273-1312). j.x=1.75 (individual xMult per scored card) does NOT change — only
+        // j.n ticks. No Xmult scaling; the x_mult is fixed for caramel's lifetime.
+        for (o in owned) if (o.fj.key == "j_cry_caramel") {
+            o.fj.n = maxOf(0, o.fj.n - 1)
+            if (o.fj.n <= 0) perishableExpired.add(o)
+        }
+        // Notify fading_joker of each expiring perishable (+1 Xmult per perishable that expires).
+        // paved_joker is NOT notified here — Lua has no joker_main xmult path for paved_joker;
+        // its j.x accumulation was phantom scoring. paved_joker's real effect is probability-only.
+        if (perishableExpired.isNotEmpty()) {
+            for (rem in owned) if (rem.fj.key == "j_cry_fading_joker") rem.fj.x += 1.0
+        }
+        // Remove expired perishables from the board.
+        if (perishableExpired.isNotEmpty()) {
+            owned.removeAll(perishableExpired)
+            Telemetry.event("END_OF_ROUND_DESTROY", "n" to perishableExpired.size, "reason" to "perishable")
+        }
+        // (biggestm n=0 reset migrated to JOKER_MANIFEST RoundEnd reducer — m.lua:1437-1451.)
+        // (jollysus n=1 re-arm migrated to JOKER_MANIFEST RoundEnd reducer — m.lua:31-39.)
+        val wasSlot = blindIndex % 3      // slot of the round just beaten (before increment)
+        val wasAnte = blindIndex / 3 + 1   // ante of the round just beaten
         blindIndex += 1
-        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
-        // Pre-seed boss so blind-select and shop screens show correct name/desc.
-        // startRound() re-derives the same deterministic value.
-        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
-        phase = Phase.SHOP
+        resetRerollCost()                            // fresh shop → reroll cost back to base
+        freeRerollThisShop = false; couponThisShop = false      // per-shop tag effects reset, then re-applied
+        applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)   // D6 / Coupon
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
+        shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
+        shopBoosters = rollBoosters(blindIndex, firstShop = !firstShopBuffoon)   // 2 weighted slots; first shop guarantees a Buffoon
+        firstShopBuffoon = true
+        // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
+        if (wasSlot == 2 && wasAnte in setOf(8, 10)) {
+            phase = Phase.WIN
+            Telemetry.event("RUN_WIN", "ante" to wasAnte, "money" to money)
+        } else {
+            // Pre-seed boss so blind-select and shop screens show correct name/desc.
+            // startRound() re-derives the same deterministic value.
+            boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1 + bossReshuffle * 7919L)) else null
+            phase = Phase.SHOP
+            openPendingPackTag()    // a Charm/Meteor/… tag queued a free pack → open it over the shop
+        }
         Telemetry.event("CASH_OUT", "total" to cashOutTotal, "money" to money)
     }
 
     fun discard() {
         if (phase != Phase.ROUND || selected.isEmpty() || discardsLeft <= 0) return
+        val boss = if (bossDisabled) null else this.boss   // Luchador: a disabled boss applies no effects
+        // THE_HOOK: override selection with 2 random cards from the current hand
+        if (boss == Boss.THE_HOOK) {
+            val hookIndices = hand.indices.shuffled().take(2).toSet()
+            selected = hookIndices
+            faceDown = faceDown - hookIndices   // force-discarded face-down cards are revealed as they leave
+        }
         discardsLeft -= 1
+        roundDiscardsUsed += 1   // mondrian: track discards used this round for end_of_round check
+        totalCardsDiscarded += selected.size
+        // ── per-discard joker accumulator hooks ───────────────────────────────────────────────
+        val discardedCards = hand.filterIndexed { i, _ -> i in selected }
+        // Purple seal: each purple-sealed discarded card creates a random Tarot (if room).
+        repeat(discardedCards.count { it.seal == Seal.PURPLE }) {
+            if (hasConsumableRoom()) consumables.add(Consumable.TarotC(TAROTS.random()))
+        }
+        val jackCount = discardedCards.count { it.id == 11 }
+        // For j_castle: count discarded cards matching the round's random suit (same as dropShotSuit —
+        // castle_card.suit and cry_dropshot_card.suit are the same pseudorandom value per round via
+        // reset_castle_card, common_events.lua:2743-2757 + overrides.lua:300-316).
+        // Previous approximation ("flush discard only") was wrong; correct is per-card suit match.
+        val discardSuits = discardedCards.map { it.suit }.distinct()
+        val flushSuit = if (discardSuits.size == 1) discardSuits.first() else null  // kept for reference
+        // MANIFEST: migrated jokers evolve state on the discard event via their reducer (e.g. green_joker -1 Mult).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let { o.fj.restore(it(o.fj.snapshot(), GameEvent.Discarded(discardedCards))) }
+        for (o in owned) when (o.fj.key) {
+            // (j_ramen depletion migrated to its JOKER_MANIFEST reducer on the Discarded event.)
+            // j_mail: +$5 per discarded card matching this round's random rank (game.lua:471 config.extra=5;
+            //   common_events.lua:2715-2731 reset_mail_rank). Fires in context.discard per matching card.
+            //   Bug fix: was "+2 Mult per Jack" — correct effect is money, amount is 5, rank is random.
+            "j_mail" -> {
+                val mailCount = discardedCards.count { it.id == mailRank }
+                if (mailCount > 0) money += 5 * mailCount
+            }
+            // j_castle: +3 Chips per discarded card matching the round's random suit (card.lua:3373-3381,
+            //   context.discard, config.extra.chip_mod=3). Suit = castle_card.suit = dropShotSuit (same
+            //   reset_castle_card source). Bug fix: was "flush discard only" — correct is per-card match.
+            "j_castle" -> {
+                val smearedJoker = owned.any { it.fj.key == "j_smeared" }
+                o.fj.chips += 3.0 * discardedCards.count { it.isSuit(dropShotSuit, smearedJoker) }
+            }
+        }
+        // j_trading (Trading Card): on the FIRST discard of the round (roundDiscardsUsed just became 1) of
+        // EXACTLY one card, earn $3 and destroy that card (card.lua:3402 — discards_used<=0, #full_hand==1).
+        // Each Trading Card pays $3; the single card is destroyed once.
+        if (roundDiscardsUsed == 1 && discardedCards.size == 1) {
+            val tradeCount = owned.count { it.fj.key == "j_trading" }
+            if (tradeCount > 0) { money += 3 * tradeCount; deck.removeCard(discardedCards[0]) }
+        }
         Telemetry.event("ROUND_DISCARD", "n" to selected.size)
         refill()
     }
 
     fun buy(offer: Offer, free: Boolean = false) {
-        if (!free && money < offer.cost) return
-        if (!free) money -= offer.cost
+        if (owned.size >= maxJokers) return           // joker slot full
+        val cost = price(offer.cost)
+        if (!free && money < cost) return
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
         // The faithful Score engine scores via FJoker (carries scaling state, persisted across hands).
         onCardBought()                               // context.buying_card: scale cursors before the new card lands
-        val ed = when (offer.edition) { Edition.FOIL -> "Foil"; Edition.HOLO -> "Holo"; Edition.POLY -> "Poly"; else -> "" }
-        val fj = FJoker(offer.key, edition = ed, x = if (offer.key == "j_cry_primus") 1.01 else 1.0)
-        owned.add(Owned(offer, fj))
-        shop = shop.filterNot { it === offer }
-        if (!free) Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to offer.cost, "money" to money)
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
+        shopItems = shopItems.filterNot { it is ShopItem.Jk && it.offer === offer }
+        if (!free) { systems.balatro.audio.SoundManager.play("coin1"); Telemetry.event("RUN_BUY", "key" to offer.key, "edition" to offer.edition.name, "cost" to cost, "money" to money) }
     }
+
+    /** Put a random Joker on the board with its correct initial state — jollysus' on-sell spawn
+     *  (Cryptid create_card("Joker")). Respects the joker slot cap. */
+    private fun createRandomJoker() {
+        if (owned.size >= maxJokers) return
+        val offer = CATALOG.random()
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key)
+    }
+
+    /** Spawn a specific Joker by key (e.g. Necromancer recreating a previously-sold Joker). [noSell] marks
+     *  the spawn with cry_no_sell_value (sell value 0). No-op if the key isn't in the CATALOG or slots are full. */
+    private fun createJokerByKey(key: String, noSell: Boolean = false) {
+        if (owned.size >= maxJokers) return
+        val offer = CATALOG.firstOrNull { it.key == key } ?: return
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)).also { it.noSell = noSell })
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to key, "noSell" to noSell)
+    }
+
+    /** Spawn a random Cryptid Meme-pool Joker (Cryptid `pools = { ["Meme"] }`) — used by Familiar Currency.
+     *  Filtered to the Meme members currently in the CATALOG; falls back to any Joker only if none exist. */
+    private fun createMemeJoker() {
+        if (owned.size >= maxJokers) return
+        val memeKeys = setOf("j_cry_blurred", "j_cry_boredom", "j_cry_chad", "j_cry_cube", "j_cry_filler",
+            "j_cry_happyhouse", "j_cry_jimball", "j_cry_krustytheclown", "j_cry_m", "j_cry_nice")
+        val meme = CATALOG.filter { it.key in memeKeys }
+        val offer = (if (meme.isNotEmpty()) meme else CATALOG).random()
+        owned.add(Owned(offer, initialFJoker(offer, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key, "pool" to "Meme")
+    }
+
+    /** Spawn [offer] as a NEGATIVE-edition Joker (Equilibrium / Queen's Gambit). Negative Jokers bring their
+     *  own slot (jokerSlots counts edition==NEGATIVE) so this is NOT gated on maxJokers; a defensive total cap
+     *  (25) guards against runaway when a spawn rolls another spawner. */
+    private fun createNegativeJoker(offer: Offer) {
+        if (owned.size >= 25) return
+        val neg = offer.copy(edition = Edition.NEGATIVE)
+        owned.add(Owned(neg, initialFJoker(neg, owned.sumOf { sellValue(it).toDouble() }, handsPlayed = totalHandsPlayed)))
+        Telemetry.event("RUN_SPAWN_JOKER", "key" to offer.key, "edition" to "NEGATIVE")
+    }
+
+    /** Reorder a joker by swapping it with its [dir] neighbour (dir = -1 left, +1 right). Joker order is
+     *  scored left→right and read by Blueprint (copies right) / Brainstorm (copies leftmost), so this is
+     *  a real mechanic. The engine joker CardArea rebuilds from `owned` each frame, so swapping the list
+     *  is enough — align_cards re-springs the cards and scoring uses the new order. Returns the new index. */
+    fun moveJoker(from: Int, dir: Int): Int {
+        val to = from + dir
+        if (from !in owned.indices || to !in owned.indices) return from
+        val a = owned[from]; owned[from] = owned[to]; owned[to] = a
+        return to
+    }
+
+    /** Sell value of a joker = base (maxOf(1, cost/2)) + accumulated Gift Card bonus (extra_value). */
+    internal fun sellValue(o: Owned): Int = if (o.noSell) 0 else maxOf(1, o.offer.cost / 2) + o.sellBonus
 
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
         owned.remove(o)
-        owned.forEach { if (it.fj.key == "j_cry_eternalflame") it.fj.x += 0.1 }   // context.selling_card: +0.1 X per sell
-        val refund = maxOf(1, o.offer.cost / 2)
+        val refund = sellValue(o)
         money += refund
+        // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
+        val soldKey = o.fj.key
+        val sellCost = refund   // sell value (base + Gift Card bonus) — used for sell_cost >= 2 gates below
+        // MANIFEST: migrated jokers react to the sale via their reducer on the Sold event
+        // (campfire +0.25 Xmult per sale; eternalflame +0.1 when the sold joker's sell_cost >= 2).
+        for (rem in owned) JOKER_MANIFEST[rem.fj.key]?.reduce?.let { rem.fj.restore(it(rem.fj.snapshot(), GameEvent.Sold(soldKey, sellCost))) }
+        for (rem in owned) when (rem.fj.key) {
+            // j_swashbuckler: +Mult = total sell value of all remaining jokers (recalculate on each sell).
+            "j_swashbuckler"   -> rem.fj.mult = owned.sumOf { sellValue(it).toDouble() }
+            // (j_cry_m / j_cry_loopy / j_cry_mstack Sold reducers migrated to JOKER_MANIFEST.)
+        }
+        // j_cry_jollysus: selling any Joker (including a jollysus itself) makes each armed jollysus spawn a
+        // random Joker, once per round; fj.n is the spawn flag (1=armed, reset to 1 at end_of_round). Done
+        // after the per-sell loop since createRandomJoker mutates `owned` (m.lua:37-48).
+        val armedJollys = owned.filter { it.fj.key == "j_cry_jollysus" && it.fj.n == 1 } +
+            (if (soldKey == "j_cry_jollysus" && o.fj.n == 1) listOf(o) else emptyList())
+        armedJollys.forEach { it.fj.n = 0; createRandomJoker() }
+        // j_luchador: sell to disable the current Boss Blind — its effects stop for the rest of the round
+        // (the boss is kept for display; bossDisabled gates the per-hand effect reads). Done before the
+        // VERDANT_LEAF check so disabling Verdant also cancels its sell-to-defeat trigger.
+        if (soldKey == "j_luchador" && slot == 2 && boss != null) bossDisabled = true
+        // j_diet_cola: sell to create a free Double Tag (card.lua:2918 add_tag(tag_double)). In this engine
+        // a Double Tag = doubleNextTags (duplicate the next earned skip tag), same as the Anaglyph deck.
+        if (soldKey == "j_diet_cola") doubleNextTags += 1
+        // j_cry_happy: selling this card creates a random Joker (context.selling_self). The sold happy is
+        // already removed, so there's a free slot; createRandomJoker respects maxJokers.
+        if (soldKey == "j_cry_happy") createRandomJoker()
+        // j_cry_coin: selling a Joker earns $1-money_mod (random 1..10) per remaining coin (misc
+        // context.selling_card on a Joker). Deterministic per-sell seed; each coin rolls independently.
+        run {
+            val coinSeedBase = money.toLong() * 2654435761L + owned.size * 131L + 3L
+            owned.forEachIndexed { idx, o ->
+                if (o.fj.key == "j_cry_coin") money += Random(coinSeedBase + idx * 977L).nextInt(10) + 1
+            }
+        }
+        // j_cry_morse: selling a Joker that carries an EDITION (Foil/Holo/Poly) grows each remaining morse's
+        // payout by +2 (bonus); morse pays its accumulated money (fj.x) at round end. (misc selling_card w/ edition)
+        if (o.fj.edition.isNotEmpty()) for (rem in owned) if (rem.fj.key == "j_cry_morse") rem.fj.x += 2.0
+        // Record the sold Joker in the run's sale history (read by Necromancer / Kidnap). Appended AFTER the
+        // per-sell hooks so the just-sold Joker IS a candidate for Necromancer's recreate this same sale.
+        jokersSold.add(soldKey)
+        // j_cry_necromancer: selling a Joker whose sell value > 0 recreates a random previously-sold Joker
+        // with NO sell value (cry_no_sell_value). The sell-value gate stops Necromancer's own value-0 spawns
+        // from chaining. Deterministic per-sale seed; each Necromancer spawns one (slot permitting).
+        if (sellCost > 0 && jokersSold.isNotEmpty()) {
+            val necros = owned.count { it.fj.key == "j_cry_necromancer" }
+            val seedBase = jokersSold.size * 2654435761L + money.toLong() * 131L + 7L
+            repeat(necros) { i ->
+                if (owned.size < maxJokers) createJokerByKey(jokersSold[Random(seedBase + i * 1009L).nextInt(jokersSold.size)], noSell = true)
+            }
+        }
+        // VERDANT_LEAF: selling any joker during the boss blind defeats it immediately (unless disabled)
+        if (!bossDisabled && boss == Boss.VERDANT_LEAF && phase == Phase.ROUND) { roundScore = target; buildCashOut(); phase = Phase.ROUND_EVAL }
         Telemetry.event("RUN_SELL", "key" to o.offer.key, "refund" to refund, "money" to money)
     }
 
     /** context.buying_card — every Cryptid Cursor on the board gains +8 Chips when any card is bought. */
     private fun onCardBought() { owned.forEach { if (it.fj.key == "j_cry_cursor") it.fj.chips += 8.0 } }
 
-    fun buyPlanet(po: PlanetOffer) {
-        if (money < po.cost) return
-        money -= po.cost
+    fun buyPlanet(po: PlanetOffer, free: Boolean = false) {
+        if (!hasConsumableRoom()) return          // no consumable slot → can't take it
+        val cost = price(po.cost)
+        if (!free && money < cost) return
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
         onCardBought()
-        handLevels.levelUp(po.planet.hand)        // raises the hand's base for the whole run
-        shopPlanets = shopPlanets.filterNot { it === po }
-        Telemetry.event("RUN_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
+        consumables.add(Consumable.PlanetC(po.planet))    // HELD until used (was: insta-level-up)
+        shopItems = shopItems.filterNot { it is ShopItem.Pl && it.po === po }
+        // (j_constellation / j_hiker: trigger is planet USE, not purchase — hooks moved to useConsumable.)
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
+        Telemetry.event("RUN_BUY_PLANET", "planet" to po.planet.display, "hand" to po.planet.hand.name, "money" to money)
     }
 
-    fun buyTarot(t: TarotOffer) {
-        if (money < t.cost) return
-        money -= t.cost
+    fun buyTarot(t: TarotOffer, free: Boolean = false) {
+        if (!hasConsumableRoom()) return
+        val cost = price(t.cost)
+        if (!free && money < cost) return
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
         onCardBought()
-        val card = if (t.seal != Seal.NONE) deck.sealRandom(t.seal) else deck.enhanceRandom(t.enhancement)
-        if (card != null) enhancedCount += 1
-        shopTarots = shopTarots.filterNot { it === t }
-        Telemetry.event("RUN_TAROT", "tarot" to t.name, "enh" to t.enhancement.name, "seal" to t.seal.name, "card" to (card?.key ?: "none"), "money" to money)
+        consumables.add(Consumable.TarotC(t))             // HELD until used (was: insta-enhance)
+        shopItems = shopItems.filterNot { it is ShopItem.Tt && it.t === t }
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
+        Telemetry.event("RUN_BUY_TAROT", "tarot" to t.name, "money" to money)
     }
+
+    /** Telescope voucher / Nebula deck: guarantee the most-played hand's Planet is offered (swap it into
+     *  the last shop slot if no copy is already present). No-op until a hand has been played. */
+    private fun applyTelescope() {
+        if (!telescope) return
+        val ht = mostPlayedHand?.first ?: return
+        val planet = Planet.values().firstOrNull { it.hand == ht } ?: return
+        if (shopItems.none { it is ShopItem.Pl && it.po.planet == planet } && shopItems.isNotEmpty())
+            shopItems = shopItems.dropLast(1) + ShopItem.Pl(PlanetOffer(planet, 3))
+    }
+
+    /** Buy a shop playing card (Magic Trick voucher) — added straight to the deck. */
+    fun buyShopCard(card: PlayingCard, free: Boolean = false) {
+        val cost = price(1)
+        if (!free && money < cost) return
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
+        onCardBought()
+        deck.add(card)
+        shopItems = shopItems.filterNot { it is ShopItem.Cd && it.card == card }
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
+        Telemetry.event("RUN_BUY_CARD", "card" to card.label, "money" to money)
+    }
+
+    /** Buy a shop spectral (Ghost deck) — held in a consumable slot until used. */
+    fun buySpectral(sp: Spectral, free: Boolean = false) {
+        if (!hasConsumableRoom()) return
+        val cost = price(4)
+        if (!free && money < cost) return
+        if (!free) { money -= cost; totalCardsPurchased += 1 }
+        onCardBought()
+        consumables.add(Consumable.SpectralC(sp))
+        shopItems = shopItems.filterNot { it is ShopItem.Sp && it.s == sp }
+        if (!free) systems.balatro.audio.SoundManager.play("coin1")
+        Telemetry.event("RUN_BUY_SPECTRAL", "spectral" to sp.name, "money" to money)
+    }
+
+    /** Redeem the shop voucher — a run-persistent modifier (Card:apply_to_run, card.lua:2322). */
+    fun redeemVoucher(v: VoucherOffer) {
+        val cost = price(v.cost)
+        if (money < cost) return
+        money -= cost; totalCardsPurchased += 1
+        redeemedVouchers.add(v.key)
+        shopVoucher = null
+        when (v.key) {
+            "v_overstock_norm", "v_overstock_plus" -> {        // change_shop_size: +1 slot, now + future
+                shopSlotsBonus += v.extra
+                val have = shopItems.mapNotNull { (it as? ShopItem.Jk)?.offer?.key }.toSet()
+                shopItems = shopItems + CATALOG.filterNot { it.key in have }
+                    .shuffled(Random(blindIndex * 31L + shopItems.size)).take(v.extra).map { ShopItem.Jk(it) }
+            }
+            "v_clearance_sale" -> discountPercent = v.extra    // discount_percent = 25
+            "v_reroll_surplus", "v_reroll_glut" -> rerollBase = maxOf(0, rerollBase - v.extra)  // round_resets.reroll_cost -= 2
+            "v_grabber" -> baseHands += v.extra                // round_resets.hands += 1
+            "v_wasteful" -> baseDiscards += v.extra            // round_resets.discards += 1
+            "v_seed_money", "v_money_tree" -> interestCap = v.extra / 5  // interest_cap: 50→$10, 100→$20
+            "v_crystal_ball" -> consumableSlotsBonus += v.extra  // +1 consumable (Crystal Ball)
+            "v_tarot_merchant" -> tarotRate += v.extra           // tarots 2x more common (4 → 8)
+            "v_planet_merchant" -> planetRate += v.extra         // planets 2x more common (4 → 8)
+            "v_antimatter" -> deckJokerBonus += v.extra          // +1 Joker slot (folded into startRound)
+            "v_telescope" -> { telescope = true; applyTelescope() }  // most-played planet always in shop
+            "v_directors_cut" -> directorsCut = true                 // reroll boss 1×/ante
+            "v_retcon" -> retcon = true                              // reroll boss unlimited
+            "v_omen_globe" -> omenGlobe = true                       // spectrals in Arcana packs
+            "v_magic_trick" -> cardRate += v.extra                   // playing cards in the shop pool
+            "v_illusion" -> illusion = true                          // shop playing cards roll an enhancement
+            "v_nacho_tong" -> baseHands += v.extra                   // +1 hand (Grabber tier-2)
+            "v_recyclomancy" -> baseDiscards += v.extra              // +1 discard (Wasteful tier-2)
+            "v_liquidation" -> discountPercent = v.extra             // 50% off (Clearance tier-2)
+            "v_blank" -> {}                                          // Blank: no effect
+        }
+        systems.balatro.audio.SoundManager.play("coin1")
+        Telemetry.event("RUN_VOUCHER", "key" to v.key, "money" to money)
+    }
+
+    /** Buy a booster pack → open it (Phase.PACK_OPEN) with `extra` revealed items of its kind. */
+    fun buyBooster(b: BoosterOffer) {
+        val cost = price(b.cost)
+        if (money < cost) return
+        money -= cost; totalCardsPurchased += 1
+        shopBoosters = shopBoosters.filterNot { it === b }
+        openBooster(b)
+    }
+
+    /** Generate a pack's contents and enter PACK_OPEN. Shared by shop purchase ([buyBooster]) and the
+     *  free pack-tags (Charm/Meteor/…). Caller handles cost/removal; this only builds + opens. */
+    private fun openBooster(b: BoosterOffer) {
+        packSeed += 1
+        val rng = Random(blindIndex * 7253L + packSeed * 131L)
+        val items: List<PackItem> = when (b.kind) {
+            "Arcana" -> TAROTS.shuffled(rng).take(b.extra).map {     // Omen Globe: a slot may roll a spectral instead
+                if (omenGlobe && rng.nextInt(100) < 20) PackItem.SpectralItem(Spectral.values().random(rng)) else PackItem.Tarot(it)
+            }
+            "Celestial" -> Planet.values().toList().shuffled(rng).take(b.extra).map { PackItem.Planet(PlanetOffer(it, 0)) }
+            "Buffoon" -> CATALOG.filterNot { c -> owned.any { it.offer.key == c.key } }.shuffled(rng).take(b.extra).map { PackItem.Joker(it) }
+            "Standard" -> (0 until b.extra).map { PackItem.Card(PlayingCard(Suit.values().random(rng), (2..14).random(rng))) }
+            "Spectral" -> Spectral.values().toList().shuffled(rng).take(b.extra).map { PackItem.SpectralItem(it) }
+            else -> emptyList()
+        }
+        openPack = OpenPack(b.name, b.kind, items, minOf(b.choose, items.size))
+        // j_hallucination: 1 in 2 chance (config.extra=2) to create a Tarot when a booster is opened
+        // (context.open_booster, card.lua:2886), if consumable room. packSeed varies the roll per open.
+        for (o in owned) if (o.fj.key == "j_hallucination" && hasConsumableRoom()) {
+            if (Random(blindIndex * 5009L + packSeed * 67L + 13L).nextInt(2) == 0)   // 1 in 2
+                consumables.add(Consumable.TarotC(TAROTS.shuffled(Random(blindIndex * 9277L + packSeed)).first()))
+        }
+        phase = Phase.PACK_OPEN
+        Telemetry.event("RUN_PACK_OPEN", "key" to b.key, "kind" to b.kind, "money" to money)
+    }
+
+    /** A pack tag (Charm/Meteor/…) queues its free pack here; opened on shop entry, after phase=SHOP. */
+    private var pendingPack: BoosterOffer? = null
+    internal fun openPendingPackTag() { pendingPack?.let { pendingPack = null; openBooster(it) } }
+
+    /** Pick item [i] from the open pack — applies its effect (pre-paid), advances picks, closes when done. */
+    fun pickPackItem(i: Int) {
+        val p = openPack ?: return
+        if (p.picksLeft <= 0 || i in p.picked) return
+        val item = p.items[i]
+        // Don't consume the pick if there's no room for the item — vanilla blocks selecting a joker
+        // into a full board or a consumable into full slots. (Standard cards always fit → the deck.)
+        val hasRoom = when (item) {
+            is PackItem.Joker -> owned.size < maxJokers
+            is PackItem.Tarot, is PackItem.Planet, is PackItem.SpectralItem -> hasConsumableRoom()
+            is PackItem.Card -> true
+        }
+        if (!hasRoom) return
+        when (item) {
+            is PackItem.Card -> {
+                deck.add(item.card)          // Standard pack → card joins the deck
+                // MANIFEST: fire CardAdded so Hologram (and future card-add jokers) can accumulate.
+                // Mirrors Lua's playing_card_joker_effects({card}) at button_callbacks.lua:2291.
+                for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let {
+                    o.fj.restore(it(o.fj.snapshot(), GameEvent.CardAdded(count = 1)))
+                }
+            }
+            is PackItem.SpectralItem -> if (hasConsumableRoom()) consumables.add(Consumable.SpectralC(item.s))   // held to use
+            is PackItem.Tarot -> buyTarot(item.t, free = true)
+            is PackItem.Planet -> buyPlanet(item.p, free = true)
+            is PackItem.Joker -> buy(item.o, free = true)
+        }
+        p.picked.add(i)
+        p.picksLeft -= 1
+        if (p.picksLeft <= 0) closePack()
+    }
+
+    fun skipPack() = closePack()
+    private fun closePack() { openPack = null; phase = Phase.SHOP }
+
+    /** Tap a held tarot to enter targeting mode (or cancel if already aiming this tarot). */
+    fun aimTarot(t: TarotOffer) {
+        if (phase != Phase.ROUND || scoring) return
+        pendingTarot = if (pendingTarot === t) null else t
+        tarotTarget = emptySet()
+    }
+
+    /** Apply the pending tarot's fx to up to fx.maxTargets selected hand cards (by index), mutate the
+     *  deck to match, rebuild the visible hand (destroyed cards drop out), then consume the tarot. */
+    fun useTarot() {
+        val t = pendingTarot ?: return
+        val ordered = tarotTarget.sorted().take(t.fx.maxTargets)
+        // Death (ConvertCopy): the left selected card becomes a full copy of the right (cross-target).
+        if (t.fx is TarotFx.ConvertCopy) {
+            if (ordered.size >= 2) {
+                val left = hand.getOrNull(ordered[0]); val right = hand.getOrNull(ordered[1])
+                if (left != null && right != null) {
+                    deck.replaceCard(left, right)
+                    hand = hand.mapIndexed { i, c -> if (i == ordered[0]) right.copy() else c }
+                }
+            }
+            consumables.removeAll { it is Consumable.TarotC && it.t === t }
+            pendingTarot = null; tarotTarget = emptySet()
+            Telemetry.event("RUN_USE_TAROT", "tarot" to t.name); return
+        }
+        val idxs = ordered.toSet()
+        if (idxs.isEmpty()) return
+        // PlayingCard is immutable; the deck methods update `all`/`drawPile` by value, and we rebuild the
+        // visible hand here so Compose sees the change. Index-based so duplicate card values don't both flip.
+        hand = hand.mapIndexedNotNull { i, c ->
+            if (i !in idxs) return@mapIndexedNotNull c
+            when (val fx = t.fx) {
+                is TarotFx.Enhance -> { deck.enhanceCard(c, fx.e); c.copy(enhancement = fx.e) }
+                is TarotFx.ConvertSuit -> { deck.setSuitCard(c, fx.suit); c.copy(suit = fx.suit) }
+                is TarotFx.RankUp -> { deck.rankUpCard(c); c.copy(rank = if (c.rank >= 14) 2 else c.rank + 1) }
+                is TarotFx.Destroy -> { deck.destroyCard(c); null }   // dropped from hand
+                else -> c   // non-targeted fx (money/creation) never reach the aim path
+            }
+        }
+        consumables.removeAll { it is Consumable.TarotC && it.t === t }
+        pendingTarot = null; tarotTarget = emptySet()
+        Telemetry.event("RUN_USE_TAROT", "tarot" to t.name, "n" to idxs.size)
+    }
+
+    fun cancelTarot() { pendingTarot = null; tarotTarget = emptySet() }
 
     fun handLevel(h: HandType): Int = handLevels.level(h)
+
+    /** Capture the run for serialization (P4 RunStateSerialization). Transient ui/animation/scoring
+     *  state is not persisted — just the run-defining graph. */
+    fun snapshot(): RunSnapshot = RunSnapshot(
+        blindIndex = blindIndex, money = money,
+        jokers = owned.map { o ->
+            JokerSnap(o.offer.key, o.offer.name, o.offer.desc, o.offer.cost, o.offer.edition.name,
+                o.fj.edition, o.fj.mult, o.fj.x, o.fj.chips, o.fj.n, o.fj.rarity, o.fj.xc, o.sellBonus)
+        },
+        deck = deck.composition().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) },
+        handLevels = handLevels.all().entries.associate { it.key.name to it.value },
+        shopSlotsBonus = shopSlotsBonus, discountPercent = discountPercent, interestCap = interestCap,
+        stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
+        anaglyph = anaglyph, doubleNextTags = doubleNextTags, firstShopBuffoon = firstShopBuffoon,
+        directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe, cardRate = cardRate, illusion = illusion,
+        baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
+        redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
+        consumables = consumables.map { c ->
+            when (c) {
+                is Consumable.TarotC -> ConsumableSnap("tarot", c.t.name)   // restored by name (fx not serialized)
+                is Consumable.PlanetC -> ConsumableSnap("planet", c.planet.display, planet = c.planet.name)
+                is Consumable.SpectralC -> ConsumableSnap("spectral", c.s.name)
+            }
+        },
+        phase = phase.name,
+        shopItems = shopItems.map { item ->
+            when (item) {
+                is ShopItem.Jk -> ShopItemSnap("joker", joker = OfferSnap(item.offer.key, item.offer.name, item.offer.desc, item.offer.cost, item.offer.edition.name))
+                is ShopItem.Pl -> ShopItemSnap("planet", planet = PlanetSnap(item.po.planet.name, item.po.cost))
+                is ShopItem.Tt -> ShopItemSnap("tarot", tarot = TarotSnap(item.t.name, "", item.t.cost, ""))
+                is ShopItem.Sp -> ShopItemSnap("spectral", spectral = item.s.name)
+                is ShopItem.Cd -> ShopItemSnap("card", card = CardSnap(item.card.suit.name, item.card.rank, item.card.enhancement.name, item.card.seal.name, item.card.permaBonus, item.card.edition))
+            }
+        },
+        shopVoucher = shopVoucher?.let { VoucherSnap(it.key, it.name, it.desc, it.extra, it.cost) },
+        shopBoosters = shopBoosters.map { BoosterSnap(it.key, it.name, it.kind, it.cost, it.extra, it.choose) },
+        rerollIncrease = rerollIncrease,
+        freeRerollThisShop = freeRerollThisShop,
+        couponThisShop = couponThisShop,
+        baseHandSize = baseHandSize,
+    )
+
+    /** Restore a run from a snapshot (load). Lands in the shop — a safe inter-blind state. */
+    fun restore(s: RunSnapshot) {
+        blindIndex = s.blindIndex; money = s.money
+        owned.clear()
+        s.jokers.forEach { j ->
+            owned.add(Owned(
+                Offer(j.key, j.name, j.desc, j.cost, edition = Edition.valueOf(j.edition)),
+                FJoker(j.key, j.mult, j.fjEdition, j.x, j.chips, j.n, j.rarity, j.xc)).also { it.sellBonus = j.sellBonus })
+        }
+        deck.setComposition(s.deck.map { PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition) })
+        handLevels.setAll(s.handLevels.entries.associate { HandType.valueOf(it.key) to it.value })
+        shopSlotsBonus = s.shopSlotsBonus; discountPercent = s.discountPercent; interestCap = s.interestCap
+        stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
+        anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags; firstShopBuffoon = s.firstShopBuffoon
+        directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe; cardRate = s.cardRate; illusion = s.illusion
+        baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
+        redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
+        tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
+        consumables.clear()
+        s.consumables.forEach { cs ->
+            consumables.add(when (cs.kind) {
+                "tarot" -> Consumable.TarotC(tarotByName(cs.name))
+                "spectral" -> Consumable.SpectralC(Spectral.valueOf(cs.name))
+                else -> Consumable.PlanetC(Planet.valueOf(cs.planet))
+            })
+        }
+        // exact shop stock + per-shop state, then land at the saved phase (SHOP resumes the real shop)
+        shopItems = s.shopItems.mapNotNull { snap ->
+            when (snap.kind) {
+                "joker" -> snap.joker?.let { ShopItem.Jk(Offer(it.key, it.name, it.desc, it.cost, edition = Edition.valueOf(it.edition))) }
+                "planet" -> snap.planet?.let { ShopItem.Pl(PlanetOffer(Planet.valueOf(it.planet), it.cost)) }
+                "tarot" -> snap.tarot?.let { ShopItem.Tt(tarotByName(it.name)) }
+                "spectral" -> snap.spectral?.let { ShopItem.Sp(Spectral.valueOf(it)) }
+                "card" -> snap.card?.let { ShopItem.Cd(PlayingCard(Suit.valueOf(it.suit), it.rank, Enhancement.valueOf(it.enh), Seal.valueOf(it.seal), permaBonus = it.permaBonus, edition = it.edition)) }
+                else -> null
+            }
+        }
+        shopVoucher = s.shopVoucher?.let { VoucherOffer(it.key, it.name, it.desc, it.extra, it.cost) }
+        shopBoosters = s.shopBoosters.map { BoosterOffer(it.key, it.name, it.kind, it.cost, it.extra, it.choose) }
+        rerollIncrease = s.rerollIncrease
+        freeRerollThisShop = s.freeRerollThisShop; couponThisShop = s.couponThisShop
+        baseHandSize = s.baseHandSize
+        phase = runCatching { Phase.valueOf(s.phase) }.getOrDefault(Phase.BLIND_SELECT)
+    }
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
 
     /** Populate the shop and jump to it — for the --es screen shop parity-screenshot deep-link only. */
     fun toShopForPreview() {
-        shop = rollShop(blindIndex); shopPlanets = rollPlanets(blindIndex); shopTarots = rollTarots(blindIndex)
+        resetRerollCost()
+        freeRerollThisShop = false; couponThisShop = false
+        applyTags(TagTrigger.SHOP_START); applyTags(TagTrigger.SHOP_FINAL)
+        shopItems = rollShopItems(blindIndex, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
+        shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())
+        shopBoosters = rollBoosters(blindIndex)
         phase = Phase.SHOP
     }
 
     /** Build a sample cash-out and jump to it — for the --es screen eval parity-screenshot deep-link only. */
     fun toEvalForPreview() { buildCashOut(); phase = Phase.ROUND_EVAL }
 
-    /** Reroll the shop stock (button='reroll_shop'). Balatro charges a flat reroll cost ($5 base). */
-    var rerollCost by mutableStateOf(5)
-    private var rerolls = 0
+    // Reroll cost (calculate_reroll_cost, common_events.lua:2686): base 5, +1 per reroll within a
+    // shop, reset to base each new shop. rerollBase is reducible by vouchers/back later.
+    var rerollBase = 5
+    var rerollIncrease by mutableStateOf(0)                  // current_round.reroll_cost_increase
+    var firstShopBuffoon = false                            // game.lua first_shop_buffoon: the 1st shop guarantees a Buffoon pack
+    val rerollCost: Int get() = (if (freeRerollThisShop) 0 else rerollBase) + rerollIncrease
+    private var rerolls = 0                                  // global counter → reroll-stock RNG variety
+    /** state_events.lua:347 — entering a fresh shop resets the per-shop reroll escalation. */
+    fun resetRerollCost() { rerollIncrease = 0 }
+    /** Reroll the shop stock (button='reroll_shop'). */
     fun reroll() {
         if (money < rerollCost || phase != Phase.SHOP) return
         money -= rerollCost
+        rerollIncrease += 1                                  // +1 each reroll (calculate_reroll_cost)
         rerolls += 1
         val seed = blindIndex + rerolls * 7
-        shop = rollShop(seed); shopPlanets = rollPlanets(seed); shopTarots = rollTarots(seed)
+        // reroll re-rolls the CARDS only; the voucher slot stays (Balatro keeps the voucher on reroll).
+        shopItems = rollShopItems(seed, JOKER_MAX + shopSlotsBonus, spectralRate, tarotRate, planetRate, cardRate, illusion); applyTelescope()
+        // ── per-reroll joker hooks (context.reroll_shop) ──────────────────────────────────────
+        // starfruit: -0.2 Emult per reroll (config.emult_mod=0.2); self-destructs when emult ≤ 1.0
+        // (epic.lua:2471-2519). j.x = emult accumulator; fire before joker removal check.
+        val rerollSelfDestruct = ArrayList<Owned>()
+        for (o in owned) if (o.fj.key == "j_cry_starfruit") {
+            o.fj.x = maxOf(1.0, o.fj.x - 0.2)
+            if (o.fj.x <= 1.00000001) rerollSelfDestruct.add(o)  // Lua: <= 1.00000001 float guard
+        }
+        if (rerollSelfDestruct.isNotEmpty()) {
+            owned.removeAll(rerollSelfDestruct)
+            Telemetry.event("REROLL_DESTROY", "n" to rerollSelfDestruct.size, "reason" to "starfruit")
+        }
+        // j_cry_crustulum: +4 chips per reroll (config.extra.chip_mod=4, exotic.lua:514).
+        // j.chips accumulates; joker_main reads it when > 0.
+        for (o in owned) if (o.fj.key == "j_cry_crustulum") o.fj.chips += 4.0
+        // j_flash (Flash Card): +2 Mult per reroll (config.extra=2, card.lua:2966). j.mult accumulates;
+        // joker_main reads it when > 0.
+        for (o in owned) if (o.fj.key == "j_flash") o.fj.mult += 2.0
     }
 
     /** Commit a blind selection and start the round (button = 'select_blind' in Lua source). */
     fun selectBlind() { if (phase == Phase.BLIND_SELECT) startRound() }
+
+    /** Director's Cut / Retcon: may the upcoming Boss Blind be rerolled right now? */
+    fun canRerollBoss(): Boolean = phase == Phase.BLIND_SELECT && slot == 2 && money >= 10 &&
+        (retcon || (directorsCut && bossRerollsThisAnte < 1))
+
+    /** Reroll the upcoming Boss Blind for $10 (advances the boss seed). */
+    fun rerollBoss() {
+        if (!canRerollBoss()) return
+        money -= 10; bossReshuffle += 1; bossRerollsThisAnte += 1
+        Telemetry.event("BOSS_REROLL", "boss" to upcomingBoss.name, "money" to money)
+    }
+
+    /** Skip the current Small/Big blind for its Tag (can't skip the Boss); advance to the next blind. */
+    fun skipBlind() {
+        if (phase != Phase.BLIND_SELECT || slot == 2) return
+        tags.add(upcomingTag)
+        if (doubleNextTags > 0) { tags.add(upcomingTag); doubleNextTags -= 1 }   // Double Tag: duplicate this skip tag
+        blindIndex += 1
+        boss = if (slot == 2) Boss.values().random(Random(blindIndex * 2654435761L + 1)) else null
+        Telemetry.event("BLIND_SKIP", "tag" to tags.last().name)
+        // MANIFEST: fire BlindSkipped so Throwback (and future blind-skip jokers) can accumulate.
+        // Mirrors Lua's G.GAME.skips++ (button_callbacks.lua:2995) + SMODS.calculate_context({skip_blind=true})
+        // (button_callbacks.lua:3009). Throwback in Lua reads G.GAME.skips in its update() loop;
+        // here we accumulate +0.25 per event which is equivalent (x starts 1.0, +0.25 per skip).
+        for (o in owned) JOKER_MANIFEST[o.fj.key]?.reduce?.let {
+            o.fj.restore(it(o.fj.snapshot(), GameEvent.BlindSkipped))
+        }
+    }
+
+    /** Fire (and consume) every earned tag whose trigger matches (Tag:apply_to_run by config.type). */
+    internal fun applyTags(trigger: TagTrigger) {
+        val firing = tags.filter { it.trigger == trigger }
+        for (t in firing) when (t) {
+            Tag.INVESTMENT -> money += 25
+            Tag.JUGGLE -> handSize += 3
+            Tag.D_SIX -> freeRerollThisShop = true
+            Tag.COUPON -> couponThisShop = true
+            Tag.HANDY -> money += handsPlayedTotal                       // +$1 per hand played this run
+            Tag.ECONOMY -> money += minOf(money, 40)                     // double money, capped at +$40
+            Tag.ORBITAL -> handLevels.levelUp(                          // +3 levels to a random poker hand
+                RUN_INFO_HANDS[Random(blindIndex * 70003L + 11).nextInt(RUN_INFO_HANDS.size)], 3)
+            // Pack tags: queue a free pack; opened on shop entry once phase=SHOP is set.
+            Tag.CHARM     -> pendingPack = BOOSTERS.find { it.key == "p_arcana_mega" }
+            Tag.METEOR    -> pendingPack = BOOSTERS.find { it.key == "p_celestial_mega" }
+            Tag.ETHEREAL  -> pendingPack = BOOSTERS.find { it.key == "p_spectral_normal" }
+            Tag.STANDARD_TAG -> pendingPack = BOOSTERS.find { it.key == "p_standard_mega" }
+            Tag.BUFFOON   -> pendingPack = BOOSTERS.find { it.key == "p_buffoon_mega" }
+        }
+        tags.removeAll(firing)
+    }
 
     private var phaseBeforeInfo: Phase = Phase.ROUND
 
@@ -572,16 +2421,60 @@ fun RunScreen(onClose: () -> Unit, startScreen: String? = null) {
 private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: String? = null) {
     val ctx = LocalContext.current
     val s = remember { RunState() }
+    val saveFile = remember(ctx) { File(ctx.filesDir, SaveIo.FILE_NAME) }
     // Deep-link parity screenshots: --es screen blind|shop|play jumps to that phase (play auto-runs
-    // a hand so the scoring cascade can be captured) on first composition.
+    // a hand so the scoring cascade can be captured) on first composition. A NORMAL launch (no
+    // startScreen) RESUMES the saved run if one exists (P4 SaveLoadThreadingModel).
     LaunchedEffect(Unit) {
         when (startScreen) {
+            null -> withContext(Dispatchers.IO) { SaveIo.read(saveFile) }?.let { json ->
+                // A corrupt or schema-incompatible save must not crash-loop the app: discard it and
+                // start fresh (the DECK_SELECT default already stands) instead of letting decode throw.
+                try { s.restore(RunSnapshot.decode(json)) }
+                catch (e: Throwable) {
+                    Telemetry.event("SAVE_LOAD_FAILED", "err" to e.toString())
+                    withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }
+                }
+            }
             "blind" -> s.phase = Phase.BLIND_SELECT
             "shop" -> s.toShopForPreview()
-            "play" -> { delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play() }
+            "play" -> {   // pick a default deck first — the run now starts at DECK_SELECT, not ROUND
+                if (s.phase == Phase.DECK_SELECT) s.pickDeck(DeckVariant.RED)
+                delay(700); repeat(5) { s.toggle(it) }; delay(400); s.play()
+            }
             "eval" -> s.toEvalForPreview()
             "over" -> s.phase = Phase.OVER
+            "win" -> s.phase = Phase.WIN
+            "runinfo" -> s.openRunInfo()
             "repro" -> s.loadRepro()      // PROOF: freeze the exact reference-screenshot state for pixel-diff
+            "repro-live" -> s.loadReproLive()  // live-cascade harness: bref_3 state, plays the Two Pair so scoring animates
+        }
+    }
+    // Autosave the run at each inter-blind boundary (the snapshot captures the run-defining graph; the
+    // encode runs on the main thread to read Compose state, the write goes to Dispatchers.IO). On game
+    // over the save is deleted so the next launch starts fresh instead of resuming a dead run.
+    // re-fire on the shop-mutating state too (money/consumables change on buys/rerolls/uses) so the
+    // autosave captures the CURRENT shop stock, not the stock at shop entry (else resume re-offers bought cards).
+    LaunchedEffect(s.phase, s.blindIndex, s.money, s.consumables.size) {
+        if (startScreen != null) return@LaunchedEffect          // deep-link harnesses don't autosave
+        when (s.phase) {
+            Phase.SHOP, Phase.BLIND_SELECT -> { val json = s.snapshot().encode(); withContext(Dispatchers.IO) { SaveIo.write(saveFile, json) } }
+            // A finished run (lost OR won) clears the save so the next launch starts fresh instead of
+            // resuming the pre-finish shop. (Endless Mode re-enters play and re-saves at the next shop.)
+            Phase.OVER, Phase.WIN -> withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }
+            else -> {}
+        }
+    }
+    // Win / game-over stings + lifetime-stats recording (once per finished run).
+    LaunchedEffect(s.phase) {
+        when (s.phase) {
+            Phase.WIN -> systems.balatro.audio.SoundManager.play("timpani")
+            Phase.OVER -> systems.balatro.audio.SoundManager.play("gong")
+            else -> {}
+        }
+        if (startScreen == null && (s.phase == Phase.WIN || s.phase == Phase.OVER)) {
+            systems.balatro.save.StatsStore.record(ctx, won = s.phase == Phase.WIN, ante = s.ante,
+                hands = s.totalHandsPlayed, bestScore = s.runHighScore.toLong())
         }
     }
 
@@ -598,7 +2491,11 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         value = withContext(Dispatchers.Default) { CardArt.back(ctx) }
     }
     val jokerCells by produceState<Map<String, ImageBitmap>>(emptyMap()) {
-        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key } + "j_clever") }
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
+    }
+    // Shop card art for the non-joker offers (planets/tarots/spectrals/vouchers/boosters).
+    val shopArt by produceState(ShopArt.Cells.EMPTY) {
+        value = withContext(Dispatchers.Default) { ShopArt.cache(ctx) }
     }
     // Stake sprite (White Chip, stake 1 — always-active). chips.png 2x: 58×58px, pos={x=0,y=0}.
     val stakeBmp by produceState<ImageBitmap?>(null) {
@@ -613,22 +2510,23 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
         // is fit into the surface by the aspect branch — width-constrained when the surface is squarer
         // than the room (aspect < 22/12.9), else height-constrained — which is exactly min(W/22, H/12.9).
         // The 22u-wide room is centred; ROOM.T.x/y are the room interior's screen-top-left origin (in
-        // units), so card areas land at (ROOM.T + cardArea.T) regardless of device aspect (the bref_3
-        // 16:9 capture happens to be width-constrained → ROOM.T.y≈0.44; a squarer Fold letterboxes).
-        // Parity (repro) forces the WIDTH-constrained fit that the bref_3 reference was captured at
-        // (a 16:9 image where the room overflows height and is cropped), so the pixel-diff is
-        // apples-to-apples. Live play uses Balatro's faithful aspect branch (min) — width-constrained
-        // on a squarer surface, height-constrained otherwise. The room-origin formula is identical for
-        // both (the room always centres); only u differs.
-        val u = if (s.repro) maxWidth.value / ROOM_W else uiScaleFor(maxWidth.value, maxHeight.value)
+        // units), so card areas land at (ROOM.T + cardArea.T) regardless of device aspect.
+        // REFSHOT1 was captured at 3840×2160: aspect = 1.778 > 22/12.9 = 1.705 → HEIGHT-constrained
+        // (u = min(3840/22, 2160/12.9) = min(174.5, 167.4) = 167.4 px/unit). Repro uses the same
+        // min(W/22, H/12.9) formula so pixel positions are apples-to-apples with the reference.
+        val u = uiScaleFor(maxWidth.value, maxHeight.value)
         val roomTx = (maxWidth.value / u - ROOM_W) / 2f + ROOM_PADDING_W
         val roomTy = (maxHeight.value / u - ROOM_H) / 2f + ROOM_PADDING_H
+        android.util.Log.d("BalatroLayout", "repro=${s.repro} maxW=${maxWidth.value} maxH=${maxHeight.value} u=$u roomTx=$roomTx roomTy=$roomTy uRepro=${maxWidth.value/ROOM_W} uLive=${uiScaleFor(maxWidth.value, maxHeight.value)}")
         CompositionLocalProvider(LocalUIScale provides u, LocalStaticUi provides s.repro) {
             // ROUND's play field is positioned at ABSOLUTE room coordinates over the full surface
             // (set_screen_positions), so it's a full-screen layer drawn UNDER the HUD overlay — not a
             // weight box to the right of the HUD. Card areas span the whole room; the HUD sits on top
             // of the left edge exactly as the game layers G.HUD over the room.
-            if (s.phase == Phase.ROUND) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy)
+            // ROUND_EVAL keeps the play field mounted too, so the engine host + joker Moveables persist
+            // and the end-of-round self-destruct dissolve burns on behind the cash-out panel (which the
+            // when-block below overlays). RoundPlay gates its hand/played/action-bar to Phase.ROUND.
+            if (s.phase == Phase.ROUND || s.phase == Phase.ROUND_EVAL) RoundPlay(s, cells, jokerCells, cardBase, cardBack, roomTx, roomTy, shopArt)
             Box(
                 // requiredHeight + centre: the 12.9u room centres in the surface — letterboxed when the
                 // surface is taller than the room, cropped top/bottom when shorter (16:9). Plain .height()
@@ -655,15 +2553,22 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
                     Box(Modifier.weight(1f).fillMaxHeight()) {                  // non-ROUND phase content
                         when (s.phase) {
                             Phase.ROUND -> {}                                  // rendered full-screen above
+                            Phase.DECK_SELECT -> {}                            // full-screen overlay below
                             Phase.BLIND_SELECT -> BlindSelectScreen(s, stakeBmp)
-                            Phase.SHOP -> ShopPhase(s, jokerCells, cardBase)
-                            Phase.RUN_INFO -> RunInfoScreen(s, jokerCells)
+                            Phase.SHOP -> ShopPhase(s, jokerCells, shopArt, cardBase, cells)
+                            Phase.RUN_INFO -> RunInfoScreen(s)
                             Phase.ROUND_EVAL -> RoundEvalScreen(s)
-                            Phase.OVER -> GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+                            Phase.OVER, Phase.WIN -> {}   // rendered as a full-screen overlay below (vanilla covers everything)
+                            Phase.PACK_OPEN -> PackOpenScreen(s, jokerCells, shopArt, cardBase, cells)
                         }
                     }
                 }
             }
+            // Game-over / win are full-screen overlays (G.OVERLAY_MENU) in vanilla — they cover the
+            // HUD + board, not a play-area panel. Render the extracted tree full-screen over everything.
+            if (s.phase == Phase.OVER) GameOverScreen(s, onRestart = onRestart, onMainMenu = onClose)
+            if (s.phase == Phase.WIN)  WinScreen(s, onRestart = onRestart, onMainMenu = onClose)
+            if (s.phase == Phase.DECK_SELECT) DeckSelectScreen(s)
         }
         // Minimal close affordance (NOT part of Balatro's HUD) — a small corner overlay so the
         // sidebar itself stays a faithful create_UIBox_HUD with no injected dev chrome.
@@ -712,11 +2617,11 @@ private fun HudColumn(s: RunState, modifier: Modifier, stakeBmp: ImageBitmap? = 
         // no blindContent → row_blind stays empty (pure tree); rebuild when the stake sprite loads.
         val ui = remember(root, stakeBmp) { HudSpec.build(root, HudBind(s, stakeBmp)) }
         Box(modifier) {
-            RenderUIBoxAbsolute(ui, u, roomH = ROOM_H) { bx, by, bw, bh ->
+            RenderUIBoxAbsolute(ui, u, roomH = ROOM_H, blindOverlay = { bx, by, bw, bh ->
                 // The blind token UIBox laid out by the SAME exact engine, centred in the row_blind slot.
                 RenderUIBoxAt(hudBlind(s, blindBmp = blindBmp, stakeBmp = stakeBmp, chipTargetScale = chipTargetScale),
                     u, bx, by, bw, bh)
-            }
+            })
         }
     }
 }
@@ -1020,7 +2925,7 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
             padding = 0.3f,
             r       = 0.1f,
             colour  = if (canPlay) Balatro.Chips else Balatro.Grey,
-            onClick = if (canPlay) ({ s.play() }) else null,
+            onClick = if (canPlay) ({ systems.balatro.audio.SoundManager.play("cardSlide1"); s.play() }) else null,
         ),
         R(Cfg(align = "bcm", padding = 0f),
             T(Cfg(scale = ts, textColour = Balatro.White), "Play Hand")),
@@ -1037,7 +2942,7 @@ private fun buttonsRow(s: RunState, cells: Map<*, *>): UI {
             padding = 0.3f,
             r       = 0.1f,
             colour  = if (canDiscard) Balatro.Mult else Balatro.Grey,
-            onClick = if (canDiscard) ({ s.discard() }) else null,
+            onClick = if (canDiscard) ({ systems.balatro.audio.SoundManager.play("whoosh1"); s.discard() }) else null,
         ),
         R(Cfg(align = "cm", padding = 0f),
             T(Cfg(scale = ts, textColour = Balatro.White), "Discard")),
@@ -1103,14 +3008,32 @@ private fun CardFace(
                 contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None,
                 colorFilter = ColorFilter.tint(Color.Black))
         }
-        base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-        face?.let { Image(it, card.label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+        if (card.edition.isNotEmpty() && base != null) {
+            // EDITION shimmer (Aura: Foil/Holo/Poly) on playing cards. Unlike a joker (one opaque sprite),
+            // a playing card is base stock + a TRANSPARENT pip overlay, so the shader must run over the
+            // COMPOSITE — applied to the face alone it washes the pips out. EditionCard composites both.
+            EditionCard(base, face, card.edition, card.label)
+        } else {
+            base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+            face?.let { Image(it, card.label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+        }
         badges()
     }
 }
 
+/** A playing card (base stock + pip overlay) composited under its edition shader (foil/holo/poly),
+ *  animated by the Compose frame clock. Gated to its own composable so only edition cards run the clock. */
 @Composable
-private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null, roomTx: Float = 1f, roomTy: Float = 0.4375f) {
+private fun EditionCard(base: ImageBitmap, face: ImageBitmap?, edition: String, label: String) {
+    val t by produceState(0f) { while (true) { withInfiniteAnimationFrameMillis { value = it / 1000f } } }
+    Box(Modifier.fillMaxSize().graphicsLayer { renderEffect = editionRenderEffect(edition, size.width, size.height, t) }) {
+        Image(base, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None)
+        face?.let { Image(it, label, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+    }
+}
+
+@Composable
+private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap? = null, cardBack: ImageBitmap? = null, roomTx: Float = 1f, roomTy: Float = 0.4375f, shopArt: ShopArt.Cells = ShopArt.Cells.EMPTY) {
     // Play field laid out at ABSOLUTE room coordinates — set_screen_positions (common_events.lua),
     // resolved to screen-top-left room units by the playfield-coords analysis (LÖVE oracle +
     // reference measurement). Card areas (jokers/play/hand/deck/consumeables) are placed via
@@ -1119,8 +3042,19 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val u = LocalUIScale.current
     val cardW = (PF.CARD_W * u).dp
     val cardH = (PF.CARD_H * u).dp
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    val cardWpx = with(dens) { cardW.toPx() }; val cardHpx = with(dens) { cardH.toPx() }
+    // DEBUG: log u and card pixel size once
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        android.util.Log.d("BalatroDebug", "u=$u cardWpx=$cardWpx cardHpx=$cardHpx density=${dens.density} roomTx=$roomTx roomTy=$roomTy")
+    }
+    // edition shaders are AGSL (API 33+); only on the live path (the static repro frame has no editions).
+    val foilOn = !s.repro && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
+    // Selected joker (tap to select) → shows the move/sell control bar. Resets on phase change.
+    var selJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
+    var inspCons by remember(s.phase) { mutableStateOf<Int?>(null) }   // inspected consumable (tap → tooltip → Use)
     // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
     // so they land correctly at the device's scale/letterboxing.
     fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
@@ -1132,12 +3066,25 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // placement, but is now engine-driven and can spring once something moves an area's T.
     val host = remember { EngineHost() }
     val frame = remember { mutableStateOf(0L) }    // bumped each engine tick → redraw cards at their VT
+    // Per-card engine Moveable, by card identity — persists as a card moves hand→play (the transfer
+    // carries its VT). IdentityHashMap so value-equal duplicates (two 10s) stay distinct.
+    val cardMv = remember { java.util.IdentityHashMap<PlayingCard, Moveable>() }
+    // Per-joker engine Moveable, by joker identity (mirrors cardMv) — so a SPECIFIC self-destruct
+    // joker can dissolve and be pruned, rather than setCardCount dropping the last by count.
+    val jokerMv = remember { java.util.IdentityHashMap<Owned, Moveable>() }
+    // Staggered deal: each newly-dealt card's clock time to start flying in from the deck; held at the
+    // deck until then so cards arrive one-by-one (~0.07s apart). dealClock[0] is the next reveal slot.
+    val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
+    val dealClock = remember { doubleArrayOf(0.0) }
+    val jokerMatDone = remember { booleanArrayOf(false) }   // one-shot: jokers materialized IN (demo)
+    val debugFrameCount = remember { intArrayOf(0) }
     LaunchedEffect(host) {
         var last = 0L
         while (true) {
             withFrameNanos { now ->
                 val dt = if (last == 0L) 1.0 / 60.0 else ((now - last) / 1e9).coerceIn(1e-4, 0.05)
                 last = now
+                debugFrameCount[0]++
                 // The engine always RUNS (cards spring to rest); repro only freezes the idle wobble
                 // (reducedMotion) — not movement — so cards still settle to their resting T for the
                 // parity screenshot. (Pausing move() would strand cards at their spawn point.)
@@ -1145,11 +3092,68 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 // MainUpdateLoop body (game.lua Game:update order): advance clock → align card areas
                 // (CardArea:update) → drain events → sweep every Moveable's move → flush removals.
                 host.clock.advance(dt, reducedMotion = frozen)
-                if (host.jokers.cards.size != s.owned.size) host.jokers.setCardCount(s.owned.size)
+                // IDENTITY-TRACKED jokers (like cardMv): rebuild host.jokers.cards from s.owned each
+                // frame, REUSING each joker's Moveable, so a dissolving joker keeps its Moveable (and
+                // dissolve value) and survives the burn until onGone prunes it. newCard() spawns at the
+                // area origin exactly like the old setCardCount, so the resting render is unchanged.
+                host.jokers.cards.clear(); for (o in s.owned) host.jokers.cards.add(jokerMv.getOrPut(o) { host.jokers.newCard() })
+                if (jokerMv.size > s.owned.size) {                  // prune Moveables for removed jokers
+                    val keep = java.util.IdentityHashMap<Owned, Boolean>(); for (o in s.owned) keep[o] = true
+                    val it2 = jokerMv.entries.iterator()
+                    while (it2.hasNext()) { val e = it2.next(); if (!keep.containsKey(e.key)) { e.value.remove(); it2.remove() } }
+                }
+                // one-shot: materialize the jokers IN (start_materialize) — the create half of the pair.
+                if (s.materializeJokers && !jokerMatDone[0] && host.jokers.cards.size == s.owned.size && s.owned.isNotEmpty()) {
+                    host.jokers.cards.forEach { host.startMaterialize(it, now = host.clock.real) }
+                    jokerMatDone[0] = true
+                }
                 host.jokers.alignCards(host.clock, reducedMotion = frozen)
+                // HAND slide: the area Y is state-dependent (oracle: 6.986 selecting → 8.886 scoring).
+                // Setting host.hand.T.y on the transition makes each card's align target jump, so the
+                // card VT springs (slides, with overshoot) into the scoring position — the motion bref_3
+                // froze. Cards stay on CardArea; align_cards sets the fan/arc/lift each frame.
+                host.hand.T.y = (if (s.scoring) Room.handScoringY else Room.handSelectingY)
+                // IDENTITY-TRACKED cards: every PlayingCard keeps its own Moveable (cardMv), born in
+                // the hand. host.hand/host.play.cards are rebuilt each frame from the game lists,
+                // REUSING those Moveables — so a played card (now in s.scoreCards, gone from s.hand)
+                // carries its exact hand VT into the play area: real hand→play transfer, the fly-in.
+                // newly-dealt hand cards are born at the DECK and fly into the hand (deck→hand deal);
+                // played cards born at the hand (hand→play). Cards already in cardMv keep their VT.
+                host.hand.cards.clear(); for (cd in s.hand) host.hand.cards.add(cardMv.getOrPut(cd) {
+                    if (dealClock[0] < host.clock.real) dealClock[0] = host.clock.real   // new batch starts now
+                    dealAt[cd] = dealClock[0]; dealClock[0] += 0.07                       // stagger 0.07s/card
+                    host.hand.newCard(host.deck.T.x, host.deck.T.y)
+                })
+                host.play.cards.clear(); for (cd in s.scoreCards) host.play.cards.add(cardMv.getOrPut(cd) { host.play.newCard(host.hand.T.x, host.hand.T.y) })
+                if (cardMv.size > s.hand.size + s.scoreCards.size) {        // prune Moveables for gone cards
+                    val keep = java.util.IdentityHashMap<PlayingCard, Boolean>()
+                    for (cd in s.hand) keep[cd] = true; for (cd in s.scoreCards) keep[cd] = true
+                    val it2 = cardMv.entries.iterator()
+                    while (it2.hasNext()) { val e = it2.next(); val k = e.key; if (!keep.containsKey(k)) { e.value.remove(); it2.remove(); dealAt.remove(k) } }
+                }
+                host.hand.highlighted.clear(); host.hand.highlighted.addAll(s.selected)
+                host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = 8)
+                host.play.alignCards(host.clock, reducedMotion = frozen, tempLimit = maxOf(s.scoreCards.size, 1))
+                // staggered deal: hold each card at the deck until its reveal time so they fly in
+                // one-by-one. (skipped in repro — the static frame uses SpringHand, not these cards.)
+                if (!frozen) host.hand.cards.forEachIndexed { i, m ->
+                    val at = s.hand.getOrNull(i)?.let { dealAt[it] }
+                    if (at != null && host.clock.real < at) { m.T.x = host.deck.T.x; m.T.y = host.deck.T.y }
+                }
                 host.events.update(dt)
                 for (m in host.scene.moveables) m.move(host.clock)
                 host.scene.flushRemovals()
+                // DEBUG: log hand card T.r and VT.r every 300 frames (~5s)
+                if (debugFrameCount[0] % 300 == 0) {
+                    android.util.Log.d("BalatroDebug", "frame=${debugFrameCount[0]} u=$u cardWpx=${cardWpx.toInt()} cardHpx=${cardHpx.toInt()} roomTx=$roomTx roomTy=$roomTy repro=${s.repro}")
+                    host.hand.cards.forEachIndexed { i, m ->
+                        val pxLeft = ((roomTx + m.VT.x.toFloat()) * u * dens.density)
+                        val pxTop = ((roomTy + m.VT.y.toFloat()) * u * dens.density)
+                        val pxBot = pxTop + cardHpx
+                        val pxRight = pxLeft + cardWpx
+                        android.util.Log.d("BalatroDebug", "hand[$i] VT.x=${m.VT.x.let { String.format("%.3f", it) }} VT.y=${m.VT.y.let { String.format("%.3f", it) }} VT.r=${m.VT.r.let { String.format("%.4f", it) }} VT.scale=${m.VT.scale.let { String.format("%.4f", it) }} pxLeft=${pxLeft.toInt()} pxTop=${pxTop.toInt()} pxRight=${pxRight.toInt()} pxBot=${pxBot.toInt()}")
+                    }
+                }
                 frame.value = now
             }
         }
@@ -1173,6 +3177,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 val step = s.lastSteps[i]
                 host.events.addEvent(Event(trigger = "after", delay = if (i == 1) 0.14 else 0.30, func = {
                     s.popIndex = i - 1                              // pop the scored card
+                    systems.balatro.audio.SoundManager.play("chips1", rate = 1f + (i - 1) * 0.06f)   // rising chip tick
                     // ease_chips/ease_mult (common_events.lua): the readout COUNTS UP to this step's
                     // value over 0.3s instead of jumping. Non-blocking so the cascade keeps marching;
                     // chips floor to integers (ease_chips uses math.floor), mult stays fractional.
@@ -1185,8 +3190,41 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                 }))
             }
             host.events.addEvent(Event(trigger = "after", delay = 0.30, func = { true }))          // trailing post-step gap
-            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = { s.scoreCommit(); true }))
+            // post-tally: played GLASS cards shatter (Card:shatter, 1-in-4) — they DISSOLVE away (fast
+            // white burn) rather than being discarded. Roll per glass card; if any burns, hold the
+            // commit/refill until the dissolve finishes (0.55×0.7s) so it doesn't pop out mid-burn.
+            host.events.addEvent(Event(trigger = "after", delay = 0.45, func = {
+                var burning = false
+                s.scoreCards.forEachIndexed { i, card ->
+                    if (card.enhancement == Enhancement.GLASS && s.rollGlassBreak()) {
+                        host.play.cards.getOrNull(i)?.let { host.startDissolve(it, shatter = true, now = host.clock.real) }
+                        s.shatterCard(card)   // game state: the shattered card is gone from the run's deck, not just the screen
+                        burning = true
+                    }
+                }
+                host.events.addEvent(Event(trigger = "after", delay = if (burning) 0.55 * 0.7 else 0.0, func = {
+                    if (s.scoreBank()) {                            // round WON → end-of-round evaluation
+                        // self-destruct jokers (SELF_DESTRUCT_KEYS, e.g. Broken Home) DISSOLVE on the
+                        // board (fiery start_dissolve), then are pruned from owned (onGone). Faithful:
+                        // state_events.lua runs this in the end_of_round calculate, before ROUND_EVAL.
+                        val doomed = s.owned.filter { it.fj.key in SELF_DESTRUCT_KEYS } +
+                            (if (s.demoSelfDestruct) listOfNotNull(s.owned.lastOrNull()) else emptyList())
+                        doomed.distinct().forEach { o ->
+                            jokerMv[o]?.let { mv -> host.startDissolve(mv, now = host.clock.real) { s.owned.remove(o) } }
+                        }
+                        // RoundPlay stays mounted through ROUND_EVAL, so the burn continues behind the
+                        // cash-out panel (the dump's eval state appears ~0.3s in, mid-dissolve).
+                        s.enterRoundEval()
+                    }
+                    true
+                }))
+                true
+            }))
         }
+    }
+    // juice the played card the cascade is popping (live; repro uses ScoredCardsRow's own juice).
+    LaunchedEffect(s.popIndex) {
+        if (!s.repro) host.play.cards.getOrNull(s.popIndex)?.juiceUp(amount = 0.4, now = host.clock.real)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -1198,8 +3236,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         frame.value.let {}    // subscribe to the engine tick so the cards redraw at their new VT each frame
         s.owned.forEachIndexed { i, o ->
             val m = host.jokers.cards.getOrNull(i) ?: return@forEachIndexed
-            val rDeg = (m.VT.r * 57.2958).toFloat()
-            Box(off(m.VT.x.toFloat(), m.VT.y.toFloat())) {
+            val rDeg = -(m.VT.r * 57.2958).toFloat()
+            val raise = if (selJoker == i) 0.4f else 0f   // lift the selected joker
+            Box(off(m.VT.x.toFloat(), m.VT.y.toFloat() - raise)
+                .clickable(enabled = !s.scoring, interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    selJoker = if (selJoker == i) null else i; inspCons = null
+                }) {
                 Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                     jokerCells[o.offer.key]?.let {
                         // drop shadow: joker silhouette black @0.3a, +0.15u down, scaled 0.98 (h=0.1)
@@ -1207,44 +3249,215 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                             .graphicsLayer { scaleX = 0.98f; scaleY = 0.98f; translationY = 0.15f * u * density; alpha = 0.3f },
                             contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
                             colorFilter = ColorFilter.tint(Color.Black))
-                        Image(it, o.offer.name, Modifier.size(cardW, cardH),
-                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        // base art — burned through dissolve.fs while the joker is materializing IN
+                        // (dissolve 1→0, green edge) or dissolving OUT (e.g. self-destruct, fiery).
+                        val diss = m.dissolve.toFloat()
+                        Image(it, o.offer.name, Modifier.size(cardW, cardH).graphicsLayer {
+                            renderEffect = when {
+                                // burning (dissolve/shatter/materialize) takes precedence over the edition
+                                foilOn && diss > 0f -> dissolveRenderEffect(
+                                    diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered, materialize = m.materializing)
+                                // NEGATIVE transforms the base art itself (not an additive overlay)
+                                foilOn && o.offer.edition == Edition.NEGATIVE -> negativeBaseRenderEffect(cardWpx, cardHpx)
+                                else -> null
+                            }
+                        }, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        // EDITION (foil/holo/poly → AGSL): overlay the shimmer over the base art,
+                        // animated by the engine clock. (frame.value above forces the per-tick redraw.)
+                        // Suppressed mid-burn — the card isn't whole yet, so the shimmer would look wrong.
+                        val edEffect = if (foilOn && o.offer.edition != Edition.NONE && diss <= 0f)
+                            editionRenderEffect(o.offer.edition.tag, cardWpx, cardHpx, host.clock.real.toFloat()) else null
+                        if (edEffect != null) {
+                            Image(it, null, Modifier.size(cardW, cardH).graphicsLayer { renderEffect = edEffect },
+                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        }
                     } ?: Box(Modifier.size(cardW, cardH).clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark))
+                    // CRIMSON_HEART: semi-transparent dark wash + red "×" badge marks the disabled joker.
+                    // Rendered inside the rotation layer so the overlay tilts with the card. The wash
+                    // dims the joker art; the badge at TopCenter is the clearest affordance at this scale.
+                    if (s.boss == Boss.CRIMSON_HEART && o.fj === s.crimsonHeartDisabled) {
+                        Box(Modifier.size(cardW, cardH).background(Color.Black.copy(alpha = 0.55f)))
+                        Box(Modifier.size(cardW, cardH), contentAlignment = Alignment.TopCenter) {
+                            BTxt("×", Balatro.Mult, badgeSp, Modifier.background(Balatro.Panel).padding(horizontal = 2.dp))
+                        }
+                    }
+                }
+            }
+        }
+        // Move/sell control bar for the selected joker — joker order is scored L→R (Blueprint copies
+        // right, Brainstorm copies leftmost), so reordering is a real mechanic. Sits below the joker.
+        selJoker?.let { si ->
+            if (!s.scoring && si in s.owned.indices) {
+                val o = s.owned[si]
+                // Tap a joker → inspect it: name + ability (the detail tooltip) + the sell/reorder controls,
+                // in one panel below the joker row. Joker order is scored L→R, so reorder is a real mechanic.
+                Box(Modifier.align(Alignment.TopCenter)
+                    .absoluteOffset(y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp)) {
+                    DetailTooltip(o.offer.name, o.offer.desc, Balatro.Mult, u) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            JokerCtl("◀", u, enabled = si > 0) { selJoker = s.moveJoker(si, -1) }
+                            JokerCtl("Sell \$${s.sellValue(o)}", u, enabled = s.owned.size > 1) { s.sell(o); selJoker = null }
+                            JokerCtl("▶", u, enabled = si < s.owned.size - 1) { selJoker = s.moveJoker(si, 1) }
+                        }
+                    }
                 }
             }
         }
         // Slot counts at the BOTTOM-left of each card area (jokers N/5, consumables 0/2).
         Box(off(jokersX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("${s.owned.size}/5", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
+            BTxt("${s.owned.size}/${minOf(s.maxJokers, s.jokerSlots)}", Balatro.White, countSp, Modifier.padding(start = (0.05f * u).dp))
+        }
+        // ── CONSUMABLES (G.consumeables): held tarots/planets/spectrals, drawn in the consumable area.
+        // Tarots enter aim-mode on tap (pendingTarot set); planets/spectrals apply immediately.
+        if (s.consumables.isNotEmpty()) {
+            Box(off(consumX, jokersY)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    s.consumables.forEachIndexed { i, c ->
+                        val label = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
+                        val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips; is Consumable.SpectralC -> Balatro.Mult }
+                        val isAiming = c is Consumable.TarotC && s.pendingTarot === c.t
+                        Box(Modifier.size(cardW, cardH)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isAiming) Balatro.Purple.copy(alpha = 0.7f) else Balatro.Panel)
+                            .border(1.dp, if (isAiming) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
+                            .clickable(enabled = s.phase == Phase.ROUND && !s.scoring) {
+                                // Tap to INSPECT (read it first), not use immediately — Use is in the tooltip.
+                                systems.balatro.audio.SoundManager.play("highlight1")
+                                inspCons = if (inspCons == i) null else i; selJoker = null
+                            },
+                            contentAlignment = Alignment.Center) {
+                            // The held card's REAL sprite (same atlas the shop uses) — not a name label.
+                            val sprite = when (c) {
+                                is Consumable.TarotC -> shopArt.tarots[c.t.name]
+                                is Consumable.PlanetC -> shopArt.planets[c.planet]
+                                is Consumable.SpectralC -> shopArt.spectrals[c.s]
+                            }
+                            if (sprite != null) {
+                                Image(sprite, label, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                            } else {   // fallback only if the atlas crop is missing
+                                cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                                BTxt(label, accent, countSp, Modifier.padding(horizontal = 2.dp))
+                            }
+                        }
+                    }
+                }
+            }
         }
         Box(off(consumX, jokersY + PF.CARD_H + 0.05f)) {
-            BTxt("0/2", Balatro.White, countSp)
+            BTxt("${s.consumables.size}/${s.consumableSlots}", Balatro.White, countSp)
         }
-        // ── PLAYED (G.play): the played hand. bref_3 freezes mid-scoring with the cards risen to ~4.23u
-        // (the resting area is 5.7238u; cards lift toward the jokers while scoring). Centre in the play area.
-        if (s.scoring) Box(off(playX, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
-            ScoredCardsRow(s, cells, cardBase)
+        // Inspect a held consumable → name + effect + Use (vanilla reads the card before using it).
+        inspCons?.let { ci ->
+            if (!s.scoring && ci in s.consumables.indices) {
+                val c = s.consumables[ci]
+                val name = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
+                val desc = when (c) {
+                    is Consumable.TarotC -> c.t.fx.label
+                    is Consumable.PlanetC -> "Level up ${handName(c.planet.hand)}"
+                    is Consumable.SpectralC -> c.s.desc
+                }
+                val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips; is Consumable.SpectralC -> Balatro.Mult }
+                Box(Modifier.align(Alignment.TopEnd)
+                    .absoluteOffset(x = (-0.3f * u).dp, y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp)) {
+                    DetailTooltip(name, desc, accent, u) {
+                        JokerCtl("Use", u) {
+                            systems.balatro.audio.SoundManager.play("tarot1")
+                            if (c is Consumable.TarotC && c.t.fx.needsTarget) s.aimTarot(c.t) else s.useConsumable(ci)
+                            inspCons = null
+                        }
+                    }
+                }
+            }
         }
-        // ── HAND (G.hand): fanned along the bottom, centred in the 12.29u hand area. SpringHand
-        // anchors cards ~0.55·cardH below its box top (reserving lift-room above for selected cards),
-        // so raise the box by that resting offset (~1.4u) to land the card tops at the area position.
-        Box(off(handX, handY - PF.HAND_SPRING_OFFSET).width((PF.HAND_W * u).dp)) {
-            SpringHand(s.hand, s.selected, enabled = !s.scoring, cardWidth = cardW, onToggle = { s.toggle(it) }) { card ->
-                CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
-                    if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
-                        Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
-                    if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
-                        Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+        // ── PLAYED (G.play). STATIC repro: ScoredCardsRow, frozen at PLAY_SCORING_Y (bref_3's lifted
+        // frame). LIVE: the played cards are engine Moveables on host.play — they fly up from the hand
+        // into the play area and juice as the cascade pops each (juiceUp wired below). Drawn at VT.
+        if (s.scoring && s.repro) {
+            Box(off(playX, PF.PLAY_SCORING_Y).size((PF.PLAY_W * u).dp, cardH), contentAlignment = Alignment.TopCenter) {
+                ScoredCardsRow(s, cells, cardBase)
+            }
+        } else if (s.scoring) {
+            s.scoreCards.forEachIndexed { i, card ->
+                val m = host.play.cards.getOrNull(i) ?: return@forEachIndexed
+                val diss = m.dissolve.toFloat()      // >0 once this card is shattering (dissolve.fs burn)
+                Box(off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
+                    rotationZ = -(m.VT.r * 57.2958).toFloat()
+                    scaleX = m.VT.scale.toFloat(); scaleY = m.VT.scale.toFloat()
+                    if (foilOn && diss > 0f)
+                        renderEffect = dissolveRenderEffect(diss, host.clock.real.toFloat(), cardWpx, cardHpx, glass = m.shattered)
+                }) { CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {} }
+            }
+        }
+        // ── HAND (G.hand). Each card is an engine Moveable owned by host.hand (CardArea); the
+        // state-driven area-Y in the loop makes the hand SLIDE on play, and align_cards sets the
+        // fan/arc/lift each frame — drawn at VT, scale 0.95 (oracle). In repro the engine places the
+        // cards at REST (reducedMotion, line ~1634), so this same CardArea path renders the static
+        // parity frame and live alike — the verified-correct stable layout.
+        if (s.phase == Phase.ROUND) {   // hand is drawn back at end-of-round → hidden on ROUND_EVAL
+            s.hand.forEachIndexed { i, card ->
+                val m = host.hand.cards.getOrNull(i) ?: return@forEachIndexed
+                val interaction = remember(i) { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                m.states.drag.isOn = pressed
+                val isFaceDown = i in s.faceDown
+                val isTarotTarget = s.pendingTarot != null && i in s.tarotTarget
+                // Love2D rotate(theta) is CCW in math (CW on screen because y-down).
+                // Compose rotationZ positive = CW on screen. Negate to match Love2D sign convention.
+                val rotZDeg = -(m.VT.r * 57.2958).toFloat()
+                val scaleFactor = m.VT.scale.toFloat()
+                Box(
+                    off(m.VT.x.toFloat(), m.VT.y.toFloat()).size(cardW, cardH).graphicsLayer {
+                        rotationZ = rotZDeg
+                        scaleX = scaleFactor; scaleY = scaleFactor
+                    }.clickable(interaction, indication = null, enabled = !s.scoring) {
+                        systems.balatro.audio.SoundManager.play("highlight1")
+                        m.juiceUp(amount = 0.3, now = host.clock.real)   // vanilla: cards pop when highlighted
+                        s.toggle(i)
+                    }
+                    .then(if (isTarotTarget) Modifier.border(2.dp, Balatro.Purple, RoundedCornerShape(4.dp)) else Modifier)
+                ) {
+                    if (isFaceDown) {
+                        // Face-down (THE_HOUSE/MARK/WHEEL/FISH): show the card back, no rank/suit/badges visible.
+                        // CardFace with face=null and base=cardBack renders exactly the Red Deck card back.
+                        CardFace(card, null, cardBack, Modifier.fillMaxSize())
+                    } else {
+                        CardFace(card, cells[card], cardBase, Modifier.fillMaxSize()) {
+                            if (card.enhancement != Enhancement.NONE) BTxt(card.enhancement.badge, Balatro.White, badgeSp,
+                                Modifier.align(Alignment.TopStart).background(Balatro.Orange).padding(horizontal = 2.dp))
+                            if (card.seal != Seal.NONE) BTxt(card.seal.badge, Balatro.Ink, badgeSp,
+                                Modifier.align(Alignment.TopEnd).background(Balatro.Gold).padding(horizontal = 2.dp))
+                            // CERULEAN_BELL: blue "!" badge at TopCenter marks the forced-selected card.
+                            // The card is already lifted (always in `selected`); the badge makes the reason
+                            // visible so the player knows they can't deselect it.
+                            if (s.boss == Boss.CERULEAN_BELL && i == s.bellForcedIdx) {
+                                BTxt("!", Balatro.Ink, badgeSp,
+                                    Modifier.align(Alignment.TopCenter).background(Balatro.Chips).padding(horizontal = 2.dp))
+                            }
+                        }
+                    }
                 }
             }
         }
         // hand-size count (N/8) under the hand area.
-        Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
+        if (s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
             BTxt("${s.hand.size}/8", Balatro.White, countSp)
         }
-        // action bar (Play Hand / Sort / Discard) below the hand — hidden during scoring (Balatro hides it).
-        if (!s.scoring) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp)) {
-            RenderUI(buttonsRow(s, cells))
+        // action bar: tarot-use mode (Use / Cancel) or normal (Play / Sort / Discard).
+        // contentAlignment=TopCenter: Balatro centres the button row within the hand width — the UI
+        // tree width is narrower than HAND_W, so without centring it left-aligns ~400px too far left.
+        if (!s.scoring && s.phase == Phase.ROUND) Box(off(handX, handY + PF.CARD_H + 0.45f).width((PF.HAND_W * u).dp), contentAlignment = Alignment.TopCenter) {
+            if (s.pendingTarot != null) {
+                // Tarot-use mode: Use (enabled when ≥1 target) + Cancel buttons.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                    val canUse = s.tarotTarget.isNotEmpty()
+                    BButton("Use ${s.pendingTarot!!.name}", Balatro.Purple, enabled = canUse) { s.useTarot() }
+                    BButton("Cancel", Balatro.Grey, enabled = true) { s.cancelTarot() }
+                }
+            } else {
+                // Absolute engine: the tree is laid out at its natural width, so the outer Box's
+                // TopCenter alignment correctly centres the action bar on the hand without tricks.
+                RenderUIBoxNatural(buttonsRow(s, cells), u)
+            }
         }
         // ── DECK (G.deck): card-back stack RIGHT-anchored in its 2.25u box + N/52 count.
         Box(off(deckX, deckY).size((PF.DECK_W * u).dp, cardH), contentAlignment = Alignment.TopEnd) {
@@ -1308,7 +3521,7 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
             val sp = springs[i]
             Box(
                 Modifier.padding(horizontal = (0.04f * u).dp).graphicsLayer {
-                    scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = sp.vr * 57.2958f
+                    scaleX = sp.vscale; scaleY = sp.vscale; rotationZ = -(sp.vr * 57.2958f)
                 }
             ) { CardFace(card, cells[card], cardBase, Modifier.size(cardW, cardH), shadowHeight = 0.1f) }
         }
@@ -1323,33 +3536,140 @@ private fun ScoredCardsRow(s: RunState, cells: Map<PlayingCard, ImageBitmap>, ca
  * Each row shows a description on the left and the gold $ payout on the right.
  */
 @Composable
+/**
+ * Port of create_UIBox_round_evaluation (UI_definitions.lua:1612). The extracted round_eval_tree.json
+ * provides the frame skeleton (three id-tagged empty R nodes); [RoundEvalSpec] converts those R nodes
+ * to CardAreaSlot O-nodes so [RenderUIBoxNatural]'s cardAreaContent callback fills each slot:
+ *   base_round_eval  — BLIND + HANDS rows (earned during the round)
+ *   bonus_round_eval — GOLD + INTEREST rows (bonus payout lines)
+ *   eval_bottom      — Cash Out button
+ */
 private fun RoundEvalScreen(s: RunState) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(300.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Cash Out button — G.C.ORANGE (#FDA200), label "Cash Out: $TOTAL".
-                BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth()) { s.cashOut() }
-                Spacer(Modifier.height(2.dp))
-                s.evalRows.forEach { EvalRowView(it) }
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val evalRoot = remember(ctx) { RoundEvalSpec.load(ctx) }
+    // Current blind's chip sprite (blind1 row, add_round_eval_row common_events.lua:962).
+    val blindArt by produceState(Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>(null, null, null), s.blindIndex) {
+        value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.boss) }
+    }
+    val blindChip = when (s.blindIndex % 3) { 0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third }
+    if (evalRoot == null) {
+        // Fallback: hand-built panel if asset missing.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Panel(Modifier.width(300.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BButton("Cash Out: \${s.cashOutTotal}", Balatro.OrangeTrue, modifier = Modifier.fillMaxWidth(), sound = "coin1") { s.cashOut() }
+                    Spacer(Modifier.height(2.dp))
+                    s.evalRows.forEach { EvalRowView(it, u) }
+                }
             }
         }
+        return
+    }
+    val baseRows  = s.evalRows.filter { it.kind == EvalKind.BLIND || it.kind == EvalKind.HANDS || it.kind == EvalKind.DISCARDS }
+    val bonusRows = s.evalRows.filter { it.kind == EvalKind.GOLD  || it.kind == EvalKind.INTEREST || it.kind == EvalKind.JOKER }
+    val tree = remember(evalRoot) { RoundEvalSpec.build(evalRoot) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+            val slotMod = Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp)
+            when (name) {
+                "base_round_eval"  -> Box(slotMod) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
+                           verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
+                        // Dotted divider before the first non-blind reward row (common_events.lua:935).
+                        baseRows.forEachIndexed { i, row ->
+                            if (i == 1) EvalDivider(u)
+                            EvalRowView(row, u, if (row.kind == EvalKind.BLIND) blindChip else null, if (row.kind == EvalKind.BLIND) s.chipText else null)
+                        }
+                    }
+                }
+                "bonus_round_eval" -> Box(slotMod) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = (0.15f * u).dp),
+                           verticalArrangement = Arrangement.spacedBy((0.15f * u).dp)) {
+                        // If the blind was the only base row, the divider lands atop the bonus rows.
+                        bonusRows.forEachIndexed { i, row ->
+                            if (i == 0 && baseRows.size <= 1) EvalDivider(u)
+                            EvalRowView(row, u)
+                        }
+                    }
+                }
+                "eval_bottom"      -> Box(slotMod, contentAlignment = Alignment.Center) {
+                    BButton("Cash Out: \$${s.cashOutTotal}", Balatro.OrangeTrue,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = (0.2f * u).dp), sound = "coin1") { s.cashOut() }
+                }
+            }
+        })
     }
 }
 
-/** One add_round_eval_row: left = [coloured count] description, right = gold $ payout pips. */
+/** A compact button for the selected-joker control bar (◀ / Sell / ▶). */
 @Composable
-private fun EvalRowView(row: EvalRow) {
+private fun JokerCtl(label: String, u: Float, enabled: Boolean = true, onClick: () -> Unit) {
+    Box(Modifier.clip(RoundedCornerShape(4.dp)).background(if (enabled) Balatro.Mult else Balatro.Grey)
+        .clickable(enabled = enabled) { onClick() }
+        .padding(horizontal = (0.15f * u).dp, vertical = (0.04f * u).dp),
+        contentAlignment = Alignment.Center) {
+        BTxt(label, Balatro.White, (0.3f * u * FONT_RATIO).sp)
+    }
+}
+
+/** The detail tooltip (vanilla create_UIBox_detailed_tooltip): a dark panel with a coloured name header,
+ *  the wrapped ability description, and an optional action row — shown when a joker/consumable is inspected. */
+@Composable
+private fun DetailTooltip(name: String, desc: String, accent: Color, u: Float,
+                          modifier: Modifier = Modifier, controls: (@Composable () -> Unit)? = null) {
+    val r = RoundedCornerShape((0.22f * u).dp)
+    Column(
+        modifier.width((6f * u).dp).clip(r).background(Balatro.FeltDark)
+            .border((0.05f * u).dp, accent, r).padding((0.12f * u).dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape((0.16f * u).dp)).background(accent)
+            .padding(vertical = (0.06f * u).dp), contentAlignment = Alignment.Center) {
+            BTxt(name, Balatro.White, (0.42f * u * FONT_RATIO).sp)
+        }
+        Spacer(Modifier.height((0.1f * u).dp))
+        BTxtWrap(desc, Balatro.White, (0.34f * u * FONT_RATIO).sp, maxWidth = (5.6f * u).dp,
+            modifier = Modifier.padding(horizontal = (0.1f * u).dp, vertical = (0.06f * u).dp))
+        controls?.let { Spacer(Modifier.height((0.1f * u).dp)); it() }
+    }
+}
+
+/** The dotted divider between the blind summary and the reward rows (common_events.lua:935 —
+ *  a DynaText of dots). Clipped to one line so it fills the width without wrapping. */
+@Composable
+private fun EvalDivider(u: Float) {
+    Box(Modifier.fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
+        BTxt(".".repeat(80), Balatro.White, (0.45f * u).sp)
+    }
+}
+
+/** One add_round_eval_row: left = [coloured count] description, right = gold $ payout pips.
+ *  The BLIND row (blind1, common_events.lua:951) instead shows the blind chip + "Score at least" +
+ *  the target chip count. */
+@Composable
+private fun EvalRowView(row: EvalRow, u: Float, blindChip: ImageBitmap? = null, scoreText: String? = null) {
     val accent = when (row.kind) {
         EvalKind.BLIND -> Balatro.Money; EvalKind.HANDS -> Balatro.Chips
+        EvalKind.DISCARDS -> Balatro.Mult
         EvalKind.GOLD -> Balatro.Gold; EvalKind.INTEREST -> Balatro.Money
+        EvalKind.JOKER -> Balatro.Money
     }
     Row(
         Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (row.leadNum != null) { BTxt(row.leadNum, accent, 16.sp); Spacer(Modifier.width(4.dp)) }
-            BTxt(row.label, Balatro.White, 11.sp)
+            if (row.kind == EvalKind.BLIND && blindChip != null) {
+                Image(blindChip, null, Modifier.size((0.8f * u).dp), filterQuality = FilterQuality.None)
+                Spacer(Modifier.width(6.dp))
+                BTxt("Score at least", Balatro.White, 9.sp)
+                Spacer(Modifier.width(4.dp))
+                BTxt(scoreText ?: "", Balatro.Mult, 15.sp)
+            } else {
+                if (row.leadNum != null) { BTxt(row.leadNum, accent, 16.sp); Spacer(Modifier.width(4.dp)) }
+                BTxt(row.label, Balatro.White, 11.sp)
+            }
         }
         Spacer(Modifier.width(8.dp))
         // Balatro renders num_dollars gold "$" pips; collapse to "$N" past 7 to stay on one line.
@@ -1360,47 +3680,124 @@ private fun EvalRowView(row: EvalRow) {
 }
 
 /**
- * Port of create_UIBox_game_over (UI_definitions.lua): "Game Over" title, a dark stats panel
- * (create_UIBox_round_scores_row), and the Start New Run (RED, notify_then_setup_run) / Main Menu
- * (RED, go_to_menu) buttons. Only stats the run actually tracks are shown — cards
- * played/discarded/purchased and seed aren't tracked yet, so they're omitted rather than faked.
+ * Port of create_UIBox_game_over (UI_definitions.lua:2862).
+ * Two-column layout matching vanilla: left column shows per-run scoring stats
+ * (chips scored, most-played hand, cards played/discarded/purchased, rerolls, seed);
+ * right column shows ante/round reached, defeated-by blind, and action buttons.
  */
 @Composable
-private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Panel(Modifier.width(320.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BTxt("Game Over", Balatro.Mult, 26.sp)
-                BTxt("Defeated by ${s.blindName}", Balatro.White, 12.sp)
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+private fun GameOverScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) =
+    EndScreen(s, win = false, onRestart = onRestart, onMainMenu = onMainMenu)
+
+/** Win screen: the REAL create_UIBox_win tree (win_tree.json), bound like game-over. */
+@Composable
+private fun WinScreen(s: RunState, onRestart: () -> Unit, onMainMenu: () -> Unit) =
+    EndScreen(s, win = true, onRestart = onRestart, onMainMenu = onMainMenu)
+
+private val STAKE_NAMES = listOf(
+    "White Chip", "Red Chip", "Green Chip", "Black Chip", "Blue Chip", "Purple Chip", "Orange Chip", "Gold Chip")
+/** The cumulative non-joker effects active at a stake level (for the selector caption). */
+private fun stakeEffectText(level: Int): String = buildList {
+    if (level >= 2) add("Small Blind gives no \$")
+    if (level >= 3) add(if (level >= 6) "score scales ×3" else "score scales ×2")
+    if (level >= 5) add("−1 discard")
+    if (level >= 4) add("(eternal/perishable/rental jokers n/a)")
+}.joinToString(" · ").ifEmpty { "no modifiers" }
+
+@Composable
+private fun DeckSelectScreen(s: RunState) {
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    var stake by remember { mutableStateOf(1) }
+    val backs by produceState(emptyMap<DeckVariant, ImageBitmap>()) {
+        value = withContext(Dispatchers.Default) { ShopArt.deckBacks(ctx) }
+    }
+    Box(Modifier.fillMaxSize().background(Balatro.Felt), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.fillMaxWidth(0.92f).verticalScroll(rememberScrollState()).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            BTxt("Choose Your Deck", Balatro.White, 22.sp)
+            // Stake stepper — the chosen stake applies to whichever deck is tapped.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                JokerCtl("◀", u, enabled = stake > 1) { stake-- }
+                BTxt("Stake: ${STAKE_NAMES[stake - 1]}", Balatro.White, 13.sp)
+                JokerCtl("▶", u, enabled = stake < 8) { stake++ }
+            }
+            BTxt(stakeEffectText(stake), Balatro.Gold, 9.sp)
+            Spacer(Modifier.height(6.dp))
+            DeckVariant.values().forEach { v ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Balatro.Panel)
+                        .clickable { s.pickDeck(v, stake) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    s.mostPlayedHand?.let { (h, n) -> StatRow("Most played hand", "${handName(h)} ($n)", Balatro.Orange) }
-                    StatRow("Hands played", s.handsPlayedTotal.toString(), Balatro.Chips)
-                    StatRow("Times rerolled", s.timesRerolled.toString(), Balatro.Green)
-                    StatRow("Furthest Ante", s.ante.toString(), Balatro.Orange)        // round_scores_row 'furthest_ante'
-                    StatRow("Furthest Round", (s.blindIndex + 1).toString(), Balatro.Orange)  // 'furthest_round'
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BButton("New Run", Balatro.Mult) { onRestart() }
-                    BButton("Main Menu", Balatro.Mult) { onMainMenu() }
+                    backs[v]?.let {
+                        Image(it, v.display, Modifier.size((0.9f * u).dp, (1.2f * u).dp),
+                            contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    BTxt(v.display, Balatro.White, 14.sp)
+                    Spacer(Modifier.weight(1f))
+                    BTxt(v.desc, Balatro.Gold, 10.sp)
                 }
             }
         }
     }
 }
 
-/** One create_UIBox_round_scores_row: label on the left, coloured value on the right. */
+/**
+ * Game-over / win, rendered from the REAL create_UIBox_game_over / create_UIBox_win trees
+ * (game_over_tree.json / win_tree.json) through the ported layout engine via [GameOverSpec] — no
+ * hand-built panel. Structure + labels + buttons come from the extracted tree; the round_scores_row
+ * stat values bind to RunState (the same values the old hand-built screen showed); New-Run / Main-Menu
+ * buttons fire via the tree's bound onClick. Falls back to a minimal panel only if the asset is missing.
+ */
 @Composable
-private fun StatRow(label: String, value: String, accent: Color) {
-    Row(
-        Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BTxt(label, Balatro.White, 11.sp)
-        Spacer(Modifier.width(8.dp))
-        BTxt(value, accent, 13.sp)
+private fun EndScreen(s: RunState, win: Boolean, onRestart: () -> Unit, onMainMenu: () -> Unit) {
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val root = remember(ctx, win) { GameOverSpec.load(ctx, win) }
+    // Jimbo (j_joker) sprite for the jimbo_spot beside the dialog.
+    val jimbo by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, listOf("j_joker"))["j_joker"] }
+    }
+    // Chip-score icon (ui_assets cell 0,0 — px=18 → 36×36 @2x) for the "Chips Scored" row.
+    val chipIcon by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.Default) { ShopArt.cell(ctx, "ui_assets.png", 0, 0, 36, 36) }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
+        if (root != null) {
+            val tree = remember(root, chipIcon) { GameOverSpec.build(root, GameOverBind(s, onRestart, onMainMenu, chipIcon)) }
+            // create_UIBox_game_over / _win is a 100×57.5u overlay backing with the dialog centred in
+            // it; render it centred over the full surface (RenderUIBoxAt centres tree in the rect) and
+            // clip the oversized backing to the screen — exactly how vanilla layers the overlay menu.
+            // The game-over dialog (title + stat grid + Copy/New-Run/Main-Menu) needs ~14.5u of height;
+            // when the surface is shorter (height-constrained 16:9 → ~12.9u room), scale the overlay down
+            // so the title top and bottom button aren't clipped (overlays fit-scale to the window).
+            val sw = maxWidth.value; val sh = maxHeight.value
+            val fit = minOf(1f, (sh / u) / 14.5f)
+            Box(Modifier.graphicsLayer { scaleX = fit; scaleY = fit }) {
+                RenderUIBoxAt(tree, u, 0f, 0f, sw / u, sh / u)
+            }
+            // Jimbo (j_joker) overlay beside the dialog — drawn as a separate layer (in-tree it widened
+            // the stat row and clipped "Defeated by"). Offset left of centre by ~half the dialog width;
+            // sized G.CARD_W*1.1 × G.CARD_H*1.1 and scaled to match the dialog's fit.
+            jimbo?.let {
+                Image(it, null, Modifier.align(Alignment.Center)
+                    .offset(x = (-6.4f * u * fit).dp)
+                    .size((2.2536f * u * fit).dp, (3.0263f * u * fit).dp),
+                    contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+            }
+        } else {
+            Panel(Modifier.width(360.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BTxt(if (win) "Victory!" else "Game Over", if (win) Balatro.Chips else Balatro.Mult, 26.sp)
+                    BButton("New Run",   Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onRestart() }
+                    BButton("Main Menu", Balatro.Mult, modifier = Modifier.fillMaxWidth()) { onMainMenu() }
+                }
+            }
+        }
     }
 }
 
@@ -1413,49 +3810,43 @@ private fun StatRow(label: String, value: String, accent: Color) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBase: ImageBitmap?) {
-    Box(Modifier.fillMaxSize().padding(8.dp)) {
-        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd))
-
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            // main shop panel: [ buttons column | card-slot inset ]. fillMaxWidth so the card inset
-            // is bounded and the slots WRAP (FlowRow) instead of overflowing the play area.
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Balatro.Panel).padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // next_round_button: G.C.RED (UI_definitions.lua:696); reroll: G.C.GREEN (:706)
-                    ShopActionButton("Next\nRound", Balatro.Mult, true) { s.nextBlind() }
-                    ShopActionButton("Reroll\n\$${s.rerollCost}", Balatro.Green, s.money >= s.rerollCost) { s.reroll() }
-                }
-                Spacer(Modifier.width(10.dp))
-                // card-slot inset (G.C.L_BLACK); one ShopCard per stocked item, wrapping to a 2nd row
-                FlowRow(
-                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Balatro.PanelLight).padding(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    s.shop.forEach { o ->
-                        ShopCard(o.name, jokerCells[o.key], cardBase, o.cost, o.desc, Balatro.Mult, s.money >= o.cost) { s.buy(o) }
-                    }
-                    s.shopPlanets.forEach { po ->
-                        ShopCard(po.planet.display, null, cardBase, po.cost, handName(po.planet.hand), Balatro.Chips, s.money >= po.cost) { s.buyPlanet(po) }
-                    }
-                    s.shopTarots.forEach { t ->
-                        val fx = if (t.seal != Seal.NONE) "${t.seal.name.lowercase()} seal" else t.enhancement.name.lowercase()
-                        ShopCard(t.name, null, cardBase, t.cost, fx, Balatro.Purple, s.money >= t.cost) { s.buyTarot(t) }
+private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap> = emptyMap()) {
+    // The shop FRAME is Balatro's REAL G.UIDEF.shop() tree (assets/ui/shop_tree.json, extracted by
+    // tools/uiref/extract.sh) — Next-Round / Reroll buttons + the 3 CardArea slots — laid out by the
+    // ported engine. Slot contents bind from RunState via cardAreaContent. No hand-built shop frame.
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val root = remember { HudSpec.root(ctx, "shop_tree.json") }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (root != null) {
+            val tree = HudSpec.build(root, HudBind(s, null))
+            RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+                ShopSlotOffers(s, name, x, y, w, h, u, jokerCells, shopArt, cardBase, cells)
+            })
+        }
+        // Owned jokers, sellable from the shop (vanilla: tap a joker → inspect + sell). Real card sprites
+        // in the shop's lower area, not a text strip; reuses the DetailTooltip from the play HUD.
+        var selShopJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
+        if (s.owned.isNotEmpty()) {
+            val cw = (PF.CARD_W * 0.62f * u).dp; val ch = (PF.CARD_H * 0.62f * u).dp
+            Row(Modifier.align(Alignment.BottomCenter).padding(bottom = (0.25f * u).dp),
+                horizontalArrangement = Arrangement.spacedBy((0.08f * u).dp)) {
+                s.owned.forEachIndexed { i, o ->
+                    Box(Modifier.size(cw, ch).clickable { selShopJoker = if (selShopJoker == i) null else i }) {
+                        jokerCells[o.offer.key]?.let {
+                            Image(it, o.offer.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        } ?: Box(Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark),
+                                 contentAlignment = Alignment.Center) { BTxt(o.offer.name.take(6), Balatro.White, (0.22f * u * FONT_RATIO).sp) }
                     }
                 }
             }
-            // sell owned jokers — a compact strip under the shop (not a Balatro UIBox, but the
-            // only place to offload jokers until the joker row is interactive)
-            if (s.owned.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BTxt("Sell:", Balatro.White, 12.sp)
-                    s.owned.forEach { o ->
-                        BButton("${o.offer.name}  \$${maxOf(1, o.offer.cost / 2)}", Balatro.Grey, enabled = s.owned.size > 1) { s.sell(o) }
+            selShopJoker?.let { si ->
+                if (si in s.owned.indices) {
+                    val o = s.owned[si]
+                    Box(Modifier.align(Alignment.BottomCenter).absoluteOffset(y = -((PF.CARD_H * 0.62f + 1.3f) * u).dp)) {
+                        DetailTooltip(o.offer.name, o.offer.desc, Balatro.Mult, u) {
+                            JokerCtl("Sell \$${s.sellValue(o)}", u, enabled = s.owned.size > 1) { s.sell(o); selShopJoker = null }
+                        }
                     }
                 }
             }
@@ -1463,92 +3854,332 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, cardBas
     }
 }
 
-/** A stacked two-line shop button (Next Round / Reroll), Balatro's 2.8u×1.5u rounded button. */
+/** Fill a shop CardArea slot's engine-computed rect (units) with the live offers from RunState:
+ *  shop_jokers = jokers + planets + tarots; shop_vouchers = the voucher; shop_booster = the packs.
+ *  Each offer renders via [ShopOfferCard]: price tag + art + buy/redeem/open button all from
+ *  create_shop_card_ui (shop_card_ui.json), with the card art box hand-built (no UIBox equivalent). */
 @Composable
-private fun ShopActionButton(text: String, colour: Color, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.width(96.dp).clip(RoundedCornerShape(8.dp)).background(if (enabled) colour else Balatro.Grey)
-            .clickable(enabled = enabled) { onClick() }.padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) { BTxt(text, Balatro.White, 14.sp) }
+private fun ShopSlotOffers(s: RunState, name: String, x: Float, y: Float, w: Float, h: Float, u: Float,
+                           jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?,
+                           cells: Map<PlayingCard, ImageBitmap> = emptyMap()) {
+    val ctx = LocalContext.current
+    val spec = remember { OfferCardSpec.load(ctx) }
+    Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp),
+        contentAlignment = Alignment.Center) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically) {
+            when (name) {
+                "shop_jokers" -> s.shopItems.forEach { item ->
+                    when (item) {
+                        is ShopItem.Jk -> {
+                            val o = item.offer
+                            ShopOfferCard(spec, OfferCardSpec.Set.JOKER, o.name, jokerCells[o.key], cardBase,
+                                s.price(o.cost), o.desc, Balatro.Mult,
+                                s.money >= s.price(o.cost) && s.owned.size < s.maxJokers, u) { s.buy(o) }
+                        }
+                        is ShopItem.Pl -> {
+                            val po = item.po
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, po.planet.display, shopArt.planets[po.planet], cardBase,
+                                s.price(po.cost), handName(po.planet.hand), Balatro.Chips,
+                                s.money >= s.price(po.cost), u) { s.buyPlanet(po) }
+                        }
+                        is ShopItem.Tt -> {
+                            val t = item.t
+                            val fx = t.fx.label
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, t.name, shopArt.tarots[t.name], cardBase,
+                                s.price(t.cost), fx, Balatro.Purple,
+                                s.money >= s.price(t.cost), u) { s.buyTarot(t) }
+                        }
+                        is ShopItem.Sp -> {
+                            val sp = item.s
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, sp.display, shopArt.spectrals[sp], cardBase,
+                                s.price(item.cost), sp.desc, Balatro.Mult,
+                                s.money >= s.price(item.cost), u) { s.buySpectral(sp) }
+                        }
+                        is ShopItem.Cd -> {
+                            val cd = item.card
+                            ShopOfferCard(spec, OfferCardSpec.Set.CONSUMABLE, cd.label, cells[cd], cardBase,
+                                s.price(item.cost), "to deck", Balatro.Chips,
+                                s.money >= s.price(item.cost), u) { s.buyShopCard(cd) }
+                        }
+                    }
+                }
+                "shop_vouchers" -> s.shopVoucher?.let { v ->
+                    ShopOfferCard(spec, OfferCardSpec.Set.VOUCHER, v.name, shopArt.vouchers[v.key], cardBase,
+                        s.price(v.cost), v.desc, Balatro.Gold,
+                        s.money >= s.price(v.cost), u) { s.redeemVoucher(v) }
+                }
+                "shop_booster" -> s.shopBoosters.forEach { b ->
+                    ShopOfferCard(spec, OfferCardSpec.Set.BOOSTER, b.name, shopArt.boosters[b.key], cardBase,
+                        s.price(b.cost), "open ${b.extra}, pick ${b.choose}", Balatro.Chips,
+                        s.money >= s.price(b.cost), u) { s.buyBooster(b) }
+                }
+            }
+        }
+    }
 }
 
 /**
- * One shop slot: the price tag ($N, MONEY in a dark chip) above the card, the card art (joker cell)
- * or a name-on-base placeholder (planets/tarots have no atlas loaded), and a GOLD Buy tag below —
- * create_shop_card_ui (UI_definitions.lua:810-825). `descColour` tints the effect line.
+ * One shop offer card: price tag (extracted create_shop_card_ui price tree) + card art box +
+ * desc line + buy/redeem/open button (extracted create_shop_card_ui button tree). The price and
+ * button panels are rendered via RenderUIBoxNatural using the vanilla create_shop_card_ui geometry
+ * (shop_card_ui.json). The card art body has no UIBox equivalent and is hand-built.
+ *
+ * Falls back to a plain hand-built layout if [spec] failed to load (missing asset).
  */
 @Composable
-private fun ShopCard(
-    name: String, art: ImageBitmap?, base: ImageBitmap?, cost: Int, desc: String,
-    descColour: Color, canBuy: Boolean, onBuy: () -> Unit,
+private fun ShopOfferCard(
+    spec: OfferCardSpec?, set: OfferCardSpec.Set,
+    name: String, art: ImageBitmap?, base: ImageBitmap?,
+    cost: Int, desc: String, descColour: Color, canBuy: Boolean, u: Float,
+    onAction: () -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
-        // price tag — darken(BLACK,0.2) chip, $cost in MONEY
-        Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
-            BTxt("\$$cost", Balatro.Money, 13.sp)
-        }
-        Spacer(Modifier.height(2.dp))
-        // the card: real joker art, or the white card base with the name as a placeholder
-        Box(Modifier.size(64.dp, 86.dp), contentAlignment = Alignment.Center) {
+    val bind = CardBind(cost, canBuy, onAction)
+    val trees = spec?.forSet(set, bind)
+    // The card is the CARD_W × CARD_H sprite (engine units × u). Vanilla create_shop_card_ui attaches
+    // the price tag and buy button as separate bonded UIBoxes (Moveable:align_to_major), NOT stacked
+    // above/below — so they overlay the card's top/bottom. Port those attach offsets:
+    //   price: align "tm", offset y=1.5  → top = (1.5 − priceH) units below the card top, x-centred
+    //   buy:   align "bm", offset y=-0.3 → top = (CARD_H − 0.3) units (straddles the bottom edge)
+    val priceH = trees?.let { measureUnits(it.first).second } ?: 0f
+    Box(Modifier.size((PF.CARD_W * u).dp, (PF.CARD_H * u).dp)) {
+        // card art (base layer) — no UIBox equivalent; live Sprite objects in vanilla
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (art != null) {
                 Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
             } else {
                 base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                // identity label only as a fallback when there's no card sprite
                 BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
             }
         }
-        BTxt(desc, descColour, 8.sp, Modifier.padding(top = 1.dp))
-        Spacer(Modifier.height(3.dp))
-        // buy tag — G.C.GOLD (UI_definitions.lua:823)
-        Box(
-            Modifier.clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
-                .clickable(enabled = canBuy) { onBuy() }.padding(horizontal = 12.dp, vertical = 4.dp),
-            contentAlignment = Alignment.Center,
-        ) { BTxt("Buy", Balatro.White, 12.sp) }
+        if (trees != null) {
+            // price tag — create_shop_card_ui t1: darken(BLACK,0.2) chip + DynaText "$cost" MONEY
+            Box(Modifier.align(Alignment.TopCenter).absoluteOffset(y = ((1.5f - priceH) * u).dp)) {
+                RenderUIBoxNatural(trees.first, u)
+            }
+            // buy/redeem/open — create_shop_card_ui t2: GOLD/GREEN button straddling the card bottom
+            Box(Modifier.align(Alignment.TopCenter).absoluteOffset(y = ((PF.CARD_H - 0.3f) * u).dp)) {
+                RenderUIBoxNatural(trees.second, u)
+            }
+        } else {
+            // fallback (spec asset missing): plain price badge top, buy button below
+            Box(Modifier.align(Alignment.TopCenter).clip(RoundedCornerShape(4.dp))
+                .background(Balatro.FeltDark).padding(horizontal = 8.dp, vertical = 1.dp)) {
+                BTxt("\$$cost", Balatro.Money, 13.sp)
+            }
+            Box(Modifier.align(Alignment.BottomCenter).absoluteOffset(y = (0.6f * u).dp)
+                .clip(RoundedCornerShape(6.dp)).background(if (canBuy) Balatro.Gold else Balatro.Grey)
+                .clickable(enabled = canBuy) { onAction() }.padding(horizontal = 12.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) { BTxt("Buy", Balatro.White, 12.sp) }
+        }
+    }
+}
+
+
+/** (name, desc, accentColour) for one revealed pack item. */
+private fun packItemView(item: PackItem): Triple<String, String, Color> = when (item) {
+    is PackItem.Tarot -> Triple(
+        item.t.name,
+        item.t.fx.label,
+        Balatro.Purple,
+    )
+    is PackItem.Planet -> Triple(item.p.planet.display, handName(item.p.planet.hand), Balatro.Chips)
+    is PackItem.Joker -> Triple(item.o.name, item.o.desc, Balatro.Mult)
+    is PackItem.Card -> Triple("", if (item.card.enhancement != Enhancement.NONE) item.card.enhancement.name.lowercase() else "", Balatro.White)
+    is PackItem.SpectralItem -> Triple(item.s.display, item.s.desc, Balatro.Mult)
+}
+
+/**
+ * Port of create_UIBox_arcana/spectral/standard/buffoon/celestial_pack.
+ * The frame tree (pack_*_tree.json) is rendered by [PackSpec]; the CardArea slot ("pack_cards")
+ * is filled by [PackItemsContent] which lays out items from RunState.openPack.items.
+ *
+ * [PackSpec] pre-loads all five pack JSON trees once per PackOpenScreen composition.
+ * [PackBind] wires pack_choices (pick count) and the skip_booster button to live state.
+ */
+@Composable
+private fun PackOpenScreen(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?, cells: Map<PlayingCard, ImageBitmap>) {
+    val p = s.openPack ?: return
+    val ctx = LocalContext.current
+    val u = LocalUIScale.current
+    val spec = remember(ctx) { PackSpec.load(ctx) }
+    val kind = when (p.kind) {
+        "Arcana"   -> PackSpec.Kind.ARCANA
+        "Spectral" -> PackSpec.Kind.SPECTRAL
+        "Standard" -> PackSpec.Kind.STANDARD
+        "Buffoon"  -> PackSpec.Kind.BUFFOON
+        else       -> PackSpec.Kind.CELESTIAL   // "Celestial"
+    }
+    val tree = remember(kind, p.picksLeft) {
+        spec.forPack(kind, PackBind(p.picksLeft) { s.skipPack() })
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BTxt("\$${s.money}", Balatro.Money, 22.sp, Modifier.align(Alignment.TopEnd).padding(8.dp))
+        if (tree != null) {
+            RenderUIBoxNatural(tree, u, cardAreaContent = { name, x, y, w, h ->
+                if (name == "pack_cards") {
+                    PackItemsContent(p, x, y, w, h, u, jokerCells, shopArt, cardBase, cells, s)
+                }
+            })
+        } else {
+            // Fallback if JSON missing: plain column layout.
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BTxt(p.name, Balatro.White, 18.sp)
+                BTxt(if (p.picksLeft > 0) "Pick ${p.picksLeft}" else "Done", Balatro.Gold, 13.sp)
+                Spacer(Modifier.height(8.dp))
+                BButton("Skip", Balatro.Mult) { s.skipPack() }
+            }
+        }
     }
 }
 
 /**
- * Port of create_UIBox_blind_select (UI_definitions.lua:1417).
- * Shows three blind-choice columns (Small, Big, Boss) in a horizontal row;
- * tapping a blind calls s.selectBlind() to start the round.
+ * Fills the pack_cards CardAreaSlot with the revealed items. Each item is sized to CARD_W × CARD_H
+ * Balatro units and spaced evenly across the slot width. Items outside the slot are clipped.
+ * Tap to pick (if picks remain and not already taken); highlight taken items with grey overlay.
+ */
+@Composable
+private fun PackItemsContent(p: OpenPack, x: Float, y: Float, w: Float, h: Float, u: Float,
+                             jokerCells: Map<String, ImageBitmap>, shopArt: ShopArt.Cells, cardBase: ImageBitmap?,
+                             cells: Map<PlayingCard, ImageBitmap>, s: RunState) {
+    val n = p.items.size
+    if (n == 0) return
+    val cardW = w / n                   // Balatro units per item (CARD_W ≈ 2.049, spaced to fill slot)
+    val cardH = h                       // slot height = CARD_H
+    Box(Modifier.absoluteOffset((x * u).dp, (y * u).dp).size((w * u).dp, (h * u).dp).clip(RectangleShape)) {
+        p.items.forEachIndexed { i, item ->
+            val taken    = i in p.picked
+            val canPick  = !taken && p.picksLeft > 0
+            val (name, desc, accent) = packItemView(item)
+            val iX = i * cardW
+            Box(
+                Modifier
+                    .absoluteOffset((iX * u).dp, 0.dp)
+                    .size((cardW * u).dp, (cardH * u).dp)
+                    .clickable(enabled = canPick) { s.pickPackItem(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                when (item) {
+                    is PackItem.Card ->
+                        CardFace(item.card, cells[item.card], cardBase, Modifier.fillMaxSize()) {}
+                    is PackItem.Joker -> {
+                        val art = jokerCells[item.o.key]
+                        if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        else {
+                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                            BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                        }
+                    }
+                    else -> {
+                        val art = when (item) {
+                            is PackItem.Planet -> shopArt.planets[item.p.planet]
+                            is PackItem.Tarot -> shopArt.tarots[item.t.name]
+                            is PackItem.SpectralItem -> shopArt.spectrals[item.s]
+                            else -> null
+                        }
+                        if (art != null) Image(art, name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                        else {
+                            cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                            BTxt(name, Balatro.Ink, 9.sp, Modifier.padding(horizontal = 3.dp))
+                        }
+                    }
+                }
+                // Taken overlay
+                if (taken) Box(Modifier.fillMaxSize().background(Balatro.Panel.copy(alpha = 0.55f)))
+                // Item label under card
+                BTxt(desc, accent, 7.sp, Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Port of create_UIBox_blind_select (UI_definitions.lua:1417) + create_UIBox_blind_choice
+ * (line 1485). Each slot's card tree is extracted JSON: blind_small/big/boss_tree.json.
+ * [BlindSpec] pre-loads all three; [BlindBind] wires per-slot state at build time.
  *
- * Deferred: G.blind_prompt_box DynaText prompt ("ph_choose_blind_1/2"), blind_tag extras,
- * AnimatedSprite for each blind (B placeholder holds the 1.4u×1.4u footprint),
- * disabled state, run_info view, reroll-boss voucher button.
+ * Outer composition: Column with Row of three BlindSpec-built trees, skip button, earned tags.
+ * (The outer Row itself is not a ported UIBox — create_UIBox_blind_select's outer R padding=0.5
+ * is reproduced via Compose-level Arrangement.spacedBy. Inner card trees are fully ported.)
  */
 @Composable
 private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
     val ctx = LocalContext.current
-    // Load all three blind sprites in one atlas pass — including the UPCOMING boss (s.boss is null
-    // during select, so use s.upcomingBoss or the boss slot shows a blank/placeholder). Re-fires per ante.
+    // Load all three blind sprites in one atlas pass — including the UPCOMING boss.
+    // Re-fires per ante (blindIndex changes each blind pick).
+    val u = LocalUIScale.current
     val blindArt by produceState<Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>>(
         Triple(null, null, null), s.blindIndex
     ) { value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) } }
+    val tagArt by produceState(emptyMap<Tag, ImageBitmap>()) { value = withContext(Dispatchers.Default) { ShopArt.tags(ctx) } }
+
+    // Pre-load JSON trees once (cached by HudSpec.root); no recompose cost after first render.
+    val spec = remember(ctx) { BlindSpec.load(ctx) }
+
+    val currentSlot = s.blindIndex % 3
 
     Column(
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        BTxt("Choose Blind", Balatro.White, 20.sp)
-        Spacer(Modifier.height(12.dp))
-        // R(align="cm", padding=0.5) containing up to 3 O(UIBox{blind_choice}) nodes
-        // Rendered as a horizontal row since each blind card is a C column node.
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.Top
         ) {
-            val currentSlot = s.blindIndex % 3
             for (slotIdx in 0..2) {
                 val blindBmp: ImageBitmap? = when (slotIdx) {
                     0 -> blindArt.first; 1 -> blindArt.second; else -> blindArt.third
                 }
-                Box(Modifier.weight(1f)) {
-                    RenderUI(blindChoiceCard(s, slotIdx, blindBmp = blindBmp, stakeBmp = stakeBmp,
-                        enabled = (slotIdx == currentSlot)) { s.selectBlind() })
+                val enabled = slotIdx == currentSlot
+                val bossColour = if (slotIdx == 2) bossColourOf(s.upcomingBoss) else null
+                // Each Small/Big slot shows its own skip-reward tag (the Boss can't be skipped).
+                val slotTagBmp: ImageBitmap? =
+                    if (slotIdx < 2) tagArt[tagForBlind(s.blindIndex - currentSlot + slotIdx)] else null
+
+                val tree: UI? = spec.forSlot(
+                    slotIdx    = slotIdx,
+                    enabled    = enabled,
+                    bossColour = bossColour,
+                    blindBmp   = blindBmp,
+                    stakeBmp   = stakeBmp,
+                    chipTarget = fmtR(s.targetForSlot(slotIdx)),
+                    reward     = s.rewardForSlot(slotIdx),
+                    selectAction = if (enabled) { { s.selectBlind() } } else null,
+                    skipAction   = if (slotIdx != 2) { { s.skipBlind() } } else null,
+                    mostPlayedHand = s.mostPlayedHand?.first?.let { handName(it) } ?: "High Card",
+                    tagBmp     = slotTagBmp,
+                )
+                Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                    if (tree != null) RenderUIBoxNatural(tree, u)
+                }
+            }
+        }
+        // Skip the Small/Big blind for its Tag (the Boss can't be skipped) — show the real tag sprite.
+        if (currentSlot != 2) {
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                tagArt[s.upcomingTag]?.let { Image(it, s.upcomingTag.display, Modifier.size(28.dp), filterQuality = FilterQuality.None) }
+                BButton("Skip Blind  →  ${s.upcomingTag.display}", Balatro.Mult) { s.skipBlind() }
+            }
+            BTxt(s.upcomingTag.desc, Balatro.Gold, 11.sp, Modifier.padding(top = 3.dp))
+        }
+        // Director's Cut / Retcon: reroll the upcoming Boss Blind.
+        if (s.canRerollBoss()) {
+            Spacer(Modifier.height(14.dp))
+            BButton("Reroll Boss  (\$10)", Balatro.Mult) { s.rerollBoss() }
+        }
+        // earned tags awaiting their trigger — real tag sprites
+        if (s.tags.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                BTxt("Tags:", Balatro.Chips, 12.sp)
+                s.tags.forEach { tag ->
+                    tagArt[tag]?.let { Image(it, tag.display, Modifier.size(26.dp), filterQuality = FilterQuality.None) }
+                        ?: BTxt(tag.display, Balatro.Chips, 11.sp)
                 }
             }
         }
@@ -1556,197 +4187,167 @@ private fun BlindSelectScreen(s: RunState, stakeBmp: ImageBitmap? = null) {
 }
 
 /**
- * Port of create_UIBox_blind_choice (UI_definitions.lua:1485) for one blind slot.
- * slotIdx: 0=Small, 1=Big, 2=Boss. onSelect called when the "Select" button is tapped.
- *
- * Structure (simplified — faithfully follows source tree shape):
- *   R(align="tm", minh=10, r=0.1, padding=0.05)        ← outer card
- *     R(align="cm", colour=darkPanel, r=0.1)
- *       R(align="cm", padding=0.2)
- *         R[select button](align="cm", colour=ORANGE, minh=0.6, minw=2.7, r=0.1, shadow, onClick)
- *           T(blindState label, scale=0.45, TEXT_LIGHT)
- *         R[blind_name](align="cm", padding=0.07)
- *           R(align="cm", r=0.1, outline_colour=blindCol, colour=darken(blindCol), minw=2.9, emboss=0.1)
- *             O(DynaT(blindName, WHITE, scale=0.45, maxw=2.8))
- *         R[blind_desc](align="cm", padding=0.05)
- *           R(align="cm", minh=1.5)   ← blind animation placeholder (B)
- *           R(align="cm", minh=0.7, minw=2.9)  ← description lines
- *             R(maxw=2.8) T(desc line 1, scale=0.32, WHITE)
- *         R[score_target](align="cm", r=0.1, colour=BLACK, minw=3.1, emboss=0.05)
- *           R(maxw=3) T("Score at least", scale=0.3, WHITE)
- *           R(minh=0.6) B(stake_placeholder) B(0.1) T(amount, scale=0.9*sc, RED)
- *           R T("Reward: ", WHITE) T("$$$+", MONEY, scale=0.35)
- *
- * Deferred: AnimatedSprite, debuff prefix T func, outline rendering, float animation on DynaText.
+ * Boss colour from G.P_BLINDS[boss.key].boss_colour (game.lua).
+ * Each boss blind has a unique tint registered in extract.lua as "boss:bl_*" in colourName.
+ * The hex values here match the blindcolour() calls in extract.lua's G.P_BLINDS table.
  */
-private fun blindChoiceCard(s: RunState, slotIdx: Int, blindBmp: ImageBitmap? = null, stakeBmp: ImageBitmap? = null, enabled: Boolean = true, onSelect: () -> Unit): UI {
-    val light = Balatro.White
-    // mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5) = mix(#374244, #4f6367, 0.5) = #435256
-    // Source: UI_definitions.lua:1761 `colour = mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5)`
-    val darkPanel = Color(0xFF435256)
-    // get_blind_main_colour: misc_functions.lua:396-407
-    // Small: mix_colours(G.C.BLUE, G.C.BLACK, 0.6)   = mix(#009DFF, #374244, 0.6) = #21668F
-    // Big:   mix_colours(G.C.ORANGE, G.C.BLACK, 0.6) = mix(#FDA200, #374244, 0.6) = #866829
-    // Boss:  G.P_BLINDS[boss].boss_colour (per-boss; Mult is a safe non-committed fallback)
-    val blindCol = when (slotIdx) { 0 -> Color(0xFF21668F); 1 -> Color(0xFF866829); else -> Balatro.Mult }
-    // darken(blindCol, 0.3) = blindCol * 0.7 per channel
-    // Small: #21668F * 0.7 = #174764
-    // Big:   #866829 * 0.7 = #5E491D
-    val blindColDark = when (slotIdx) {
-        0 -> Color(0xFF174764); 1 -> Color(0xFF5E491D); else -> Color(0xFFB24139)
-    }
-    val blindName = s.nameForSlot(slotIdx)
-    val blindDesc = s.descForSlot(slotIdx)
-    val amount = s.targetForSlot(slotIdx)
-    val reward = s.rewardForSlot(slotIdx)
-    val dollarStr = "$".repeat(reward) + "+"
-    // G.C.UI.BACKGROUND_INACTIVE = HEX("666666FF") = #666666 (globals.lua:417)
-    // Enabled colour = G.C.ORANGE = #FDA200 (not FILTER/IMPORTANT = #FF9A00)
-    val btnColour = if (enabled) Balatro.OrangeTrue else Color(0xFF666666)
-
-    // Source: outer R has r=0.1; inner R has outline=1, outline_colour=G.C.L_BLACK (PanelLight).
-    return R(Cfg(align = "tm", minh = 10f, r = 0.1f, padding = 0.05f),
-        R(Cfg(align = "cm", colour = darkPanel, r = 0.1f,
-              outline = 1f, outlineColour = Balatro.PanelLight),
-            R(Cfg(align = "cm", padding = 0.2f),
-                // ── select button (Orange if current slot, Grey for Upcoming) ──
-                R(Cfg(align = "cm", colour = btnColour, minh = 0.6f, minw = 2.7f,
-                      padding = 0.07f, r = 0.1f, emboss = if (enabled) 0.05f else 0f,
-                      onClick = if (enabled) onSelect else null),
-                    T(Cfg(scale = 0.45f, textColour = light, shadow = enabled),
-                      if (enabled) "Select" else "Upcoming")),
-                // ── blind name band (outline=1, outline_colour=blindCol in source) ──
-                R(Cfg(align = "cm", padding = 0.07f),
-                    R(Cfg(align = "cm", r = 0.1f, colour = blindColDark,
-                          minw = 2.9f, emboss = 0.1f, padding = 0.07f,
-                          outline = 1f, outlineColour = blindCol),
-                        O(Cfg(), DynaT(seg({ blindName }, light, scale = 0.45f), shadow = true)))),
-                // ── blind art + description ──
-                R(Cfg(align = "cm", padding = 0.05f),
-                    R(Cfg(align = "cm"),
-                        // Blind sprite (frame-0 from BlindChips.png, 1.4u×1.4u).
-                        // B spacer preserves layout while atlas loads or when boss sprite is missing.
-                        R(Cfg(align = "cm", minh = 1.5f),
-                            if (blindBmp != null) O(Cfg(minw = 1.4f, minh = 1.4f), Spr(blindBmp, 1.4f, 1.4f))
-                            else B(Cfg(minw = 1.4f, minh = 1.4f, colour = blindCol))),
-                        if (blindDesc.isNotEmpty())
-                            R(Cfg(align = "cm", minh = 0.7f, padding = 0.05f, minw = 2.9f),
-                                R(Cfg(align = "cm", maxw = 2.8f),
-                                    T(Cfg(scale = 0.32f, textColour = light, shadow = true), blindDesc)))
-                        else
-                            B(Cfg(minw = 0.1f, minh = 0.1f)))),
-                // ── score target panel ──
-                R(Cfg(align = "cm", r = 0.1f, padding = 0.05f, minw = 3.1f,
-                      colour = Balatro.Panel, emboss = 0.05f),
-                    R(Cfg(align = "cm", maxw = 3f),
-                        T(Cfg(scale = 0.3f, textColour = light, shadow = true), "Score at least")),
-                    R(Cfg(align = "cm", minh = 0.6f),
-                        // stake sprite (White Chip from chips.png; B spacer while loading)
-                        if (stakeBmp != null) O(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips), Spr(stakeBmp, 0.5f, 0.5f))
-                        else B(Cfg(minw = 0.5f, minh = 0.5f, colour = Balatro.Chips)),
-                        B(Cfg(minw = 0.1f, minh = 0.1f)),
-                        T(Cfg(scale = 0.9f, textColour = Balatro.Mult, shadow = true), fmtR(amount))),
-                    R(Cfg(align = "cm"),
-                        T(Cfg(scale = 0.35f, textColour = light, shadow = true), "Reward: "),
-                        T(Cfg(scale = 0.35f, textColour = Balatro.Money, shadow = true), dollarStr))))))
+private fun bossColourOf(boss: Boss?): Color = when (boss) {
+    Boss.THE_OX        -> Color(0xFFB95B08)
+    Boss.THE_CLUB      -> Color(0xFF235955)
+    Boss.THE_FLINT     -> Color(0xFF6E3B3F)
+    Boss.THE_MARK      -> Color(0xFF594F6A)
+    Boss.THE_FISH      -> Color(0xFF1E5F69)
+    Boss.THE_PSYCHIC   -> Color(0xFF5F2565)
+    Boss.THE_GOAD      -> Color(0xFF5F5330)
+    Boss.THE_WATER     -> Color(0xFF2D5E57)
+    Boss.THE_EYE       -> Color(0xFF5A4A2B)
+    Boss.THE_MOUTH     -> Color(0xFF5F2027)
+    Boss.THE_WINDOW    -> Color(0xFF4A3A5F)
+    Boss.THE_PLANT     -> Color(0xFF34592E)
+    Boss.THE_NEEDLE    -> Color(0xFF2B3E5F)
+    Boss.THE_HEAD      -> Color(0xFF5F3530)
+    Boss.THE_TOOTH     -> Color(0xFF5F5530)
+    Boss.THE_WALL      -> Color(0xFF3B3B3B)
+    Boss.THE_WHEEL     -> Color(0xFF3B4B5F)
+    Boss.THE_HOUSE     -> Color(0xFF4B3A5F)
+    Boss.THE_HOOK      -> Color(0xFF5F2B45)
+    Boss.THE_ARM       -> Color(0xFF3B5F4F)
+    Boss.THE_PILLAR    -> Color(0xFF5F4B3A)
+    Boss.THE_SERPENT   -> Color(0xFF3B5F3B)
+    Boss.THE_MANACLE   -> Color(0xFF5F3A3A)
+    Boss.VERDANT_LEAF  -> Color(0xFF2F5F2F)
+    Boss.VIOLET_VESSEL -> Color(0xFF4B2F5F)
+    Boss.AMBER_ACORN   -> Color(0xFF5F4B1F)
+    Boss.CRIMSON_HEART -> Color(0xFF5F1F1F)
+    Boss.CERULEAN_BELL -> Color(0xFF1F4F5F)
+    null               -> Color(0xFF5F3A2B)
 }
 
+
 /**
- * Port of G.UIDEF.run_info() (UI_definitions.lua:3129): a tabbed overlay showing poker hands,
- * blinds, and vouchers. Simplified to a single "Poker Hands" tab (create_UIBox_current_hands)
- * and a Back button. Tabs deferred; blinds/vouchers tabs deferred.
+ * Run Info — the poker-hands level table, rendered from the REAL create_UIBox_current_hands tree
+ * (run_info_tree.json) through the ported engine via [GameOverSpec]'s generic builder. G.UIDEF.run_info()
+ * itself extracts only to the overlay shell (its tabbed content is built dynamically by the overlay-menu
+ * system at display time), so the iconic poker-hands tab — 12 rows of level pip + name + per-level
+ * chips/mult + lifetime play count — is extracted directly. Back returns to the prior phase.
+ * Deferred: the blinds/vouchers tabs, and live per-hand level/play binding (the table shows base values).
  */
+/** The 12 poker hands in run-info display order (best → worst), matching create_UIBox_current_hands. */
+private val RUN_INFO_HANDS = listOf(
+    HandType.FLUSH_FIVE, HandType.FLUSH_HOUSE, HandType.FIVE_OF_A_KIND, HandType.STRAIGHT_FLUSH,
+    HandType.FOUR_OF_A_KIND, HandType.FULL_HOUSE, HandType.FLUSH, HandType.STRAIGHT,
+    HandType.THREE_OF_A_KIND, HandType.TWO_PAIR, HandType.PAIR, HandType.HIGH_CARD,
+)
+
+/** Build the poker-hands table as a LIVE UI tree — a port of create_UIBox_current_hand_row
+ *  (UI_definitions.lua:3042) reading G.GAME.hands[handname].{level,chips,mult,played} from RunState,
+ *  instead of the static run_info_tree.json extraction (which froze every hand at level 1 / 0 plays). */
+private fun currentHandsTree(s: RunState): UI {
+    fun row(h: HandType): UI {
+        val lvl = s.handLevels.level(h)
+        val chips = h.baseChips + (lvl - 1) * h.lChips
+        val mult = h.baseMult + (lvl - 1) * h.lMult
+        val played = s.handPlayed(h)
+        // row bg = darken(G.C.JOKER_GREY #bfc7d5, 0.1) → #acb3c0 (UI_definitions.lua:3044).
+        return Ro(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = Color(0xFFACB3C0), emboss = 0.05f), listOf(
+            Co(Cfg(align = "cl", minw = 5f), listOf(
+                Co(Cfg(align = "cm", padding = 0.01f, r = 0.1f, colour = Balatro.handLevelColour(lvl),
+                       minw = 1.5f, outline = 0.8f, outlineColour = Balatro.White), listOf(
+                    Tx(Cfg(scale = 0.5f, textColour = Balatro.Ink), "lvl.$lvl"))),
+                Co(Cfg(align = "cm", minw = 4.5f, maxw = 4.5f), listOf(
+                    Tx(Cfg(scale = 0.45f, textColour = Balatro.White, shadow = true), " ${handName(h)}"))),
+            )),
+            Co(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = Balatro.Panel), listOf(
+                Co(Cfg(align = "cr", padding = 0.01f, r = 0.1f, colour = Balatro.Chips, minw = 1.1f), listOf(
+                    Tx(Cfg(scale = 0.45f, textColour = Balatro.White), "$chips"),
+                    Bx(Cfg(wCfg = 0.08f, hCfg = 0.01f)))),
+                Tx(Cfg(scale = 0.45f, textColour = Balatro.Mult), "X"),
+                Co(Cfg(align = "cl", padding = 0.01f, r = 0.1f, colour = Balatro.Mult, minw = 1.1f), listOf(
+                    Bx(Cfg(wCfg = 0.08f, hCfg = 0.01f)),
+                    Tx(Cfg(scale = 0.45f, textColour = Balatro.White), "$mult"))),
+            )),
+            Co(Cfg(align = "cm"), listOf(Tx(Cfg(scale = 0.45f, textColour = Balatro.White, shadow = true), "  #"))),
+            Co(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = Balatro.PanelLight, minw = 0.9f), listOf(
+                Tx(Cfg(scale = 0.45f, textColour = Balatro.Orange, shadow = true), "$played"))),
+        ))
+    }
+    return Ro(Cfg(align = "cm", padding = 0.04f), RUN_INFO_HANDS.map { row(it) })
+}
+
 @Composable
-private fun RunInfoScreen(s: RunState, jokerCells: Map<String, ImageBitmap>) {
+private fun RunInfoScreen(s: RunState) {
+    val u = LocalUIScale.current
+    var tab by remember { mutableStateOf(0) }   // 0 Poker Hands, 1 Blinds, 2 Vouchers (vanilla run_info tabs)
     Column(
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BTxt("Run Info", Balatro.White, 20.sp)
             Spacer(Modifier.weight(1f))
             BButton("Back", Balatro.Orange) { s.closeRunInfo() }
         }
-        // Joker display
-        if (s.owned.isNotEmpty()) {
-            BTxt("Jokers", Balatro.Orange, 14.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                s.owned.forEach { o ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        jokerCells[o.offer.key]?.let { Image(it, o.offer.name, Modifier.size(44.dp, 60.dp)) }
-                        BTxt(o.offer.name, Balatro.White, 9.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Poker Hands", "Blinds", "Vouchers").forEachIndexed { i, label ->
+                BButton(label, if (tab == i) Balatro.Orange else Balatro.Grey) { tab = i }
+            }
+        }
+        when (tab) {
+            0 -> RenderUIBoxNatural(currentHandsTree(s), u)   // live-built; level/chips/mult/played from RunState
+            1 -> RunInfoBlinds(s, u)
+            else -> RunInfoVouchers(s, u)
+        }
+    }
+}
+
+/** Blinds tab — the current ante's Small/Big/Boss with chip, score requirement, and reward
+ *  (G.UIDEF.current_blinds → create_UIBox_blind_choice, simple variant). */
+@Composable
+private fun RunInfoBlinds(s: RunState, u: Float) {
+    val ctx = LocalContext.current
+    val art by produceState(Triple<ImageBitmap?, ImageBitmap?, ImageBitmap?>(null, null, null), s.blindIndex) {
+        value = withContext(Dispatchers.Default) { BlindArt.cacheRun(ctx, s.upcomingBoss) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        (0..2).forEach { slot ->
+            val chip = when (slot) { 0 -> art.first; 1 -> art.second; else -> art.third }
+            Row(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFACB3C0)).padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                chip?.let { Image(it, null, Modifier.size((1.4f * u).dp), filterQuality = FilterQuality.None) }
+                Column {
+                    BTxt(s.nameForSlot(slot), Balatro.Ink, 14.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BTxt("Score at least ", Balatro.Ink, 10.sp)
+                        BTxt(fmtR(s.targetForSlot(slot)), Balatro.Mult, 13.sp)
                     }
+                    BTxt("Reward: ${"$".repeat(s.rewardForSlot(slot))}", Balatro.Money, 11.sp)
+                    if (slot == 2 && s.descForSlot(2).isNotBlank()) BTxt(s.descForSlot(2), Balatro.Ink, 9.sp)
                 }
             }
         }
-        // Poker hand levels — port of create_UIBox_current_hands (UI_definitions.lua:3080).
-        BTxt("Poker Hands", Balatro.White, 14.sp)
-        RenderUI(currentHandsUI(s))
     }
 }
 
-/**
- * Port of create_UIBox_current_hands (UI_definitions.lua:3080) + create_UIBox_current_hand_row
- * (line 3042). Shows each visible hand type with its level badge, chips×mult, and play count.
- *
- * Hand row structure:
- *   R(align="cm", padding=0.05, r=0.1, colour=darkGrey, emboss=0.05)
- *     C(align="cl", padding=0, minw=5) [ level badge | hand name ]
- *     C(align="cm", padding=0.05, colour=BLACK, r=0.1) [ chips | X | mult ]
- *     C(align="cm") T("#")
- *     C(align="cm", padding=0.05, colour=L_BLACK, r=0.1, minw=0.9) [ played count ]
- *
- * G.C.HAND_LEVELS[min(7,level)] → Balatro uses 7 distinct level colours; approximated with
- * Chips tint for now. G.C.JOKER_GREY darken ≈ Balatro.Panel.
- * Deferred: on_demand_tooltip, play-count tracking, invisible hands (G.GAME.hands[h].visible).
- */
-private fun currentHandsUI(s: RunState): UI {
-    val darkGrey = Balatro.Panel
-    val dark = Color.Black.copy(alpha = 0.6f)
-    val panelLight = Balatro.PanelLight
-    val light = Balatro.White
-    val dark2 = Color(0xFFABB3BF)  // darken(JOKER_GREY, 0.1): JOKER_GREY=#bfc7d5 * 0.9
-
-    // Ordered list matching G.GAME.hands order: highest scoring hands first
-    val visibleHands = listOf(
-        HandType.FLUSH_FIVE, HandType.FLUSH_HOUSE, HandType.FIVE_OF_A_KIND,
-        HandType.STRAIGHT_FLUSH, HandType.FOUR_OF_A_KIND, HandType.FULL_HOUSE,
-        HandType.FLUSH, HandType.STRAIGHT, HandType.THREE_OF_A_KIND,
-        HandType.TWO_PAIR, HandType.PAIR, HandType.HIGH_CARD
-    )
-
-    fun handRow(h: HandType): UI {
-        val lvl = s.handLevel(h)
-        val chips = h.baseChips + (lvl - 1) * h.lChips
-        val mult  = h.baseMult  + (lvl - 1) * h.lMult
-        val played = s.handPlayed(h)
-        val lvlColour = Balatro.handLevelColour(lvl)   // G.C.HAND_LEVELS[min(7,lvl)]
-
-        return R(Cfg(align = "cm", padding = 0.05f, r = 0.1f, colour = dark2, emboss = 0.05f),
-            C(Cfg(align = "cl", padding = 0f, minw = 5f),
-                C(Cfg(align = "cm", padding = 0.01f, r = 0.1f, colour = lvlColour,
-                      minw = 1.5f, outline = 0.8f, outlineColour = light),
-                    T(Cfg(scale = 0.5f, textColour = Balatro.Ink), "Lv$lvl")),
-                C(Cfg(align = "cm", minw = 4.5f, maxw = 4.5f),
-                    T(Cfg(scale = 0.45f, textColour = light, shadow = true), " ${handName(h)}"))),
-            C(Cfg(align = "cm", padding = 0.05f, colour = dark, r = 0.1f),
-                C(Cfg(align = "cr", padding = 0.01f, r = 0.1f, colour = Balatro.Chips, minw = 1.1f),
-                    T(Cfg(scale = 0.45f, textColour = light), "$chips"),
-                    B(Cfg(minw = 0.08f, minh = 0.01f))),
-                T(Cfg(scale = 0.45f, textColour = Balatro.Mult), "X"),
-                C(Cfg(align = "cl", padding = 0.01f, r = 0.1f, colour = Balatro.Mult, minw = 1.1f),
-                    B(Cfg(minw = 0.08f, minh = 0.01f)),
-                    T(Cfg(scale = 0.45f, textColour = light), "$mult"))),
-            // Play count column: T("  #") label + C(L_BLACK) with count (source lines 3065-3070)
-            C(Cfg(align = "cm"),
-                T(Cfg(scale = 0.45f, textColour = light, shadow = true), "  #")),
-            C(Cfg(align = "cm", padding = 0.05f, colour = panelLight, r = 0.1f, minw = 0.9f),
-                O(Cfg(), DynaT(seg({ "$played" }, Balatro.Orange, scale = 0.45f), shadow = true))))
+/** Vouchers tab — the vouchers redeemed this run (G.UIDEF.used_vouchers). */
+@Composable
+private fun RunInfoVouchers(s: RunState, u: Float) {
+    val ctx = LocalContext.current
+    val shopArt by produceState(ShopArt.Cells.EMPTY) { value = withContext(Dispatchers.Default) { ShopArt.cache(ctx) } }
+    if (s.redeemedVouchers.isEmpty()) { BTxt("No vouchers redeemed yet", Balatro.White, 14.sp); return }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        s.redeemedVouchers.forEach { key ->
+            val v = VOUCHERS.find { it.key == key }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                shopArt.vouchers[key]?.let { Image(it, null, Modifier.size((1.4f * u).dp), filterQuality = FilterQuality.None) }
+                Column {
+                    BTxt(v?.name ?: key, Balatro.White, 13.sp)
+                    if (v != null) BTxt(v.desc, Balatro.White.copy(alpha = 0.8f), 9.sp)
+                }
+            }
+        }
     }
-
-    return R(Cfg(align = "cm", minw = 3f, padding = 0.1f, r = 0.1f),
-        *visibleHands.map { handRow(it) }.toTypedArray()
-    )
 }
+
 
 private fun fmtR(v: Double): String = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)

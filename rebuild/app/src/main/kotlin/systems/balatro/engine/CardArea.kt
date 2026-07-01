@@ -18,9 +18,10 @@ import kotlin.math.sin
 class CardArea(
     scene: SceneRegistry,
     t: Transform,
-    val kind: String,          // "joker" | "hand" | "consumeable"
+    val kind: String,          // "joker" | "hand" | "consumeable" | "play"
     var cardLimit: Int = 5,
     private val isConsumeables: Boolean = false,
+    val cardScale: Double = 1.0,   // card render scale — oracle: hand/play cards are 0.95, jokers 1.0
 ) : Moveable(scene, t) {
 
     /** Child cards (Moveables). Each is registered in the same scene so the host loop sweeps it. */
@@ -31,9 +32,41 @@ class CardArea(
     /** Grow/shrink the card list to [n], creating cards at the area centre and deregistering removed. */
     fun setCardCount(n: Int) {
         while (cards.size < n) {
-            cards.add(Moveable(scene, Transform(T.x, T.y, CARD_W, CARD_H)).also { it.zoom = true })
+            cards.add(Moveable(scene, Transform(T.x, T.y, CARD_W, CARD_H, scale = cardScale)).also { it.zoom = true })
         }
         while (cards.size > n) cards.removeAt(cards.size - 1).remove()
+    }
+
+    /** Make a new card Moveable belonging to this area. [atX]/[atY] is its SPAWN position (defaults
+     *  to this area); pass another area's origin so the card flies IN from there (deck→hand deal,
+     *  hand→play) — its VT starts at the spawn and align_cards springs it to its slot here. */
+    fun newCard(atX: Double = T.x, atY: Double = T.y) =
+        Moveable(scene, Transform(atX, atY, CARD_W, CARD_H, scale = cardScale)).also { it.zoom = true }
+
+    /** cardarea.lua:50 emplace — append a card here (deck inserts at front). The Card-level bits
+     *  (set_ability/set_ranks) are P0.5's Card; this owns only the Moveable membership + layout. */
+    fun emplace(card: Moveable) {
+        if (kind == "deck") cards.add(0, card) else cards.add(card)
+    }
+
+    /** cardarea.lua:85 remove_card — detach [card] from this area (it stays a live Moveable so a
+     *  draw_card_from can re-home it). Returns it, or null if not here. */
+    fun removeCard(card: Moveable): Moveable? {
+        val i = cards.lastIndexOf(card)
+        if (i < 0) return null
+        cards.removeAt(i)
+        return card
+    }
+
+    /** cardarea.lua:648 draw_card_from — TRANSFER a card from [area] into this one (deal/play
+     *  animation). It's the SAME Moveable, so it keeps its VT (current screen position); align_cards
+     *  then springs it to its new slot here — the faithful fly-in, no position reset. */
+    fun drawCardFrom(area: CardArea): Moveable? {
+        if (cards.size >= cardLimit && kind != "deck" && kind != "hand") return null
+        val card = (if (area.kind == "deck" || area.kind == "discard") area.cards.lastOrNull() else area.cards.firstOrNull()) ?: return null
+        area.removeCard(card)
+        emplace(card)
+        return card
     }
 
     /**
@@ -58,6 +91,20 @@ class CardArea(
                     c.T.y = T.y + T.h / 2 - CARD_H / 2 - lift +
                         (if (reducedMotion) 0.0 else 0.03 * sin(0.666 * real + c.T.x)) +
                         Math.abs(0.5 * (-n / 2.0 + k - 0.5) / n) - 0.2
+                    c.T.x += c.shadowParallax.x / 30
+                }
+            }
+            "play" -> {
+                // cardarea.lua:551 play/shop branch — cards distributed across the area, no fan/wobble.
+                val maxCards = max(n, tempLimit)
+                val denom = max(maxCards - 1, 1).toDouble()
+                cards.forEachIndexed { idx, c ->
+                    val k = idx + 1
+                    c.T.r = 0.0
+                    c.T.x = T.x + (T.w - CARD_W) * ((k - 1) / denom - 0.5 * (n - maxCards) / denom) +
+                        (if (cardLimit == 1) 0.5 * (T.w - CARD_W) else 0.0)
+                    val lift = if (idx in highlighted) HIGHLIGHT_H else 0.0
+                    c.T.y = T.y + T.h / 2 - CARD_H / 2 - lift
                     c.T.x += c.shadowParallax.x / 30
                 }
             }

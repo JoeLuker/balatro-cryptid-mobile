@@ -7,6 +7,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -26,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import systems.balatro.bridge.Telemetry
 import systems.balatro.game.*
+import systems.balatro.save.SaveIo
+import java.io.File
 
 /**
  * Native chrome over the composition engine: a 120-joker board scored on-device and
@@ -63,6 +72,11 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        systems.balatro.audio.SoundManager.init(applicationContext)   // load bundled SFX once
+        getSharedPreferences("balatro", MODE_PRIVATE).let {           // apply saved audio settings
+            systems.balatro.audio.SoundManager.enabled = it.getBoolean("sfx", true)
+            systems.balatro.audio.MusicManager.enabled = it.getBoolean("music", true)
+        }
         // Edge-to-edge: let the Compose surface fill the ENTIRE display, drawing under (hidden) system
         // bars. Without this the content area is inset by the landscape nav bar (~200px), so the room
         // scaled to a too-narrow surface (u≈165px/unit instead of the full-width 174.5) and the whole
@@ -108,55 +122,143 @@ class MainActivity : ComponentActivity() {
                     value = withContext(Dispatchers.Default) { if (jokes.isEmpty()) emptyMap() else buildCellCache(ctx, jokes) }
                 }
                 var showManager by remember { mutableStateOf(false) }
+                var showSettings by remember { mutableStateOf(false) }
                 var showRun by remember { mutableStateOf(bootRun || bootScreen != null) }
+                // A saved run auto-resumes on Play; hasSave drives the Continue/New-Run choice.
+                val saveFile = remember { File(ctx.filesDir, SaveIo.FILE_NAME) }
+                var hasSave by remember { mutableStateOf(saveFile.exists()) }
+                LaunchedEffect(showRun) { if (!showRun) hasSave = saveFile.exists() }   // refresh on return to menu
 
-                Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().padding(20.dp)) {
-                        Text("Balatro Native", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        Text("clean-slate rebuild · composition core", color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(16.dp))
-                        ElevatedCard(Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                cells[0 to 0]?.let { Image(it, "Joker", Modifier.size(56.dp, 75.dp)); Spacer(Modifier.width(14.dp)) }
-                                Column {
-                                    Text("$n jokers scored on-device · art reused", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("score = ${boot?.score?.toString() ?: "running…"}", fontFamily = FontFamily.Monospace, fontSize = 20.sp)
-                                    Text("oracle parity: ${boot?.let { "${it.pass}/${it.total}" } ?: "…"} on-device",
-                                        fontFamily = FontFamily.Monospace, fontSize = 13.sp,
-                                        color = if (boot == null || boot!!.pass == boot!!.total) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                                    Text("10 Cryptid archetypes ported · scores like the original", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-                                }
+                // Main menu = the REAL create_UIBox_main_menu_buttons tree (main_menu_tree.json) rendered
+                // through the layout engine on the felt — Play / Options / Collection, wired to nav.
+                Box(Modifier.fillMaxSize()) {
+                    BalatroFelt(Modifier.matchParentSize())
+                    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        val u = uiScaleFor(maxWidth.value, maxHeight.value)
+                        CompositionLocalProvider(LocalUIScale provides u) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                BTxt("BALATRO", Balatro.Orange, (1.6f * u * FONT_RATIO).sp)
+                                Spacer(Modifier.height((0.5f * u).dp))
+                                val mroot = remember { HudSpec.root(ctx, "main_menu_tree.json") }
+                                if (mroot != null) RenderUIBoxNatural(buildMenu(mroot, MenuBind(
+                                    onPlay = { showRun = true; Telemetry.event("UI", "open" to "run", "resume" to hasSave) },
+                                    onOptions = { showSettings = true },
+                                    onCollection = { showManager = true },
+                                )), u)
                             }
                         }
-                        Spacer(Modifier.height(20.dp))
-                        Button(onClick = { showManager = true; Telemetry.event("UI", "open" to "manager", "n" to n) },
-                            modifier = Modifier.fillMaxWidth(), enabled = cells.isNotEmpty()) {
-                            Text(if (cells.isEmpty()) "Loading art…" else "Manage $n Jokers  (native grid)")
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Button(onClick = { showRun = true; Telemetry.event("UI", "open" to "run") },
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text("Play  (the one game: blinds + shop)")
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Text("telemetry on · systems.balatro.rebuild · your LÖVE build untouched",
-                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.CenterHorizontally))
                     }
 
+                    // COLLECTION — Balatro-styled content browser (felt) replacing the Material joker
+                    // bottom-sheet. Tabs over the real content lists, each rendering the actual sprites.
                     if (showManager) {
-                        ModalBottomSheet(onDismissRequest = { showManager = false }) {
-                            Text("  Jokers ($n) — native virtualized grid", fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(12.dp))
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(64.dp),
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                        val jcells by produceState(emptyMap<String, ImageBitmap>()) {
+                            value = withContext(Dispatchers.Default) { JokerArt.cache(ctx, CATALOG.map { it.key }) }
+                        }
+                        val art by produceState(ShopArt.Cells.EMPTY) {
+                            value = withContext(Dispatchers.Default) { ShopArt.cache(ctx) }
+                        }
+                        var tab by remember { mutableStateOf(0) }
+                        val tabs = listOf("Jokers", "Tarots", "Planets", "Spectrals", "Vouchers")
+                        val gridItems: List<Pair<String, ImageBitmap?>> = when (tab) {
+                            0 -> CATALOG.map { it.name to jcells[it.key] }
+                            1 -> TAROTS.map { it.name to art.tarots[it.name] }
+                            2 -> Planet.values().toList().map { it.display to art.planets[it] }
+                            3 -> Spectral.values().toList().map { it.display to art.spectrals[it] }
+                            else -> VOUCHERS.map { it.name to art.vouchers[it.key] }
+                        }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            BalatroFelt(Modifier.matchParentSize())
+                            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)))
+                            Column(
+                                Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.92f)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .background(Balatro.FeltDark)
+                                    .border(2.dp, Balatro.Orange, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                items(jokes) { j -> cells[j.col to j.row]?.let { Image(it, j.name, Modifier.size(60.dp, 80.dp)) } }
+                                BTxt("COLLECTION", Balatro.Orange, 22.sp)
+                                Spacer(Modifier.height(8.dp))
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    tabs.forEachIndexed { i, t ->
+                                        BButton(t, if (i == tab) Balatro.Orange else Balatro.Grey) { tab = i }
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(72.dp),
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(gridItems) { (name, bmp) ->
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            if (bmp != null) Image(bmp, name, Modifier.size(58.dp, 78.dp),
+                                                contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                                            else Box(Modifier.size(58.dp, 78.dp)
+                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                                .background(Balatro.Panel), contentAlignment = Alignment.Center) {
+                                                BTxt(name.take(6), Balatro.White, 8.sp)
+                                            }
+                                            BTxtWrap(name, Balatro.White, 8.sp, maxWidth = 68.dp, modifier = Modifier.padding(top = 2.dp))
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                BButton("Back", Balatro.Orange, modifier = Modifier.fillMaxWidth()) { showManager = false }
                             }
-                            Spacer(Modifier.height(24.dp))
+                        }
+                    }
+
+                    // OPTIONS — Balatro-styled overlay (felt) replacing the Material dialogs. The vanilla
+                    // create_UIBox_options tree is ~90% Android-inapplicable (resolution/vsync/CRT/shake),
+                    // so this is the applicable subset: audio toggles + the (orphaned) lifetime stats.
+                    if (showSettings) {
+                        var sfxOn by remember { mutableStateOf(systems.balatro.audio.SoundManager.enabled) }
+                        var musicOn by remember { mutableStateOf(systems.balatro.audio.MusicManager.enabled) }
+                        val prefs = remember { ctx.getSharedPreferences("balatro", Context.MODE_PRIVATE) }
+                        val st = remember { systems.balatro.save.StatsStore.read(ctx) }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            BalatroFelt(Modifier.matchParentSize())
+                            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f)))
+                            Column(
+                                Modifier.widthIn(max = 360.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .background(Balatro.FeltDark)
+                                    .border(2.dp, Balatro.Orange, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                BTxt("OPTIONS", Balatro.Orange, 26.sp)
+                                Spacer(Modifier.height(16.dp))
+                                BButton(if (sfxOn) "Sound: ON" else "Sound: OFF", if (sfxOn) Balatro.Chips else Balatro.Grey,
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    sfxOn = !sfxOn; systems.balatro.audio.SoundManager.enabled = sfxOn
+                                    prefs.edit().putBoolean("sfx", sfxOn).apply()
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                BButton(if (musicOn) "Music: ON" else "Music: OFF", if (musicOn) Balatro.Chips else Balatro.Grey,
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    musicOn = !musicOn
+                                    systems.balatro.audio.MusicManager.setEnabled(musicOn, ctx.applicationContext)
+                                    prefs.edit().putBoolean("music", musicOn).apply()
+                                }
+                                Spacer(Modifier.height(18.dp))
+                                BTxt("LIFETIME STATS", Balatro.Orange, 15.sp)
+                                Spacer(Modifier.height(6.dp))
+                                listOf(
+                                    "Runs" to "${st.games}", "Wins" to "${st.wins} (${st.winRate}%)",
+                                    "Best ante" to "${st.bestAnte}", "Best score" to "${st.bestScore}", "Hands" to "${st.totalHands}",
+                                ).forEach { (k, v) ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        BTxt(k, Balatro.White, 12.sp); BTxt(v, Balatro.White, 12.sp)
+                                    }
+                                }
+                                Spacer(Modifier.height(18.dp))
+                                BButton("Back", Balatro.Orange, modifier = Modifier.fillMaxWidth()) { showSettings = false }
+                            }
                         }
                     }
 
@@ -167,4 +269,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // Background music follows the Activity lifecycle (start/resume foregrounded, pause backgrounded).
+    override fun onResume() { super.onResume(); systems.balatro.audio.MusicManager.start(applicationContext) }
+    override fun onPause() { systems.balatro.audio.MusicManager.pause(); super.onPause() }
+    override fun onDestroy() { systems.balatro.audio.MusicManager.release(); systems.balatro.audio.SoundManager.release(); super.onDestroy() }
 }

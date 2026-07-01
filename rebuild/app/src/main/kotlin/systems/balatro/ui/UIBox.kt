@@ -1,13 +1,6 @@
 package systems.balatro.ui
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -27,12 +20,9 @@ import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.sin
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -142,6 +132,11 @@ class DynaText(
     override val h: Float = 0f,
 ) : Obj
 
+/** A CardArea slot O (shop_jokers/_vouchers/_booster, pack contents, blind tokens): the extracted
+ *  tree carries the slot's name + size; the render site fills the engine-computed rect with the live
+ *  cards/offers from RunState (so the frame is the ported tree and the contents bind like the hand). */
+class CardAreaSlot(val name: String, override val w: Float, override val h: Float) : Obj
+
 // builders that read like the Lua: R(cfg){ ... }
 fun R(cfg: Cfg = Cfg(), vararg kids: UI) = Ro(cfg, kids.toList())
 fun C(cfg: Cfg = Cfg(), vararg kids: UI) = Co(cfg, kids.toList())
@@ -154,113 +149,6 @@ fun DynaT(vararg segs: DynSeg, maxw: Float = 0f, shadow: Boolean = true) = DynaT
 fun seg(value: () -> String, colour: Color = Balatro.White, scale: Float = 1f) = DynSeg(value, colour, scale)
 /** seg for a static literal: seg("Choose your Blind", Balatro.White). */
 fun seg(text: String, colour: Color = Balatro.White, scale: Float = 1f) = DynSeg({ text }, colour, scale)
-
-private fun vAlign(a: String): Alignment.Vertical = when (a.getOrNull(0)) { 't' -> Alignment.Top; 'b' -> Alignment.Bottom; else -> Alignment.CenterVertically }
-private fun hAlign(a: String): Alignment.Horizontal = when (a.getOrNull(1)) { 'l' -> Alignment.Start; 'r' -> Alignment.End; else -> Alignment.CenterHorizontally }
-
-@Composable
-private fun Modifier.cfg(c: Cfg): Modifier {
-    val u = LocalUIScale.current
-    var m = this
-    // config.button -> clickable with Balatro's press feel: scale to 0.985 while held (the exact
-    // `button_being_pressed and 0.985 or 1` from ui.lua draw_self), and lighten the fill toward
-    // G.C.UI.HOVER. Press state is real (finger down) via an interactionSource.
-    var pressed = false
-    if (c.onClick != null) {
-        val interaction = remember { MutableInteractionSource() }
-        pressed = interaction.collectIsPressedAsState().value
-        m = m
-            .graphicsLayer { val s = if (pressed) 0.985f else 1f; scaleX = s; scaleY = s }
-            .clickable(interaction, indication = null) { c.onClick.invoke() }
-    }
-    if (c.minw > 0) m = m.widthIn(min = (c.minw * u).dp)
-    if (c.minh > 0) m = m.heightIn(min = (c.minh * u).dp)
-    if (c.maxw > 0) m = m.widthIn(max = (c.maxw * u).dp)
-    if (c.maxh > 0) m = m.heightIn(max = (c.maxh * u).dp)
-    if (c.colour != null) {
-        val shape = RoundedCornerShape((c.r * u).dp)
-        if (c.emboss > 0) m = m.border((c.emboss * u).dp, Color.Black.copy(alpha = 0.45f), shape)  // 3D edge: depth in units
-        val fill = if (pressed) lighten(c.colour) else c.colour                   // ARGS.button_colours[2] HOVER
-        m = m.clip(shape).background(fill)
-    }
-    // outline is a cosmetic border rendered at the clip boundary (config.outline / outline_colour).
-    // Thickness is in dp (Balatro's outline=1 ≈ 1dp — sub-unit, pixel-scale value).
-    if (c.outline > 0f && c.outlineColour != Color.Transparent) {
-        val shape = RoundedCornerShape((c.r * u).dp)
-        m = m.border(c.outline.dp, c.outlineColour, shape)
-    }
-    if (c.padding > 0) m = m.padding((c.padding * u).dp)
-    return m
-}
-
-/** Lighten toward white — Balatro's hover overlay (G.C.UI.HOVER is a translucent white). */
-private fun lighten(c: Color, amt: Float = 0.2f) = Color(
-    red = c.red + (1f - c.red) * amt,
-    green = c.green + (1f - c.green) * amt,
-    blue = c.blue + (1f - c.blue) * amt,
-    alpha = c.alpha,
-)
-
-/**
- * Render a UIBox tree node — the whole interpreter. The layout rule is Balatro's, straight
- * from calculate_xywh: a container stacks its R-children VERTICALLY and flows everything else
- * (C/B/T/O) HORIZONTALLY. So direction is decided by the CHILDREN's type, not the node's own
- * tag (the tag only says how the node sits in ITS parent: R = block line, C = inline).
- */
-@Composable
-fun RenderUI(node: UI) {
-    when (node) {
-        is Tx -> {
-            val size = (node.cfg.scale * LocalUIScale.current * FONT_RATIO).sp
-            // config.vert=true: text rotated 90° CCW — Balatro's vertical sidebar labels.
-            // graphicsLayer rotates the drawing pass; wrapContentSize + rotate in place to avoid layout jump.
-            val vertMod = if (node.cfg.vert) Modifier.graphicsLayer { rotationZ = -90f } else Modifier
-            if (node.cfg.shadow) {
-                Box(vertMod) {
-                    BTxt(node.text, Color.Black.copy(alpha = 0.3f), size, Modifier.offset(x = 1.dp, y = 2.dp))
-                    BTxt(node.text, node.cfg.textColour, size)
-                }
-            } else {
-                BTxt(node.text, node.cfg.textColour, size, vertMod)
-            }
-        }
-        is Ro -> Container(node.cfg, node.kids)
-        is Co -> Container(node.cfg, node.kids)
-        is Bx -> Container(node.cfg, node.kids)
-        is Ob -> RenderObject(node.cfg, node.obj)   // O is terminal: no container, render the object
-    }
-}
-
-/**
- * Render a G.UIT.O node. It reserves config.w/h (passed as minw/minh) else the object's intrinsic
- * T.w/T.h — Balatro's calculate_xywh O branch — then draws the embedded object into that footprint.
- */
-@Composable
-private fun RenderObject(cfg: Cfg, obj: Obj) {
-    val box = Modifier.objSize(cfg, obj, LocalUIScale.current).cfg(cfg)   // cfg() still paints colour/r/emboss + button feel
-    when (obj) {
-        is Sprite -> Box(box, contentAlignment = Alignment.Center) {
-            Image(
-                bitmap = obj.bmp,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,    // scale the source quad into the fitted rect (VT/T ratio)
-                filterQuality = FilterQuality.None,  // pixel art: nearest-neighbour like LÖVE, never blur the cell
-            )
-        }
-        is DynaText -> Box(box) { RenderDynaText(obj) }
-    }
-}
-
-/** O size = config.w/h (carried as minw/minh in units) when set, else the object's intrinsic w/h. */
-private fun Modifier.objSize(cfg: Cfg, obj: Obj, u: Float): Modifier {
-    val w = if (cfg.minw > 0) cfg.minw else obj.w
-    val h = if (cfg.minh > 0) cfg.minh else obj.h
-    var m = this
-    if (w > 0) m = m.width((w * u).dp)
-    if (h > 0) m = m.height((h * u).dp)
-    return m
-}
 
 /**
  * A DynaText: a row of coloured segments, each pulling its live value from its provider lambda
@@ -310,25 +198,4 @@ fun RenderDynaText(dt: DynaText) {
     }
 }
 
-@Composable
-private fun Container(cfg: Cfg, kids: List<UI>) {
-    // Balatro's layout rule (calculate_xywh): a child with UIT==R advances Y (block line); everything
-    // else advances X (inline). Any R child in the list makes this container a vertical stack —
-    // `any` rather than `all` so a single R among C/T siblings still triggers Column layout,
-    // matching the Lua cursor behaviour exactly. Pure non-R children → Row (horizontal flow).
-    val vertical = kids.any { it is Ro }
-    // calculate_xywh inserts `padding` AFTER every child along the main axis (cursor += size+padding),
-    // so total = Σchild + (n+1)·padding. cfg()'s Modifier.padding gives the 2 edge paddings; the
-    // (n-1) BETWEEN-child gaps come from spacedBy here — without it the rebuild was tighter than the
-    // game. gap=0 (most nodes) makes spacedBy collapse to the plain alignment arrangement.
-    val gap = (cfg.padding * LocalUIScale.current).dp
-    if (vertical) {
-        Column(Modifier.cfg(cfg), verticalArrangement = Arrangement.spacedBy(gap, vAlign(cfg.align)), horizontalAlignment = hAlign(cfg.align)) {
-            kids.forEach { RenderUI(it) }
-        }
-    } else {
-        Row(Modifier.cfg(cfg), horizontalArrangement = Arrangement.spacedBy(gap, hAlign(cfg.align)), verticalAlignment = vAlign(cfg.align)) {
-            kids.forEach { RenderUI(it) }
-        }
-    }
-}
+

@@ -19,12 +19,15 @@ enum class HandType(val baseChips: Int, val baseMult: Int, val lChips: Int = 0, 
     FIVE_OF_A_KIND(120, 12, 35, 3),
     FLUSH_HOUSE(140, 14, 40, 4),
     FLUSH_FIVE(160, 16, 50, 3),
-    // --- Cryptid-exclusive hand types (not returned by Hands.evaluate; stubs for joker dispatch) ---
-    CRY_BULWARK(0, 1),       // cry_Bulwark: whole-deck-suit hand (c_cry_asteroidbelt)
-    CRY_CLUSTERFUCK(0, 1),   // cry_Clusterfuck: specific multi-combo (cry_poker_hand_stuff)
-    CRY_ULTPAIR(0, 1),       // cry_UltPair: paired hand across many ranks (c_cry_marsmoons)
-    CRY_NONE(0, 1),          // cry_None: the "no valid hand" type (c_cry_nibiru)
-    CRY_WHOLEDECK(0, 1),     // cry_WholeDeck: all 52 cards scored at once (c_cry_universe)
+    // --- Cryptid-exclusive hand types ---
+    // Base values confirmed from SpectralPack/Cryptid lib/content.lua (SMODS.PokerHand registrations).
+    // l_chips/l_mult are the per-level increments (planet card upgrade). WholeDeck uses absurd big-int
+    // literals (repeating "52") — stored as Long here; scoring uses Double so precision is capped.
+    CRY_BULWARK(100, 10, 50, 1),    // cry_Bulwark: all 5 played cards are Stone — LIVE (Hands.evaluate returns it)
+    CRY_CLUSTERFUCK(200, 19, 40, 4), // cry_Clusterfuck: ≥8 non-Gold no-pair/flush/straight cards — LIVE (Hands.evaluate returns it)
+    CRY_ULTPAIR(220, 22, 40, 4),    // cry_UltPair: two same-suit Two-Pairs of different suits — LIVE (Hands.evaluate returns it)
+    CRY_NONE(0, 0, 5, 0),           // cry_None: 0 cards played — LIVE; mult=0; actual l_mult=0.5 (Int truncated; CRY_NONE has no planet card so level scaling is irrelevant)
+    CRY_WHOLEDECK(Int.MAX_VALUE, Int.MAX_VALUE), // cry_WholeDeck: all 52 cards scored — STUB; actual=repeating-52 big int (irrelevant until mechanic lands)
 }
 
 /**
@@ -47,7 +50,50 @@ object Hands {
         rankOf: (PlayingCard) -> Int = { it.id },
         fourFingers: Boolean = false, shortcut: Boolean = false, smeared: Boolean = false,
     ): Triple<HandType, List<PlayingCard>, Set<HandType>> {
-        if (cards.isEmpty()) return Triple(HandType.NONE, emptyList(), emptySet())
+        if (cards.isEmpty()) return Triple(HandType.CRY_NONE, emptyList(), setOf(HandType.CRY_NONE))
+
+        // CRY_BULWARK: 5+ Stone cards present (cry_Bulwark, content.lua:39 → #stones >= 5) — NOT "all 5
+        // cards Stone". Non-stone cards may be in the played hand; only the stones form the hand (they're
+        // the scoring cards), but HIGH_CARD stays in poker_hands. Bulwark (100x10) outranks the small hands
+        // non-stones can make, so it is the top hand whenever 5+ stones play.
+        // (Edge case left as-is: at >=8 cards a 5-stone hand could also be CRY_CLUSTERFUCK, which out-ranks
+        //  Bulwark; this early-return keeps Bulwark. Rare and untested — tracked separately, not regressed here.)
+        val stones = cards.filter { it.enhancement == Enhancement.STONE }
+        if (stones.size >= 5)
+            return Triple(HandType.CRY_BULWARK, stones, setOf(HandType.CRY_BULWARK, HandType.HIGH_CARD))
+
+        // CRY_CLUSTERFUCK: ≥8 non-Gold cards with no pairs, no flush, no straight.
+        // Source: cry_cfpart (SpectralPack/Cryptid lib/content.lua) — eligible = cards where
+        // not card.config.center.not_fucked (non-Gold enhancement). #eligible > 7, no _all_pairs,
+        // no _flush, no _straight. getFlush/getStraight bail on hand.size > 5, so checks are inline.
+        if (cards.size >= 8) {
+            val eligible = cards.filter { it.enhancement != Enhancement.GOLD }
+            if (eligible.size >= 8) {
+                // hasPair: any rank appears ≥2 times among eligible cards (Stone id=-1 never pairs)
+                val rankCounts = eligible.map { rankOf(it) }.filter { it in 2..14 }
+                    .groupingBy { it }.eachCount()
+                val hasPair = rankCounts.values.any { it >= 2 }
+                // hasFlush: any suit covering ≥5 eligible cards (fourFingers lowers threshold to 4)
+                val flushNeed = if (fourFingers) 4 else 5
+                val hasFlush = Suit.values().any { s -> eligible.count { it.isSuit(s, smeared) } >= flushNeed }
+                // hasStraight: 5 (or 4 with fourFingers) consecutive ranks present, Ace high/low
+                val straightNeed = if (fourFingers) 4 else 5
+                val presentIds = eligible.map { rankOf(it) }.filter { it in 2..14 }.toSet()
+                val hasAce = 14 in presentIds
+                fun straightLen(seq: IntRange): Int {
+                    var len = 0; var maxLen = 0
+                    for (r in seq) { if (r in presentIds) { len++; if (len > maxLen) maxLen = len } else len = 0 }
+                    return maxLen
+                }
+                // check A-high (14..2) and A-low (A treated as 1 in 1..5)
+                val hasStraight = straightLen(2..14) >= straightNeed ||
+                    (hasAce && straightLen(2..5) + 1 >= straightNeed) // A-low: A + 2..5
+                if (!hasPair && !hasFlush && !hasStraight) {
+                    // HIGH_CARD is always present alongside the composite hand (get_highest never empty here).
+                    return Triple(HandType.CRY_CLUSTERFUCK, eligible, setOf(HandType.CRY_CLUSTERFUCK, HandType.HIGH_CARD))
+                }
+            }
+        }
 
         val _5 = getXSame(5, cards, rankOf)
         val _4 = getXSame(4, cards, rankOf)
@@ -77,10 +123,33 @@ object Hands {
         if (_3.isNotEmpty()) set(HandType.THREE_OF_A_KIND, _3[0])
         if (_2.size == 2 || (_3.size == 1 && _2.size == 1)) {                      // Two Pair (source line 479)
             val a = _2[0]; val b = if (_2.size >= 2) _2[1] else _3[0]
-            set(HandType.TWO_PAIR, a + b)
+            // CRY_ULTPAIR: Two Two-Pairs where each pair is a single suit, two different suits total.
+            // (cry_UltPair: "Two Two Pairs, where each Two Pair is a single suit, for a total of
+            // two suits between them" — localization/en-us.lua:5035). Requires Wild or two identical
+            // cards; pairSuit() picks the first suit all cards in the pair satisfy via isSuit.
+            // Guard: only consider ULTPAIR when the top hand is genuinely a Two Pair (not a Full House
+            // that also entered this branch via _3.size==1 && _2.size==1). A same-suit-distinct Full House
+            // would otherwise spuriously appear in pokerHands as CRY_ULTPAIR — harmless today (all wired
+            // ULTPAIR jokers check scoringName, not pokerHands) but wrong in principle.
+            val sa = pairSuit(a, smeared); val sb = pairSuit(b, smeared)
+            if (top == null && sa != null && sb != null && sa != sb) {
+                set(HandType.CRY_ULTPAIR, a + b)
+                results[HandType.TWO_PAIR] = a + b  // still present in context.poker_hands
+            } else {
+                set(HandType.TWO_PAIR, a + b)
+            }
         }
         if (_2.isNotEmpty()) set(HandType.PAIR, _2[0])
         if (_highest.isNotEmpty()) set(HandType.HIGH_CARD, _highest[0])
+
+        // Downgrade chain (misc_functions.lua:551-561): a Five of a Kind CONTAINS a Four of a Kind, a Four
+        // of a Kind contains a Three of a Kind, a Three of a Kind contains a Pair — so context.poker_hands
+        // (containment) includes the lower hands even though the played hand (`top`) is unchanged. Without
+        // this, "+chips/+mult if hand contains <Pair/ToaK>" jokers (sly/wily/jolly/clever/…) never fire on
+        // 3oak/4oak/5oak. Add to `results` only (never to `top`), via putIfAbsent so real entries win.
+        results[HandType.FIVE_OF_A_KIND]?.let { results.putIfAbsent(HandType.FOUR_OF_A_KIND, it.take(4)) }
+        results[HandType.FOUR_OF_A_KIND]?.let { results.putIfAbsent(HandType.THREE_OF_A_KIND, it.take(3)) }
+        results[HandType.THREE_OF_A_KIND]?.let { results.putIfAbsent(HandType.PAIR, it.take(2)) }
 
         val best = top ?: HandType.HIGH_CARD
         return Triple(best, results[best] ?: emptyList(), results.keys.toSet())
@@ -128,6 +197,10 @@ object Hands {
         }
         return if (straight) listOf(t) else emptyList()
     }
+
+    /** pairSuit: the first Suit that ALL cards in a pair satisfy (via isSuit / Wild-aware), or null if none. */
+    private fun pairSuit(pair: List<PlayingCard>, smeared: Boolean): Suit? =
+        Suit.values().firstOrNull { s -> pair.all { it.isSuit(s, smeared) } }
 
     private fun getHighest(hand: List<PlayingCard>, idOf: (PlayingCard) -> Int): List<List<PlayingCard>> {
         val highest = hand.maxByOrNull { it.nominal } ?: return emptyList()

@@ -37,6 +37,12 @@ object Room {
 
     // set_screen_positions (common_events.lua:4-23), RUN stage. ROOM_ATTACH-frame coords.
     val hand: AreaRect get() = AreaRect(TILE_W - handW - 2.85, TILE_H - handH, handW, handH)
+    /** The hand area's Y is STATE-dependent: set_screen_positions / scoring gives TILE_H-handH (8.886),
+     *  but at SELECTING_HAND the hand sits higher at 6.986 (card-position oracle ground truth — the
+     *  SELECTING-state derivation isn't pinned, so this is the measured value). The hand slides between
+     *  them on the state transition; bref_3 froze it mid-slide (spring overshoot). */
+    const val handScoringY = TILE_H - 0.95 * 2.4 * 47.0 / 41.0    // = hand.y = 8.886 (HAND_PLAYED)
+    const val handSelectingY = 6.986                              // oracle: G.hand.T.y at SELECTING_HAND
     val jokers: AreaRect get() = AreaRect(hand.x - 0.1, 0.0, jokerW, jokerH)
     val consumeables: AreaRect get() = AreaRect(jokers.x + jokerW + 0.2, 0.0, consumeableW, consumeableH)
     val play: AreaRect get() = hand.let { AreaRect(it.x + (handW - playW) / 2, it.y - 3.6, playW, playH) }

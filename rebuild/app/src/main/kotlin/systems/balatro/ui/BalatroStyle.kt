@@ -115,6 +115,23 @@ fun BTxt(text: String, color: Color = Balatro.White, size: TextUnit = 16.sp, mod
     }
 }
 
+/** Word-wrapping pixel text (m6x11plus) for multi-line bodies like the detail-tooltip description.
+ *  Same crisp Canvas rasterization as [BTxt], but measured under a max-width so it wraps. */
+@Composable
+fun BTxtWrap(text: String, color: Color = Balatro.White, size: TextUnit = 16.sp,
+             maxWidth: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val measurer = rememberTextMeasurer()
+    val style = pixelStyle.copy(color = color, fontFamily = Balatro.font, fontWeight = FontWeight.Normal, fontSize = size)
+    val density = LocalDensity.current
+    val maxPx = with(density) { maxWidth.roundToPx() }
+    val result = measurer.measure(text, style, softWrap = true,
+        constraints = androidx.compose.ui.unit.Constraints(maxWidth = maxPx))
+    val wDp = with(density) { result.size.width.toDp() }
+    val hDp = with(density) { result.size.height.toDp() }
+    val overhangDp = with(density) { (size.value * DESCENT_OVERHANG_EM).sp.toDp() }
+    Canvas(modifier.size(wDp, hDp + overhangDp)) { drawText(result, color) }
+}
+
 /** A rounded value chip (Hands/Discards/Money counters). */
 @Composable
 fun Pill(value: String, label: String, color: Color, modifier: Modifier = Modifier) {
@@ -129,10 +146,11 @@ fun Pill(value: String, label: String, color: Color, modifier: Modifier = Modifi
 
 /** A chunky Balatro action button. */
 @Composable
-fun BButton(text: String, color: Color, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun BButton(text: String, color: Color, enabled: Boolean = true, modifier: Modifier = Modifier, sound: String = "button", onClick: () -> Unit) {
     Box(
         modifier.clip(RoundedCornerShape(8.dp)).background(if (enabled) color else Balatro.Grey)
-            .clickable(enabled = enabled) { onClick() }.padding(horizontal = 14.dp, vertical = 9.dp),
+            .clickable(enabled = enabled) { systems.balatro.audio.SoundManager.play(sound); onClick() }
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) { BTxt(text, Balatro.White, 15.sp) }
 }

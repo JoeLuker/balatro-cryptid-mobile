@@ -8,6 +8,11 @@ class HandLevels {
     private val lvl = HashMap<HandType, Int>()
     fun level(h: HandType): Int = lvl[h] ?: 1
     fun levelUp(h: HandType, by: Int = 1) { lvl[h] = level(h) + by }
+    /** Snapshot / restore the per-hand levels (run serialization). */
+    fun all(): Map<HandType, Int> = lvl.toMap()
+    fun setAll(m: Map<HandType, Int>) { lvl.clear(); lvl.putAll(m) }
+    /** THE_ARM: degrade the played hand level by 1 (minimum 1). */
+    fun degrade(h: HandType) { lvl[h] = maxOf(1, level(h) - 1) }
 }
 
 /** A planet card levels up one hand type. The names/targets are Balatro's. */
@@ -21,4 +26,8 @@ enum class Planet(val display: String, val hand: HandType) {
     EARTH("Earth", HandType.FULL_HOUSE),
     MARS("Mars", HandType.FOUR_OF_A_KIND),
     NEPTUNE("Neptune", HandType.STRAIGHT_FLUSH),
+    // Secret planets for the 5-card hands (game.lua c_planet_x/ceres/eris).
+    PLANET_X("Planet X", HandType.FIVE_OF_A_KIND),
+    CERES("Ceres", HandType.FLUSH_HOUSE),
+    ERIS("Eris", HandType.FLUSH_FIVE),
 }

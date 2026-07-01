@@ -5,7 +5,10 @@
 or component — your FIRST action must be a Ghost search. Past sessions contain architecture decisions,
 dead ends, failed approaches, and reasoning that code cannot reveal. Do not skip this step.
 
-Use the `ghost-sessions` MCP tool with `deep_search` (not `search`). Fallback CLI commands:
+Use the `ghost-sessions` MCP tool — primary tool `mcp__ghost-sessions__query` (hybrid search; also
+`search`, `get`, `multi_get`, `status`). It's wired in `.mcp.json` (qmd over the
+`ghost-balatro-cryptid-mobile` collection) and loads on Claude Code startup. Fallback CLI commands
+(also: `qmd -c ghost-balatro-cryptid-mobile query "<q>"`):
 
 | Command | Purpose |
 |---------|---------|

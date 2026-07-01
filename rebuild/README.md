@@ -34,6 +34,10 @@ the score-oracle baseline seeds. `game/Demo.kt` is the smallest instance of that
 (order-dependent cascade → exact number). The rebuild can never silently drift from the
 game people know.
 
+The oracle scores with **pre-set** joker state, so it has blind spots — reducer accrual,
+hooks in isolation, and retrigger counts. Three unit harnesses cover those. A new or changed
+joker needs an oracle `Case` **and** the matching harness test. See **[docs/TESTING.md](../docs/TESTING.md)**.
+
 ## Build (toolchain to stand up)
 Android Kotlin + Compose via gradle (AGP), Android SDK already present in nix. The board
 renderer (GL/Skia surface) and the Lua-free engine run native; the existing build's
