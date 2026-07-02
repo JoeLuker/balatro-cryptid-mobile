@@ -100,11 +100,22 @@ data class RunSnapshot(
     val rerolls: Int = 0,                      // global reroll counter (run-info stat + reroll-stock RNG)
     val runSeed: String = "",                  // display seed ("" on old saves → keep the generated one)
     val jokersSold: List<String> = emptyList(),  // G.GAME.jokers_sold (Necromancer / Kidnap)
+    // ── mid-round resume (schema v2) ── vanilla checkpoints after EVERY hand (game.lua:3060
+    // update_selecting_hand → save_run()); losing the whole round on process death was a
+    // parity-ledger blocker. All defaulted so v1 saves load unchanged.
+    val roundHand: List<CardSnap> = emptyList(),      // current hand, in order
+    val roundDrawPile: List<CardSnap> = emptyList(),  // remaining pile, top-first
+    val roundHandsLeft: Int = -1,                     // -1 = no mid-round state in this save
+    val roundDiscardsLeft: Int = -1,
+    val roundScoreSaved: Double = 0.0,
+    val roundBoss: String? = null,                    // active Boss enum name (null = small/big)
+    val roundBossDisabled: Boolean = false,           // Luchador/Chicot suppression
+    val roundFaceDown: List<Int> = emptyList(),       // boss face-down hand indices
     val schemaVersion: Int = SCHEMA_VERSION,   // bump on a breaking change; lets future loads migrate
 ) {
     fun encode(): String = JSON.encodeToString(this)
     companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2   // v2: mid-round resume fields (roundHand/pile/counters)
         // Lenient on purpose: ignoreUnknownKeys = a save written by a newer/parallel build (extra keys)
         // still loads instead of throwing; new fields here always carry defaults so OLD saves load too.
         private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true; isLenient = true }

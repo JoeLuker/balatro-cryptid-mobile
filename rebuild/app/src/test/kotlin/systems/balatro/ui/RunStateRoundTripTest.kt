@@ -7,6 +7,9 @@ import systems.balatro.content.Edition
 import systems.balatro.game.FJoker
 import systems.balatro.game.HandType
 import systems.balatro.game.Planet
+import systems.balatro.game.PlayingCard
+import systems.balatro.game.Suit
+import systems.balatro.game.Boss
 import systems.balatro.save.RunSnapshot
 
 /**
@@ -129,5 +132,43 @@ class RunStateRoundTripTest {
         assertEquals(snap1.deck.groupingBy { it }.eachCount(), snap2.deck.groupingBy { it }.eachCount())
         // shopItems / shopVoucher / shopBoosters / rerollIncrease / free-reroll / coupon / phase all survive.
         assertEquals(snap1.copy(deck = emptyList()), snap2.copy(deck = emptyList()))
+    }
+}
+
+/** Mid-round resume (schema v2, parity blocker): vanilla checkpoints after every hand — killing
+ *  the process mid-round must restore the exact hand, pile order, counters, and boss state. */
+class MidRoundResumeTest {
+    @Test fun midRoundSurvivesSnapshotRestore() {
+        val rs = RunState()
+        rs.phase = Phase.ROUND
+        rs.hand = listOf(PlayingCard(Suit.S, 10), PlayingCard(Suit.H, 3), PlayingCard(Suit.D, 14))
+        rs.handsLeft = 2; rs.discardsLeft = 1; rs.roundScore = 123.0
+        rs.boss = Boss.THE_HOUSE; rs.bossDisabled = false
+        rs.faceDown = setOf(0, 2)
+
+        val snap1 = rs.snapshot()
+        assertTrue("mid-round fields captured", snap1.roundHandsLeft == 2 && snap1.roundHand.size == 3)
+        val rs2 = RunState()
+        rs2.restore(RunSnapshot.decode(snap1.encode()))
+        val snap2 = rs2.snapshot()
+
+        assertEquals(Phase.ROUND, rs2.phase)
+        assertEquals("hand survives by value", rs.hand, rs2.hand)
+        assertEquals(2, rs2.handsLeft); assertEquals(1, rs2.discardsLeft)
+        assertEquals(123.0, rs2.roundScore, 1e-9)
+        assertEquals(Boss.THE_HOUSE, rs2.boss)
+        assertEquals(setOf(0, 2), rs2.faceDown)
+        assertEquals("pile order survives the bridge", snap1.roundDrawPile, snap2.roundDrawPile)
+        assertEquals("selection cleared on resume (indices are not portable)", emptySet<Int>(), rs2.selected)
+    }
+
+    @Test fun v1SaveWithoutRoundFieldsFallsBackToBlindSelect() {
+        val rs = RunState()
+        rs.phase = Phase.ROUND
+        // simulate a v1 snapshot: phase says ROUND but no round payload (roundHandsLeft = -1)
+        val v1 = rs.snapshot().copy(roundHand = emptyList(), roundHandsLeft = -1)
+        val rs2 = RunState()
+        rs2.restore(RunSnapshot.decode(v1.encode()))
+        assertEquals(Phase.BLIND_SELECT, rs2.phase)
     }
 }
