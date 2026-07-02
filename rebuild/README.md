@@ -12,6 +12,11 @@ claiming or assuming fidelity anywhere.
 
 Own Gradle project: `cd rebuild && ./gradlew test` / `assembleDebug`.
 
+**First-time / NixOS setup:** run `tools/sdk-overlay.sh` once — it realizes the nix
+Android SDK (composed in `nix/android-sdk.nix`, shared with `shell.nix`), registers a
+**GC root** so `nix-collect-garbage` can't break builds, assembles a writable overlay at
+`~/.local/share/balatro-android-sdk`, and writes `local.properties`. Re-run any time.
+
 ## Layout (`app/src/main/kotlin/systems/balatro/`)
 
 - **`engine/`** — direct ports of vanilla engine primitives: `Moveable` spring
