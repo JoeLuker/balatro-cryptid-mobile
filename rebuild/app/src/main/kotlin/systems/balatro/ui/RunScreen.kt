@@ -2286,6 +2286,15 @@ internal class RunState {
         },
         shopVoucher = shopVoucher?.let { VoucherSnap(it.key, it.name, it.desc, it.extra, it.cost) },
         shopBoosters = shopBoosters.map { BoosterSnap(it.key, it.name, it.kind, it.cost, it.extra, it.choose) },
+        // mid-round checkpoint (v2): only meaningful while a round is live
+        roundHand = if (phase == Phase.ROUND) hand.map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) } else emptyList(),
+        roundDrawPile = if (phase == Phase.ROUND) deck.drawPileSnapshot().map { CardSnap(it.suit.name, it.rank, it.enhancement.name, it.seal.name, it.permaBonus, it.edition) } else emptyList(),
+        roundHandsLeft = if (phase == Phase.ROUND) handsLeft else -1,
+        roundDiscardsLeft = if (phase == Phase.ROUND) discardsLeft else -1,
+        roundScoreSaved = if (phase == Phase.ROUND) roundScore else 0.0,
+        roundBoss = if (phase == Phase.ROUND) boss?.name else null,
+        roundBossDisabled = if (phase == Phase.ROUND) bossDisabled else false,
+        roundFaceDown = if (phase == Phase.ROUND) faceDown.toList() else emptyList(),
         rerollIncrease = rerollIncrease,
         freeRerollThisShop = freeRerollThisShop,
         couponThisShop = couponThisShop,
@@ -2345,6 +2354,21 @@ internal class RunState {
         freeRerollThisShop = s.freeRerollThisShop; couponThisShop = s.couponThisShop
         baseHandSize = s.baseHandSize
         phase = runCatching { Phase.valueOf(s.phase) }.getOrDefault(Phase.BLIND_SELECT)
+        // mid-round resume (v2): rebuild the live round exactly — hand, pile order, counters, boss.
+        // A ROUND phase without round fields (foreign/older save) falls back to the blind select.
+        if (phase == Phase.ROUND) {
+            if (s.roundHandsLeft < 0) { phase = Phase.BLIND_SELECT; return }
+            fun snapCard(c: CardSnap) = PlayingCard(Suit.valueOf(c.suit), c.rank,
+                Enhancement.valueOf(c.enh), Seal.valueOf(c.seal), permaBonus = c.permaBonus, edition = c.edition)
+            hand = s.roundHand.map(::snapCard)
+            deck.setDrawPile(s.roundDrawPile.map(::snapCard))
+            handsLeft = s.roundHandsLeft; discardsLeft = s.roundDiscardsLeft
+            roundScore = s.roundScoreSaved
+            boss = s.roundBoss?.let { runCatching { Boss.valueOf(it) }.getOrNull() }
+            bossDisabled = s.roundBossDisabled
+            faceDown = s.roundFaceDown.toSet()
+            selected = emptySet()
+        }
     }
 
     fun nextBlind() { if (phase == Phase.SHOP) phase = Phase.BLIND_SELECT }
@@ -2528,10 +2552,16 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     // over the save is deleted so the next launch starts fresh instead of resuming a dead run.
     // re-fire on the shop-mutating state too (money/consumables change on buys/rerolls/uses) so the
     // autosave captures the CURRENT shop stock, not the stock at shop entry (else resume re-offers bought cards).
-    LaunchedEffect(s.phase, s.blindIndex, s.money, s.consumables.size) {
+    // Autosave cadence (parity blocker): vanilla checkpoints after EVERY hand/discard/draw
+    // (game.lua:3060 update_selecting_hand → save_run()), not just at shop/blind boundaries.
+    // handsLeft/discardsLeft key the effect so each in-round action refires it; the mid-scoring
+    // window is skipped (s.scoring) and re-keys when the cascade ends, so the checkpoint always
+    // captures the settled post-hand state.
+    LaunchedEffect(s.phase, s.blindIndex, s.money, s.consumables.size, s.handsLeft, s.discardsLeft, s.scoring) {
         if (startScreen != null) return@LaunchedEffect          // deep-link harnesses don't autosave
         when (s.phase) {
             Phase.SHOP, Phase.BLIND_SELECT -> { val json = s.snapshot().encode(); withContext(Dispatchers.IO) { SaveIo.write(saveFile, json) } }
+            Phase.ROUND -> if (!s.scoring) { val json = s.snapshot().encode(); withContext(Dispatchers.IO) { SaveIo.write(saveFile, json) } }
             // A finished run (lost OR won) clears the save so the next launch starts fresh instead of
             // resuming the pre-finish shop. (Endless Mode re-enters play and re-saves at the next shop.)
             Phase.OVER, Phase.WIN -> withContext(Dispatchers.IO) { SaveIo.delete(saveFile) }

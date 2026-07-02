@@ -21,6 +21,14 @@ class Deck(seed: Long) {
     /** Return every card to the draw pile and shuffle; card enhancements are preserved. */
     fun reshuffle() { drawPile.clear(); all.shuffle(rng); drawPile.addAll(all) }
 
+    /** Remaining draw pile, top-first — mid-round persistence (vanilla saves the exact card order,
+     *  game.lua save_run; without it a resumed round would redraw a different future). */
+    fun drawPileSnapshot(): List<PlayingCard> = drawPile.toList()
+
+    /** Restore the pile to an exact saved order. Cards not listed (in hand / already drawn) simply
+     *  aren't in the pile; deck methods operate by value, so fresh equal instances are fine. */
+    fun setDrawPile(cards: List<PlayingCard>) { drawPile.clear(); drawPile.addAll(cards) }
+
     /** Draw up to n from the top (fewer if the pile runs low). */
     fun draw(n: Int): List<PlayingCard> {
         val out = ArrayList<PlayingCard>(n)
