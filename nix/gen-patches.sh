@@ -12,6 +12,13 @@
 #         overlay/patches/GEN-REPORT.txt
 set -uo pipefail
 ROOT_WT="$(cd "$(dirname "$0")/.." && pwd)"
+# Single-instance lock: this script rm's and regenerates overlay/patches in
+# place — two concurrent runs (e.g. two Claude sessions sharing a checkout)
+# interleave, and any `nix build` racing them assembles game.love from a TORN
+# patch dir: it "succeeds" and ships an unpatched main.lua that crash-loops at
+# boot (2026-07-02, cost an afternoon of phantom-regression chasing).
+exec 9>"$ROOT_WT/.git/gen-patches.lock"
+flock -n 9 || { echo "[gen] another gen-patches run is active in this checkout — refusing to interleave" >&2; exit 1; }
 SRC="${BALATRO_SRC:-$ROOT_WT}"                     # checkout providing build.sh + patches/ (this worktree by default; override via BALATRO_SRC)
 OUT="$ROOT_WT/overlay/patches"
 WORK="$(mktemp -d)"; B="$WORK/game"

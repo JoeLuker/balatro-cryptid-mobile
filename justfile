@@ -228,6 +228,13 @@ obs cmd="dashboard":
 tel-device serial:
     adb -s {{serial}} logcat -s SDL/APP:I | grep --line-buffered TEL
 
+# Roll the telemetry hoard (~/balatro-telemetry/phone.log) into per-app/per-run
+# aggregates: sessions, win rate, hands by type, score records, buys, fps.
+# Writes rollup.json + prints a summary; add --publish nats://127.0.0.1:4222
+# to also push the digest onto the bus (balatro.stats.rollup).
+tel-stats *args:
+    python3 scripts/telemetry-rollup.py {{args}}
+
 # Interactive shell in app context
 shell:
     adb shell "run-as systems.shorty.lmm sh"

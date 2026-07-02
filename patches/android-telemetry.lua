@@ -1126,6 +1126,28 @@ function Game:start_run(args)
     return _original_start_run(self, args)
 end
 
+-- Shared run-context fields for gameplay events. Every read is nil-guarded
+-- (these paths are absent outside a run) and tostring'd (dollars/levels can be
+-- Talisman Big numbers, which carry __tostring). Values are k=v tokens in the
+-- line format, so anything that could contain spaces gets sanitized.
+local function tel_token(s) return (tostring(s):gsub("[%s=]", "_")) end
+local function run_ctx()
+    local gg = G and G.GAME
+    local rr = gg and gg.round_resets
+    local blind = gg and gg.blind and gg.blind.config and gg.blind.config.blind
+    return {
+        ante = rr and rr.ante or 0,
+        round = gg and gg.round or 0,
+        blind = blind and blind.key or "none",
+        dollars = (gg and gg.dollars ~= nil) and tostring(gg.dollars) or "0",
+    }
+end
+local function tel_ctx(event, data)
+    local t = run_ctx()
+    for k, v in pairs(data or {}) do t[k] = v end
+    tel(event, t)
+end
+
 -- Hook buy_from_shop
 local _original_buy = G.FUNCS.buy_from_shop
 G.FUNCS.buy_from_shop = function(e)
@@ -1166,20 +1188,90 @@ G.FUNCS.use_card = function(e, mute, nosave)
     return _original_use(e, mute, nosave)
 end
 
--- Hook play_cards_from_highlighted
+-- Hook play_cards_from_highlighted — enriched with the hand's identity + run
+-- context (was a bare card count; rebuild parity: ROUND_HAND carries the same).
 local _original_play = G.FUNCS.play_cards_from_highlighted
 G.FUNCS.play_cards_from_highlighted = function(e)
     local count = G.hand and G.hand.highlighted and #G.hand.highlighted or 0
-    tel("PLAY_HAND", {cards = count})
+    local hand_name, hand_level = "unknown", "0"
+    pcall(function()   -- get_poker_hand_info is pure; guard against any drift
+        local text = G.FUNCS.get_poker_hand_info(G.hand.highlighted)
+        if text then
+            hand_name = text
+            local h = G.GAME and G.GAME.hands and G.GAME.hands[text]
+            if h then hand_level = tostring(h.level) end
+        end
+    end)
+    local cr = G.GAME and G.GAME.current_round
+    tel_ctx("PLAY_HAND", {
+        cards = count, hand = tel_token(hand_name), level = tel_token(hand_level),
+        hands_left = cr and cr.hands_left or 0,
+        discards_left = cr and cr.discards_left or 0,
+    })
     return _original_play(e)
 end
 
--- Hook discard_cards_from_highlighted
+-- Hook discard_cards_from_highlighted (now with run context)
 local _original_discard = G.FUNCS.discard_cards_from_highlighted
 G.FUNCS.discard_cards_from_highlighted = function(e, hook)
     local count = G.hand and G.hand.highlighted and #G.hand.highlighted or 0
-    tel("DISCARD", {cards = count})
+    local cr = G.GAME and G.GAME.current_round
+    tel_ctx("DISCARD", {cards = count, discards_left = cr and cr.discards_left or 0})
     return _original_discard(e, hook)
+end
+
+-- Hook check_and_set_high_score('hand', total) — the one synchronous point
+-- inside evaluate_play where the hand's FINAL score exists as a value
+-- (state_events.lua: check_and_set_high_score('hand', SMODS.calculate_round_score())),
+-- after G.GAME.last_hand_played is set. Talisman Bigs tostring cleanly.
+local _original_cashs = check_and_set_high_score
+if _original_cashs then
+    check_and_set_high_score = function(score, amt)
+        if score == 'hand' then
+            tel_ctx("HAND_SCORE", {
+                hand = tel_token(G and G.GAME and G.GAME.last_hand_played or "unknown"),
+                score = tel_token(amt),
+            })
+        end
+        return _original_cashs(score, amt)
+    end
+end
+
+-- Hook select_blind / skip_blind / cash_out — the round-flow decision points.
+local _original_select_blind = G.FUNCS.select_blind
+if _original_select_blind then
+    G.FUNCS.select_blind = function(e)
+        pcall(function()
+            local slot = G.GAME.blind_on_deck
+            tel_ctx("SELECT_BLIND", {
+                slot = tel_token(slot or "unknown"),
+                key = tel_token((G.GAME.round_resets.blind_choices or {})[slot] or "unknown"),
+            })
+        end)
+        return _original_select_blind(e)
+    end
+end
+
+local _original_skip_blind = G.FUNCS.skip_blind
+if _original_skip_blind then
+    G.FUNCS.skip_blind = function(e)
+        pcall(function()
+            local slot = G.GAME.blind_on_deck
+            tel_ctx("SKIP_BLIND", {
+                slot = tel_token(slot or "unknown"),
+                tag = tel_token((G.GAME.round_resets.blind_tags or {})[slot] or "unknown"),
+            })
+        end)
+        return _original_skip_blind(e)
+    end
+end
+
+local _original_cash_out = G.FUNCS.cash_out
+if _original_cash_out then
+    G.FUNCS.cash_out = function(e)
+        tel_ctx("CASH_OUT", {})   -- run_ctx carries dollars-before; the payout lands in the next events
+        return _original_cash_out(e)
+    end
 end
 
 -- Hook error handler to log crashes with context
