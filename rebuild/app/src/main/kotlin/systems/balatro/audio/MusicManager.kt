@@ -13,12 +13,17 @@ object MusicManager {
     private const val VOLUME = 0.35f               // sits under the SFX
 
     private var player: MediaPlayer? = null
+    private var prepared = false                   // onPrepared fired — start()/pause() are legal
+    private var wantPlaying = false                // desired state; onPrepared honors it
     @Volatile var enabled = true                   // settings can flip this; pauses/resumes playback
 
-    /** Begin (or resume) the loop. No-op if music is disabled or already playing. */
+    /** Begin (or resume) the loop. No-op if music is disabled or already playing. Calling while
+     *  the player is still async-Preparing is safe: MediaPlayer.start() is ILLEGAL in that state
+     *  (isPlaying=false doesn't mean startable), so we only record intent and let onPrepared act. */
     fun start(ctx: Context) {
         if (!enabled) return
-        player?.let { if (!it.isPlaying) it.start(); return }
+        wantPlaying = true
+        player?.let { if (prepared && !it.isPlaying) it.start(); return }
         try {
             val mp = MediaPlayer()
             ctx.assets.openFd("sounds/$TRACK").use { afd ->
@@ -26,13 +31,18 @@ object MusicManager {
             }
             mp.isLooping = true
             mp.setVolume(VOLUME, VOLUME)
-            mp.setOnPreparedListener { if (enabled) it.start() }
+            // wantPlaying re-checked here: a lifecycle pause() during Preparing must NOT
+            // start music in the background once preparation completes.
+            mp.setOnPreparedListener { prepared = true; if (enabled && wantPlaying) it.start() }
             mp.prepareAsync()
             player = mp
         } catch (_: Throwable) { /* missing/compressed track → silent, never crash */ }
     }
 
-    fun pause() { player?.let { if (it.isPlaying) it.pause() } }
+    fun pause() {
+        wantPlaying = false
+        player?.let { if (prepared && it.isPlaying) it.pause() }
+    }
 
     /** Flip music on/off at runtime (settings). */
     fun setEnabled(on: Boolean, ctx: Context) {
@@ -40,5 +50,5 @@ object MusicManager {
         if (on) start(ctx) else pause()
     }
 
-    fun release() { player?.release(); player = null }
+    fun release() { player?.release(); player = null; prepared = false; wantPlaying = false }
 }
