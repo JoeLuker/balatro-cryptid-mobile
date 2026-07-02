@@ -83,6 +83,40 @@ open class Moveable(
 
     var juice: Juice? = null
 
+    // ── drag (moveable.lua:217 Moveable:drag) ─────────────────────────────────────────────────
+    // click_offset: grab point relative to T at press, so the card doesn't snap its corner to the
+    // finger. Vanilla recomputes from the absolute cursor each frame (translated/rotated through
+    // the container); our container is the ROOM identity, so drag reduces to cursor − offset in
+    // room units. dragTo takes the absolute cursor; the UI may also integrate deltas via dragBy.
+    private var clickOffX = 0.0
+    private var clickOffY = 0.0
+
+    /** controller.lua queue_L_cursor_press → Node:click chain: capture the grab offset, flag drag. */
+    fun startDrag(cursorX: Double, cursorY: Double) {
+        states.drag.isOn = true
+        clickOffX = cursorX - T.x
+        clickOffY = cursorY - T.y
+    }
+
+    /** Moveable:drag — follow the cursor (room units), preserving the grab offset. */
+    fun dragTo(cursorX: Double, cursorY: Double) {
+        if (!states.drag.isOn) return
+        T.x = cursorX - clickOffX
+        T.y = cursorY - clickOffY
+    }
+
+    /** Delta form for gesture APIs that report movement, not absolute position. */
+    fun dragBy(dx: Double, dy: Double) {
+        if (!states.drag.isOn) return
+        T.x += dx
+        T.y += dy
+    }
+
+    /** Card:stop_drag — release; align_cards resumes owning T next frame (the card springs home). */
+    fun stopDrag() {
+        states.drag.isOn = false
+    }
+
     // card.lua Card.dissolve — the burn-away / materialize progress (a Card IS a Moveable). 0 = the
     // whole card, 1 = gone. `shattered` = glass (a faster, white burn); `materializing` = the reverse
     // (dissolve eases 1→0, card burns INTO existence with a green/set edge). Flags pick the burn colour.

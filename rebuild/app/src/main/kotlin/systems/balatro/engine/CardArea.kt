@@ -83,6 +83,7 @@ class CardArea(
                 val maxCards = max(n, tempLimit)
                 val denom = max(maxCards - 1, 1).toDouble()
                 cards.forEachIndexed { idx, c ->
+                    if (c.states.drag.isOn) return@forEachIndexed   // vanilla: dragged card owns its T
                     val k = idx + 1
                     c.T.r = 0.2 * (-n / 2.0 - 0.5 + k) / n +
                         (if (reducedMotion) 0.0 else 0.02 * sin(2 * real + c.T.x))
@@ -99,6 +100,7 @@ class CardArea(
                 val maxCards = max(n, tempLimit)
                 val denom = max(maxCards - 1, 1).toDouble()
                 cards.forEachIndexed { idx, c ->
+                    if (c.states.drag.isOn) return@forEachIndexed
                     val k = idx + 1
                     c.T.r = 0.0
                     c.T.x = T.x + (T.w - CARD_W) * ((k - 1) / denom - 0.5 * (n - maxCards) / denom) +
@@ -110,6 +112,7 @@ class CardArea(
             }
             else /* joker / consumeable */ -> {
                 cards.forEachIndexed { idx, c ->
+                    if (c.states.drag.isOn) return@forEachIndexed
                     val k = idx + 1
                     c.T.r = 0.1 * (-n / 2.0 - 0.5 + k) / n +
                         (if (reducedMotion) 0.0 else 0.02 * sin(2 * real + c.T.x))
@@ -126,6 +129,18 @@ class CardArea(
             }
         }
     }
+
+    /** True if any member is currently being dragged (gates the per-frame reorder). */
+    fun anyDragged(): Boolean = cards.any { it.states.drag.isOn }
+
+    /**
+     * cardarea.lua align_cards tail: `table.sort(self.cards, a.T.x + a.T.w/2 < b.T.x + b.T.w/2)`.
+     * Returns the indices of [cards] in vanilla sort order (identity permutation when nothing has
+     * moved). The owner applies it to the source-of-truth list; next frame's rebuild realizes it —
+     * same one-frame settle as vanilla's sort-at-end-of-align.
+     */
+    fun xOrder(): List<Int> =
+        cards.indices.sortedBy { cards[it].T.x + cards[it].T.w / 2 }
 
     companion object {
         const val CARD_W = 2.4 * 35.0 / 41.0

@@ -26,7 +26,10 @@ blind-select ✅ faithful (requirements/rewards/scaling byte-exact). The whole r
 
 **Still crutches:** deck/stake picker (vs customize_deck) · per-blind tree tag (HudSpec placeholder) ·
 play/discard sub-label stubs · `onRunInfo` stub · some joker-art placeholders · editions don't render on
-playing cards · consumeables/jokers not full engine CardAreas (rendering fixed, physics not) ·
+playing cards (FIXED #187) · ~~consumeables/jokers not full engine CardAreas~~ **FIXED 2026-07-02** —
+consumables are identity-tracked Moveables on host.consumeables (align/wobble/lean), and BOTH areas have
+engine drag physics: drag-exempt align + vanilla centre-x sort → drag-to-reorder, permuting
+s.owned/s.consumables (scoring order) live · deck/discard piles still number stubs ·
 the 12 proper `your_collection_*` trees (one grid stands in).
 
 ---
