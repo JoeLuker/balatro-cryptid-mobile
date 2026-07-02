@@ -10,53 +10,55 @@ import org.junit.Test
 class VoucherTier2Test {
     private fun voucher(key: String, extra: Int, cost: Int = 10) = VoucherOffer(key, key, "", extra, cost)
     private fun run(money: Int = 200) = RunState().apply { this.money = money }
+    /** Stage the voucher as the shop's live offer, then redeem (redeemVoucher is identity-gated). */
+    private fun RunState.redeem(v: VoucherOffer) { shopVoucher = v; redeemVoucher(v) }
 
     @Test fun crystalBallAddsConsumableSlot() {
         val rs = run()
         assertEquals(2, rs.consumableSlots)
-        rs.redeemVoucher(voucher("v_crystal_ball", 1))
+        rs.redeem(voucher("v_crystal_ball", 1))
         assertEquals(3, rs.consumableSlots)
     }
 
     @Test fun overstockPlusAddsShopSlot() {
         val rs = run()
-        rs.redeemVoucher(voucher("v_overstock_plus", 1))
+        rs.redeem(voucher("v_overstock_plus", 1))
         assertEquals(1, rs.shopSlotsBonus)
     }
 
     @Test fun rerollGlutLowersRerollBase() {
         val rs = run()
         val before = rs.rerollBase
-        rs.redeemVoucher(voucher("v_reroll_glut", 2))
+        rs.redeem(voucher("v_reroll_glut", 2))
         assertEquals(before - 2, rs.rerollBase)
     }
 
     @Test fun moneyTreeRaisesInterestCapTo20() {
         val rs = run()
-        rs.redeemVoucher(voucher("v_money_tree", 100, 100))
+        rs.redeem(voucher("v_money_tree", 100, 100))
         assertEquals(20, rs.interestCap)
     }
 
     @Test fun tarotMerchantDoublesTarotRate() {
         val rs = run()
-        rs.redeemVoucher(voucher("v_tarot_merchant", 4))
+        rs.redeem(voucher("v_tarot_merchant", 4))
         assertEquals(8.0, rs.tarotRate, 0.0)   // 4 base + 4
     }
 
     @Test fun planetMerchantDoublesPlanetRate() {
         val rs = run()
-        rs.redeemVoucher(voucher("v_planet_merchant", 4))
+        rs.redeem(voucher("v_planet_merchant", 4))
         assertEquals(8.0, rs.planetRate, 0.0)
     }
 
     @Test fun antimatterAddsAJokerSlot() {
         val rs = run()
-        rs.redeemVoucher(voucher("v_antimatter", 1))
+        rs.redeem(voucher("v_antimatter", 1))
         assertEquals(1, rs.deckJokerBonus)
     }
 
     @Test fun directorsCutRerollsTheBossOncePerAnte() {
-        val rs = run(); rs.redeemVoucher(voucher("v_directors_cut", 0))
+        val rs = run(); rs.redeem(voucher("v_directors_cut", 0))
         rs.phase = Phase.BLIND_SELECT; rs.blindIndex = 2          // ante 1 boss blind
         org.junit.Assert.assertTrue(rs.canRerollBoss())
         rs.rerollBoss()
@@ -65,7 +67,7 @@ class VoucherTier2Test {
     }
 
     @Test fun retconRerollsTheBossUnlimited() {
-        val rs = run(); rs.redeemVoucher(voucher("v_retcon", 0))
+        val rs = run(); rs.redeem(voucher("v_retcon", 0))
         rs.phase = Phase.BLIND_SELECT; rs.blindIndex = 2
         rs.rerollBoss(); rs.rerollBoss()
         org.junit.Assert.assertTrue(rs.canRerollBoss())           // never limited
@@ -73,42 +75,44 @@ class VoucherTier2Test {
     }
 
     @Test fun omenGlobeEnablesSpectralsInArcanaPacks() {
-        val rs = run(); rs.redeemVoucher(voucher("v_omen_globe", 0))
+        val rs = run(); rs.redeem(voucher("v_omen_globe", 0))
         org.junit.Assert.assertTrue(rs.omenGlobe)
     }
 
     @Test fun magicTrickEnablesPlayingCardsInShop() {
-        val rs = run(); rs.redeemVoucher(voucher("v_magic_trick", 4))
+        val rs = run(); rs.redeem(voucher("v_magic_trick", 4))
         org.junit.Assert.assertTrue(rs.cardRate > 0.0)
     }
 
     @Test fun buyingAShopCardAddsItToTheDeck() {
         val rs = run()
         val before = rs.snapshot().deck.size
-        rs.buyShopCard(systems.balatro.game.PlayingCard(systems.balatro.game.Suit.S, 7))
+        val card = systems.balatro.game.PlayingCard(systems.balatro.game.Suit.S, 7)
+        rs.shopItems = listOf(ShopItem.Cd(card))   // stage as the live offer (buy is identity-gated)
+        rs.buyShopCard(card)
         assertEquals(before + 1, rs.snapshot().deck.size)
     }
 
     @Test fun illusionEnablesEnhancedShopCards() {
-        val rs = run(); rs.redeemVoucher(voucher("v_illusion", 0))
+        val rs = run(); rs.redeem(voucher("v_illusion", 0))
         org.junit.Assert.assertTrue(rs.illusion)
     }
 
     @Test fun nachoTongAddsAHand() {
         val rs = run(); val before = rs.baseHands
-        rs.redeemVoucher(voucher("v_nacho_tong", 1))
+        rs.redeem(voucher("v_nacho_tong", 1))
         assertEquals(before + 1, rs.baseHands)
     }
 
     @Test fun recyclomancyAddsADiscard() {
         val rs = run(); val before = rs.baseDiscards
-        rs.redeemVoucher(voucher("v_recyclomancy", 1))
+        rs.redeem(voucher("v_recyclomancy", 1))
         assertEquals(before + 1, rs.baseDiscards)
     }
 
     @Test fun liquidationDiscountsTheShop() {
         val rs = run()
-        rs.redeemVoucher(voucher("v_liquidation", 50))
+        rs.redeem(voucher("v_liquidation", 50))
         assertEquals(50, rs.discountPercent)
     }
 }

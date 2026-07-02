@@ -1870,6 +1870,7 @@ internal class RunState {
 
     fun buy(offer: Offer, free: Boolean = false) {
         if (owned.size >= maxJokers) return           // joker slot full
+        if (!free && shopItems.none { it is ShopItem.Jk && it.offer === offer }) return  // stale offer (double-tap)
         val cost = price(offer.cost)
         if (!free && money < cost) return
         if (!free) { money -= cost; totalCardsPurchased += 1 }
@@ -1936,7 +1937,11 @@ internal class RunState {
 
     fun sell(o: Owned) {
         if (owned.size <= 1) return                  // keep at least one joker
-        owned.remove(o)
+        // Identity-gated removal: a stale/double-tap invocation (o already gone) must be a no-op —
+        // paying the refund and running the per-sell hooks twice duplicated money/effects before.
+        val idx = owned.indexOfFirst { it === o }
+        if (idx < 0) return
+        owned.removeAt(idx)
         val refund = sellValue(o)
         money += refund
         // ── per-sell joker accumulator hooks ──────────────────────────────────────────────────
@@ -2000,6 +2005,7 @@ internal class RunState {
 
     fun buyPlanet(po: PlanetOffer, free: Boolean = false) {
         if (!hasConsumableRoom()) return          // no consumable slot → can't take it
+        if (!free && shopItems.none { it is ShopItem.Pl && it.po === po }) return  // stale offer (double-tap)
         val cost = price(po.cost)
         if (!free && money < cost) return
         if (!free) { money -= cost; totalCardsPurchased += 1 }
@@ -2013,6 +2019,7 @@ internal class RunState {
 
     fun buyTarot(t: TarotOffer, free: Boolean = false) {
         if (!hasConsumableRoom()) return
+        if (!free && shopItems.none { it is ShopItem.Tt && it.t === t }) return  // stale offer (double-tap)
         val cost = price(t.cost)
         if (!free && money < cost) return
         if (!free) { money -= cost; totalCardsPurchased += 1 }
@@ -2035,6 +2042,7 @@ internal class RunState {
 
     /** Buy a shop playing card (Magic Trick voucher) — added straight to the deck. */
     fun buyShopCard(card: PlayingCard, free: Boolean = false) {
+        if (!free && shopItems.none { it is ShopItem.Cd && it.card === card }) return  // stale offer (double-tap)
         val cost = price(1)
         if (!free && money < cost) return
         if (!free) { money -= cost; totalCardsPurchased += 1 }
@@ -2048,6 +2056,7 @@ internal class RunState {
     /** Buy a shop spectral (Ghost deck) — held in a consumable slot until used. */
     fun buySpectral(sp: Spectral, free: Boolean = false) {
         if (!hasConsumableRoom()) return
+        if (!free && shopItems.none { it is ShopItem.Sp && it.s == sp }) return  // stale offer (double-tap)
         val cost = price(4)
         if (!free && money < cost) return
         if (!free) { money -= cost; totalCardsPurchased += 1 }
@@ -2060,6 +2069,7 @@ internal class RunState {
 
     /** Redeem the shop voucher — a run-persistent modifier (Card:apply_to_run, card.lua:2322). */
     fun redeemVoucher(v: VoucherOffer) {
+        if (shopVoucher !== v) return   // already redeemed / stale (double-tap): one-shot effects must not re-apply
         val cost = price(v.cost)
         if (money < cost) return
         money -= cost; totalCardsPurchased += 1
@@ -2098,6 +2108,7 @@ internal class RunState {
 
     /** Buy a booster pack → open it (Phase.PACK_OPEN) with `extra` revealed items of its kind. */
     fun buyBooster(b: BoosterOffer) {
+        if (shopBoosters.none { it === b }) return   // stale offer (double-tap): don't charge + reopen
         val cost = price(b.cost)
         if (money < cost) return
         money -= cost; totalCardsPurchased += 1
@@ -3092,7 +3103,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     val countSp = (0.5f * u * FONT_RATIO).sp
     val badgeSp = (0.33f * u * FONT_RATIO).sp
     // Selected joker (tap to select) → shows the move/sell control bar. Resets on phase change.
-    var selJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
+    // Selected joker held by IDENTITY, not list index — an index silently retargets to a DIFFERENT
+    // joker when an earlier one self-destructs mid-round (Ramen/Seltzer/Blacklist) or on shop reroll
+    // (Starfruit). The panel re-resolves the index each frame and vanishes if the joker left the board.
+    var selJoker by remember(s.phase) { mutableStateOf<Owned?>(null) }
     var inspCons by remember(s.phase) { mutableStateOf<Int?>(null) }   // inspected consumable (tap → tooltip → Use)
     // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
     // so they land correctly at the device's scale/letterboxing.
@@ -3280,10 +3294,10 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         s.owned.forEachIndexed { i, o ->
             val m = host.jokers.cards.getOrNull(i) ?: return@forEachIndexed
             val rDeg = -(m.VT.r * 57.2958).toFloat()
-            val raise = if (selJoker == i) 0.4f else 0f   // lift the selected joker
+            val raise = if (selJoker === o) 0.4f else 0f   // lift the selected joker
             Box(off(m.VT.x.toFloat(), m.VT.y.toFloat() - raise)
                 .clickable(enabled = !s.scoring, interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                    selJoker = if (selJoker == i) null else i; inspCons = null
+                    selJoker = if (selJoker === o) null else o; inspCons = null
                 }) {
                 Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                     jokerCells[o.offer.key]?.let {
@@ -3329,18 +3343,18 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         }
         // Move/sell control bar for the selected joker — joker order is scored L→R (Blueprint copies
         // right, Brainstorm copies leftmost), so reordering is a real mechanic. Sits below the joker.
-        selJoker?.let { si ->
-            if (!s.scoring && si in s.owned.indices) {
-                val o = s.owned[si]
+        selJoker?.let { o ->
+            val si = s.owned.indexOfFirst { it === o }   // re-resolve by identity; -1 = left the board
+            if (!s.scoring && si >= 0) {
                 // Tap a joker → inspect it: name + ability (the detail tooltip) + the sell/reorder controls,
                 // in one panel below the joker row. Joker order is scored L→R, so reorder is a real mechanic.
                 Box(Modifier.align(Alignment.TopCenter)
                     .absoluteOffset(y = ((roomTy + jokersY + PF.CARD_H + 0.3f) * u).dp)) {
                     DetailTooltip(o.offer.name, o.offer.desc, Balatro.Mult, u) {
                         Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            JokerCtl("◀", u, enabled = si > 0) { selJoker = s.moveJoker(si, -1) }
+                            JokerCtl("◀", u, enabled = si > 0) { s.moveJoker(si, -1) }   // selection follows the object
                             JokerCtl("Sell \$${s.sellValue(o)}", u, enabled = s.owned.size > 1) { s.sell(o); selJoker = null }
-                            JokerCtl("▶", u, enabled = si < s.owned.size - 1) { selJoker = s.moveJoker(si, 1) }
+                            JokerCtl("▶", u, enabled = si < s.owned.size - 1) { s.moveJoker(si, 1) }
                         }
                     }
                 }
@@ -3869,13 +3883,15 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt
         }
         // Owned jokers, sellable from the shop (vanilla: tap a joker → inspect + sell). Real card sprites
         // in the shop's lower area, not a text strip; reuses the DetailTooltip from the play HUD.
-        var selShopJoker by remember(s.phase) { mutableStateOf<Int?>(null) }
+        // Identity-held selection (see selJoker) — a Starfruit self-destruct on reroll must not
+        // retarget the sell panel to a neighbouring joker.
+        var selShopJoker by remember(s.phase) { mutableStateOf<Owned?>(null) }
         if (s.owned.isNotEmpty()) {
             val cw = (PF.CARD_W * 0.62f * u).dp; val ch = (PF.CARD_H * 0.62f * u).dp
             Row(Modifier.align(Alignment.BottomCenter).padding(bottom = (0.25f * u).dp),
                 horizontalArrangement = Arrangement.spacedBy((0.08f * u).dp)) {
-                s.owned.forEachIndexed { i, o ->
-                    Box(Modifier.size(cw, ch).clickable { selShopJoker = if (selShopJoker == i) null else i }) {
+                s.owned.forEach { o ->
+                    Box(Modifier.size(cw, ch).clickable { selShopJoker = if (selShopJoker === o) null else o }) {
                         jokerCells[o.offer.key]?.let {
                             Image(it, o.offer.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
                         } ?: Box(Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)).background(Balatro.FeltDark),
@@ -3883,9 +3899,8 @@ private fun ShopPhase(s: RunState, jokerCells: Map<String, ImageBitmap>, shopArt
                     }
                 }
             }
-            selShopJoker?.let { si ->
-                if (si in s.owned.indices) {
-                    val o = s.owned[si]
+            selShopJoker?.let { o ->
+                if (s.owned.any { it === o }) {          // still on the board (identity)
                     Box(Modifier.align(Alignment.BottomCenter).absoluteOffset(y = -((PF.CARD_H * 0.62f + 1.3f) * u).dp)) {
                         DetailTooltip(o.offer.name, o.offer.desc, Balatro.Mult, u) {
                             JokerCtl("Sell \$${s.sellValue(o)}", u, enabled = s.owned.size > 1) { s.sell(o); selShopJoker = null }
