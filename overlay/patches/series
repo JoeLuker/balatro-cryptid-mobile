@@ -116,3 +116,6 @@ manual/124-cryptid_deepcopy_next_guard.patch
 manual/125-cryptid_getnewboss_init_order.patch
 manual/126-bosses_used_metatable_restore.patch
 manual/127-card_flip_sprite_selfheal.patch
+manual/128-sleeve_bbox_sampling.patch
+manual/130-cardsleeves_runselect_compat.patch
+manual/132-cardsleeves_runselect_localization.patch

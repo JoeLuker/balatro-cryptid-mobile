@@ -1,0 +1,40 @@
+diff --git a/Mods/CardSleeves/CardSleeves.lua b/Mods/CardSleeves/CardSleeves.lua
+index 8ddc2ac..062dd37 100644
+--- a/Mods/CardSleeves/CardSleeves.lua
++++ b/Mods/CardSleeves/CardSleeves.lua
+@@ -2067,16 +2067,32 @@ function CardArea:draw(...)
+         local compress_deck = CardSleeves.config.adjust_deck_alignment == true or CardSleeves.config.adjust_deck_alignment == 1 or CardSleeves.config.adjust_deck_alignment == 2
+         local x, y = 999999999, -1
+         local x2, height = -1, -1
+-        for i, card in pairs(self.cards) do
+-            local index_is_drawn = i == 1 or i%(self.config.thin_draw or 9) == 0 or i == #self.cards
++        -- Only ever i==1, i==#self.cards, or multiples of thin_draw contribute
++        -- to the bbox (the "index_is_drawn" filter below) — visit exactly
++        -- those indices instead of scanning every card in the deck to find
++        -- them. This ran unconditionally every frame the deck was on screen,
++        -- so its cost scaled with total deck size regardless of how many
++        -- cards actually matter for the sleeve sprite's bounding box.
++        local thin_draw = self.config.thin_draw or 9
++        local n_cards = #self.cards
++        local function consider(i)
++            local card = self.cards[i]
++            if not card then return end
+             local is_stationary = not card.states.drag.is and math.abs(card.velocity.x) < 0.001 and math.abs(card.velocity.y) < 0.001
+-            if index_is_drawn and card.states.visible and is_stationary then
++            if card.states.visible and is_stationary then
+                 x = math.min(x, card.T.x)
+                 y = math.max(y, card.T.y)
+                 x2 = math.max(x2, card.T.x + card.T.w)
+                 height = math.max(height, card.T.h)
+             end
+         end
++        if n_cards > 0 then
++            consider(1)
++            for i = thin_draw, n_cards, thin_draw do
++                consider(i)
++            end
++            consider(n_cards)
++        end
+         local width = x2 - x
+         x = x > 1000000 and self.T.x + 0.1 or x - 0.03
+         y = (y < 0 and self.T.y - 0.1 or y) + (compress_deck and 0.1 or -0.05)
