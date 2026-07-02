@@ -1,11 +1,10 @@
-diff --git a/Mods/CardSleeves/CardSleeves.lua b/Mods/CardSleeves/CardSleeves.lua
-index d706f11..f9a129e 100644
 --- a/Mods/CardSleeves/CardSleeves.lua
 +++ b/Mods/CardSleeves/CardSleeves.lua
-@@ -2719,4 +2719,68 @@ G.FUNCS.your_collection_sleeves = function()
+@@ -2714,4 +2714,66 @@
  end
  --#endregion
-
+ 
++
 +--#region RunSelect compat (Steamodded's new-run picker no longer calls
 +-- G.UIDEF.run_setup_option for the "New Run" tab - it now uses
 +-- SMODS.RunSelectPage-registered pages exclusively (G.UIDEF.run_select_galdur
@@ -21,6 +20,18 @@ index d706f11..f9a129e 100644
 +        type = 'Sleeve',
 +        area_type = 'deck',
 +        random_select = true,
++        -- automatic_preview gives this page its OWN preview area + "Selected"
++        -- panel (same as other pages), built fresh by create_page. This also
++        -- retires the earlier handle_choice override: the base handle_choice
++        -- only crashed (remove_all on a nil-carded stale area) because
++        -- SMODS.RunSelect.Internals.preview_area was deck_choice's destroyed
++        -- leftover when this page never requested a preview of its own. With
++        -- a per-page preview the global is fresh and the base path is correct
++        -- - and the player can SEE which sleeve is currently selected.
++        automatic_preview = true,
++        selected_text = function(self, choice)
++            return localize({type = 'name_text', set = 'Sleeve', key = choice or 'sleeve_casl_none'})
++        end,
 +        -- generate_pool (lazy), not pool= (eager): G.P_CENTER_POOLS.Sleeve is a
 +        -- CardSleeves-defined pool, not a vanilla one guaranteed to exist yet
 +        -- at registration time - matches stake_choice's own pattern for the
@@ -38,21 +49,6 @@ index d706f11..f9a129e 100644
 +        set_default = function(self, choice)
 +            if CardSleeves.Sleeve:get_obj(choice) then return choice end
 +            return G.PROFILES[G.SETTINGS.profile].MEMORY.sleeve or "sleeve_casl_none"
-+        end,
-+        -- Overrides RunSelectPage's default handle_choice: the base version
-+        -- unconditionally calls populate_preview_ui whenever
-+        -- SMODS.RunSelect.Internals.preview_area is set - a GLOBAL, not
-+        -- per-page, reference. deck_choice sets one up (automatic_preview =
-+        -- true); this page never requests a preview area of its own, so that
-+        -- reference is deck_choice's stale leftover by the time this page is
-+        -- reached. Confirmed via crash.log: selecting a sleeve crashed with
-+        -- "attempt to get length of local 't' (a nil value)" in remove_all,
-+        -- called from populate_preview_ui, called from the base
-+        -- handle_choice. This page doesn't need a live preview - the grid
-+        -- card itself already shows the sleeve - so it just records the
-+        -- choice directly (selection_limit is always 1 here).
-+        handle_choice = function(self, choice, remove)
-+            SMODS.RunSelect.Setup.choices[self.key] = remove and nil or choice.config.center.key
 +        end,
 +        create_selection_card = function(self, card_key, card_number, area)
 +            local sleeve_center = CardSleeves.Sleeve:get_obj(card_key) or CardSleeves.Sleeve:get_obj("sleeve_casl_none")
