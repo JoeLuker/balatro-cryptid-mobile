@@ -1,0 +1,20 @@
+The Galdur run-select nav bar's seed text input is created with
+max_length = 2500, and create_text_input builds one UI element PER LETTER
+SLOT — ~2,500 permanently-animating nodes hidden in the seed box, on every
+page of the new-run screen (the nav bar persists across deck/stake/sleeve).
+Measured: the run-select UIBox is 2,516 nodes; the phone renders the screen
+at 12-18 fps. Vanilla's seed input is max_length = 8 and seeds are 8 chars
+(pseudoseed hashes anything longer anyway); 24 keeps 3x headroom for modded
+seed schemes while cutting the box to ~90 nodes.
+
+--- a/Mods/Steamodded/src/utils/run_select.lua
++++ b/Mods/Steamodded/src/utils/run_select.lua
+@@ -150,7 +150,7 @@
+                 definition = {n=G.UIT.ROOT, config={align = "cr", colour = G.C.CLEAR}, nodes={
+                     {n=G.UIT.R, config={align = "cm", minw = 0.1}, nodes={
+                         {n=G.UIT.C, config={maxw = 3.1}, nodes = {
+-                            create_text_input({id = 'run_select_seeded_input', w = 3, max_length = 2500, extended_corpus = true, ref_table = SMODS.RunSelect.Setup.choices, ref_value = 'seed', prompt_text = localize('k_enter_seed'), colour = SMODS.RunSelect.Colours.seed_input, hooked_colour = darken(SMODS.RunSelect.Colours.seed_input, 0.3)})
++                            create_text_input({id = 'run_select_seeded_input', w = 3, max_length = 24, extended_corpus = true, ref_table = SMODS.RunSelect.Setup.choices, ref_value = 'seed', prompt_text = localize('k_enter_seed'), colour = SMODS.RunSelect.Colours.seed_input, hooked_colour = darken(SMODS.RunSelect.Colours.seed_input, 0.3)})
+                         }},
+                         {n=G.UIT.C, config={align = "cm", minw = 0.1}},
+                         UIBox_button({id = 'run_select_seeded_paste', label = localize('ml_paste_seed'), minw = 1, minh = 0.6, button = 'run_select_paste_seed', colour = SMODS.RunSelect.Colours.seed_input, scale = 0.3, col = true})
