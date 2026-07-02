@@ -120,3 +120,5 @@ manual/128-sleeve_bbox_sampling.patch
 manual/130-cardsleeves_runselect_compat.patch
 manual/132-cardsleeves_runselect_localization.patch
 manual/133-run_select_seed_input_perf.patch
+manual/134-talisman_overlay_hitbox.patch
+manual/135-run_select_lastchoices_guard.patch
