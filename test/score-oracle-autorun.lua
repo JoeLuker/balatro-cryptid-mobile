@@ -124,10 +124,31 @@ love.update = function(dt, ...)
 
     -- ------------------------------------------------------------------ boot
     -- Suppress the Jimbo gameset intro as soon as the profile table is live
-    -- (same guard used in vanilla-autorun.lua and gameset tests).
-    if G and G.PROFILES and G.SETTINGS and G.PROFILES[G.SETTINGS.profile]
-        and not G.PROFILES[G.SETTINGS.profile].cry_intro_complete then
-        G.PROFILES[G.SETTINGS.profile].cry_intro_complete = true
+    -- (same guard used in vanilla-autorun.lua and gameset tests) — and pin a
+    -- gameset: a fresh (no save-pull) profile has no cry_gameset, so Cryptid
+    -- raises its gameset-select modal at start_run, which blocks blind_select
+    -- creation forever (found 2026-07-02 when `just clean` wiped the
+    -- unversioned build/save-pull fixture this harness silently leaned on).
+    if G and G.PROFILES and G.SETTINGS and G.PROFILES[G.SETTINGS.profile] then
+        local prof = G.PROFILES[G.SETTINGS.profile]
+        if not prof.cry_intro_complete then prof.cry_intro_complete = true end
+        if not prof.cry_gameset then prof.cry_gameset = 'mainline' end
+    end
+
+    -- Fresh profiles also queue vanilla unlock/notify overlays ("Discover at
+    -- least 20 items from your collection…", a continue_unlock button) over
+    -- the first run's blind select — click through them like a player would.
+    if G and G.OVERLAY_MENU and G.FUNCS and G.FUNCS.continue_unlock then
+        local btn
+        pcall(function()
+            local function walk(n, d)
+                if btn or d > 8 then return end
+                if n.config and n.config.button == 'continue_unlock' then btn = n; return end
+                for _, c in ipairs(n.children or {}) do walk(c, d + 1) end
+            end
+            walk(G.OVERLAY_MENU.UIRoot or G.OVERLAY_MENU, 0)
+        end)
+        if btn then pcall(G.FUNCS.continue_unlock, btn) end
     end
 
     if phase == 'boot' then
