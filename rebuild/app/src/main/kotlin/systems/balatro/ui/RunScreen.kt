@@ -785,6 +785,11 @@ internal class RunState {
     var money by mutableStateOf(4)
     var blindIndex by mutableStateOf(0)                  // 0-based global blind counter
     var boss by mutableStateOf<Boss?>(null)              // set on the boss slot
+    // ── boss selection state (get_new_boss port) ──
+    /** Per-boss pick counts this run (G.GAME.bosses_used) — drives the least-used anti-repeat filter. */
+    val bossesUsed = mutableMapOf<Boss, Int>()
+    private var anteBossFor = 0                           // ante the cached pick belongs to (0 = none yet)
+    private var anteBossPick: Boss? = null                // the ante's picked boss (upcomingBoss cache)
     var bossDisabled by mutableStateOf(false)            // Luchador: boss effects suppressed for the round (boss kept for display)
     var phase by mutableStateOf(Phase.DECK_SELECT)   // fresh run picks a deck first (resume/deep-link override)
     var deckJokerBonus = 0                            // Black/Painted deck: ± Joker slots (folded into startRound's maxJokers)
@@ -1101,11 +1106,20 @@ internal class RunState {
         play()
     }
 
-    /** The boss at THIS ante's Boss slot — for the blind-select preview. `boss` is only assigned
-     *  once you're ON the boss slot, so the select screen (you're at Small) needs the upcoming one.
-     *  Same RNG as the slot-2 assignment, keyed to the boss-slot index (current ante's 3rd blind). */
+    /** The boss at THIS ante's Boss slot — picked ONCE per ante via Boss.next (the get_new_boss
+     *  port: min-ante eligibility, showdown blinds on win_ante multiples, least-used anti-repeat)
+     *  and cached, so blind-select, the HUD, and the slot-2 startRound all agree. The pick counts
+     *  into bossesUsed at selection time (vanilla increments inside get_new_boss); a reroll clears
+     *  the cache but keeps the old increment, so the rerolled-away boss is deprioritized. */
     val upcomingBoss: Boss
-        get() = Boss.pool(ante).random(Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1 + bossReshuffle * 7919L))
+        get() {
+            anteBossPick?.let { if (anteBossFor == ante) return it }
+            val pick = Boss.next(ante, bossesUsed,
+                Random((blindIndex - blindIndex % 3 + 2) * 2654435761L + 1 + bossReshuffle * 7919L))
+            bossesUsed[pick] = (bossesUsed[pick] ?: 0) + 1
+            anteBossFor = ante; anteBossPick = pick
+            return pick
+        }
 
     /** Amount for each blind slot in the CURRENT ante (slot 0=Small, 1=Big, 2=Boss).
      *  Mirrors get_blind_amount()*blind.config.mult from Lua. Used by blind-select cards. */
@@ -1114,9 +1128,13 @@ internal class RunState {
         return when (slotIdx) { 0 -> base; 1 -> base * 1.5; else -> base * upcomingBoss.targetMult }
     }
 
-    /** Reward dollars for each blind slot (config.dollars: Small=$3, Big=$4, Boss=$5). Red stake (≥2)
-     *  removes the Small Blind's reward. */
-    fun rewardForSlot(slotIdx: Int): Int = if (slotIdx == 0 && stakeLevel >= 2) 0 else 3 + slotIdx
+    /** Reward dollars for each blind slot (config.dollars: Small=$3, Big=$4, Boss=$5/showdown=$8).
+     *  Red stake (≥2) removes the Small Blind's reward. */
+    fun rewardForSlot(slotIdx: Int): Int = when {
+        slotIdx == 0 && stakeLevel >= 2 -> 0
+        slotIdx == 2 -> upcomingBoss.dollars
+        else -> 3 + slotIdx
+    }
 
     /** Name label for the upcoming blind slot on the blind-select screen. */
     fun nameForSlot(slotIdx: Int): String = when (slotIdx) {
@@ -1130,9 +1148,9 @@ internal class RunState {
      *  scale=0.001 in source; blind_chip_UI_scale springs to 0.5 on round start (implemented in HudColumn). */
     val chipText: String get() = fmtR(target)
 
-    /** The blind's $ reward shown on the HUD blind panel — config.dollars (Small=3/Big=4/Boss=5),
-     *  matching the coins Balatro draws on the blind token. (The per-hand/interest bonuses appear at
-     *  cash-out, not here.) */
+    /** The blind's $ reward shown on the HUD blind panel — config.dollars (Small=3/Big=4/Boss=5,
+     *  showdown=8), matching the coins Balatro draws on the blind token. (The per-hand/interest
+     *  bonuses appear at cash-out, not here.) */
     val dollarsToBeEarned: Int get() = rewardForSlot(slot)
 
     // ── contents.hand bindings — mirror current_round.current_hand ──────────────
@@ -1252,7 +1270,7 @@ internal class RunState {
 
     private fun startRound() {
         if (slot == 0) bossRerollsThisAnte = 0   // Director's Cut: refresh the per-ante reroll at each new ante
-        boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1 + bossReshuffle * 7919L)) else null
+        boss = if (slot == 2) upcomingBoss else null   // the ante's cached get_new_boss pick
         bossDisabled = false                  // a fresh boss is active until Luchador disables it
         handSize = baseHandSize
         applyTags(TagTrigger.ROUND_START)     // Juggle Tag: handSize += 3 for this round
@@ -1780,14 +1798,15 @@ internal class RunState {
         shopVoucher = rollVoucher(blindIndex, redeemedVouchers.toSet())   // one voucher per shop
         shopBoosters = rollBoosters(blindIndex, firstShop = !firstShopBuffoon)   // 2 weighted slots; first shop guarantees a Buffoon
         firstShopBuffoon = true
-        // Win condition: beating the boss blind of Ante 8 (standard) or Ante 10 (showdown).
-        if (wasSlot == 2 && wasAnte in setOf(8, 10)) {
+        // Win condition: beating the Boss Blind of the win ante (vanilla G.GAME.win_ante = 8 —
+        // which is a showdown ante, so the run's final boss is one of the 5 finishers).
+        if (wasSlot == 2 && wasAnte == 8) {
             phase = Phase.WIN
             Telemetry.event("RUN_WIN", "ante" to wasAnte, "money" to money)
         } else {
             // Pre-seed boss so blind-select and shop screens show correct name/desc.
-            // startRound() re-derives the same deterministic value.
-            boss = if (slot == 2) Boss.pool(ante).random(Random(blindIndex * 2654435761L + 1 + bossReshuffle * 7919L)) else null
+            // startRound() reads the same per-ante cached pick.
+            boss = if (slot == 2) upcomingBoss else null
             phase = Phase.SHOP
             openPendingPackTag()    // a Charm/Meteor/… tag queued a free pack → open it over the shop
         }
@@ -2213,6 +2232,8 @@ internal class RunState {
         stakeLevel = stakeLevel, spectralRate = spectralRate, tarotRate = tarotRate, planetRate = planetRate, telescope = telescope, greenEconomy = greenEconomy,
         anaglyph = anaglyph, doubleNextTags = doubleNextTags, firstShopBuffoon = firstShopBuffoon,
         directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe, cardRate = cardRate, illusion = illusion,
+        bossesUsed = bossesUsed.entries.associate { it.key.name to it.value },
+        anteBossFor = anteBossFor, anteBoss = anteBossPick?.name,
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -2255,6 +2276,8 @@ internal class RunState {
         stakeLevel = s.stakeLevel; spectralRate = s.spectralRate; tarotRate = s.tarotRate; planetRate = s.planetRate; telescope = s.telescope; greenEconomy = s.greenEconomy
         anaglyph = s.anaglyph; doubleNextTags = s.doubleNextTags; firstShopBuffoon = s.firstShopBuffoon
         directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe; cardRate = s.cardRate; illusion = s.illusion
+        bossesUsed.clear(); s.bossesUsed.forEach { (k, v) -> bossesUsed[Boss.valueOf(k)] = v }
+        anteBossFor = s.anteBossFor; anteBossPick = s.anteBoss?.let { Boss.valueOf(it) }
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
@@ -2346,10 +2369,12 @@ internal class RunState {
     fun canRerollBoss(): Boolean = phase == Phase.BLIND_SELECT && slot == 2 && money >= 10 &&
         (retcon || (directorsCut && bossRerollsThisAnte < 1))
 
-    /** Reroll the upcoming Boss Blind for $10 (advances the boss seed). */
+    /** Reroll the upcoming Boss Blind for $10 — re-runs get_new_boss. The old pick keeps its
+     *  bosses_used increment (vanilla), so it drops out of the least-used pool and won't repeat. */
     fun rerollBoss() {
         if (!canRerollBoss()) return
         money -= 10; bossReshuffle += 1; bossRerollsThisAnte += 1
+        anteBossPick = null                    // invalidate the ante's cached pick → next read re-picks
         Telemetry.event("BOSS_REROLL", "boss" to upcomingBoss.name, "money" to money)
     }
 

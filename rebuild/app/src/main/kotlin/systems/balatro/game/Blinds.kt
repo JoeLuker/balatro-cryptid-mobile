@@ -18,57 +18,61 @@ sealed interface Debuff {
 }
 
 /**
- * Boss blinds — 22 regular bosses (Antes 1-9) + 5 Ante-10 showdowns.
+ * Boss blinds — 23 regular bosses + 5 showdown finishers (P_BLINDS, game.lua:264-294).
  *
  * targetMult = the FULL blind multiplier (all regular bosses = 2.0, THE_WALL = 4.0,
  * VIOLET_VESSEL = 6.0). RunScreen uses "base * (boss?.targetMult ?: 2.0)".
+ *
+ * minAnte = vanilla `boss.min` — the earliest ante the boss may appear at. showdown bosses
+ * appear ONLY on win_ante multiples (ante 8, and 16/24… in endless) and ignore minAnte
+ * (get_new_boss's showdown branch never reads it; the P_BLINDS min=10 there is vestigial).
  *
  * Regular bosses with round-state effects (THE_EYE, THE_MOUTH, THE_ARM, THE_OX, THE_TOOTH,
  * THE_HOOK, THE_PSYCHIC, THE_SERPENT, THE_MANACLE) are wired in RunState.
  * Face-down bosses (THE_HOUSE, THE_MARK, THE_WHEEL, THE_FISH) have no scoring impact; their
  * face-down visuals are handled by RunState.faceDown + applyFaceDown() + the CardFace render branch.
  *
- * Ante-10 showdowns:
+ * Showdown finishers:
  *   VERDANT_LEAF   — all played cards are debuffed (only jokers score); selling a joker defeats it
  *   VIOLET_VESSEL  — ×6 score target (no other mechanic)
  *   AMBER_ACORN    — joker order is shuffled when the blind starts
  *   CRIMSON_HEART  — a random joker is disabled after each play (rotates each hand)
  *   CERULEAN_BELL  — one card in hand is forced-selected (always included in play)
  */
-enum class Boss(val display: String, val desc: String) {
+enum class Boss(val display: String, val desc: String, val minAnte: Int = 1, val showdown: Boolean = false) {
     // ── scoring debuffs ─────────────────────────────────────────────────────────────────────
-    THE_FLINT("The Flint",   "Base Chips and Mult are halved"),
+    THE_FLINT("The Flint",   "Base Chips and Mult are halved",  minAnte = 2),
     THE_CLUB ("The Club",    "All Club cards are debuffed"),
     THE_GOAD ("The Goad",    "All Spade cards are debuffed"),
     THE_WINDOW("The Window", "All Diamond cards are debuffed"),
     THE_HEAD ("The Head",    "All Heart cards are debuffed"),
-    THE_PLANT("The Plant",   "All face cards are debuffed"),
+    THE_PLANT("The Plant",   "All face cards are debuffed",     minAnte = 4),
     // ── structural: target / hands / discards ────────────────────────────────────────────────
-    THE_WALL    ("The Wall",     "Extra large blind (x4)"),
-    THE_NEEDLE  ("The Needle",   "Only 1 hand"),
-    THE_WATER   ("The Water",    "Start with 0 discards"),
+    THE_WALL    ("The Wall",     "Extra large blind (x4)",      minAnte = 2),
+    THE_NEEDLE  ("The Needle",   "Only 1 hand",                 minAnte = 2),
+    THE_WATER   ("The Water",    "Start with 0 discards",       minAnte = 2),
     THE_MANACLE ("The Manacle",  "+1 Hand, -1 Joker slot"),
     // ── round-state effects (wired in RunState) ──────────────────────────────────────────────
     THE_PSYCHIC ("The Psychic",  "Must play exactly 5 cards"),
     THE_HOOK    ("The Hook",     "Discards 2 random cards each play"),
-    THE_TOOTH   ("The Tooth",    "Lose \$1 per card played"),
-    THE_ARM     ("The Arm",      "Played hand level degrades by 1"),
-    THE_EYE     ("The Eye",      "Each hand type can only be played once"),
-    THE_MOUTH   ("The Mouth",    "Only 1 hand type may be played"),
-    THE_OX      ("The Ox",       "Playing most-played hand sets money to \$0"),
-    THE_SERPENT ("The Serpent",  "After each play, draw a new hand"),
+    THE_TOOTH   ("The Tooth",    "Lose \$1 per card played",    minAnte = 3),
+    THE_ARM     ("The Arm",      "Played hand level degrades by 1", minAnte = 2),
+    THE_EYE     ("The Eye",      "Each hand type can only be played once", minAnte = 3),
+    THE_MOUTH   ("The Mouth",    "Only 1 hand type may be played", minAnte = 2),
+    THE_OX      ("The Ox",       "Playing most-played hand sets money to \$0", minAnte = 6),
+    THE_SERPENT ("The Serpent",  "After each play, draw a new hand", minAnte = 5),
     // ── face-down (no scoring effect; visual flip handled in RunState/RunScreen) ─────────────
-    THE_HOUSE   ("The House",    "First hand is drawn face down"),
-    THE_MARK    ("The Mark",     "All face cards are drawn face down"),
-    THE_WHEEL   ("The Wheel",    "1 in 7 cards is drawn face down"),
-    THE_FISH    ("The Fish",     "Cards drawn face down after each play"),
+    THE_HOUSE   ("The House",    "First hand is drawn face down", minAnte = 2),
+    THE_MARK    ("The Mark",     "All face cards are drawn face down", minAnte = 2),
+    THE_WHEEL   ("The Wheel",    "1 in 7 cards is drawn face down", minAnte = 2),
+    THE_FISH    ("The Fish",     "Cards drawn face down after each play", minAnte = 2),
     THE_PILLAR  ("The Pillar",   "Previously played cards are debuffed"),
-    // ── Ante-10 showdowns ────────────────────────────────────────────────────────────────────
-    VERDANT_LEAF  ("Verdant Leaf",  "All played cards are debuffed"),
-    VIOLET_VESSEL ("Violet Vessel", "Requires 6x more Chips to beat"),
-    AMBER_ACORN   ("Amber Acorn",   "Jokers are shuffled at blind start"),
-    CRIMSON_HEART ("Crimson Heart", "One random Joker disabled each hand"),
-    CERULEAN_BELL ("Cerulean Bell", "One card is forced to be selected");
+    // ── showdown finishers (win_ante multiples) ──────────────────────────────────────────────
+    VERDANT_LEAF  ("Verdant Leaf",  "All played cards are debuffed",       minAnte = 10, showdown = true),
+    VIOLET_VESSEL ("Violet Vessel", "Requires 6x more Chips to beat",      minAnte = 10, showdown = true),
+    AMBER_ACORN   ("Amber Acorn",   "Jokers are shuffled at blind start",  minAnte = 10, showdown = true),
+    CRIMSON_HEART ("Crimson Heart", "One random Joker disabled each hand", minAnte = 10, showdown = true),
+    CERULEAN_BELL ("Cerulean Bell", "One card is forced to be selected",   minAnte = 10, showdown = true);
 
     val scoringDebuff: Debuff
         get() = when (this) {
@@ -101,11 +105,27 @@ enum class Boss(val display: String, val desc: String) {
 
     fun discards(default: Int): Int = if (this == THE_WATER) 0 else default
 
+    /** Reward for defeating this boss — vanilla config.dollars (regular $5, showdown $8). */
+    val dollars: Int get() = if (showdown) 8 else 5
+
     companion object {
-        /** Boss pool for a given ante. Antes 1-9 draw from the 22 regular bosses;
-         *  Ante 10+ always presents one of the 5 showdown bosses. */
-        private val REGULAR  = values().filter { it.ordinal < 22 }   // first 22 entries (index 0..21)
-        private val SHOWDOWN = listOf(VERDANT_LEAF, VIOLET_VESSEL, AMBER_ACORN, CRIMSON_HEART, CERULEAN_BELL)
-        fun pool(ante: Int): List<Boss> = if (ante >= 10) SHOWDOWN else REGULAR
+        /**
+         * Pick the boss for [ante] — faithful port of get_new_boss()
+         * (functions/common_events.lua:2338):
+         *  - showdown antes (ante % winAnte == 0 && ante >= 2) draw ONLY showdown bosses;
+         *  - every other ante draws regular bosses whose minAnte <= max(1, ante);
+         *  - among the eligible, only the least-picked this run (min_use over [used]) are drawable,
+         *    so the full pool cycles before any boss repeats.
+         * The caller owns [used] (G.GAME.bosses_used) and increments the count of the returned boss.
+         */
+        fun next(ante: Int, used: Map<Boss, Int>, rng: kotlin.random.Random, winAnte: Int = 8): Boss {
+            val showdownAnte = ante % winAnte == 0 && ante >= 2
+            val eligible = values().filter {
+                if (it.showdown) showdownAnte else !showdownAnte && it.minAnte <= maxOf(1, ante)
+            }
+            val minUse = eligible.minOf { used[it] ?: 0 }
+            val pool = eligible.filter { (used[it] ?: 0) == minUse }
+            return pool[rng.nextInt(pool.size)]
+        }
     }
 }
