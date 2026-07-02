@@ -1,54 +1,56 @@
-# balatro-native — clean-slate rebuild
+# rebuild/ — Balatro native (Kotlin + Jetpack Compose)
 
-Burn-it-down rebuild. **Not** patched onto the LÖVE base. Native Kotlin + Jetpack
-Compose, composition-not-inheritance core, content ported and verified byte-for-byte
-against the original via score-oracle.
+The LÖVE build's **twin project**: a from-scratch reimplementation of Balatro
+(plus Cryptid content) as a native Android app. The rewrite itself is the goal —
+no Lua, no LÖVE, no `.love` asset pipeline. The original game is the acceptance
+test: behavior is ported from the vanilla source (`../src/vanilla/`) and checked
+against oracles, never approximated from screenshots.
 
-## Why a clean slate (settled)
-The LÖVE build is inheritance-by-monkeypatch (5-deep `Game:update` wrappers, `eval_card`
-override chains, sed-patches on a baked dump). Every framerate, crash, and UX problem
-traced back to that. This rebuild removes the *category* of those problems instead of
-patching instances.
+**Honest status: aimed-at faithful, not achieved.** `docs/UI_AUDIT.md` is the
+authoritative gap/crutch registry (vanilla taxonomy vs coverage); read it before
+claiming or assuming fidelity anywhere.
 
-## Architecture
-- **Engine** (`engine/Ecs.kt`) — Entity = Int, Component = data, System = pure function
-  in an ordered Pipeline. No inheritance, no overrides, no monkeypatch. Component stores
-  are dense-packed (cache-coherent iteration). Order is explicit data; removal is one
-  delete; no system owns the next call → the rewind-crash class is structurally gone.
-- **Scoring** (`game/Scoring.kt`) — jokers **register** Effects (which contexts + a pure
-  handler) into a subscription index; scoring a hand dispatches each context to only its
-  subscribers, in board order, over **one reused `Context`** → no per-hand table churn
-  (the old ~340-alloc/hand GC problem). `BigValue` (`game/BigValue.kt`) is the Talisman/
-  OmegaNum seam.
-- **Content** (`content/Jokers.kt`) — porting a joker = data + a `register`. State lives
-  in a `JokerState` component (so save/load/rewind are data reads, never object-graph walks).
-- **UI** (`ui/`, `bridge/`) — the live **board** renders in-engine (LOD: all jokers
-  visible during play, cheap when small, full detail on the active/hovered one). All
-  **chrome** — managing huge stacks, content library, settings, info — is native **Compose**
-  (`ModalBottomSheet`, `LazyVerticalGrid`, native scroll/gesture) composited over the board.
-  Game state ↔ Compose over a thin **bridge**.
+Own Gradle project: `cd rebuild && ./gradlew test` / `assembleDebug`.
 
-## Correctness: the oracle is the spec
-A joker is "ported" only when the new scoring equals the original LÖVE build's score on
-the score-oracle baseline seeds. `game/Demo.kt` is the smallest instance of that check
-(order-dependent cascade → exact number). The rebuild can never silently drift from the
-game people know.
+## Layout (`app/src/main/kotlin/systems/balatro/`)
 
-The oracle scores with **pre-set** joker state, so it has blind spots — reducer accrual,
-hooks in isolation, and retrigger counts. Three unit harnesses cover those. A new or changed
-joker needs an oracle `Case` **and** the matching harness test. See **[docs/TESTING.md](../docs/TESTING.md)**.
+- **`engine/`** — direct ports of vanilla engine primitives: `Moveable` spring
+  dynamics, `Node`/Room scene graph, `CardArea` (`align_cards`), `EventManager`,
+  `GameClock`. Cited line-by-line against `src/vanilla/engine/*.lua`.
+- **`game/`** — the rules: `Score.kt` (the scoring engine, oracle-verified),
+  `Hands`/`Levels`/`Deck`, `Blinds.kt` (boss selection = the `get_new_boss()`
+  port), jokers as data + reducers (`JOKER_MANIFEST`).
+- **`ui/`** — `UILayout.kt` is the `calculate_xywh` layout-engine port; screens
+  render **extracted** vanilla `create_UIBox_*` trees (JSON in `app/src/main/assets/ui/`,
+  produced by `../tools/uiref/`) rather than hand-built lookalikes. `RunScreen.kt`
+  holds the live run state and the screen composables.
+- **`save/`** — `RunSnapshot` (kotlinx-serialization JSON of the whole run),
+  atomic `SaveIo` (stage + fsync + rename), `StatsStore`.
+- **`audio/`** — SoundPool SFX + MediaPlayer music. **`bridge/`, `content/`** — glue.
 
-## Build (toolchain to stand up)
-Android Kotlin + Compose via gradle (AGP), Android SDK already present in nix. The board
-renderer (GL/Skia surface) and the Lua-free engine run native; the existing build's
-`game.love` asset pipeline is retired, not reused — content comes through the oracle-verified
-port, not the `.love`.
+## Verification (three independent oracles)
 
-## Roadmap
-1. **[done]** Composition core + scoring + first joker archetypes + the passing demo.
-2. Toolchain: `nix` gradle/AGP/Kotlin/Compose; `gradlew assembleDebug` green; Compose
-   `MainActivity` on device.
-3. The board renderer (entities → draw commands → GL surface), LOD.
-4. The bridge + first native modal: `LazyVerticalGrid` of the real joker list over the live board.
-5. Content port in oracle-verified waves: the 10 representative archetypes first, then breadth.
-6. Big-number: drop OmegaNum behind `BigValue`. Optional Rust core via JNI if profiling demands no-GC.
+1. **Score oracle** — `../test/kt-oracle.sh` scores ~99 baseline hands with the
+   real LÖVE build and requires the Kotlin `Score` to match exactly. Runs outside
+   Gradle (`nix-shell -p kotlin`); note it is currently **disjoint** from the JUnit
+   suite — a green `./gradlew test` says nothing about oracle parity.
+2. **Layout oracle** — `../tools/uiref/` stands up Balatro's real `engine/ui.lua`
+   and dumps every node's computed geometry; `verify_layout.py` compares the
+   Kotlin layout node-for-node (HUD verified 80/80).
+3. **JUnit** — `./gradlew test`: 50+ test classes with hand-derived expected
+   values (worked arithmetic in comments), deliberately separated reducer-accrual
+   vs oracle read-path coverage. See `../docs/TESTING.md`.
+
+On-device checks run on the **emulator** (`emulator-5560`); the physical phone is
+personal hardware — never deploy there unprompted.
+
+## Docs
+
+- `ENGINE_PORT_PLAN.md` / `ENGINE_PORT_P0.md` — the engine-port plan and its P0 slice.
+- `docs/UI_AUDIT.md` — vanilla UI taxonomy vs rebuild coverage; the crutch teardown list.
+- `../docs/REVIEW-2026-07-01.md` — full-project review findings and fix status.
+
+## History
+
+An earlier README here described an ECS/composition architecture; that design was
+retired in favor of the direct 1:1 engine port above (it lives in git history).
