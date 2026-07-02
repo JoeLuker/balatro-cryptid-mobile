@@ -9,6 +9,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -3116,7 +3118,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // joker when an earlier one self-destructs mid-round (Ramen/Seltzer/Blacklist) or on shop reroll
     // (Starfruit). The panel re-resolves the index each frame and vanishes if the joker left the board.
     var selJoker by remember(s.phase) { mutableStateOf<Owned?>(null) }
-    var inspCons by remember(s.phase) { mutableStateOf<Int?>(null) }   // inspected consumable (tap → tooltip → Use)
+    var inspCons by remember(s.phase) { mutableStateOf<Consumable?>(null) }   // inspected consumable BY IDENTITY (indices shift under drag-reorder)
     // card areas are in the ROOM_ATTACH frame (set_screen_positions); add the room origin (ROOM.T)
     // so they land correctly at the device's scale/letterboxing.
     fun off(xu: Float, yu: Float) = Modifier.absoluteOffset(((roomTx + xu) * u).dp, ((roomTy + yu) * u).dp)
@@ -3134,6 +3136,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
     // Per-joker engine Moveable, by joker identity (mirrors cardMv) — so a SPECIFIC self-destruct
     // joker can dissolve and be pruned, rather than setCardCount dropping the last by count.
     val jokerMv = remember { java.util.IdentityHashMap<Owned, Moveable>() }
+    // consumables ride the same identity pattern onto host.consumeables (their CardArea existed in
+    // EngineHost but was never fed — the audit's "consumables aren't a real CardArea" crutch).
+    val consumMv = remember { java.util.IdentityHashMap<Consumable, Moveable>() }
     // Staggered deal: each newly-dealt card's clock time to start flying in from the deck; held at the
     // deck until then so cards arrive one-by-one (~0.07s apart). dealClock[0] is the next reveal slot.
     val dealAt = remember { java.util.IdentityHashMap<PlayingCard, Double>() }
@@ -3170,6 +3175,32 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     jokerMatDone[0] = true
                 }
                 host.jokers.alignCards(host.clock, reducedMotion = frozen)
+                // consumables: same identity-tracked rebuild → align (the "joker" consumeable branch)
+                host.consumeables.cards.clear(); for (c in s.consumables) host.consumeables.cards.add(consumMv.getOrPut(c) { host.consumeables.newCard() })
+                if (consumMv.size > s.consumables.size) {
+                    val keepC = java.util.IdentityHashMap<Consumable, Boolean>(); for (c in s.consumables) keepC[c] = true
+                    val itC = consumMv.entries.iterator()
+                    while (itC.hasNext()) { val e = itC.next(); if (!keepC.containsKey(e.key)) { e.value.remove(); itC.remove() } }
+                }
+                host.consumeables.alignCards(host.clock, reducedMotion = frozen)
+                // drag-reorder (cardarea.lua align_cards tail: sort by card centre-x every frame).
+                // Order truth lives in s.owned/s.consumables (scoring order, save state); the engine
+                // exposes the vanilla x-order and we permute the source list — the next frame's
+                // identity rebuild realizes it, the same one-frame settle vanilla's in-place sort has.
+                if (host.jokers.anyDragged()) {
+                    val ord = host.jokers.xOrder()
+                    if (ord != ord.indices.toList()) {
+                        val re = ord.map { s.owned[it] }
+                        s.owned.clear(); s.owned.addAll(re)
+                    }
+                }
+                if (host.consumeables.anyDragged()) {
+                    val ordC = host.consumeables.xOrder()
+                    if (ordC != ordC.indices.toList()) {
+                        val reC = ordC.map { s.consumables[it] }
+                        s.consumables.clear(); s.consumables.addAll(reC)
+                    }
+                }
                 // HAND slide: the area Y is state-dependent (oracle: 6.986 selecting → 8.886 scoring).
                 // Setting host.hand.T.y on the transition makes each card's align target jump, so the
                 // card VT springs (slides, with overshoot) into the scoring position — the motion bref_3
@@ -3300,13 +3331,35 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // This retires the old ad-hoc BalatroFloat sine — jokers now lean/settle through the engine.
         // (repro freezes the wobble, so VT==T==the spread slot → pixel-identical to the static render.)
         frame.value.let {}    // subscribe to the engine tick so the cards redraw at their new VT each frame
-        s.owned.forEachIndexed { i, o ->
-            val m = host.jokers.cards.getOrNull(i) ?: return@forEachIndexed
+        // dragged joker draws LAST (vanilla: G.CONTROLLER.dragging.target skips the in-area draw and
+        // is drawn on top by the controller) — iterate with any dragged index deferred to the end.
+        val jokerDrawOrder = s.owned.indices.sortedBy { if (host.jokers.cards.getOrNull(it)?.states?.drag?.isOn == true) 1 else 0 }
+        jokerDrawOrder.forEach { i ->
+            val o = s.owned[i]
+            val m = host.jokers.cards.getOrNull(i) ?: return@forEach
             val rDeg = -(m.VT.r * 57.2958).toFloat()
             val raise = if (selJoker === o) 0.4f else 0f   // lift the selected joker
             Box(off(m.VT.x.toFloat(), m.VT.y.toFloat() - raise)
                 .clickable(enabled = !s.scoring, interactionSource = remember { MutableInteractionSource() }, indication = null) {
                     selJoker = if (selJoker === o) null else o; inspCons = null
+                }
+                // drag-to-reorder (engine physics): press-move grabs the Moveable; the tick's
+                // x-order permute re-slots s.owned live, like vanilla's align_cards sort.
+                .pointerInput(o) {
+                    detectDragGestures(
+                        onDragStart = { pos ->
+                            if (!s.scoring) {
+                                m.startDrag(m.T.x + pos.x / (u * dens.density), m.T.y + pos.y / (u * dens.density))
+                                systems.balatro.audio.SoundManager.play("card1")
+                            }
+                        },
+                        onDrag = { change, amt ->
+                            change.consume()
+                            m.dragBy((amt.x / (u * dens.density)).toDouble(), (amt.y / (u * dens.density)).toDouble())
+                        },
+                        onDragEnd = { m.stopDrag() },
+                        onDragCancel = { m.stopDrag() }
+                    )
                 }) {
                 Box(Modifier.graphicsLayer { rotationZ = rDeg }) {
                     jokerCells[o.offer.key]?.let {
@@ -3376,35 +3429,57 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         // ── CONSUMABLES (G.consumeables): held tarots/planets/spectrals, drawn in the consumable area.
         // Tarots enter aim-mode on tap (pendingTarot set); planets/spectrals apply immediately.
         if (s.consumables.isNotEmpty()) {
-            Box(off(consumX, jokersY)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    s.consumables.forEachIndexed { i, c ->
-                        val label = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
-                        val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips; is Consumable.SpectralC -> Balatro.Mult }
-                        val isAiming = c is Consumable.TarotC && s.pendingTarot === c.t
-                        Box(Modifier.size(cardW, cardH)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isAiming) Balatro.Purple.copy(alpha = 0.7f) else Balatro.Panel)
-                            .border(1.dp, if (isAiming) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
-                            .clickable(enabled = s.phase == Phase.ROUND && !s.scoring) {
-                                // Tap to INSPECT (read it first), not use immediately — Use is in the tooltip.
-                                systems.balatro.audio.SoundManager.play("highlight1")
-                                inspCons = if (inspCons == i) null else i; selJoker = null
+            // Engine CardArea (G.consumeables): each held card is an identity-tracked Moveable on
+            // host.consumeables, positioned by align_cards' consumeable branch (fan/wobble/lean) and
+            // drawn at VT — retiring the static Compose Row. Drag-to-reorder rides the same engine
+            // path as jokers.
+            val consDrawOrder = s.consumables.indices.sortedBy { if (host.consumeables.cards.getOrNull(it)?.states?.drag?.isOn == true) 1 else 0 }
+            consDrawOrder.forEach { i ->
+                val c = s.consumables[i]
+                val m = host.consumeables.cards.getOrNull(i) ?: return@forEach
+                val label = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
+                val accent = when (c) { is Consumable.TarotC -> Balatro.Purple; is Consumable.PlanetC -> Balatro.Chips; is Consumable.SpectralC -> Balatro.Mult }
+                val isAiming = c is Consumable.TarotC && s.pendingTarot === c.t
+                val rDeg = -(m.VT.r * 57.2958).toFloat()
+                Box(off(m.VT.x.toFloat(), m.VT.y.toFloat())
+                    .size(cardW, cardH)
+                    .graphicsLayer { rotationZ = rDeg }
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isAiming) Balatro.Purple.copy(alpha = 0.7f) else Balatro.Panel)
+                    .border(1.dp, if (isAiming) Balatro.Purple else Balatro.PanelLight, RoundedCornerShape(4.dp))
+                    .clickable(enabled = s.phase == Phase.ROUND && !s.scoring, interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        // Tap to INSPECT (read it first), not use immediately — Use is in the tooltip.
+                        systems.balatro.audio.SoundManager.play("highlight1")
+                        inspCons = if (inspCons === c) null else c; selJoker = null
+                    }
+                    .pointerInput(c) {
+                        detectDragGestures(
+                            onDragStart = { pos ->
+                                if (!s.scoring) {
+                                    m.startDrag(m.T.x + pos.x / (u * dens.density), m.T.y + pos.y / (u * dens.density))
+                                    systems.balatro.audio.SoundManager.play("card1")
+                                }
                             },
-                            contentAlignment = Alignment.Center) {
-                            // The held card's REAL sprite (same atlas the shop uses) — not a name label.
-                            val sprite = when (c) {
-                                is Consumable.TarotC -> shopArt.tarots[c.t.name]
-                                is Consumable.PlanetC -> shopArt.planets[c.planet]
-                                is Consumable.SpectralC -> shopArt.spectrals[c.s]
-                            }
-                            if (sprite != null) {
-                                Image(sprite, label, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-                            } else {   // fallback only if the atlas crop is missing
-                                cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
-                                BTxt(label, accent, countSp, Modifier.padding(horizontal = 2.dp))
-                            }
-                        }
+                            onDrag = { change, amt ->
+                                change.consume()
+                                m.dragBy((amt.x / (u * dens.density)).toDouble(), (amt.y / (u * dens.density)).toDouble())
+                            },
+                            onDragEnd = { m.stopDrag() },
+                            onDragCancel = { m.stopDrag() }
+                        )
+                    },
+                    contentAlignment = Alignment.Center) {
+                    // The held card's REAL sprite (same atlas the shop uses) — not a name label.
+                    val sprite = when (c) {
+                        is Consumable.TarotC -> shopArt.tarots[c.t.name]
+                        is Consumable.PlanetC -> shopArt.planets[c.planet]
+                        is Consumable.SpectralC -> shopArt.spectrals[c.s]
+                    }
+                    if (sprite != null) {
+                        Image(sprite, label, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+                    } else {   // fallback only if the atlas crop is missing
+                        cardBase?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None) }
+                        BTxt(label, accent, countSp, Modifier.padding(horizontal = 2.dp))
                     }
                 }
             }
@@ -3413,8 +3488,9 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
             BTxt("${s.consumables.size}/${s.consumableSlots}", Balatro.White, countSp)
         }
         // Inspect a held consumable → name + effect + Use (vanilla reads the card before using it).
-        inspCons?.let { ci ->
-            if (!s.scoring && ci in s.consumables.indices) {
+        inspCons?.let { cRef ->
+            val ci = s.consumables.indexOfFirst { it === cRef }   // identity → live index (drag-safe)
+            if (!s.scoring && ci >= 0) {
                 val c = s.consumables[ci]
                 val name = when (c) { is Consumable.TarotC -> c.t.name; is Consumable.PlanetC -> c.planet.display; is Consumable.SpectralC -> c.s.display }
                 val desc = when (c) {
