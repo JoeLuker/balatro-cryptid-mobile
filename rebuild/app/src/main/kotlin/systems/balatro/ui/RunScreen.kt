@@ -1009,6 +1009,7 @@ internal class RunState {
 
     private val deck = Deck(20260614L)   // persistent across the run (tarot enhancements stick)
     val deckRemaining: Int get() = deck.remaining
+    val deckTotalCards: Int get() = deck.totalCards   // #G.playing_cards (grows/shrinks with card add/destroy)
     var hand by mutableStateOf<List<PlayingCard>>(emptyList())
     var selected by mutableStateOf(setOf<Int>())
     var roundScore by mutableStateOf(0.0)
@@ -3157,8 +3158,12 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
                     while (it2.hasNext()) { val e = it2.next(); val k = e.key; if (!keep.containsKey(k)) { e.value.remove(); it2.remove(); dealAt.remove(k) } }
                 }
                 host.hand.highlighted.clear(); host.hand.highlighted.addAll(s.selected)
-                host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = 8)
-                host.play.alignCards(host.clock, reducedMotion = frozen, tempLimit = maxOf(s.scoreCards.size, 1))
+                // Vanilla align_cards (cardarea.lua:315): hand temp_limit = min(card_limit, #G.playing_cards),
+                // with card_limit = the LIVE hand size (Juggle Tag, Juggler/Troubadour, boss effects).
+                host.hand.alignCards(host.clock, reducedMotion = frozen, tempLimit = minOf(s.handSize, s.deckTotalCards))
+                // Play area: no override — spacing reserves card_limit = 5 slots (game.lua:2404), so a
+                // <5-card hand fans against 5, exactly like vanilla's max(#cards, temp_limit).
+                host.play.alignCards(host.clock, reducedMotion = frozen)
                 // staggered deal: hold each card at the deck until its reveal time so they fly in
                 // one-by-one. (skipped in repro — the static frame uses SpringHand, not these cards.)
                 if (!frozen) host.hand.cards.forEachIndexed { i, m ->
@@ -3488,7 +3493,7 @@ private fun RoundPlay(s: RunState, cells: Map<PlayingCard, ImageBitmap>, jokerCe
         Box(off(deckX, deckY).size((PF.DECK_W * u).dp, cardH), contentAlignment = Alignment.TopEnd) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 cardBack?.let { Image(it, "deck", Modifier.size(cardW, cardH), contentScale = ContentScale.Fit, filterQuality = FilterQuality.None) }
-                BTxt("${s.deckRemaining}/52", Balatro.White, countSp, Modifier.padding(top = 2.dp))
+                BTxt("${s.deckRemaining}/${s.deckTotalCards}", Balatro.White, countSp, Modifier.padding(top = 2.dp))
             }
         }
     }
