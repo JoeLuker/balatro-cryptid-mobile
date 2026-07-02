@@ -12,7 +12,7 @@
 #         overlay/patches/GEN-REPORT.txt
 set -uo pipefail
 ROOT_WT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="/home/jluker/balatro-cryptid-mobile"          # main checkout: build.sh + patches/
+SRC="${BALATRO_SRC:-$ROOT_WT}"                     # checkout providing build.sh + patches/ (this worktree by default; override via BALATRO_SRC)
 OUT="$ROOT_WT/overlay/patches"
 WORK="$(mktemp -d)"; B="$WORK/game"
 # always clean up the workdir — $B becomes a git repo (50+ commits of the full game tree),
@@ -32,7 +32,13 @@ GIT() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
 rm -f "$OUT"/*.patch
 
 echo "[gen] materialising pristine gameLoveBase (pre-patch tree)..."
-GLB="$(nix-build "$ROOT_WT/nix/balatro-cryptid.nix" -A gameLoveBase --no-out-link)"
+GLB="$(nix-build "$ROOT_WT/nix/balatro-cryptid.nix" -A gameLoveBase --no-out-link)" || GLB=""
+# HARD gate: with no `set -e`, an empty $GLB used to turn the next line into
+# `cp -r /.` — a 10-minute copy of the root filesystem (2026-07-02: a nix GC
+# collected the pinned Balatro.love; re-supply with
+#   nix-store --add-fixed sha256 src/Balatro.love
+# and keep `just gc-roots` registered so GC can't take the pins again).
+[ -n "$GLB" ] && [ -d "$GLB" ] || { echo "[gen] FATAL: gameLoveBase nix-build failed — see errors above" >&2; exit 1; }
 mkdir -p "$B"; cp -r "$GLB"/. "$B"; chmod -R u+w "$B"
 
 echo "[gen] sourcing build.sh apply_* (without main)..."

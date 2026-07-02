@@ -18,7 +18,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 GAME_DIR="$PROJECT_DIR/build/game"
 OUT_DIR="$PROJECT_DIR/build/page-cycle-test"
 
-[[ -f "$GAME_DIR/main.lua" ]] || { echo "[pcycle] build/game missing — run ./scripts/build.sh build first" >&2; exit 2; }
+[[ -f "$GAME_DIR/main.lua" ]] || { echo "[pcycle] build/game missing — run just build first" >&2; exit 2; }
 for tool in love xvfb-run; do
     command -v "$tool" >/dev/null || { echo "[pcycle] $tool not on PATH — run inside nix-shell" >&2; exit 2; }
 done

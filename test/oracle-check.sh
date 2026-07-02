@@ -26,7 +26,7 @@ done
 [[ -f "$BASELINES" ]] || { echo "[ocheck] baselines file missing: $BASELINES" >&2; exit 2; }
 [[ -f "$ORACLE"    ]] || { echo "[ocheck] oracle runner missing: $ORACLE" >&2; exit 2; }
 [[ -f "$PROJECT_DIR/build/game/main.lua" ]] || {
-    echo "[ocheck] build/game missing — run ./scripts/build.sh build first" >&2
+    echo "[ocheck] build/game missing — run just build first" >&2
     exit 2
 }
 for tool in love xvfb-run; do
@@ -119,4 +119,10 @@ for r in "${results[@]}"; do
 done
 echo "[ocheck] ──────────────────────────────────────────────"
 
+# Zero verified baselines must not read as success — an empty/missing baselines
+# file (or every case skipping) would otherwise exit green having checked nothing.
+if [[ $pass -eq 0 ]]; then
+    echo "[ocheck] ERROR: no baselines passed verification ($total processed, $skip skipped) — refusing to report success" >&2
+    exit 1
+fi
 [[ $fail -eq 0 ]]
