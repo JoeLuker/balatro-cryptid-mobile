@@ -24,7 +24,7 @@ GAME_DIR="$PROJECT_DIR/build/game"
 OUT_DIR="$PROJECT_DIR/build/lazy-shader-elision"
 
 [[ -f "$GAME_DIR/main.lua" ]] || {
-    echo "[elide] build/game missing — run ./scripts/build.sh build first" >&2
+    echo "[elide] build/game missing — run just build first" >&2
     exit 2
 }
 for tool in love xvfb-run; do
@@ -41,7 +41,7 @@ done
 if ! grep -q "DRAW_SHADER_NIL_RESET" "$GAME_DIR/engine/sprite.lua" 2>/dev/null; then
     echo "[elide] FAIL DRAW_SHADER_NIL_RESET sentinel missing from" \
          "build/game/engine/sprite.lua" >&2
-    echo "[elide] Re-run ./scripts/build.sh build to apply" \
+    echo "[elide] Re-run just build to apply" \
          "apply_draw_shader_nil_reset" >&2
     exit 1
 fi

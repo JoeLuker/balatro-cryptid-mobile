@@ -19,7 +19,7 @@ GAME_DIR="$PROJECT_DIR/build/game"
 OUT_DIR="$PROJECT_DIR/build/smoke"
 
 if [[ ! -f "$GAME_DIR/main.lua" ]]; then
-    echo "[smoke] build/game missing — run ./scripts/build.sh build first" >&2
+    echo "[smoke] build/game missing — run just build first" >&2
     exit 2
 fi
 for tool in love xvfb-run; do

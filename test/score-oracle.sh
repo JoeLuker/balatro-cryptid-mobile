@@ -33,7 +33,7 @@ ORACLE_HAND="${ORACLE_HAND:-S_A,H_A,D_A,C_A,S_K}"
 ORACLE_JOKERS="${ORACLE_JOKERS:-}"
 
 [[ -f "$GAME_DIR/main.lua" ]] || {
-    echo "[oracle] build/game missing — run ./scripts/build.sh build first" >&2
+    echo "[oracle] build/game missing — run just build first" >&2
     exit 2
 }
 for tool in love xvfb-run; do

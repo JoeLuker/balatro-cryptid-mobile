@@ -17,7 +17,7 @@ GAME_DIR="$PROJECT_DIR/build/game"
 OUT_DIR="$PROJECT_DIR/build/warp-repro"
 SAVE_SRC="${1:?usage: test/warp-repro.sh <save-dir with M1/ and settings.jkr>}"
 
-[[ -f "$GAME_DIR/main.lua" ]] || { echo "[warp] build/game missing — run ./scripts/build.sh build first" >&2; exit 2; }
+[[ -f "$GAME_DIR/main.lua" ]] || { echo "[warp] build/game missing — run just build first" >&2; exit 2; }
 [[ -d "$SAVE_SRC/M1" ]] || { echo "[warp] $SAVE_SRC has no M1/ profile dir" >&2; exit 2; }
 for tool in love xvfb-run; do
     command -v "$tool" >/dev/null || { echo "[warp] $tool not on PATH — run inside nix-shell" >&2; exit 2; }

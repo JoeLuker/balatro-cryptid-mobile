@@ -29,7 +29,20 @@ build:
     echo "[build] signing APK…"
     nix/sign.sh build/balatro-cryptid.apk
     mkdir -p build/apk; cp build/balatro-cryptid.apk build/apk/com.unofficial.balatro.cryptid.apk
+    echo "[build] refreshing GC roots for the pinned inputs…"
+    just gc-roots
     echo "[build] done → build/balatro-cryptid.apk, build/game"
+
+# Register durable nix GC roots for EVERY pinned input in nix/sources.json
+# (Balatro.love, base.apk, all mods). Without these, nix-collect-garbage can
+# collect the pins out from under the build — on 2026-07-02 a GC ate the
+# requireFile'd Balatro.love (manual re-supply: nix-store --add-fixed sha256
+# src/Balatro.love) and the rebuild's Android SDK. Idempotent and near-instant
+# when everything is already realized; re-run after any re-pin.
+gc-roots:
+    mkdir -p ~/.local/share/balatro-gcroots
+    nix-build nix/sources.nix -o ~/.local/share/balatro-gcroots/src >/dev/null
+    @echo "[gc-roots] pinned inputs rooted at ~/.local/share/balatro-gcroots/"
 
 # Deploy to connected phone. Installs build/apk only — mod code is baked into
 # the APK (embed_zip in nix/balatro-cryptid.nix), never pushed separately.
