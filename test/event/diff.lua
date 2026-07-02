@@ -14,7 +14,9 @@ local N_SEEDS = tonumber(arg and arg[1]) or 300
 local N_TICKS = tonumber(arg and arg[2]) or 120
 
 local ROOT = (arg and arg[0] or ''):match('^(.*)/test/event/diff%.lua$') or '.'
-local ORIG = ROOT .. '/src/dump/engine/event.lua'
+-- ORIG = the COMMITTED pinned pre-patch tree (vendor/dump), not the gitignored
+-- desktop dump (src/dump, retired) — so the soak runs on a fresh clone too.
+local ORIG = ROOT .. '/vendor/dump/engine/event.lua'
 local PATCHED = ROOT .. '/build/game/engine/event.lua'
 
 -- ── minimal world ───────────────────────────────────────────────────────
