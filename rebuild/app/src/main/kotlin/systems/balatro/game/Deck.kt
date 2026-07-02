@@ -127,6 +127,8 @@ class Deck(seed: Long) {
     val enhancedCards: Int get() = all.count { it.enhancement != Enhancement.NONE }
 
     val remaining: Int get() = drawPile.size
+    /** Total cards in the whole deck (#G.playing_cards) — hand fan-spacing caps to this. */
+    val totalCards: Int get() = all.size
 
     /** The full persistent deck (with enhancements/seals) — for run serialization. */
     fun composition(): List<PlayingCard> = all.toList()
