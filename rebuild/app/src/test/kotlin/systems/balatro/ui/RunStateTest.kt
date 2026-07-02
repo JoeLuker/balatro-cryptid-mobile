@@ -127,6 +127,7 @@ class RunStateTest {
         var hits = 0
         repeat(40) {
             rs.consumables.clear()                              // always leave room so only the roll gates it
+            rs.shopBoosters = listOf(pack)                      // re-stage each open (buyBooster is identity-gated)
             rs.buyBooster(pack)
             if (rs.consumables.any { it is Consumable.TarotC }) hits++
         }
@@ -137,7 +138,7 @@ class RunStateTest {
         val rs = RunState()
         rs.money = 100_000
         val pack = BoosterOffer("p_arcana", "Arcana Pack", "Arcana", 0, 3, 1)
-        repeat(10) { rs.consumables.clear(); rs.buyBooster(pack) }
+        repeat(10) { rs.consumables.clear(); rs.shopBoosters = listOf(pack); rs.buyBooster(pack) }
         assertTrue("no Joker → no pack-open Tarot", rs.consumables.none { it is Consumable.TarotC })
     }
 

@@ -88,6 +88,7 @@ class DeckVariantTest {
     @Test fun buyingAShopSpectralHoldsItInASlot() {
         val rs = RunState(); rs.pickDeck(DeckVariant.GHOST); rs.money = 100
         val before = rs.consumables.size
+        rs.shopItems = listOf(ShopItem.Sp(Spectral.SIGIL))   // stage as live offer (paid buys are gated)
         rs.buySpectral(Spectral.SIGIL)
         assertEquals(before + 1, rs.consumables.size)
         assertTrue(rs.consumables.any { it is Consumable.SpectralC && (it as Consumable.SpectralC).s == Spectral.SIGIL })

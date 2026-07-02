@@ -25,7 +25,9 @@ class EconomyTest {
     @Test fun buySpendsTheDiscountedCost() {
         val rs = RunState().apply { money = 20; discountPercent = 25 }
         val before = rs.owned.size
-        rs.buy(offer("j_joker", cost = 10))            // price = 7
+        val o = offer("j_joker", cost = 10)
+        rs.shopItems = listOf(ShopItem.Jk(o))          // stage as live offer (paid buys are identity-gated)
+        rs.buy(o)                                      // price = 7
         assertEquals(13, rs.money)
         assertEquals(before + 1, rs.owned.size)
     }
@@ -33,7 +35,9 @@ class EconomyTest {
     @Test fun buyIsRefusedWhenUnaffordable() {
         val rs = RunState().apply { money = 5 }
         val before = rs.owned.size
-        rs.buy(offer("j_joker", cost = 10))            // 10 > 5 → no purchase
+        val o = offer("j_joker", cost = 10)
+        rs.shopItems = listOf(ShopItem.Jk(o))
+        rs.buy(o)                                      // 10 > 5 → no purchase
         assertEquals(5, rs.money)
         assertEquals(before, rs.owned.size)
     }
