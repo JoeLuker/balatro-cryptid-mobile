@@ -35,6 +35,8 @@ class RunStateRoundTripTest {
         rs.tags.add(Tag.INVESTMENT); rs.tags.add(Tag.JUGGLE)
         rs.consumables.add(Consumable.PlanetC(Planet.MERCURY))
         rs.baseHandSize = 9
+        rs.consumableSlotsBonus = 2
+        rs.jokersSold.add("j_gros_michel")
         return rs
     }
 
@@ -70,6 +72,42 @@ class RunStateRoundTripTest {
         assertEquals(orig.rarity, got.rarity)
         assertEquals("the Offer edition (cosmetic) survives too", Edition.FOIL, gotOwned.offer.edition)
         assertEquals("Gift Card sell-value bonus (Owned.sellBonus) must survive reload", 9, gotOwned.sellBonus)
+    }
+
+    /** Run-lifetime counters (docs/REVIEW-2026-07-01.md: previously never persisted) must survive
+     *  reload. Most have private setters, so this drives restore() from a handcrafted snapshot and
+     *  asserts snapshot() reads the same values back — proving both directions of the bridge. */
+    @Test fun runLifetimeCountersSurviveReload() {
+        val snap = RunSnapshot(
+            blindIndex = 5, money = 42, jokers = emptyList(), deck = emptyList(),
+            handLevels = emptyMap(), shopSlotsBonus = 0, discountPercent = 0, interestCap = 5,
+            baseHands = 4, baseDiscards = 3, rerollBase = 5,
+            redeemedVouchers = emptyList(), tags = emptyList(),
+            consumableSlotsBonus = 2,
+            handPlayed = mapOf("PAIR" to 7, "FLUSH" to 2),
+            totalHandsPlayed = 9, runHighScore = 1234.5,
+            totalChipsScored = 9876.0, totalCardsPlayed = 41,
+            totalCardsDiscarded = 17, totalCardsPurchased = 6,
+            rerolls = 3, runSeed = "ABCD1234", jokersSold = listOf("j_joker", "j_cry_kidnap"),
+            bossesUsed = mapOf("THE_HOOK" to 1), anteBossFor = 2, anteBoss = "THE_HOOK",
+        )
+        val b = RunState()
+        b.restore(RunSnapshot.decode(snap.encode()))
+        val out = b.snapshot()
+        assertEquals(2, out.consumableSlotsBonus)
+        assertEquals(mapOf("PAIR" to 7, "FLUSH" to 2), out.handPlayed)
+        assertEquals(9, out.totalHandsPlayed)
+        assertEquals(1234.5, out.runHighScore, 0.0)
+        assertEquals(9876.0, out.totalChipsScored, 0.0)
+        assertEquals(41, out.totalCardsPlayed)
+        assertEquals(17, out.totalCardsDiscarded)
+        assertEquals(6, out.totalCardsPurchased)
+        assertEquals(3, out.rerolls)
+        assertEquals("ABCD1234", out.runSeed)
+        assertEquals(listOf("j_joker", "j_cry_kidnap"), out.jokersSold)
+        assertEquals(mapOf("THE_HOOK" to 1), out.bossesUsed)
+        assertEquals(2, out.anteBossFor)
+        assertEquals("THE_HOOK", out.anteBoss)
     }
 
     /** A save taken mid-shop must resume the EXACT post-roll stock (jokers/planets/tarots, the voucher,

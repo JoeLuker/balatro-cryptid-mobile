@@ -88,6 +88,18 @@ data class RunSnapshot(
     val bossesUsed: Map<String, Int> = emptyMap(),
     val anteBossFor: Int = 0,                  // ante the cached pick belongs to (0 = none)
     val anteBoss: String? = null,              // Boss enum name of the cached pick
+    // run-lifetime state (docs/REVIEW-2026-07-01.md: silently lost on save/reload before this)
+    val consumableSlotsBonus: Int = 0,         // Crystal Ball voucher / Magic & Nebula decks
+    val handPlayed: Map<String, Int> = emptyMap(),  // G.GAME.hands[h].played (Ox/Obelisk/telescope/most-played)
+    val totalHandsPlayed: Int = 0,             // joker cadence (Clockwork %3, Wraith, lucky seeds)
+    val runHighScore: Double = 0.0,            // best round total this run (lifetime-stats)
+    val totalChipsScored: Double = 0.0,        // G.GAME.round_scores['hand'].amt
+    val totalCardsPlayed: Int = 0,             // round_scores['cards_played'].amt
+    val totalCardsDiscarded: Int = 0,          // round_scores['cards_discarded'].amt
+    val totalCardsPurchased: Int = 0,          // round_scores['cards_purchased'].amt
+    val rerolls: Int = 0,                      // global reroll counter (run-info stat + reroll-stock RNG)
+    val runSeed: String = "",                  // display seed ("" on old saves → keep the generated one)
+    val jokersSold: List<String> = emptyList(),  // G.GAME.jokers_sold (Necromancer / Kidnap)
     val schemaVersion: Int = SCHEMA_VERSION,   // bump on a breaking change; lets future loads migrate
 ) {
     fun encode(): String = JSON.encodeToString(this)
