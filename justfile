@@ -34,12 +34,24 @@ build:
     [ -f build/game/lovely.lua ] && cp build/game/lovely.lua build/phone-transfer/lovely.lua || true
     echo "[build] done → build/balatro-cryptid.apk, build/game, build/phone-transfer"
 
-# Deploy APK and mods to connected phone (installs build/apk + pushes build/phone-transfer)
+# Deploy to connected phone. Installs build/apk only — mod code is baked into
+# the APK (embed_zip in nix/balatro-cryptid.nix), never pushed separately.
+# Only per-mod config.lua files already on-device are preserved; everything
+# else under the save-dir Mods/ folder is cleaned up so it can't shadow the
+# fresh APK build.
 deploy:
     ./scripts/build.sh deploy
 
 # Full pipeline: build (Nix) + deploy
 all: build deploy
+
+# Headless Android-emulator test of the BUILT APK (build/apk) - ARM->x86
+# translation, no phone needed. Boots to menu, checks for crash markers, and
+# runs the baked-in emulator smoke-check (patches/emulator-smoke-check.lua)
+# for specific in-game regressions. First run downloads a multi-GB Android
+# SDK + system image via Nix. ~2-5 min. Pass --keep to leave the emulator up.
+test-emulator *args:
+    nix-shell test/emulator/shell.nix --run './test/emulator/run.sh {{args}}'
 
 # Watch app logs from connected phone
 logs:

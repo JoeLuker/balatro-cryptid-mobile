@@ -2,14 +2,18 @@
 set -euo pipefail
 
 # Headless Android-emulator test of the BUILT APK: boots an x86_64 AVD (with
-# ARM->x86 translation for our arm64 libs), installs build/apk/*.apk, mirrors
-# the phone deploy (run-as push of phone-transfer), launches GameActivity,
-# asserts the process survives and logcat is crash-free, and screencaps.
+# ARM->x86 translation for our arm64 libs), installs build/apk/*.apk, arms
+# the baked-in emulator smoke-check (patches/emulator-smoke-check.lua - a
+# battery of specific regression assertions, e.g. "is the sleeve RunSelect
+# page actually registered and localized", dormant on every real
+# device/player build), launches GameActivity, asserts the process survives,
+# logcat is crash-free, and the smoke-check's own assertions all pass.
 #
 # This tests what the desktop smoke (test/smoke.sh) cannot: the APK itself —
 # apktool repack, signing, manifest, the love-android runtime booting our
-# game.love — plus the real deploy flow. It does NOT test Mali GPU behaviour
-# (SwiftShader rendering) or touch feel.
+# game.love — plus specific in-game regressions, without a human doing
+# manual on-device diagnosis for each one. It does NOT test Mali GPU
+# behaviour (SwiftShader rendering) or touch feel.
 #
 # Usage: nix-shell test/emulator/shell.nix --run 'test/emulator/run.sh [--keep]'
 #   --keep  leave the emulator running afterwards (reattach with
@@ -21,7 +25,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 APK="$PROJECT_DIR/build/apk/com.unofficial.balatro.cryptid.apk"
-TRANSFER="$PROJECT_DIR/build/phone-transfer"
 OUT="$PROJECT_DIR/build/emulator"
 PKG="systems.shorty.lmm"
 AVD_NAME="balatro-test"
@@ -30,7 +33,6 @@ SERIAL="emulator-$PORT"
 KEEP="${1:-}"
 
 [[ -f "$APK" ]] || { echo "[emu] $APK missing — run ./scripts/build.sh build first" >&2; exit 2; }
-[[ -d "$TRANSFER" ]] || { echo "[emu] $TRANSFER missing — run ./scripts/build.sh build first" >&2; exit 2; }
 command -v emulator >/dev/null || { echo "[emu] emulator not on PATH — run inside nix-shell test/emulator/shell.nix" >&2; exit 2; }
 
 mkdir -p "$OUT"
@@ -83,11 +85,19 @@ step "installing APK..."
 adb -s "$SERIAL" uninstall "$PKG" >/dev/null 2>&1 || true
 adb -s "$SERIAL" install -r "$APK"
 
-step "pushing mods (mirrors phone deploy)..."
-adb -s "$SERIAL" shell "rm -rf /data/local/tmp/balatro_mods" >/dev/null 2>&1 || true
-adb -s "$SERIAL" push "$TRANSFER" /data/local/tmp/balatro_mods >/dev/null
-adb -s "$SERIAL" shell "run-as $PKG mkdir -p files/save"
-adb -s "$SERIAL" shell "run-as $PKG cp -r /data/local/tmp/balatro_mods/* files/save/"
+# MODS_BAKED_IN_ONLY (2026-07-01): mod code lives ONLY in the APK's embedded
+# game.love now (see scripts/build.sh's deploy() and the commit that fixed
+# it) - a save-dir Mods/ push here would be exactly the same code-shadowing
+# hazard that cost a whole session chasing "why doesn't my patch show up"
+# on the phone. Nothing to push: this is always a fresh uninstall+install,
+# so there's no stale save-dir content to preserve either.
+step "arming emulator smoke-check..."
+# love.filesystem's own save identity is files/save/game/ (where
+# telemetry.log, settings.jkr etc. already live) - NOT files/save/ directly
+# (that's the separate Mods/ overlay path lovely.lua points mod_dir at).
+adb -s "$SERIAL" shell "run-as $PKG mkdir -p files/save/game"
+adb -s "$SERIAL" shell "run-as $PKG sh -c 'touch files/save/game/EMULATOR_SMOKE_TEST'"
+adb -s "$SERIAL" shell "run-as $PKG sh -c 'rm -f files/save/game/emulator_smoke_results.txt'"
 
 # ------------------------------------------------------------------- launch
 step "launching..."
@@ -147,6 +157,32 @@ if grep -aiE "FATAL EXCEPTION|AndroidRuntime.*$PKG" "$OUT/logcat.txt" | head -3 
 fi
 step "final screenshot: $OUT/emu.png"
 
+# ---------------------------------------------------------- smoke-check
+# emulator-smoke-check.lua writes its results ~5s after reaching the menu;
+# the poll loop above already waited at least one 30s tick past that once it
+# broke on a menu-like frame, so this should already exist - a short retry
+# covers the case where the menu-verdict frame landed right at the 5s edge.
+step "reading smoke-check results..."
+smoke_ok=false
+for _ in 1 2 3; do
+    if adb -s "$SERIAL" shell "run-as $PKG cat files/save/game/emulator_smoke_results.txt" \
+        > "$OUT/smoke_results.txt" 2>/dev/null && [[ -s "$OUT/smoke_results.txt" ]]; then
+        smoke_ok=true
+        break
+    fi
+    sleep 3
+done
+if $smoke_ok; then
+    sed 's/^/[emu][smoke] /' "$OUT/smoke_results.txt"
+    if ! grep -q "^OVERALL PASS" "$OUT/smoke_results.txt"; then
+        echo "[emu] FAIL: smoke-check assertions failed (see $OUT/smoke_results.txt)" >&2
+        pass=false
+    fi
+else
+    echo "[emu] FAIL: emulator_smoke_results.txt never appeared (smoke-check didn't run or never reached menu)" >&2
+    pass=false
+fi
+
 # ------------------------------------------------------------------ cleanup
 if [[ "$KEEP" != "--keep" ]]; then
     step "shutting emulator down (pass --keep to leave it running)"
@@ -156,7 +192,7 @@ else
 fi
 
 if $pass; then
-    echo "[emu] PASS — APK installed, booted, reached menu at ~${elapsed:-?}s, no crash markers (log: $OUT/logcat.txt)"
+    echo "[emu] PASS — APK installed, booted, reached menu at ~${elapsed:-?}s, no crash markers, smoke-check assertions all passed (log: $OUT/logcat.txt, smoke: $OUT/smoke_results.txt)"
     exit 0
 fi
 echo "[emu] FAIL (log: $OUT/logcat.txt, emulator log: $OUT/emulator.log)" >&2

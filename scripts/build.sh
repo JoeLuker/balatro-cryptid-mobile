@@ -442,8 +442,10 @@ return {
     if type(content) ~= 'string' then return content end
     if name ~= 'GLSL_ES_PATCHES.fs' then return content end
     local s = content
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
-    s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+    -- boundary excludes '_' too (Lua %w doesn't cover it) — see nix/balatro-cryptid.nix
+    -- for why (69741e8: astral shader failed to compile without this).
+    s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
+    s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
     s = s:gsub('([%s({])int([%s([])', '%1 float%2')
     s = s:gsub('(__%w+__%s*[<>]%s*%d+)%.', '%1')
     s = s:gsub('([%d.]e%-?%d+)%.', '%1')
@@ -2587,6 +2589,13 @@ deploy() {
         exit 1
     fi
     log_info "Deploying to device: $device"
+    # Every subsequent bare `adb` call in this function relies on there being
+    # exactly one attached device — false whenever both a USB and a wireless
+    # connection are up at once (hit 2026-07-01: adb refused with "more than
+    # one device/emulator"). ANDROID_SERIAL makes them all target the one we
+    # already picked and gated above, instead of silently depending on adb's
+    # own default-device rules.
+    export ANDROID_SERIAL="$device"
 
     # Install APK
     local apk_file="$BUILD_DIR/apk/$PACKAGE_ID.apk"
@@ -2595,28 +2604,30 @@ deploy() {
         adb install -r "$apk_file"
     fi
 
-    # Push mod files
-    log_info "Pushing mod files..."
-    local transfer_dir="$BUILD_DIR/phone-transfer"
-    local temp_dir="/data/local/tmp/balatro_mods"
-
-    adb shell "rm -rf $temp_dir" 2>/dev/null || true
-    adb push "$transfer_dir" "$temp_dir"
-
-    # Copy to app's internal storage — preserving on-device mod CONFIG files:
-    # Talisman (and any mod using an in-folder config.lua) writes user settings
-    # into files/save/Mods/<mod>/config.lua, and a blind cp -r clobbers them on
-    # every deploy (Joe's Talisman settings were wiped ~10x in one night).
-    # Back configs up before the overlay, restore after.
-    adb shell "run-as $INSTALLED_PACKAGE_ID mkdir -p files/save"
-    adb shell "run-as $INSTALLED_PACKAGE_ID sh -c 'cd files/save 2>/dev/null && find Mods -name config.lua 2>/dev/null | while read f; do cp \"\$f\" \"\$f.keep\"; done'" 2>/dev/null || true
-    adb shell "run-as $INSTALLED_PACKAGE_ID cp -r $temp_dir/* files/save/"
-    adb shell "run-as $INSTALLED_PACKAGE_ID sh -c 'cd files/save 2>/dev/null && find Mods -name config.lua.keep 2>/dev/null | while read f; do mv \"\$f\" \"\${f%.keep}\"; done'" 2>/dev/null || true
+    # MODS_BAKED_IN_ONLY (2026-07-01): mod code lives ONLY in the APK's embedded
+    # game.love (nix/balatro-cryptid.nix's embed_zip) from here on out — never a
+    # second, writable copy under files/save/Mods. A prior deploy() pushed a
+    # full mirror of Mods/ into the save dir on every run so it could shadow the
+    # embedded copy for fast iteration; that shadow is exactly what cost an
+    # entire session chasing "why doesn't my patch show up" before it was traced
+    # to stale/misdirected save-dir state. There is now exactly one place mod
+    # code can come from: the APK just installed above.
+    #
+    # Per-mod user settings (Steamodded's config.lua convention — e.g. Talisman,
+    # CardSleeves) DO need to persist across deploys and are NOT touched here:
+    # LÖVE's filesystem overlay resolves each file independently, so a
+    # files/save/Mods/<mod>/config.lua left in place is read instead of the
+    # embedded default while files/save/Mods/<mod>/<Mod>.lua (deliberately never
+    # written here) falls through to the embedded copy. One-time cleanup below
+    # removes any stale CODE files a previous build's deploy left behind, so
+    # they stop shadowing the fresh APK; config.lua files are left untouched.
+    log_info "Cleaning stale mod code from save dir (configs preserved)..."
+    adb shell "run-as $INSTALLED_PACKAGE_ID sh -c 'cd files/save 2>/dev/null && find Mods -type f ! -name config.lua -delete 2>/dev/null; find Mods -depth -type d -empty -delete 2>/dev/null'" 2>/dev/null || true
 
     # Verify
     log_info "Verifying deployment..."
-    local file_count=$(adb shell "run-as $INSTALLED_PACKAGE_ID ls files/save/ | wc -l")
-    log_success "Deployed $file_count items to device"
+    local remaining=$(adb shell "run-as $INSTALLED_PACKAGE_ID find files/save/Mods -type f 2>/dev/null | wc -l")
+    log_success "APK installed; $remaining config file(s) preserved under files/save/Mods"
 
     # Launch app — force-stop and wait for the old instance to die first, so the
     # new build is what loads and we don't hit LÖVE's "filesystem already

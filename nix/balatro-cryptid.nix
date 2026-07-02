@@ -97,7 +97,7 @@ let
       done
 
       echo "[love] owned standalone modules"
-      for m in android-telemetry trigger-collapse idle-joker-perf lazy-shader; do
+      for m in android-telemetry trigger-collapse idle-joker-perf lazy-shader emulator-smoke-check; do
         cp --no-preserve=mode ${patchesDir}/$m.lua ./$m.lua
       done
 
@@ -129,9 +129,12 @@ let
           if type(content) ~= 'string' then return content end
           if name ~= 'GLSL_ES_PATCHES.fs' then return content end
           local s = content
-          -- int literals -> float (twice: adjacent literals share boundary chars)
-          s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
-          s = s:gsub('([^%w.])(%d+)([^%w.])', '%1%2.%3')
+          -- int literals -> float (twice: adjacent literals share boundary chars). Boundary
+          -- excludes '_' too (Lua %w doesn't cover it) so identifiers like burn_colour_1 don't
+          -- get a digit-boundary match inserted mid-identifier (69741e8: caused a GLSL syntax
+          -- error -> shader failed to compile -> SMODS fell back to the raw shader).
+          s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
+          s = s:gsub('([^%w._])(%d+)([^%w._])', '%1%2.%3')
           -- int type -> float in cast/array/decl contexts
           s = s:gsub('([%s({])int([%s([])', '%1 float%2')
           -- cleanups (undo false positives the above introduces)

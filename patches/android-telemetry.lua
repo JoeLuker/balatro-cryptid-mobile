@@ -1108,6 +1108,21 @@ function Game:start_run(args)
         seed = seed or "unknown",
         challenge = args and args.challenge and "true" or "false"
     })
+    -- CONFIG: Cryptid gameset resolution is invisible everywhere else — it's read
+    -- from G.PROFILES[profile], not G.SETTINGS, and defaults silently to "mainline"
+    -- when unset (e.g. the modest/mainline/madness intro was never confirmed). Log
+    -- both the raw per-profile field (nil if the intro never ran) and the resolved
+    -- value every gameset-gated joker actually uses, so a report like "X only
+    -- triggers under condition Y" is answerable from the log, not a manual
+    -- adb pull + save-file decompress.
+    local prof = G.SETTINGS and G.SETTINGS.profile
+    local pdata = prof and G.PROFILES and G.PROFILES[prof]
+    tel("CONFIG", {
+        profile = prof or "unknown",
+        cry_gameset_raw = (pdata and pdata.cry_gameset) or "nil",
+        cry_gameset_effective = (Cryptid and Cryptid.gameset and Cryptid.gameset()) or "unknown",
+        cry_intro_state = (pdata and pdata.cry_intro_progress and pdata.cry_intro_progress.state) or "nil",
+    })
     return _original_start_run(self, args)
 end
 
@@ -1132,7 +1147,8 @@ G.FUNCS.sell_card = function(e)
     if card then
         tel("SELL", {
             card = card.config and card.config.center and card.config.center.key or "unknown",
-            value = card.sell_cost or 0
+            value = card.sell_cost or 0,
+            gameset = (Cryptid and Cryptid.gameset and Cryptid.gameset()) or "unknown"
         })
     end
     return _original_sell(e)

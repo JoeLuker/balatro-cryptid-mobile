@@ -614,6 +614,20 @@ if love.system.getOS() == 'Android' then
 end
 """
 
+    if '-- Emulator smoke-check: load after everything else' not in content:
+        content += """
+-- Emulator smoke-check: load after everything else so RunSelect pages and
+-- localization are fully registered by the time it runs its checks. Dormant
+-- on every real device/player build (self-gates on an EMULATOR_SMOKE_TEST
+-- marker file test/emulator/run.sh pushes before launch) - see
+-- patches/emulator-smoke-check.lua.
+local esc_ok, esc_err = pcall(function()
+    local chunk = love.filesystem.load('emulator-smoke-check.lua')
+    if chunk then chunk() end
+end)
+if not esc_ok then print('[ESC] LOAD_FAILED error=' .. tostring(esc_err)) end
+"""
+
     # 12. (removed) DEBUGPLUS_CONSOLE_DISABLED — DebugPlus is cut from the build;
     # the dump is regenerated without it (nix/regen-dump.sh + stage-mods.sh), so
     # console.doConsoleRender() no longer exists in main.lua and needs no neutralizing.
