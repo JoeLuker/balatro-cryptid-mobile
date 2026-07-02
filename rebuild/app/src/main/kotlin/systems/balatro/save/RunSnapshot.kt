@@ -84,6 +84,10 @@ data class RunSnapshot(
     val omenGlobe: Boolean = false,
     val cardRate: Double = 0.0,
     val illusion: Boolean = false,
+    // boss selection (get_new_boss port): per-boss pick counts + the current ante's cached pick
+    val bossesUsed: Map<String, Int> = emptyMap(),
+    val anteBossFor: Int = 0,                  // ante the cached pick belongs to (0 = none)
+    val anteBoss: String? = null,              // Boss enum name of the cached pick
     val schemaVersion: Int = SCHEMA_VERSION,   // bump on a breaking change; lets future loads migrate
 ) {
     fun encode(): String = JSON.encodeToString(this)
