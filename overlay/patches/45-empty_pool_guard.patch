@@ -1,8 +1,8 @@
 diff --git a/functions/common_events.lua b/functions/common_events.lua
-index 2556a72..925ef40 100644
+index b31565f..9c5b7c5 100644
 --- a/functions/common_events.lua
 +++ b/functions/common_events.lua
-@@ -2557,6 +2557,15 @@ function create_card(_type, area, legendary, _rarity, skip_materialize, soulable
+@@ -2559,6 +2559,15 @@ function create_card(_type, area, legendary, _rarity, skip_materialize, soulable
          end
  
          center = G.P_CENTERS[center]

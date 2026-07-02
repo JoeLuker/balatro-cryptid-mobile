@@ -1,8 +1,8 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index 86eda6e..57ea719 100644
+index ee4e11d..4238104 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -2521,6 +2521,7 @@ function create_UIBox_settings()
+@@ -2524,6 +2524,7 @@ function create_UIBox_settings()
      tab_definition_function_args = 'Audio'
    }
  
@@ -10,7 +10,7 @@ index 86eda6e..57ea719 100644
    local t = create_UIBox_generic_options({back_func = 'options',contents = {create_tabs(
      {tabs = tabs,
      tab_h = 7.05,
-@@ -2531,7 +2532,16 @@ return t
+@@ -2534,7 +2535,16 @@ return t
  end
  
  function G.UIDEF.settings_tab(tab)

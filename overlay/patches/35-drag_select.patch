@@ -74,10 +74,10 @@ index d43e5f0..bff739e 100644
      if self.cursor_hover.target and self.cursor_hover.target.states.hover.can and (not self.HID.touch or self.is_cursor_down) and not ((self.HID.touch or self.HID.touch_env) and self.cursor_hover.target.area == G.hand and (self.cursor_down.duration or 0) < 0.2) then -- TAP_DESC_HOLDGATE 
          self.hovering.target = self.cursor_hover.target
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index 57ea719..6230cbf 100644
+index 4238104..7eedfbc 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -2551,6 +2551,7 @@ function G.UIDEF.settings_tab(tab)
+@@ -2554,6 +2554,7 @@ function G.UIDEF.settings_tab(tab)
        create_toggle({label = localize('ph_display_stickers'), ref_table = G.SETTINGS, ref_value = 'run_stake_stickers'}),
        create_toggle({label = localize('b_high_contrast_cards'), ref_table = G.SETTINGS, ref_value = 'colourblind_option', callback = G.FUNCS.refresh_contrast_mode}),
        create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),

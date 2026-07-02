@@ -1,5 +1,5 @@
 diff --git a/functions/common_events.lua b/functions/common_events.lua
-index e9a9628..645502e 100644
+index 5994809..eba26de 100644
 --- a/functions/common_events.lua
 +++ b/functions/common_events.lua
 @@ -573,11 +573,12 @@ function update_hand_text(config, vals)

@@ -2301,6 +2301,7 @@ function Game:start_run(args)
         end
     end
 
+    BANNERMOD.setup_game(not saveTable)
     G:save_settings()
 
     if not self.GAME.round_resets.blind_tags then

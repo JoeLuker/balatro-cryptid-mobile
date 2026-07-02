@@ -12,10 +12,10 @@ index 32d878f..62a5f48 100644
      draw = {
        checkpoint_list = {},
 diff --git a/game.lua b/game.lua
-index 2423983..34ac78a 100644
+index c1ac84c..7909a5b 100644
 --- a/game.lua
 +++ b/game.lua
-@@ -3262,11 +3262,12 @@ love.graphics.pop()
+@@ -3263,11 +3263,12 @@ love.graphics.pop()
  
      timer_checkpoint('canvas', 'draw')
  

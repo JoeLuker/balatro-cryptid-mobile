@@ -52,10 +52,10 @@ index 8f31dc5..02f9795 100644
      Node.remove(self)
  end
 diff --git a/game.lua b/game.lua
-index 4f535c4..85ea933 100644
+index fc0c368..11ea48e 100644
 --- a/game.lua
 +++ b/game.lua
-@@ -2877,15 +2877,29 @@ function Game:update(dt)
+@@ -2878,15 +2878,29 @@ function Game:update(dt)
  
          G.exp_times.max_vel = 70*move_dt
          

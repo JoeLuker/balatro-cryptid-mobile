@@ -1,5 +1,5 @@
 diff --git a/functions/common_events.lua b/functions/common_events.lua
-index 67fe808..efede1a 100644
+index b06a981..4d612bd 100644
 --- a/functions/common_events.lua
 +++ b/functions/common_events.lua
 @@ -1457,9 +1457,16 @@ function update_canvas_juice(dt)

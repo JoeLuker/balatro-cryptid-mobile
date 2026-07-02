@@ -23,10 +23,10 @@ index 8d41c82..13513df 100644
      for k, v in pairs(self.children) do 
          if k ~= 'animatedSprite' then
 diff --git a/card.lua b/card.lua
-index 55d3065..4e4a5d3 100644
+index 2514e6b..26279bc 100644
 --- a/card.lua
 +++ b/card.lua
-@@ -4960,6 +4960,8 @@ function Card:draw(layer)
+@@ -4963,6 +4963,8 @@ function Card:draw(layer)
          self.shadow_height = 0*(0.08 + 0.4*math.sqrt(self.velocity.x^2)) + ((((self.highlighted and self.area == G.play) or self.states.drag.is) and 0.35) or self.states.hover.is and 0.2 or (self.area and self.area.config.type == 'title_2') and 0.04 or 0.1) -- HOVER_SHADOW_HEIGHT
          G.shared_shadow:draw_shader('dissolve', self.shadow_height)
      end
@@ -35,7 +35,7 @@ index 55d3065..4e4a5d3 100644
  
      if (layer == 'card' or layer == 'both') and self.area ~= G.hand then 
          if self.children.focused_ui then self.children.focused_ui:draw() end
-@@ -5180,6 +5182,7 @@ function Card:draw(layer)
+@@ -5183,6 +5185,7 @@ function Card:draw(layer)
  
          add_to_drawhash(self)
          self:draw_boundingrect()

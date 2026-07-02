@@ -38,7 +38,7 @@ JSON = json
 
 SMODS.MODS_DIR = lovely_mod_dir:gsub("\\", "/")
 
-local lovely_path = [[/home/jluker/balatro-cryptid-mobile/.claude/worktrees/relaxed-elbakyan-1c44d4/build/dump-rig-pinned/Mods/Steamodded/]]
+local lovely_path = [[/home/jluker/balatro-cryptid-mobile/build/dump-rig-pinned/Mods/Steamodded/]]
 
 -- TODO: hanlde preflight dev correctly
 SMODS.path = assert(lovely_path, "Steamodded could not find itself"):gsub("\\", "/")

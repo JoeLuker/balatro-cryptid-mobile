@@ -1,8 +1,8 @@
 diff --git a/functions/UI_definitions.lua b/functions/UI_definitions.lua
-index a6334b2..fd314fc 100644
+index a2a833a..51fc536 100644
 --- a/functions/UI_definitions.lua
 +++ b/functions/UI_definitions.lua
-@@ -1787,10 +1787,10 @@ function create_UIBox_blind_choice(type, run_info)
+@@ -1790,10 +1790,10 @@ function create_UIBox_blind_choice(type, run_info)
    {n=G.UIT.R, config={id = type, align = "tm", func = 'blind_choice_handler', minh = not run_info and 10 or nil, ref_table = {deck = nil, run_info = run_info}, r = 0.1, padding = 0.05}, nodes={
      {n=G.UIT.R, config={align = "cm", colour = mix_colours(G.C.BLACK, G.C.L_BLACK, 0.5), r = 0.1, outline = 1, outline_colour = G.C.L_BLACK}, nodes={  
        {n=G.UIT.R, config={align = "cm", padding = 0.2}, nodes={
