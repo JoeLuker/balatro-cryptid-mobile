@@ -1,0 +1,73 @@
+diff --git a/Mods/CardSleeves/CardSleeves.lua b/Mods/CardSleeves/CardSleeves.lua
+index d706f11..f9a129e 100644
+--- a/Mods/CardSleeves/CardSleeves.lua
++++ b/Mods/CardSleeves/CardSleeves.lua
+@@ -2719,4 +2719,68 @@ G.FUNCS.your_collection_sleeves = function()
+ end
+ --#endregion
+
++--#region RunSelect compat (Steamodded's new-run picker no longer calls
++-- G.UIDEF.run_setup_option for the "New Run" tab - it now uses
++-- SMODS.RunSelectPage-registered pages exclusively (G.UIDEF.run_select_galdur
++-- in Mods/Steamodded/src/utils/run_select.lua). CardSleeves 1.9.2 predates
++-- that API and only wraps run_setup_option, which Steamodded still calls for
++-- "Continue" but not "New Run" - so the sleeve picker silently stopped
++-- appearing there. This registers a real page using the same primitives
++-- (create_sleeve_card, replace_sleeve_sprite) the rest of the mod already
++-- uses, rather than reimplementing sleeve rendering.
++if SMODS.RunSelectPage then
++    SMODS.RunSelectPage({
++        key = 'sleeve_choice',
++        type = 'Sleeve',
++        area_type = 'deck',
++        random_select = true,
++        -- generate_pool (lazy), not pool= (eager): G.P_CENTER_POOLS.Sleeve is a
++        -- CardSleeves-defined pool, not a vanilla one guaranteed to exist yet
++        -- at registration time - matches stake_choice's own pattern for the
++        -- same reason. Confirmed via crash.log: an eager `pool =` reference
++        -- here crashed create_page with "attempt to call local 'page_ui' (a
++        -- nil value)" - page_def.pool was nil when this page's UI first built.
++        generate_pool = function(self)
++            return G.P_CENTER_POOLS.Sleeve
++        end,
++        stack_size = 1,
++        quick_start_text = function()
++            local key = G.PROFILES[G.SETTINGS.profile].MEMORY.sleeve or "sleeve_casl_none"
++            return localize({type = 'name_text', set = 'Sleeve', key = key})
++        end,
++        set_default = function(self, choice)
++            if CardSleeves.Sleeve:get_obj(choice) then return choice end
++            return G.PROFILES[G.SETTINGS.profile].MEMORY.sleeve or "sleeve_casl_none"
++        end,
++        -- Overrides RunSelectPage's default handle_choice: the base version
++        -- unconditionally calls populate_preview_ui whenever
++        -- SMODS.RunSelect.Internals.preview_area is set - a GLOBAL, not
++        -- per-page, reference. deck_choice sets one up (automatic_preview =
++        -- true); this page never requests a preview area of its own, so that
++        -- reference is deck_choice's stale leftover by the time this page is
++        -- reached. Confirmed via crash.log: selecting a sleeve crashed with
++        -- "attempt to get length of local 't' (a nil value)" in remove_all,
++        -- called from populate_preview_ui, called from the base
++        -- handle_choice. This page doesn't need a live preview - the grid
++        -- card itself already shows the sleeve - so it just records the
++        -- choice directly (selection_limit is always 1 here).
++        handle_choice = function(self, choice, remove)
++            SMODS.RunSelect.Setup.choices[self.key] = remove and nil or choice.config.center.key
++        end,
++        create_selection_card = function(self, card_key, card_number, area)
++            local sleeve_center = CardSleeves.Sleeve:get_obj(card_key) or CardSleeves.Sleeve:get_obj("sleeve_casl_none")
++            local card = create_sleeve_card(area, sleeve_center)
++            replace_sleeve_sprite(card, sleeve_center)
++            return card
++        end,
++        start_run = function(self, choice)
++            choice = CardSleeves.Sleeve:get_obj(choice) and choice or "sleeve_casl_none"
++            G.GAME.selected_sleeve = choice
++            G.viewed_sleeve = choice
++            G.PROFILES[G.SETTINGS.profile].MEMORY.sleeve = choice
++        end,
++    })
++end
++--#endregion
++
+ print_info("CardSleeves v" .. SMODS.Mods.CardSleeves.version .. " loaded~!")

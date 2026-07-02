@@ -1,0 +1,25 @@
+diff --git a/Mods/CardSleeves/localization/en-us.lua b/Mods/CardSleeves/localization/en-us.lua
+index 17c536a..cdcb4d3 100644
+--- a/Mods/CardSleeves/localization/en-us.lua
++++ b/Mods/CardSleeves/localization/en-us.lua
+@@ -230,6 +230,20 @@ return {
+             k_sleeves = "Sleeves",
+             gald_sleeves = "Select Sleeve",
+             gald_random_sleeve = "Random Sleeve",
++            -- SMODS.RunSelect looks these up as run_select_<page.key> /
++            -- run_select_<page.key>_random (localize() calls in
++            -- run_select.lua's nav bar) - the gald_* keys above predate that
++            -- API and were never reachable from it, so the New Run nav
++            -- button showed a raw localize() error placeholder instead of a
++            -- label. Confirmed via a headless love/xvfb boot dumping
++            -- SMODS.RunSelect.Internals.pages directly: SMODS.GameObject
++            -- auto-prefixes a registered key with the mod's own prefix
++            -- ("casl"), so the page registered as key='sleeve_choice' is
++            -- actually 'casl_sleeve_choice' at runtime - these keys must
++            -- match that, not the un-prefixed key used in CardSleeves.lua's
++            -- own SMODS.RunSelectPage call.
++            run_select_casl_sleeve_choice = "Select Sleeve",
++            run_select_casl_sleeve_choice_random = "Random Sleeve",
+             sleeve_normal_effect_desc = "Some sleeves have unique effects when combined with specific decks",
+             sleeve_stacked_effect_desc = "Left or right click on a sleeve to cycle between stacked deck effects",
+             adjust_deck_alignment = "Stack deck pile",
