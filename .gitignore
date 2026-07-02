@@ -6,6 +6,13 @@
 /src/base.apk
 /src/dump
 
+# One-time readable extraction of src/Balatro.love (re-create: unzip -oq src/Balatro.love -d src/vanilla)
+# — the VANILLA reference tree for fidelity checks; vendor/dump is the modded/shipped tree.
+/src/vanilla
+
+# Kotlin compile-daemon crash logs (rebuild/) — regenerate on every daemon crash
+/rebuild/.kotlin/
+
 # Downloaded mods (can be re-fetched)
 /mods
 
