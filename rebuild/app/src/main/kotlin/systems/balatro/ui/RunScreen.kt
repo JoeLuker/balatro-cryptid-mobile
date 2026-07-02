@@ -2472,6 +2472,15 @@ private fun RunBody(onClose: () -> Unit, onRestart: () -> Unit, startScreen: Str
     val ctx = LocalContext.current
     val s = remember { RunState() }
     val saveFile = remember(ctx) { File(ctx.filesDir, SaveIo.FILE_NAME) }
+    // Every telemetry event carries the live run context while this screen exists —
+    // parity with the LÖVE build's run_ctx (ante/blind/money on every gameplay event).
+    DisposableEffect(s) {
+        Telemetry.runContext = {
+            listOf("ante" to s.ante, "money" to s.money,
+                   "boss" to (s.boss?.name ?: "none"), "phase" to s.phase.name)
+        }
+        onDispose { Telemetry.runContext = null }
+    }
     // Deep-link parity screenshots: --es screen blind|shop|play jumps to that phase (play auto-runs
     // a hand so the scoring cascade can be captured) on first composition. A NORMAL launch (no
     // startScreen) RESUMES the saved run if one exists (P4 SaveLoadThreadingModel).

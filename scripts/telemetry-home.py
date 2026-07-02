@@ -190,6 +190,12 @@ class Handler(BaseHTTPRequestHandler):
             body += "\n"
         with open(LOG_FILE, "a") as f:
             f.write(body)
+        # journald tee: every event also goes to stdout — under the systemd
+        # unit this flows journal → Alloy → Loki, so Grafana sees the live
+        # stream with zero extra infra (LogQL: {unit="user@1000.service"}
+        # |= "HAND_SCORE"). phone.log stays canonical.
+        sys.stdout.write(body)
+        sys.stdout.flush()
         self.send_response(204)
         self.end_headers()
         if OP_URL and OP_CLIENT:

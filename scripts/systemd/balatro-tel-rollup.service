@@ -1,0 +1,7 @@
+[Unit]
+Description=Balatro telemetry rollup — nightly digest to rollup.json + NATS balatro.stats.rollup
+Wants=nats.service
+
+[Service]
+Type=oneshot
+ExecStart=/etc/profiles/per-user/jluker/bin/python3 /home/jluker/balatro-cryptid-mobile/scripts/telemetry-rollup.py --publish nats://127.0.0.1:4222
