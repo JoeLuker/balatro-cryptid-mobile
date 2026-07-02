@@ -904,3 +904,35 @@ Porting a single joker can touch scoring (`RunScreen.kt`), registration (`JokerM
 ### Balatro source structure as the fidelity oracle
 The session established that the rebuild should be checked against actual Balatro Lua source structure (create_UIBox_* / CardArea / detailed_tooltip patterns) rather than approximated by eye. Porting from source structure is the method; screenshots only verify.
 <!-- session:2026-06-26-f71cc0f7 | commit:650ece03a56cb1867f74834016472288b3a04dd2 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/docs/UI_AUDIT.md | area:rebuild | date:2026-06-26 -->
+
+### Superseded settings-unification code still executes in legacy path
+Three `apply_*` functions in `scripts/build.sh` (`apply_retire_mod_config_tabs` ~141 lines, `apply_settings_mod_tabs` ~145 lines, `apply_settings_scrollable` ~254 lines; ~540 lines total) are marked SUPERSEDED 2026-06-25 and correctly excluded from `gen-patches.sh`, but are still called from `patch_mods_dir` and `build_apk`, which `main()` still invokes (build.sh:3586,3603). The nix pipeline (`nix/balatro-cryptid.nix`) is the deployed/verified path; `build_apk` retains parallel SUPERSEDED calls plus drift (DEBUGGABLE gating differs).
+<!-- session:2026-06-26-a0f2e2bc | commit:9152d8690fd0c82572b5883f922dd2b58df2ec15 | files:scripts/build.sh,nix/balatro-cryptid.nix,nix/gen-patches.sh | area:nix | date:2026-06-26 -->
+
+### Cryptid config-tab globals leak at render frequency
+`cryptidConfigTab`/`cryptidTabs` in Cryptid.lua assign `cry_nodes`, `left_settings`, `right_settings`, `config`, `settings` without `local`, writing to `_G`. Previously rare (mod-menu only); patch 98 now calls them on every Settings > Content/Audio render, making the leak frequent. Same class of issue: patch 97 (`97-settings_unify_ui2.patch:17`) uses a fragile `(...nodes or {})[1]` index instead of the `ipairs` node-iteration loop used by the Cryptid/CardSleeves branches.
+<!-- session:2026-06-26-a0f2e2bc | commit:9152d8690fd0c82572b5883f922dd2b58df2ec15 | files:overlay/patches/manual/97-settings_unify_ui2.patch | area:overlay | date:2026-06-26 -->
+
+### Orphaned Talisman compat dead code
+After patch 96 removed Amulet's "Compatibility" tab entry, `G.UIDEF.tal_compat_config` and `conf.compat.config_tab()` in talisman/configtab.lua have zero remaining consumers (the per-section builders stay live, called by patch 95).
+<!-- session:2026-06-26-a0f2e2bc | commit:9152d8690fd0c82572b5883f922dd2b58df2ec15 | files:/mnt/scratch/sf-port/work/functions/UI_definitions.lua,/mnt/scratch/sf-port/work/functions/UI_definitions.lua,/mnt/scratch/sf-port/work/functions/UI_definitions.lua | area:functions | date:2026-06-26 -->
+
+### Patch-series hygiene gaps
+`overlay/patches/series` has undocumented numbering gaps (71, 78, 79); three build.sh patches (41-ctx_table_hoist, 46-get_x_same_lean, 48-letter_table_reuse) carry "TALISMAN-ERA: kept for rollback" comments yet still produce real OK diffs, contradicting the comment. `gen-patches.sh` SYNC NOTE (cap() order must mirror build.sh apply_* order) has no automated enforcement.
+<!-- session:2026-06-26-a0f2e2bc | commit:9152d8690fd0c82572b5883f922dd2b58df2ec15 | files:overlay/patches/series,scripts/build.sh,nix/gen-patches.sh | area:overlay | date:2026-06-26 -->
+
+### Worktree-per-joker workflow
+Each joker port was isolated in its own `.claude/worktrees/<name>/` worktree with the canonical triad of touch points — JokerManifest.kt (registration), RunScreen.kt (UI wiring), Oracle.kt (parity target) + a RunStateTest case — then merged. This is the established cadence for joker work in the rebuild.
+<!-- session:2026-06-24-93fdf5ee | commit:b430447a1fa9bc40668804369652aa91dae56968 | files:rebuild/app/src/main/kotlin/systems/balatro/game/JokerManifest.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/game/Oracle.kt | area:rebuild | date:2026-06-24 -->
+
+### Scroll coupling is a fragile trick, not real layout
+Joe observed the scroll "scrolls the values but not the background" — the run UI is faking a connection between scrollable content and its backdrop rather than scrolling a unified container. The scrolling exposed that the elements aren't actually parented/laid out together. This is consistent with the standing UI-audit finding that the rebuild's UI lacks real structural layering (see rebuild/docs/UI_AUDIT.md).
+<!-- session:2026-06-24-93fdf5ee | commit:b430447a1fa9bc40668804369652aa91dae56968 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt,rebuild/app/src/main/kotlin/systems/balatro/ui/BalatroStyle.kt | area:rebuild | date:2026-06-24 -->
+
+### Rebuild render fidelity is partial, not complete
+The Compose rebuild reimplements only ~7 of 18 vanilla shaders, with no particles, no card 3-D skew, flat-ish background, and missing animation/effect layers. It does NOT re-implement all of Balatro's render/layout logic — only enough to lay out extracted UIBox trees. This is why it "looks nothing like Balatro."
+<!-- session:2026-06-25-a9ff6f2c | commit:a1ab1e0a57907e9696d4e99e3ad6967ad3682680 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-25 -->
+
+### Vanilla UI taxonomy & missing regions
+The app was content-built on top of a UI missing whole layers — the consumable area (top-right consumables slot region), the info layer (no `detailed_tooltip`), the meta layer (collection/options/high-scores), a real main menu (currently a Material dev launcher), and real CardAreas (only the hand is an actual CardArea). Full taxonomy + crutch inventory captured in the audit doc.
+<!-- session:2026-06-25-a9ff6f2c | commit:a1ab1e0a57907e9696d4e99e3ad6967ad3682680 | files:rebuild/docs/UI_AUDIT.md | area:rebuild | date:2026-06-25 -->

@@ -252,3 +252,18 @@ Touched joker tests (BlueprintChain, EditionRetrigger, JokerCombo, HeldCardCombo
 ### First settings-consolidation attempts rejected
 initial passes organized settings in a way that still allowed the same setting in two spots / thought per-surface rather than per-flow → Joe rejected hard ("dont EVER put the same setting in two different spots EVER"). Correct approach: each setting has exactly one home, consolidated by function.
 <!-- session:2026-06-24-518a9fdb | commit:b8fdfb7266f8edb35f7fe19fa46b73d20387ef73 | files:/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/engine/controller.lua,/mnt/scratch/sf-port/work/talisman/coroutine.lua,.claude/worktrees/relaxed-elbakyan-1c44d4/patches/lovely-stub.lua,/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/subagents-readonly-briefs.md | area:engine | date:2026-06-24 | rule:WHEN consolidating settings ALWAYS give each setting exactly one home; never duplicate across surfaces. -->
+### Scroll background/content decoupling
+Final prompt reports scrolling moves the values but not the background → the UI only *pretends* the layers are connected; a real scroll exposed the fragile coupling → correct fix is to render scrollable content and backdrop within one genuinely-parented layout container rather than offset-syncing them. Not yet fixed.
+<!-- session:2026-06-24-93fdf5ee | commit:b430447a1fa9bc40668804369652aa91dae56968 | files:rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-24 | rule:WHEN building scrollable run UI NEVER sync separate layers by offset; ALWAYS parent content and background in one scroll container. -->
+### Repeated modifications to /home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/vanilla-joker-porting-patterns.md
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-24-93fdf5ee for the correct approach.
+<!-- session:2026-06-24-93fdf5ee | commit:b430447a1fa9bc40668804369652aa91dae56968 | files:/home/jluker/.claude/projects/-home-jluker-balatro-cryptid-mobile/memory/vanilla-joker-porting-patterns.md | area:memory | date:2026-06-24 -->
+### Content built on an incomplete UI shell
+Mechanics (vouchers, jokers, consumables, audio) were added while the UI was missing its info/meta/main-menu/CardArea layers → result rendered as "laughably bad" on device → corrected by halting feature work and producing UI_AUDIT.md with a crutch-removal plan.
+<!-- session:2026-06-25-a9ff6f2c | commit:a1ab1e0a57907e9696d4e99e3ad6967ad3682680 | files:rebuild/docs/UI_AUDIT.md,rebuild/app/src/main/kotlin/systems/balatro/ui/RunScreen.kt | area:rebuild | date:2026-06-25 | rule:WHEN building a faithful-port UI NEVER stack content on placeholder regions/crutches; build the real region first. -->
+### Repeated modifications to rebuild/app/src/main/kotlin/systems/balatro/save/RunSnapshot.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-25-a9ff6f2c for the correct approach.
+<!-- session:2026-06-25-a9ff6f2c | commit:a1ab1e0a57907e9696d4e99e3ad6967ad3682680 | files:rebuild/app/src/main/kotlin/systems/balatro/save/RunSnapshot.kt | area:rebuild | date:2026-06-25 -->
+### Repeated modifications to rebuild/app/src/test/kotlin/systems/balatro/ui/VoucherTier2Test.kt
+File was modified across multiple consecutive turns — may indicate the AI struggled with this file. Review session 2026-06-25-a9ff6f2c for the correct approach.
+<!-- session:2026-06-25-a9ff6f2c | commit:a1ab1e0a57907e9696d4e99e3ad6967ad3682680 | files:rebuild/app/src/test/kotlin/systems/balatro/ui/VoucherTier2Test.kt | area:rebuild | date:2026-06-25 -->
