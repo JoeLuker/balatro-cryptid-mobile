@@ -1213,7 +1213,10 @@ function Game:start_run(args)
     -- run's identity the old RUN_START never carried (deck/stake/board).
     pcall(function()
         tel("RUN_SETTINGS", {
-            seed = seed or "unknown",
+            -- re-read the seed here: unseeded runs generate theirs INSIDE
+            -- start_run, so the early capture is nil for most real runs
+            seed = (G.GAME and G.GAME.pseudorandom and G.GAME.pseudorandom.seed)
+                or seed or "unknown",
             deck = tel_token(deck_name()),
             stake = tel_token(stake_key()),
             jokers = joker_list(),
