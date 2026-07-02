@@ -36,7 +36,13 @@ class RunLoopReducerTest {
         fun hand(t: HandType, played: Int = 5, plays: Map<HandType, Int> = emptyMap(), total: Int = 0,
                  contained: Set<HandType> = setOf(t)) =
             dispatch(GameEvent.HandScored(t, played, plays, total, contained))
-        fun beforeHand(name: HandType) = dispatch(GameEvent.BeforeHand(Sctx().apply { scoringName = name }))
+        fun beforeHand(name: HandType, contained: Set<HandType> = setOf(name), cards: Int = 5,
+                       plays: Map<HandType, Int> = emptyMap()) =
+            dispatch(GameEvent.BeforeHand(Sctx().apply {
+                scoringName = name; pokerHands = contained
+                fullHand = List(cards) { PlayingCard(Suit.S, 2) }
+                handTypePlays = plays
+            }))
         fun discard(n: Int) = dispatch(GameEvent.Discarded(List(n) { PlayingCard(Suit.S, 2) }))
         fun sell(key: String, value: Int = 3) = dispatch(GameEvent.Sold(key, value))
         fun roundEnd(discardsUsed: Int = 0) = dispatch(GameEvent.RoundEnd(discardsUsed))
@@ -47,18 +53,19 @@ class RunLoopReducerTest {
 
     // ── per-hand chip / mult accumulators ────────────────────────────────────────────────────────
     @Test fun square_accruesOnExactly4Cards_not5() {
+        // accrual moved to context.BEFORE (vanilla card.lua ~3489): fires via BeforeHand, in-hand
         val sim = Sim("j_square")
-        sim.hand(HandType.FLUSH, played = 4)
+        sim.beforeHand(HandType.FLUSH, cards = 4)
         assertEquals("4-card hand accrues +4 chips", 4.0, sim["j_square"].chips, 0.0)
-        sim.hand(HandType.FLUSH, played = 5)
+        sim.beforeHand(HandType.FLUSH, cards = 5)
         assertEquals("5-card hand must NOT accrue (the #59 bug)", 4.0, sim["j_square"].chips, 0.0)
-        sim.hand(HandType.FLUSH, played = 4)
+        sim.beforeHand(HandType.FLUSH, cards = 4)
         assertEquals(8.0, sim["j_square"].chips, 0.0)
     }
 
     @Test fun greenJoker_accruesPerHand_decaysPerDiscard_floorsAtZero() {
         val sim = Sim("j_green_joker")
-        repeat(3) { sim.hand(HandType.HIGH_CARD) }       // +1 each → 3
+        repeat(3) { sim.beforeHand(HandType.HIGH_CARD) } // +1 each (context.before) → 3
         assertEquals(3.0, sim["j_green_joker"].mult, 0.0)
         repeat(4) { sim.discard(1) }                     // -1 each → floors at 0, never negative
         assertEquals(0.0, sim["j_green_joker"].mult, 0.0)
@@ -68,20 +75,20 @@ class RunLoopReducerTest {
         // Fires whenever the hand CONTAINS a Two Pair (context.poker_hands), not just when the top hand is
         // Two Pair / Full House — so a Flush House (which contains a Two Pair) also accrues.
         val sim = Sim("j_spare_trousers")
-        sim.hand(HandType.TWO_PAIR);  assertEquals(2.0, sim["j_spare_trousers"].mult, 0.0)
-        sim.hand(HandType.FULL_HOUSE, contained = setOf(HandType.FULL_HOUSE, HandType.TWO_PAIR))
+        sim.beforeHand(HandType.TWO_PAIR);  assertEquals(2.0, sim["j_spare_trousers"].mult, 0.0)
+        sim.beforeHand(HandType.FULL_HOUSE, contained = setOf(HandType.FULL_HOUSE, HandType.TWO_PAIR))
         assertEquals(4.0, sim["j_spare_trousers"].mult, 0.0)
-        sim.hand(HandType.FLUSH_HOUSE, contained = setOf(HandType.FLUSH_HOUSE, HandType.TWO_PAIR))
+        sim.beforeHand(HandType.FLUSH_HOUSE, contained = setOf(HandType.FLUSH_HOUSE, HandType.TWO_PAIR))
         assertEquals("Flush House contains a Two Pair → accrues (the fix)", 6.0, sim["j_spare_trousers"].mult, 0.0)
-        sim.hand(HandType.PAIR);      assertEquals("Pair alone must not accrue", 6.0, sim["j_spare_trousers"].mult, 0.0)
+        sim.beforeHand(HandType.PAIR);      assertEquals("Pair alone must not accrue", 6.0, sim["j_spare_trousers"].mult, 0.0)
     }
 
     @Test fun runner_firesOnStraightContainment() {
         val sim = Sim("j_runner")
-        sim.hand(HandType.STRAIGHT);       assertEquals(15.0, sim["j_runner"].chips, 0.0)
-        sim.hand(HandType.STRAIGHT_FLUSH, contained = setOf(HandType.STRAIGHT_FLUSH, HandType.STRAIGHT))
+        sim.beforeHand(HandType.STRAIGHT); assertEquals(15.0, sim["j_runner"].chips, 0.0)
+        sim.beforeHand(HandType.STRAIGHT_FLUSH, contained = setOf(HandType.STRAIGHT_FLUSH, HandType.STRAIGHT))
         assertEquals(30.0, sim["j_runner"].chips, 0.0)
-        sim.hand(HandType.FLUSH);          assertEquals("Flush alone has no Straight → no accrue", 30.0, sim["j_runner"].chips, 0.0)
+        sim.beforeHand(HandType.FLUSH);    assertEquals("Flush alone has no Straight → no accrue", 30.0, sim["j_runner"].chips, 0.0)
     }
 
     @Test fun bonk_accruesOnPairBeforePass() {

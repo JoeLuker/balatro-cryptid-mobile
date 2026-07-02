@@ -290,6 +290,8 @@ internal val CATALOG = listOf(
     Offer("j_even_steven", "Even Steven", "+4 Mult / even card", 4),
     Offer("j_odd_todd", "Odd Todd", "+31 Chips / odd card", 4),
     Offer("j_scholar", "Scholar", "Ace: +20 Chips & +4 Mult", 4),
+    Offer("j_ride_the_bus", "Ride the Bus", "+1 Mult/hand, no faces; face resets", 6),
+    Offer("j_space", "Space Joker", "1 in 4: upgrade played hand level", 5, rarity = 2),
     // --- vanilla, individual (already faithful in calcJoker) ---
     Offer("j_arrowhead", "Arrowhead", "+50 Chips / Spade", 5, rarity = 2),
     Offer("j_onyx_agate", "Onyx Agate", "+7 Mult / Club", 5, rarity = 2),
@@ -1377,6 +1379,13 @@ internal class RunState {
         // FAITHFUL Score engine: maximized-aware hand type drives the planet level; FJokers carry
         // scaling state and accumulate across hands (krusty/primus mutate during scoring).
         val handType = Hands.evaluate(sel, rankOf, fourFingers, shortcut, smeared).first
+        // j_space (card.lua context.before): each copy has a 1-in-4 chance to level up the played
+        // hand BEFORE the base chips/mult are fetched — the upgrade applies to this very hand.
+        owned.forEachIndexed { oi, o ->
+            if (o.fj.key == "j_space" &&
+                Random(blindIndex * 104729L + totalHandsPlayed * 7907L + oi * 271L + 59L).nextInt(4) == 0)
+                handLevels.levelUp(handType)
+        }
         val level = handLevels.level(handType)
         val trace = ArrayList<ScoreStep>()
         // hands_left/discards_left as the engine sees them during evaluate_play: hands_left is the
@@ -1629,7 +1638,10 @@ internal class RunState {
             && HandType.STRAIGHT_FLUSH in r.pokerHands
             && r.scoringHand.map { it.id }.toSet().containsAll(setOf(10, 11, 12, 13, 14))) {
             r.scoringHand.firstOrNull { it.id == 12 }?.let { deck.removeCard(it) }   // destroy the scored Queen
-            repeat(owned.count { it.fj.key == "j_cry_queens_gambit" }) { createNegativeJoker(CATALOG.random()) }
+            // vanilla seeds this create (pseudorandom 'cry_queens_gambit'); an unseeded pick also made
+            // the spawn-count test flaky whenever it landed on a joker that spawns extras on acquire
+            val qgRng = Random(blindIndex * 24593L + totalHandsPlayed * 3671L + 7L)
+            repeat(owned.count { it.fj.key == "j_cry_queens_gambit" }) { createNegativeJoker(CATALOG[qgRng.nextInt(CATALOG.size)]) }
         }
         // j_cry_equilib (Aequilibrium): each Equilibrium spawns 2 NEGATIVE-edition random Jokers per hand
         // (exotic before-pass, jokers=2). Spawned in scoreBank (after this hand), so they first score the NEXT
