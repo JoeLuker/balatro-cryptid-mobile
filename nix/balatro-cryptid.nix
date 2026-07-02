@@ -57,6 +57,7 @@ let
       embed_dir ${sources.steamodded}     Steamodded
       embed_dir ${sources.cryptid}        Cryptid
       embed_dir ${sources.sticky_fingers} sticky-fingers
+      embed_dir ${sources.banner}         Banner
 
       # zip mods → unzip, take inner dir if singly-wrapped, drop lovely/
       embed_zip() {

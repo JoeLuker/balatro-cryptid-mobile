@@ -1,8 +1,8 @@
 diff --git a/game.lua b/game.lua
-index 34ac78a..4f535c4 100644
+index 7909a5b..fc0c368 100644
 --- a/game.lua
 +++ b/game.lua
-@@ -2680,7 +2680,7 @@ function Game:update(dt)
+@@ -2681,7 +2681,7 @@ function Game:update(dt)
      self.TIMERS.BACKGROUND = self.TIMERS.BACKGROUND + dt*(G.ARGS.spin and G.ARGS.spin.amount or 0)
      self.real_dt = dt
  

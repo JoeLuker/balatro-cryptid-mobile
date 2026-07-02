@@ -1159,6 +1159,9 @@ end
     if card.ability_UIBox_table then
       local AUT = card.ability_UIBox_table
       local debuffed = card.debuff
+      if debuffed and card.bannermod_no_debuff_tip then
+      	debuffed = false
+      end
       local card_type_colour = get_type_colour(card.config.center or card.config, card)
       local card_type_text_colour = SMODS.get_card_type_text_colour(AUT.card_type, card.config.center or card.config, card)
       local card_type_background = 
@@ -3296,7 +3299,7 @@ function create_UIBox_current_hand_row(handname, simple, in_collection)
     {n=G.UIT.R, config={align = "cm", padding = 0.05, r = 0.1, colour = darken(G.C.JOKER_GREY, 0.1), emboss = 0.05, hover = true, force_focus = true, on_demand_tooltip = {text = localize(handname, 'poker_hand_descriptions'), filler = {func = create_UIBox_hand_tip, args = handname}}}, nodes={
       {n=G.UIT.C, config={align = "cl", padding = 0, minw = 5}, nodes={
         {n=G.UIT.C, config={align = "cm", padding = 0.01, r = 0.1, colour = G.C.HAND_LEVELS[math.min(7, G.GAME.hands[handname].level)], minw = 1.5, outline = 0.8, outline_colour = G.C.WHITE}, nodes={
-          {n=G.UIT.T, config={text = localize('k_level_prefix')..number_format(G.GAME.hands[handname].level), scale = 0.5, colour = G.C.UI.TEXT_DARK}}
+          {n=G.UIT.T, config={ref_table = BANNERMOD.create_poker_hand_ref_table(handname, localize('k_level_prefix')..number_format(G.GAME.hands[handname].level)), ref_value = "text", scale = 0.5, colour = G.C.UI.TEXT_DARK}}
         }},
         {n=G.UIT.C, config={align = "cm", minw = 4.5, maxw = 4.5}, nodes={
           {n=G.UIT.T, config={text = ' '..localize(handname,'poker_hands'), scale = 0.45, colour = G.C.UI.TEXT_LIGHT, shadow = true}}

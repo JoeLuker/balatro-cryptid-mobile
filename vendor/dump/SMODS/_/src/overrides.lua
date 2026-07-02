@@ -482,6 +482,8 @@ function create_UIBox_your_collection_tags_content(page)
 			end
 			if not v.discovered then temp_tag.hide_ability = true end
 			local temp_tag_ui, temp_tag_sprite = temp_tag:generate_UI()
+			temp_tag_sprite.bannermod_in_collection = true
+			temp_tag_sprite.bannermod_disabled = false
 			tag_matrix[row][col] = {
 				n = G.UIT.C,
 				config = { align = "cm", padding = 0.1 },
@@ -1848,6 +1850,9 @@ function evaluate_poker_hand(hand)
 	end
 	for k, _hand in pairs(SMODS.PokerHands) do
 		results[k] = _hand.evaluate(parts, hand) or {}
+		if G.GAME.bannermod_disabled[k] then
+			results[k] = {}
+		end
 	end
 		local hands = {
 			G.GAME.hands.cry_Declare0,
@@ -2392,6 +2397,7 @@ function poll_edition(_key, _mod, _no_neg, _guaranteed, _options)
 			end
 		end
 	end
+    _options = BANNERMOD.apply_editions(_options)
     for _, v in ipairs(_options) do
         local edition_option = {}
         if type(v) == 'string' then

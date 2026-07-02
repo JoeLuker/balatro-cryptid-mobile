@@ -2466,6 +2466,9 @@ SMODS.UndiscoveredCompat = {
                         for k, v in pairs(G.P_CENTER_POOLS["Enhanced"]) do
                             if v.key ~= 'm_stone' and not v.overrides_base_rank then
                                 cen_pool[#cen_pool + 1] = v
+                                if G.GAME.bannermod_disabled[v.key] then
+                                	cen_pool[#cen_pool] = nil
+                                end
                             end
                         end
                         cards[i] = create_playing_card({
@@ -2503,6 +2506,9 @@ SMODS.UndiscoveredCompat = {
                         for k, v in pairs(G.P_CENTER_POOLS["Enhanced"]) do
                             if v.key ~= 'm_stone' and not v.overrides_base_rank then
                                 cen_pool[#cen_pool + 1] = v
+                                if G.GAME.bannermod_disabled[v.key] then
+                                	cen_pool[#cen_pool] = nil
+                                end
                             end
                         end
                         cards[i] = create_playing_card({
@@ -2540,6 +2546,9 @@ SMODS.UndiscoveredCompat = {
                         for k, v in pairs(G.P_CENTER_POOLS["Enhanced"]) do
                             if v.key ~= 'm_stone' and not v.overrides_base_rank then
                                 cen_pool[#cen_pool + 1] = v
+                                if G.GAME.bannermod_disabled[v.key] then
+                                	cen_pool[#cen_pool] = nil
+                                end
                             end
                         end
                         cards[i] = create_playing_card({

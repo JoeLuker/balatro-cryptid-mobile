@@ -950,11 +950,11 @@ error(string.format([==[
 
 ]==],
 _mod_dir_amulet,
-"/home/jluker/balatro-cryptid-mobile/.claude/worktrees/relaxed-elbakyan-1c44d4/build/dump-rig-pinned/Mods/Amulet"
+"/home/jluker/balatro-cryptid-mobile/build/dump-rig-pinned/Mods/Amulet"
 ), 0)
 end
 
-_mod_dir_amulet = "/home/jluker/balatro-cryptid-mobile/.claude/worktrees/relaxed-elbakyan-1c44d4/build/dump-rig-pinned/Mods/Amulet"
+_mod_dir_amulet = "/home/jluker/balatro-cryptid-mobile/build/dump-rig-pinned/Mods/Amulet"
 
 if SMODS and SMODS.Mods and not SMODS.Mods.Talisman then
 	SMODS.Mods.Talisman = {

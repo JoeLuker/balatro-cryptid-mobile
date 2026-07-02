@@ -17,7 +17,7 @@ mkdir -p "$DEST"
 store() { nix-build "$ROOT/nix/sources.nix" -A "$1" --no-out-link 2>/dev/null; }
 
 # git-tree mods → Mods/<Name>
-for pair in steamodded:Steamodded cryptid:Cryptid sticky_fingers:sticky-fingers; do
+for pair in steamodded:Steamodded cryptid:Cryptid sticky_fingers:sticky-fingers banner:Banner; do
   key="${pair%%:*}"; name="${pair##*:}"
   rm -rf "$DEST/$name"
   cp -r --no-preserve=mode "$(store "$key")" "$DEST/$name"

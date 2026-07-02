@@ -9,8 +9,16 @@
   "balatro_love": {
     "kind": "file",
     "name": "Balatro.love",
-    "note": "requireFile — © LocalThunk, supply locally",
+    "note": "requireFile \u2014 \u00a9 LocalThunk, supply locally",
     "sha256": "0kp2f8ks0x97lzbqmbdann79ici2k7ffp488rp96kacn2xws1is8"
+  },
+  "banner": {
+    "kind": "github",
+    "owner": "SylviBlossom",
+    "ref": "main",
+    "repo": "Banner",
+    "rev": "9b8cdf83bbda8f77f2d8da4cd90936561875aaf1",
+    "sha256": "0a32kc2p6rayiimzcwaan95alfw7gn46frp2043a5b5zjms2m3hy"
   },
   "base_apk": {
     "kind": "url",
