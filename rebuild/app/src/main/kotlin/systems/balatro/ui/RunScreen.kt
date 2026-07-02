@@ -860,8 +860,7 @@ internal class RunState {
     val blindName: String get() = when (slot) { 0 -> "Small Blind"; 1 -> "Big Blind"; else -> boss?.display ?: "Boss Blind" }
     val owned = mutableStateListOf<Owned>()
     // History of sold Joker keys this run (G.GAME.jokers_sold) — read by Necromancer (recreate a random
-    // sold Joker) and Kidnap ($ per "type" Joker sold). In-session only: NOT serialized, so a save/load
-    // resume starts the history fresh (a secondary gap for the save/load lane to close later).
+    // sold Joker) and Kidnap ($ per "type" Joker sold). Serialized in RunSnapshot.jokersSold.
     val jokersSold = mutableListOf<String>()
     /** Joker slots: base 5, +1 per NEGATIVE joker held (e_negative config.extra = 1 → card_limit+1). */
     val jokerSlots: Int get() = 5 + owned.count { it.offer.edition == Edition.NEGATIVE }
@@ -2235,6 +2234,12 @@ internal class RunState {
         directorsCut = directorsCut, retcon = retcon, bossReshuffle = bossReshuffle, omenGlobe = omenGlobe, cardRate = cardRate, illusion = illusion,
         bossesUsed = bossesUsed.entries.associate { it.key.name to it.value },
         anteBossFor = anteBossFor, anteBoss = anteBossPick?.name,
+        consumableSlotsBonus = consumableSlotsBonus,
+        handPlayed = _handPlayed.entries.associate { it.key.name to it.value },
+        totalHandsPlayed = totalHandsPlayed, runHighScore = runHighScore,
+        totalChipsScored = totalChipsScored, totalCardsPlayed = totalCardsPlayed,
+        totalCardsDiscarded = totalCardsDiscarded, totalCardsPurchased = totalCardsPurchased,
+        rerolls = rerolls, runSeed = runSeed, jokersSold = jokersSold.toList(),
         baseHands = baseHands, baseDiscards = baseDiscards, rerollBase = rerollBase,
         redeemedVouchers = redeemedVouchers.toList(), tags = tags.map { it.name },
         consumables = consumables.map { c ->
@@ -2279,6 +2284,14 @@ internal class RunState {
         directorsCut = s.directorsCut; retcon = s.retcon; bossReshuffle = s.bossReshuffle; omenGlobe = s.omenGlobe; cardRate = s.cardRate; illusion = s.illusion
         bossesUsed.clear(); s.bossesUsed.forEach { (k, v) -> bossesUsed[Boss.valueOf(k)] = v }
         anteBossFor = s.anteBossFor; anteBossPick = s.anteBoss?.let { Boss.valueOf(it) }
+        consumableSlotsBonus = s.consumableSlotsBonus
+        _handPlayed.clear(); s.handPlayed.forEach { (k, v) -> _handPlayed[HandType.valueOf(k)] = v }
+        totalHandsPlayed = s.totalHandsPlayed; runHighScore = s.runHighScore
+        totalChipsScored = s.totalChipsScored; totalCardsPlayed = s.totalCardsPlayed
+        totalCardsDiscarded = s.totalCardsDiscarded; totalCardsPurchased = s.totalCardsPurchased
+        rerolls = s.rerolls
+        if (s.runSeed.isNotEmpty()) runSeed = s.runSeed
+        jokersSold.clear(); jokersSold.addAll(s.jokersSold)
         baseHands = s.baseHands; baseDiscards = s.baseDiscards; rerollBase = s.rerollBase
         redeemedVouchers.clear(); redeemedVouchers.addAll(s.redeemedVouchers)
         tags.clear(); s.tags.forEach { tags.add(Tag.valueOf(it)) }
