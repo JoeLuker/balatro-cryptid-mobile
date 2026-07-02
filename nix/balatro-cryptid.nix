@@ -97,7 +97,7 @@ let
       done
 
       echo "[love] owned standalone modules"
-      for m in android-telemetry trigger-collapse idle-joker-perf lazy-shader; do
+      for m in android-telemetry trigger-collapse idle-joker-perf lazy-shader emulator-smoke-check; do
         cp --no-preserve=mode ${patchesDir}/$m.lua ./$m.lua
       done
 

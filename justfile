@@ -45,6 +45,14 @@ deploy:
 # Full pipeline: build (Nix) + deploy
 all: build deploy
 
+# Headless Android-emulator test of the BUILT APK (build/apk) - ARM->x86
+# translation, no phone needed. Boots to menu, checks for crash markers, and
+# runs the baked-in emulator smoke-check (patches/emulator-smoke-check.lua)
+# for specific in-game regressions. First run downloads a multi-GB Android
+# SDK + system image via Nix. ~2-5 min. Pass --keep to leave the emulator up.
+test-emulator *args:
+    nix-shell test/emulator/shell.nix --run './test/emulator/run.sh {{args}}'
+
 # Watch app logs from connected phone
 logs:
     ./scripts/build.sh logs
