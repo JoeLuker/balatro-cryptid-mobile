@@ -1098,6 +1098,72 @@ if Card and Card.click then
     end
 end
 
+-- Shared run-context fields for gameplay events. Every read is nil-guarded
+-- (these paths are absent outside a run) and tostring'd (dollars/levels can be
+-- Talisman Big numbers, which carry __tostring). Values are k=v tokens in the
+-- line format, so anything that could contain spaces gets sanitized.
+-- DEFINED ABOVE every user (start_run/buy/play hooks) — a definition below a
+-- reference compiles the reference as a nil global (the scoping trap).
+local function tel_token(s) return (tostring(s):gsub("[%s=]", "_")) end
+local function run_ctx()
+    local gg = G and G.GAME
+    local rr = gg and gg.round_resets
+    local blind = gg and gg.blind and gg.blind.config and gg.blind.config.blind
+    return {
+        ante = rr and rr.ante or 0,
+        round = gg and gg.round or 0,
+        blind = blind and blind.key or "none",
+        dollars = (gg and gg.dollars ~= nil) and tostring(gg.dollars) or "0",
+    }
+end
+local function tel_ctx(event, data)
+    local t = run_ctx()
+    for k, v in pairs(data or {}) do t[k] = v end
+    tel(event, t)
+end
+
+-- Board/config snapshot helpers (shared by RUN_SETTINGS + BOARD_SNAPSHOT).
+-- Lists join with commas (no spaces → safe as a single k=v token).
+local function joker_list()
+    local out = {}
+    if G.jokers and G.jokers.cards then
+        for _, c in ipairs(G.jokers.cards) do
+            out[#out + 1] = (c.config and c.config.center and c.config.center.key) or "?"
+        end
+    end
+    return #out > 0 and table.concat(out, ",") or "none"
+end
+local function voucher_list()
+    local out = {}
+    if G.GAME and G.GAME.used_vouchers then
+        for k in pairs(G.GAME.used_vouchers) do out[#out + 1] = k end
+    end
+    table.sort(out)
+    return #out > 0 and table.concat(out, ",") or "none"
+end
+local function hand_levels()
+    local out = {}
+    if G.GAME and G.GAME.hands then
+        for name, h in pairs(G.GAME.hands) do
+            if h.level and h.level ~= 1 and h.visible ~= false then
+                out[#out + 1] = tel_token(name) .. ":" .. tostring(h.level)
+            end
+        end
+    end
+    table.sort(out)
+    return #out > 0 and table.concat(out, ",") or "all_1"
+end
+local function deck_name()
+    return (G.GAME and G.GAME.selected_back and G.GAME.selected_back.name) or "unknown"
+end
+local function stake_key()
+    if not (G.GAME and G.GAME.stake) then return "unknown" end
+    local ok, k = pcall(function()
+        return SMODS and SMODS.stake_from_index and SMODS.stake_from_index(G.GAME.stake)
+    end)
+    return (ok and k) or ("stake_" .. tostring(G.GAME.stake))
+end
+
 -- Hook Game:start_run to log run starts
 local _original_start_run = Game.start_run
 function Game:start_run(args)
@@ -1123,29 +1189,40 @@ function Game:start_run(args)
         cry_gameset_effective = (Cryptid and Cryptid.gameset and Cryptid.gameset()) or "unknown",
         cry_intro_state = (pdata and pdata.cry_intro_progress and pdata.cry_intro_progress.state) or "nil",
     })
-    return _original_start_run(self, args)
-end
 
--- Shared run-context fields for gameplay events. Every read is nil-guarded
--- (these paths are absent outside a run) and tostring'd (dollars/levels can be
--- Talisman Big numbers, which carry __tostring). Values are k=v tokens in the
--- line format, so anything that could contain spaces gets sanitized.
-local function tel_token(s) return (tostring(s):gsub("[%s=]", "_")) end
-local function run_ctx()
-    local gg = G and G.GAME
-    local rr = gg and gg.round_resets
-    local blind = gg and gg.blind and gg.blind.config and gg.blind.config.blind
-    return {
-        ante = rr and rr.ante or 0,
-        round = gg and gg.round or 0,
-        blind = blind and blind.key or "none",
-        dollars = (gg and gg.dollars ~= nil) and tostring(gg.dollars) or "0",
-    }
-end
-local function tel_ctx(event, data)
-    local t = run_ctx()
-    for k, v in pairs(data or {}) do t[k] = v end
-    tel(event, t)
+    -- SETTINGS: the player's config, dumped at each run start (cheap, and
+    -- catches changes between runs). Gameplay-relevant fields only.
+    local S = G.SETTINGS or {}
+    tel("SETTINGS", {
+        reduced_motion = S.reduced_motion and "true" or "false",
+        screenshake = S.screenshake and "true" or "false",
+        gamespeed = tostring(S.GAMESPEED or "nil"),
+        bloom = S.GRAPHICS and tostring(S.GRAPHICS.bloom) or "nil",
+        crt = S.GRAPHICS and tostring(S.GRAPHICS.crt) or "nil",
+        shadows = S.GRAPHICS and tostring(S.GRAPHICS.shadows) or "nil",
+        tex_scaling = S.GRAPHICS and tostring(S.GRAPHICS.texture_scaling) or "nil",
+        vol = S.SOUND and tostring(S.SOUND.volume) or "nil",
+        music_vol = S.SOUND and tostring(S.SOUND.music_volume) or "nil",
+        game_vol = S.SOUND and tostring(S.SOUND.game_sounds_volume) or "nil",
+    })
+
+    local ret = _original_start_run(self, args)
+
+    -- RUN_SETTINGS: emitted AFTER the original — deck/stake/vouchers are only
+    -- populated once start_run has set them (game.lua:2118-2126). This is the
+    -- run's identity the old RUN_START never carried (deck/stake/board).
+    pcall(function()
+        tel("RUN_SETTINGS", {
+            seed = seed or "unknown",
+            deck = tel_token(deck_name()),
+            stake = tel_token(stake_key()),
+            jokers = joker_list(),
+            vouchers = voucher_list(),
+            hand_levels = hand_levels(),
+            ante = G.GAME and G.GAME.round_resets and G.GAME.round_resets.ante or 0,
+        })
+    end)
+    return ret
 end
 
 -- Hook buy_from_shop
@@ -1269,7 +1346,14 @@ end
 local _original_cash_out = G.FUNCS.cash_out
 if _original_cash_out then
     G.FUNCS.cash_out = function(e)
-        tel_ctx("CASH_OUT", {})   -- run_ctx carries dollars-before; the payout lands in the next events
+        -- run_ctx carries dollars-before; the payout lands in the next events.
+        -- The board snapshot (jokers/vouchers/hand levels) rides along so every
+        -- round boundary records what the run looked like when it cleared.
+        tel_ctx("CASH_OUT", {
+            jokers = joker_list(),
+            vouchers = voucher_list(),
+            hand_levels = hand_levels(),
+        })
         return _original_cash_out(e)
     end
 end
@@ -1372,7 +1456,13 @@ if _original_game_over then
                 round = G.GAME and G.GAME.round or 0,
                 dollars = G.GAME and G.GAME.dollars or 0,
                 duration_s = duration,
-                won = G.GAME and G.GAME.won and "true" or "false"
+                won = G.GAME and G.GAME.won and "true" or "false",
+                -- the final board: what the run died (or won) holding
+                deck = tel_token(deck_name()),
+                stake = tel_token(stake_key()),
+                jokers = joker_list(),
+                vouchers = voucher_list(),
+                hand_levels = hand_levels(),
             })
         end
         return _original_game_over(self, dt)
