@@ -1,0 +1,22 @@
+--- a/Mods/Steamodded/src/utils/run_select.lua
++++ b/Mods/Steamodded/src/utils/run_select.lua
+@@ -317,10 +317,17 @@
+ local start_run = Game.start_run
+ function Game:start_run(...)
+     start_run(self, ...)
++    -- LAST_CHOICES_GUARD: last_choices is only initialised when the Galdur
++    -- picker opens (run_select_galdur), but start_run can be reached without
++    -- it - a resumed save on a fresh profile, or any programmatic start
++    -- (test harnesses). Stock code indexes it unguarded; that latent crash
++    -- only fires once some page actually registers a start_run handler
++    -- (the CardSleeves compat page is the first).
++    local last_choices = G.PROFILES[G.SETTINGS.profile].last_choices or {}
+     for _, value in ipairs(SMODS.RunSelectPage.obj_buffer) do
+         local page = SMODS.RunSelect.Pages[value]
+-        if (not page.optional or (page.optional and page:optional())) and page.start_run and type(page.start_run) == 'function' and (not page.pool or G.PROFILES[G.SETTINGS.profile].last_choices[value])  then
+-            page:start_run(G.PROFILES[G.SETTINGS.profile].last_choices[value])
++        if (not page.optional or (page.optional and page:optional())) and page.start_run and type(page.start_run) == 'function' and (not page.pool or last_choices[value])  then
++            page:start_run(last_choices[value])
+         end
+     end
+ end
