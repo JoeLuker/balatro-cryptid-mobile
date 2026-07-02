@@ -1104,7 +1104,10 @@ end
 -- line format, so anything that could contain spaces gets sanitized.
 -- DEFINED ABOVE every user (start_run/buy/play hooks) — a definition below a
 -- reference compiles the reference as a nil global (the scoping trap).
-local function tel_token(s) return (tostring(s):gsub("[%s=]", "_")) end
+-- Commas stripped too: Talisman/Amulet bignum __tostring inserts thousand
+-- separators ("15,606"), which breaks whitespace-split k=v consumers (Loki
+-- unwrap, rollup) — the machine log stays machine-parseable.
+local function tel_token(s) return (tostring(s):gsub("[%s=]", "_"):gsub(",", "")) end
 local function run_ctx()
     local gg = G and G.GAME
     local rr = gg and gg.round_resets
@@ -1311,6 +1314,13 @@ if _original_cashs then
             tel_ctx("HAND_SCORE", {
                 hand = tel_token(G and G.GAME and G.GAME.last_hand_played or "unknown"),
                 score = tel_token(amt),
+                -- chips/mult are engine globals while scoring resolves — the
+                -- two factors of the total, so a score=0 self-explains
+                -- (chips-zero vs mult-zero vs precision collapse). Added after
+                -- Joe's e28-scale run zeroed leveled hands: engine-computed,
+                -- but the factor was undiagnosable from the product alone.
+                chips = tel_token(hand_chips ~= nil and hand_chips or "nil"),
+                mult = tel_token(mult ~= nil and mult or "nil"),
             })
         end
         return _original_cashs(score, amt)
