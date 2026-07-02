@@ -37,12 +37,24 @@ object Telemetry {
         event("BOOT", "pkg" to ctx.packageName, "ver" to "0.1")
     }
 
+    /** Live run-context supplier — its fields are appended to EVERY event while a run is on
+     *  screen (ante, boss, money, phase), so no call site has to thread them through. Set by
+     *  RunScreen when RunState exists; null outside a run. Values are token-sanitized (the line
+     *  format is whitespace-split k=v). */
+    @Volatile var runContext: (() -> List<Pair<String, Any?>>)? = null
+
     fun event(kind: String, vararg fields: Pair<String, Any?>) {
         val sb = StringBuilder()
             .append(System.currentTimeMillis() / 1000L).append(' ')   // epoch seconds (receiver parts[0])
             .append(session).append(' ')                              // session/profile (parts[1])
             .append(kind)                                             // event name (parts[2])
         for ((k, v) in fields) sb.append(' ').append(k).append('=').append(v)
+        runContext?.let { ctx ->
+            runCatching {
+                for ((k, v) in ctx()) sb.append(' ').append(k).append('=')
+                    .append(v.toString().replace(' ', '_').replace('=', '_'))
+            }
+        }
         emit(sb.toString())
     }
 
