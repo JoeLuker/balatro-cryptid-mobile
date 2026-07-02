@@ -1,16 +1,11 @@
 { pkgs ? import <nixpkgs> { config.allowUnfree = true; config.android_sdk.accept_license = true; } }:
 let
-  android = pkgs.androidenv.composeAndroidPackages {
-    platformVersions = [ "34" ];
-    buildToolsVersions = [ "34.0.0" ];
-    abiVersions = [ "arm64-v8a" ];
-    includeNDK = false;
-    includeEmulator = false;
-    includeSystemImages = false;
-  };
-  sdk = "${android.androidsdk}/libexec/android-sdk";
+  # SDK composition lives in ONE place (nix/android-sdk.nix) — shared with
+  # tools/sdk-overlay.sh, which realizes it with a GC root for plain ./gradlew runs.
+  androidsdk = import ./nix/android-sdk.nix { inherit pkgs; };
+  sdk = "${androidsdk}/libexec/android-sdk";
 in pkgs.mkShell {
-  buildInputs = [ pkgs.gradle pkgs.jdk17 android.androidsdk ];
+  buildInputs = [ pkgs.gradle pkgs.jdk17 androidsdk ];
   ANDROID_HOME = sdk;
   ANDROID_SDK_ROOT = sdk;
   JAVA_HOME = "${pkgs.jdk17.home}";
