@@ -39,13 +39,28 @@ internal object HudSpec {
         return when (node.getString("n")) {
             "R", "ROOT" -> Ro(cfg, kids)
             "C" -> Co(cfg, kids)
-            "B" -> Bx(cfg, kids)
+            "B" -> leafB(cfg, kids)
             "T" -> Tx(cfg, b.text(cfgJ))
             "O" -> Ob(cfg, b.obj(cfgJ))
-            else -> Bx(cfg, kids)
+            else -> unknownTag(node.getString("n"))
         }
     }
 }
+
+/** Vanilla's calculate_xywh treats B as a childless leaf ("current node does not contain
+ *  anything", engine/ui.lua:126) — children under a B are never positioned, so a tree carrying
+ *  them has no faithful rendering. Fail loud instead of silently attaching kids that would
+ *  render at unlaid positions. */
+private fun leafB(cfg: Cfg, kids: List<UI>): Bx {
+    require(kids.isEmpty()) {
+        "extracted tree puts ${kids.size} child(ren) under a B node — vanilla never lays these out; fix or re-extract the tree"
+    }
+    return Bx(cfg)
+}
+
+/** Unknown tags must not silently masquerade as a B box. */
+private fun unknownTag(tag: String): Nothing =
+    error("unknown UI node tag '$tag' in extracted tree — refusing to render a guess")
 
 /** Binds the JSON's descriptors (colour names, ref/value, localize keys) to live RunState. */
 internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
@@ -153,7 +168,7 @@ internal class HudBind(val s: RunState, val stakeBmp: ImageBitmap?) {
 
     /** Map a JSON config object to the interpreter's Cfg. */
     fun cfg(c: JSONObject): Cfg = Cfg(
-        align = c.optString("align", "cm"),
+        align = c.optString("align", ""),
         colour = colour(c.optJSONObject("colour")),
         padding = c.optDouble("padding", 0.0).toFloat(),
         r = c.optDouble("r", 0.0).toFloat(),
@@ -318,7 +333,7 @@ internal class CardBind(val cost: Int, val canAfford: Boolean, val onAction: () 
         val isGuardedButton = func.startsWith("can_")
         val fill = if (isGuardedButton && !canAfford) Balatro.Grey else rawColour
         return Cfg(
-            align       = c.optString("align", "cm"),
+            align       = c.optString("align", ""),
             colour      = fill,
             padding     = c.optDouble("padding", 0.0).toFloat(),
             r           = c.optDouble("r", 0.0).toFloat(),
@@ -394,10 +409,10 @@ internal fun buildCard(node: JSONObject, b: CardBind): UI {
     return when (node.getString("n")) {
         "R", "ROOT" -> Ro(cfg, kids)
         "C"         -> Co(cfg, kids)
-        "B"         -> Bx(cfg, kids)
+        "B"         -> leafB(cfg, kids)
         "T"         -> Tx(cfg, b.text(cfgJ))
         "O"         -> Ob(cfg, b.obj(cfgJ))
-        else        -> Bx(cfg, kids)
+        else        -> unknownTag(node.getString("n"))
     }
 }
 
@@ -537,7 +552,7 @@ internal class BlindBind(
     }
 
     fun cfg(c: org.json.JSONObject): Cfg = Cfg(
-        align        = c.optString("align", "cm"),
+        align        = c.optString("align", ""),
         colour       = colour(c.optJSONObject("colour")),
         padding      = c.optDouble("padding", 0.0).toFloat(),
         r            = c.optDouble("r", 0.0).toFloat(),
@@ -622,10 +637,10 @@ internal fun buildBlind(node: org.json.JSONObject, b: BlindBind): UI {
     return when (node.getString("n")) {
         "R", "ROOT" -> Ro(cfg, kids)
         "C"         -> Co(cfg, kids)
-        "B"         -> Bx(cfg, kids)
+        "B"         -> leafB(cfg, kids)
         "T"         -> Tx(cfg, b.text(cfgJ))
         "O"         -> Ob(cfg, b.obj(cfgJ))
-        else        -> Bx(cfg, kids)
+        else        -> unknownTag(node.getString("n"))
     }
 }
 
@@ -762,7 +777,7 @@ internal class PackBind(val picksLeft: Int, val onSkip: () -> Unit) {
         val isSkipBtn = c.optString("button") == "skip_booster"
         val fill = if (isSkipBtn) Balatro.Mult else rawColour
         return Cfg(
-            align       = c.optString("align", "cm"),
+            align       = c.optString("align", ""),
             colour      = fill,
             padding     = c.optDouble("padding", 0.0).toFloat(),
             r           = c.optDouble("r", 0.0).toFloat(),
@@ -833,10 +848,10 @@ internal fun buildPack(node: org.json.JSONObject, b: PackBind): UI {
     return when (node.getString("n")) {
         "R", "ROOT" -> Ro(cfg, kids)
         "C"         -> Co(cfg, kids)
-        "B"         -> Bx(cfg, kids)
+        "B"         -> leafB(cfg, kids)
         "T"         -> Tx(cfg, b.text(cfgJ))
         "O"         -> Ob(cfg, b.obj(cfgJ))
-        else        -> Bx(cfg, kids)
+        else        -> unknownTag(node.getString("n"))
     }
 }
 
@@ -910,7 +925,7 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
         // instead of collapsing to a zero-height strip. base holds the blind1 chip row (~1.1u) + the
         // dotted divider + the hands row, so it needs more height than the text-only bonus slot.
         if (minh <= 0f) minh = when (id) { "eval_bottom" -> 1.1f; "base_round_eval" -> 2.0f; else -> 1.5f }
-        val align = cfgJ.optString("align", "cm")
+        val align = cfgJ.optString("align", "")
         val slotCfg = Cfg(align = align, minw = minw, minh = minh)
         return Ob(slotCfg, CardAreaSlot(id, minw, minh))
     }
@@ -920,10 +935,10 @@ private fun buildRoundEval(node: org.json.JSONObject): UI {
     return when (node.getString("n")) {
         "R", "ROOT" -> Ro(cfg, kids)
         "C"         -> Co(cfg, kids)
-        "B"         -> Bx(cfg, kids)
+        "B"         -> leafB(cfg, kids)
         "T"         -> Tx(cfg, cfgJ.optString("text", ""))
         "O"         -> Bx(cfg)  // no O-nodes in round_eval skeleton besides the slots
-        else        -> Bx(cfg, kids)
+        else        -> unknownTag(node.getString("n"))
     }
 }
 
@@ -1018,7 +1033,7 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
         else -> null
     }
     val cfg = Cfg(
-        align = cfgJ.optString("align", "cm"), colour = fill,
+        align = cfgJ.optString("align", ""), colour = fill,
         padding = cfgJ.optDouble("padding", 0.0).toFloat(), r = cfgJ.optDouble("r", 0.0).toFloat(),
         minw = cfgJ.optDouble("minw", 0.0).toFloat(), minh = cfgJ.optDouble("minh", 0.0).toFloat(),
         emboss = cfgJ.optDouble("emboss", 0.0).toFloat(), shadow = cfgJ.optBoolean("shadow", false),
@@ -1030,7 +1045,7 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
     return when (node.getString("n")) {
         "R", "ROOT" -> Ro(cfg, kids)
         "C" -> Co(cfg, kids)
-        "B" -> Bx(cfg, kids)
+        "B" -> leafB(cfg, kids)
         "T" -> { val t = cfgJ.opt("text"); Tx(cfg, when {
             // Most-played row: the static " (N)" count beside the hand-name dynatext → live count.
             childStat == "poker_hand" && t is String && Regex("^ \\(\\d+\\)$").matches(t) ->
@@ -1061,7 +1076,7 @@ private fun buildGameOver(node: org.json.JSONObject, b: GameOverBind, statId: St
                 Ob(cfg, DynaText(segs))
             } else Bx(cfg)   // sprites (jimbo/chips) → skip; structure still renders
         }
-        else -> Bx(cfg, kids)
+        else -> unknownTag(node.getString("n"))
     }
 }
 
@@ -1086,7 +1101,7 @@ internal fun buildMenu(node: org.json.JSONObject, b: MenuBind): UI {
         else -> null
     }
     val cfg = Cfg(
-        align = cfgJ.optString("align", "cm"), colour = fill,
+        align = cfgJ.optString("align", ""), colour = fill,
         padding = cfgJ.optDouble("padding", 0.0).toFloat(), r = cfgJ.optDouble("r", 0.0).toFloat(),
         minw = cfgJ.optDouble("minw", 0.0).toFloat(), minh = cfgJ.optDouble("minh", 0.0).toFloat(),
         emboss = cfgJ.optDouble("emboss", 0.0).toFloat(),
@@ -1098,9 +1113,9 @@ internal fun buildMenu(node: org.json.JSONObject, b: MenuBind): UI {
     return when (node.getString("n")) {
         "R", "ROOT" -> Ro(cfg, kids)
         "C" -> Co(cfg, kids)
-        "B" -> Bx(cfg, kids)
+        "B" -> leafB(cfg, kids)
         "T" -> Tx(cfg, (cfgJ.opt("text") as? String) ?: "")
-        else -> Bx(cfg, kids)
+        else -> unknownTag(node.getString("n"))
     }
 }
 
@@ -1130,7 +1145,7 @@ private fun buildRoundEvalCfg(c: org.json.JSONObject): Cfg {
         else       -> null
     }
     return Cfg(
-        align   = c.optString("align", "cm"),
+        align   = c.optString("align", ""),
         colour  = fill,
         padding = c.optDouble("padding", 0.0).toFloat(),
         r       = c.optDouble("r", 0.0).toFloat(),
