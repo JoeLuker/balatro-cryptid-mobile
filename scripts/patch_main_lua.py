@@ -586,6 +586,20 @@ end)
 if not tc_ok then print('[TC] LOAD_FAILED error=' .. tostring(tc_err)) end
 """
 
+    if '-- Idle-joker perf' not in content:
+        content += """
+-- Idle-joker perf: align_cards sort gate + handle_card_limit cache. Pure
+-- module; hooks self-install on the first Game:update tick (after SMODS).
+-- Kill switch: G.SETTINGS.idle_joker_perf = false. NOT Android-gated: the
+-- desktop harnesses exercise the same code. (The module was copied into the
+-- build but never loaded until this block — docs/REVIEW-2026-07-01.md §3.)
+local ijp_ok, ijp_err = pcall(function()
+    local chunk = love.filesystem.load('idle-joker-perf.lua')
+    if chunk then chunk() end
+end)
+if not ijp_ok then print('[IJP] LOAD_FAILED error=' .. tostring(ijp_err)) end
+"""
+
     if '-- Lazy shader binding' not in content:
         content += """
 -- Lazy shader binding (Tier-2a): must load BEFORE android-telemetry so the
