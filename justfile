@@ -18,7 +18,8 @@ fetch:
     @echo "Re-pin to newer upstreams with: nix/update-sources.sh"
 
 # Build game.love + signed APK via Nix (pinned, reproducible), then stage build/
-# for the local tests (build/game) and deploy (build/apk + build/phone-transfer).
+# for the local tests (build/game) and deploy (build/apk). Mod code is baked
+# into the APK — nothing is staged for a save-dir push.
 build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -28,11 +29,7 @@ build:
     echo "[build] signing APK…"
     nix/sign.sh build/balatro-cryptid.apk
     mkdir -p build/apk; cp build/balatro-cryptid.apk build/apk/com.unofficial.balatro.cryptid.apk
-    echo "[build] staging save-dir mods (build/phone-transfer)…"
-    rm -rf build/phone-transfer; mkdir -p build/phone-transfer
-    cp -r build/game/Mods build/phone-transfer/Mods
-    [ -f build/game/lovely.lua ] && cp build/game/lovely.lua build/phone-transfer/lovely.lua || true
-    echo "[build] done → build/balatro-cryptid.apk, build/game, build/phone-transfer"
+    echo "[build] done → build/balatro-cryptid.apk, build/game"
 
 # Deploy to connected phone. Installs build/apk only — mod code is baked into
 # the APK (embed_zip in nix/balatro-cryptid.nix), never pushed separately.
@@ -132,23 +129,9 @@ emu-test:
 # All local tests (run before deploying to the phone)
 test: evq-diff test-controller smoke telgate gameset resize uio nugc poolgate collapse
 
-# Push only mod files (no APK reinstall)
-push-mods:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    PACKAGE_ID="systems.shorty.lmm"
-    TRANSFER_DIR="build/phone-transfer"
-    TEMP_DIR="/data/local/tmp/balatro_mods"
-
-    adb shell "rm -rf $TEMP_DIR" 2>/dev/null || true
-    adb push "$TRANSFER_DIR" "$TEMP_DIR"
-    adb shell "run-as $PACKAGE_ID rm -rf files/save/*" 2>/dev/null || true
-    adb shell "run-as $PACKAGE_ID mkdir -p files/save"
-    adb shell "run-as $PACKAGE_ID cp -r $TEMP_DIR/* files/save/"
-
-    echo "Mods pushed. Restarting app..."
-    adb shell am force-stop $PACKAGE_ID
-    adb shell am start -n "$PACKAGE_ID/org.love2d.android.GameActivity"
+# (push-mods RETIRED: mod code is baked into the APK — a save-dir copy silently
+# shadows the fresh build, and the old recipe even wiped files/save/*. Use
+# `just build && just deploy`; on-device config.lua files are preserved.)
 
 # Force stop the app
 stop:
@@ -236,18 +219,18 @@ tel-device serial:
 shell:
     adb shell "run-as systems.shorty.lmm sh"
 
-# List config overrides
+# List the baked-in mod configs (edit → rebuild → deploy to apply)
 list-configs:
-    @echo "Config overrides (edit these, they persist across fetches):"
-    @ls -la config-overrides/*/
+    @echo "Baked-in mod configs (edit, then 'just build && just deploy'):"
+    @ls -la overlay/config/*/
 
-# Edit Cryptid config
+# Edit Cryptid config (baked into the APK on next build)
 edit-cryptid:
-    ${EDITOR:-vim} config-overrides/Cryptid/config.lua
+    ${EDITOR:-vim} overlay/config/Cryptid/config.lua
 
-# Edit Steamodded config
+# Edit Steamodded config (baked into the APK on next build)
 edit-steamodded:
-    ${EDITOR:-vim} config-overrides/Steamodded/config.lua
+    ${EDITOR:-vim} overlay/config/Steamodded/config.lua
 
 # Page-cycle regression — cycling the PAGE option-cycle in Cryptid's per-item
 # toggle screen must keep the overlay open (parent = toggle_area fix).
