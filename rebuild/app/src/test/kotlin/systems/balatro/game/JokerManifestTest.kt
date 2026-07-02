@@ -50,20 +50,26 @@ class JokerManifestTest {
     }
 
     @Test fun statefulAccumulators() {
+        // accrual is context.BEFORE (vanilla): drive via BeforeHand with the containment set
+        fun before(name: HandType, contained: Set<HandType> = setOf(name)) =
+            GameEvent.BeforeHand(Sctx().apply { scoringName = name; pokerHands = contained
+                fullHand = List(5) { PlayingCard(Suit.S, 2) } })
         val trousers = spec("j_spare_trousers")   // fires on Two-Pair CONTAINMENT (context.poker_hands)
-        var s = trousers.reduce!!(FJokerState(), GameEvent.HandScored(HandType.TWO_PAIR, 4, contained = setOf(HandType.TWO_PAIR)))
-        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.FULL_HOUSE, 5, contained = setOf(HandType.FULL_HOUSE, HandType.TWO_PAIR)))
-        s = trousers.reduce!!(s, GameEvent.HandScored(HandType.PAIR, 2, contained = setOf(HandType.PAIR)))   // no Two Pair contained -> no-op
+        var s = trousers.reduce!!(FJokerState(), before(HandType.TWO_PAIR))
+        s = trousers.reduce!!(s, before(HandType.FULL_HOUSE, setOf(HandType.FULL_HOUSE, HandType.TWO_PAIR)))
+        s = trousers.reduce!!(s, before(HandType.PAIR))   // no Two Pair contained -> no-op
         assertEquals(4.0, s.mult, 0.0)
         assertEquals(Effect.Mult(4.0), trousers.jokerMain!!(s, ctx(HandType.PAIR)))
 
         val runner = spec("j_runner")
-        val rs = runner.reduce!!(FJokerState(), GameEvent.HandScored(HandType.STRAIGHT, 5, contained = setOf(HandType.STRAIGHT)))
+        val rs = runner.reduce!!(FJokerState(), before(HandType.STRAIGHT))
         assertEquals(Effect.Chips(15.0), runner.jokerMain!!(rs, ctx(HandType.PAIR)))
 
         val square = spec("j_square")  // accrues only on a 4-card hand (vanilla j_square: #full_hand == 4)
-        assertEquals(4.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 4)).chips, 0.0)
-        assertEquals(0.0, square.reduce!!(FJokerState(), GameEvent.HandScored(HandType.HIGH_CARD, 5)).chips, 0.0)
+        fun beforeN(n: Int) = GameEvent.BeforeHand(Sctx().apply {
+            scoringName = HandType.HIGH_CARD; fullHand = List(n) { PlayingCard(Suit.S, 2) } })
+        assertEquals(4.0, square.reduce!!(FJokerState(), beforeN(4)).chips, 0.0)
+        assertEquals(0.0, square.reduce!!(FJokerState(), beforeN(5)).chips, 0.0)
     }
 
     @Test fun soldEventAccumulators() {
@@ -91,8 +97,9 @@ class JokerManifestTest {
     @Test fun greenJokerAccumulatesAndFloorsAtZero() {
         val green = spec("j_green_joker")
         var st = FJokerState()
-        st = green.reduce!!(st, GameEvent.HandScored(HandType.PAIR))   // +1
-        st = green.reduce!!(st, GameEvent.HandScored(HandType.PAIR))   // +1
+        val bh = GameEvent.BeforeHand(Sctx().apply { scoringName = HandType.PAIR; pokerHands = setOf(HandType.PAIR) })
+        st = green.reduce!!(st, bh)                                    // +1 (context.before)
+        st = green.reduce!!(st, bh)                                    // +1
         st = green.reduce!!(st, GameEvent.Discarded(emptyList()))      // -1
         assertEquals(1.0, st.mult, 0.0)
         assertEquals(Effect.Mult(1.0), green.jokerMain!!(st, ctx(HandType.PAIR)))
@@ -508,38 +515,36 @@ class CardAddedTest {
 /** HandScored reducer: obelisk grows x when a non-top hand is played, resets to 1.0 when current hand becomes top. */
 class ObeliskHandScoredTest {
     private fun spec() = JOKER_MANIFEST.getValue("j_obelisk")
+    // context.BEFORE semantics (card.lua:3543): ctx.handTypePlays INCLUDES the current hand
+    private fun before(name: HandType, plays: Map<HandType, Int>) =
+        GameEvent.BeforeHand(Sctx().apply { scoringName = name; handTypePlays = plays })
 
     @Test fun obeliskGrowsWhenAnotherHandLeads() {
-        // PAIR played 1 time; HIGH_CARD also played 1 time → another type ties → grow
+        // playing PAIR (now 2 plays) while HIGH_CARD also has 2 → another type ties → grow
         val obelisk = spec()
-        val s0 = obelisk.initialState   // x=1.0
-        val plays = mapOf(HandType.PAIR to 1, HandType.HIGH_CARD to 1)
-        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2, plays))
-        assertEquals(1.2, s1.x, 1e-9)   // PAIR is not the sole top → +0.2
+        val s1 = obelisk.reduce!!(obelisk.initialState,
+            before(HandType.PAIR, mapOf(HandType.PAIR to 2, HandType.HIGH_CARD to 2)))
+        assertEquals(1.2, s1.x, 1e-9)
     }
 
     @Test fun obeliskResetsWhenCurrentHandBecomesTop() {
-        // PAIR played 3 times; no other hand type → PAIR is the sole top → reset to 1.0
+        // PAIR (incl. this play) leads outright → reset to 1.0 BEFORE it would apply
         val obelisk = spec()
-        val s0 = obelisk.initialState.copy(x = 1.4)   // already accumulated
-        val plays = mapOf(HandType.PAIR to 3)   // only PAIR in history
-        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2, plays))
-        assertEquals(1.0, s1.x, 1e-9)   // PAIR is sole top → reset
+        val s0 = obelisk.initialState.copy(x = 1.4)
+        val s1 = obelisk.reduce!!(s0, before(HandType.PAIR, mapOf(HandType.PAIR to 4, HandType.FLUSH to 1)))
+        assertEquals(1.0, s1.x, 1e-9)
     }
 
     @Test fun obeliskNoOpWithEmptyHandPlays() {
-        // Empty handPlays map (legacy compat: event fired without play-count context) → no change
+        // Empty map (event without play-count context) → no change
         val obelisk = spec()
-        val s0 = obelisk.initialState.copy(x = 1.4)
-        val s1 = obelisk.reduce!!(s0, GameEvent.HandScored(HandType.PAIR, 2))
+        val s1 = obelisk.reduce!!(obelisk.initialState.copy(x = 1.4), before(HandType.PAIR, emptyMap()))
         assertEquals(1.4, s1.x, 1e-9)
     }
 
     @Test fun obeliskJokerMainFiresAboveOne() {
-        // Oracle: x=1.4 → XMult(1.4) → chips=32, mult=2*1.4=2.8 → 89
-        val obelisk = spec()
-        assertEquals(Effect.XMult(1.4), obelisk.jokerMain!!(FJokerState(x = 1.4), Sctx()))
-        assertEquals(Effect.None, obelisk.jokerMain!!(FJokerState(x = 1.0), Sctx()))
+        assertEquals(Effect.XMult(1.4), spec().jokerMain!!(FJokerState(x = 1.4), Sctx()))
+        assertEquals(Effect.None, spec().jokerMain!!(FJokerState(x = 1.0), Sctx()))
     }
 }
 

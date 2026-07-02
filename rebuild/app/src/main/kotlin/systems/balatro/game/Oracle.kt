@@ -465,8 +465,9 @@ object Oracle {
         // Use j_cry_bonkers (rarity=2) as dummy: its jokerMain fires only on CRY_BULWARK hand type, never on a Pair.
         Case("Pair of aces + baseball (1 Uncommon on board)", PlayingCard.hand("S_A", "H_A"), 96.0, j(FJoker("j_baseball"), FJoker("j_cry_bonkers", rarity = 2))),
         // --- vanilla accumulator-mult jokers (j.mult set via FJoker) ---
-        // Green Joker: +mult per hand (+1); j.mult=4 (4 hands) → chips=32, mult=2+4=6 → 192.
-        Case("Pair of aces + green_joker (mult=4)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_green_joker", mult = 4.0))),
+        // Green Joker grows in context.BEFORE (card.lua:3563): the +1 lands ON this hand.
+        // j.mult=4 → grows to 5 before joker_main reads it → chips=32, mult=2+5=7 → 224.
+        Case("Pair of aces + green_joker (mult=4)", PlayingCard.hand("S_A", "H_A"), 224.0, j(FJoker("j_green_joker", mult = 4.0))),
         // Swashbuckler: +Mult per joker sell value (j.mult); j.mult=8 (2 jokers at 4 each) → mult=2+8=10 → 320.
         Case("Pair of aces + swashbuckler (mult=8)", PlayingCard.hand("S_A", "H_A"), 320.0, j(FJoker("j_swashbuckler", mult = 8.0))),
         // Red Card: +3 Mult per skip (j.mult); j.mult=6 (2 skips) → chips=32, mult=2+6=8 → 256.
@@ -475,8 +476,10 @@ object Oracle {
         Case("Pair of aces + flash (mult=6)", PlayingCard.hand("S_A", "H_A"), 256.0, j(FJoker("j_flash", mult = 6.0))),
         // Spare Trousers: +2 Mult per Two Pair / Full House played (j.mult); j.mult=4 → mult=2+4=6 → 192.
         Case("Pair of aces + spare_trousers (mult=4)", PlayingCard.hand("S_A", "H_A"), 192.0, j(FJoker("j_spare_trousers", mult = 4.0))),
-        // Obelisk: Xmult scales +0.2 per hand NOT this type (j.x); x=1.4 (2 non-Pair hands) → mult=2*1.4=2.8 → 89.
-        Case("Pair of aces + obelisk (x=1.4)", PlayingCard.hand("S_A", "H_A"), 89.0, j(FJoker("j_obelisk", x = 1.4))),
+        // Obelisk runs in context.BEFORE (card.lua:3543): with no other hand-type history this Pair
+        // becomes the sole most-played → reset x→1.0 BEFORE joker_main reads it → no Xmult → 64.
+        // (The old 89 encoded the late-timing bug: 1.4 applied this hand, reset after.)
+        Case("Pair of aces + obelisk (x=1.4)", PlayingCard.hand("S_A", "H_A"), 64.0, j(FJoker("j_obelisk", x = 1.4))),
         // Hologram: Xmult +0.25 per added card (j.x); x=1.75 (3 adds) → mult=2*1.75=3.5 → 112.
         Case("Pair of aces + hologram (x=1.75)", PlayingCard.hand("S_A", "H_A"), 112.0, j(FJoker("j_hologram", x = 1.75))),
         // Ramen: Xmult starts X2 −0.01/discard (j.x); x=1.8 (20 discards) → mult=2*1.8=3.6 → 115.

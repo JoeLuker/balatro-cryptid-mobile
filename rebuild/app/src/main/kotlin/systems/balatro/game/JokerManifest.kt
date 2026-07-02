@@ -192,10 +192,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
 
     // ── green_joker — +1 Mult/hand, -1/discard; the accumulated Mult is read in joker_main ──────────
     "j_green_joker" to JokerSpec(
+        // card.lua:3563 — growth happens in context.BEFORE, so the +1 counts for THIS hand
+        // (HandScored fires after scoring — one hand late; caught by the parity audit).
         reduce = { s, e -> when (e) {
-            is GameEvent.HandScored -> s.copy(mult = s.mult + 1.0)
+            is GameEvent.BeforeHand -> s.copy(mult = s.mult + 1.0)
             is GameEvent.Discarded  -> s.copy(mult = maxOf(0.0, s.mult - 1.0))
-            else -> s   // BeforeHand / Sold / future events: green only reacts to hands & discards
+            else -> s
         } },
         jokerMain = { s, _ -> Effect.multOrNone(if (s.mult > 0.0) s.mult else 0.0) },
     ),
@@ -219,18 +221,34 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // Spare Trousers / Runner fire on CONTAINMENT (context.poker_hands), not the top hand type — so they
     // also fire when a higher hand contains the pattern (e.g. a Flush House contains a Two Pair). The top-
     // handType check missed those (only reachable with duplicate-card hands). e.contained = r.pokerHands.
+    // These three grow in context.BEFORE (card.lua ~3411-3520): the growth counts for the hand
+    // that triggers it. Containment still via ctx.pokerHands (a Flush House contains a Two Pair).
     "j_spare_trousers" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && HandType.TWO_PAIR in e.contained) s.copy(mult = s.mult + 2.0) else s },
+        reduce = { s, e -> if (e is GameEvent.BeforeHand && HandType.TWO_PAIR in e.ctx.pokerHands) s.copy(mult = s.mult + 2.0) else s },
         jokerMain = { s, _ -> Effect.multOrNone(s.mult) },
     ),
     "j_runner" to JokerSpec(
-        reduce = { s, e -> if (e is GameEvent.HandScored && HandType.STRAIGHT in e.contained) s.copy(chips = s.chips + 15.0) else s },
+        reduce = { s, e -> if (e is GameEvent.BeforeHand && HandType.STRAIGHT in e.ctx.pokerHands) s.copy(chips = s.chips + 15.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
     ),
     "j_square" to JokerSpec(
         // Square Joker: +4 Chips when EXACTLY 4 cards are played (vanilla j_square chip_mod=4; #full_hand==4), not 5.
-        reduce = { s, e -> if (e is GameEvent.HandScored && e.playedCount == 4) s.copy(chips = s.chips + 4.0) else s },
+        reduce = { s, e -> if (e is GameEvent.BeforeHand && e.ctx.fullHand.size == 4) s.copy(chips = s.chips + 4.0) else s },
         jokerMain = { s, _ -> Effect.chipsOrNone(s.chips) },
+    ),
+    // ride_the_bus — card.lua:3525-3541 context.before: any FACE in the scoring hand resets the
+    // accumulated Mult to 0; otherwise +1/hand. is_face honors Pareidolia.
+    "j_ride_the_bus" to JokerSpec(
+        reduce = { s, e -> if (e is GameEvent.BeforeHand) {
+            if (e.ctx.scoringHand.any { it.isFace || e.ctx.pareidolia }) s.copy(mult = 0.0)
+            else s.copy(mult = s.mult + 1.0)
+        } else s },
+        jokerMain = { s, _ -> Effect.multOrNone(s.mult) },
+    ),
+    // constellation — X(1 + 0.1/planet used) Mult. RunScreen grows x on planet USE
+    // (useConsumable hook); this reader was missing, so the joker never applied at scoring.
+    "j_constellation" to JokerSpec(
+        jokerMain = { s, _ -> if (s.x > 1.0) Effect.XMult(s.x) else Effect.None },
     ),
 
     // ── batch 4a: per-scored-card reactors — vanilla individual jokers ────────────────────────────────
@@ -858,11 +876,12 @@ val JOKER_MANIFEST: Map<String, JokerSpec> = mapOf(
     // played >= this hand's count → this hand IS the new most-played → reset to 1.0.
     // No self-destruct, no blueprint. Removed from Score.kt legacy xMult when-group (j.x reader).
     "j_obelisk" to JokerSpec(
+        // card.lua:3543-3561 — context.BEFORE, not after (parity audit): hands[..].played is
+        // already incremented when the pass runs, so the growth/reset counts for THIS hand.
         reduce = { s, e ->
-            if (e is GameEvent.HandScored && e.handPlays.isNotEmpty()) {
-                val thisCount = e.handPlays[e.handType] ?: 0
-                // Any other hand type with play count >= thisCount means current hand is NOT the sole top → grow.
-                val anotherLeads = e.handPlays.any { (h, n) -> h != e.handType && n >= thisCount }
+            if (e is GameEvent.BeforeHand && e.ctx.handTypePlays.isNotEmpty()) {
+                val thisCount = e.ctx.handTypePlays[e.ctx.scoringName] ?: 0
+                val anotherLeads = e.ctx.handTypePlays.any { (h, n) -> h != e.ctx.scoringName && n >= thisCount }
                 if (anotherLeads) s.copy(x = s.x + 0.2) else s.copy(x = 1.0)
             } else s
         },

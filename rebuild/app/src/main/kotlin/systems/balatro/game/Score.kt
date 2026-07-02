@@ -51,6 +51,7 @@ class Sctx {
     var held = false                       // held-in-hand pass (cardarea == G.hand)
     var heldHand: List<PlayingCard> = emptyList()
     var boardKeys: List<String> = emptyList()   // keys of every joker on the board (jtron counts j_joker)
+    var handTypePlays: Map<HandType, Int> = emptyMap()  // G.GAME.hands[*].played INCLUDING the current hand (vanilla increments before context.before; obelisk reads all types)
     var handsLeft = -1                      // hands remaining this round (-1 = unknown; acrobat: ==0 last hand)
     var discardsLeft = -1                   // discards remaining (-1 = unknown; mystic_summit: ==0)
     var bossBlind = false                   // true when current blind is a boss blind (apjoker)
@@ -482,10 +483,16 @@ object Score {
         // hand base, raised by planet level (lvl 1 = unchanged), then halved by Flint (base only).
         var chips = (handType.baseChips + (level - 1) * handType.lChips).toDouble()
         var mult = (handType.baseMult + (level - 1) * handType.lMult).toDouble()
-        if (debuff is Debuff.Flint) { chips = floor(chips / 2); mult = floor(mult / 2) }
+        // blind.lua:511-513 — The Flint halves base ROUND-HALF-UP (floor(x*0.5+0.5)), with floors:
+        // Mult never below 1, chips never below 0. Plain floor(x/2) under-scores every odd base.
+        if (debuff is Debuff.Flint) {
+            chips = floor(chips * 0.5 + 0.5).coerceAtLeast(0.0)
+            mult = floor(mult * 0.5 + 0.5).coerceAtLeast(1.0)
+        }
         val ctx = Sctx().apply {
             fullHand = played; this.scoringHand = scoringHand; scoringName = handType; this.pokerHands = pokerHands
             this.scoringPlays = (handTypePlays[handType] ?: 0) + 1   // +1: this hand counts as a play (vanilla increments hand.played before the joker pass)
+            this.handTypePlays = handTypePlays + (handType to ((handTypePlays[handType] ?: 0) + 1))
             this.handsLeft = handsLeft; this.discardsLeft = discardsLeft; this.bossBlind = bossBlind
             this.boardKeys = jokers.map { it.key }; this.smeared = smeared; this.pareidolia = pareidolia
             this.totalHandsPlayed = totalHandsPlayed; this.money = money; this.deckSize = deckSize; this.jokerSlots = jokerSlots
